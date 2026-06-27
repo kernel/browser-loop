@@ -19,6 +19,10 @@ import {
 export interface SeamHooks {
 	/** Re-apply the authoritative base+extension tool union to the harness. */
 	refreshTools: () => void;
+	/** Forward user text through the host's first-turn screenshot prompt path. */
+	sendUserMessage: (text: string) => Promise<void>;
+	/** Apply an active-tool set, recording extension-tool opt-outs in the host. */
+	setActiveTools: (names: string[]) => Promise<void>;
 	/** Synchronous mirror of the session name (kept because the action getter is sync). */
 	getSessionName: () => string | undefined;
 	/** Record the latest session name set through the action surface. */
@@ -41,7 +45,7 @@ export function makeExtensionActions(
 		},
 		sendUserMessage(content): void {
 			const text = typeof content === "string" ? content : textPartsOf(content);
-			void harness.prompt(text);
+			void hooks.sendUserMessage(text);
 		},
 		appendEntry(customType, data): void {
 			void session.appendCustomEntry(customType, data);
@@ -70,7 +74,7 @@ export function makeExtensionActions(
 			);
 		},
 		setActiveTools(names): void {
-			void harness.setActiveTools(names);
+			void hooks.setActiveTools(names);
 		},
 		refreshTools(): void {
 			hooks.refreshTools();
