@@ -84,6 +84,18 @@ describe("HarnessExtensionHost", () => {
 		expect(fx!.harness.getTools().map((tool) => tool.name)).toContain("click_visual");
 	});
 
+	it("keeps the extension tool active across a model switch", async () => {
+		await loadHost();
+		expect(fx!.harness.getActiveTools().map((tool) => tool.name)).toContain("click_visual");
+
+		// setModel rebuilds the harness tool list from construction-time tools and
+		// resets active state; the host must re-activate extension tools, not just
+		// re-register them.
+		await fx!.harness.setModel("anthropic:claude-opus-4-7");
+
+		expect(fx!.harness.getActiveTools().map((tool) => tool.name)).toContain("click_visual");
+	});
+
 	it("re-registers extension tools after reload", async () => {
 		const created = await loadHost();
 		expect(fx!.harness.getTools().map((tool) => tool.name)).toContain("click_visual");
