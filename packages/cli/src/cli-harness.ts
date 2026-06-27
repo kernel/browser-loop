@@ -10,13 +10,16 @@ import {
 	type CuaMode,
 	type CuaModelRef,
 	type CuaNativeToolSpec,
+	type ImageContent,
 	parseCuaModelRef,
 	requireCuaEnvApiKey,
 	resolveCuaRuntimeSpec,
 } from "@onkernel/cua-ai";
 import { parseArgs } from "node:util";
 import { stderr, stdout } from "node:process";
-import type { CuaBrowserHandle } from "./harness-browser";
+import { captureScreenshot, type CuaBrowserHandle } from "./harness-browser";
+import { loadHarnessExtensions } from "./extensions/setup";
+import type { HarnessExtensionHost } from "./extensions/host";
 import {
 	type ActionRequest,
 	type ModelActionType,
@@ -178,6 +181,8 @@ export interface HarnessCliFlags {
 	resumePicker: boolean;
 	noSession: boolean;
 	noSkills: boolean;
+	noExtensions: boolean;
+	trustExtensions: boolean;
 	debugTui: boolean;
 	jsonlIncludeDeltas: boolean;
 	jsonlIncludeImages: boolean;
@@ -359,6 +364,8 @@ interface HarnessRuntime {
 	harness: ReturnType<typeof buildCuaHarness>;
 	provider: string;
 	modelRef: CuaModelRef;
+	/** Loaded pi-extension host. Undefined with --no-extensions or an untrusted project + no global extensions. */
+	host?: HarnessExtensionHost;
 }
 
 export interface SetupHarnessRuntimeOptions {
@@ -482,6 +489,31 @@ async function finishHarnessRuntime(
 		modelBaseUrl: baseUrlOverride,
 	});
 
+	const handle = provisioned.handle;
+	// Raw capture: the host gates this behind the session's prior-turn state, so
+	// it must not re-apply the CLI's own first-prompt guard.
+	const initialScreenshot = async (): Promise<ImageContent[] | undefined> => {
+		const png = await captureScreenshot(handle.client, handle.browser.session_id);
+		return png ? [{ type: "image", data: png.toString("base64"), mimeType: "image/png" }] : undefined;
+	};
+	// A throwing extension load (e.g. a tool name colliding with a base tool)
+	// must not leak the already-provisioned browser handle: the caller's finally
+	// only runs once this returns, so close the handle here before rethrowing.
+	let host: HarnessExtensionHost | undefined;
+	try {
+		host = await loadHarnessExtensions({
+			harness,
+			session,
+			cwd,
+			noExtensions: flags.noExtensions,
+			trustProject: flags.trustExtensions,
+			initialScreenshot,
+		});
+	} catch (err) {
+		await provisioned.handle.close().catch(() => {});
+		throw err;
+	}
+
 	return {
 		handle: provisioned.handle,
 		resolved,
@@ -491,6 +523,7 @@ async function finishHarnessRuntime(
 		harness,
 		provider,
 		modelRef: auth.modelRef,
+		host,
 	};
 }
 
@@ -570,6 +603,14 @@ export async function runPrintCommand(prompt: string, flags: HarnessCliFlags): P
 			jsonlIncludeImages: flags.jsonlIncludeImages,
 		});
 	} finally {
+		// Dispose before closing the handle: extensions receive session_shutdown
+		// during dispose and may call back into the harness while the browser lives.
+		// Separate try blocks so a throwing extension shutdown never skips close().
+		try {
+			await runtime.host?.dispose();
+		} catch (err) {
+			stderr.write(`[cua] cleanup warning: ${(err as Error).message}\n`);
+		}
 		try {
 			await runtime.handle.close();
 		} catch (err) {
@@ -602,8 +643,14 @@ export async function runInteractiveCommand(
 			transcriptPath: runtime.resolved?.transcriptPath,
 			skipInitialScreenshot: runtime.resolved?.resumed === true,
 			namedSession: flags.namedSession,
+			host: runtime.host,
 		});
 	} finally {
+		try {
+			await runtime.host?.dispose();
+		} catch (err) {
+			stderr.write(`[cua] cleanup warning: ${(err as Error).message}\n`);
+		}
 		try {
 			await runtime.handle.close();
 		} catch (err) {
@@ -630,6 +677,11 @@ export async function runActionCommand(
 		});
 		return emitCompact(res);
 	} finally {
+		try {
+			await runtime.host?.dispose();
+		} catch (err) {
+			stderr.write(`[cua] cleanup warning: ${(err as Error).message}\n`);
+		}
 		try {
 			await runtime.handle.close();
 		} catch (err) {

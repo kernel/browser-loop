@@ -91,6 +91,10 @@ Options:
                                  <cwd>/.agents/skills/, the pi agent dir
                                  (~/.pi/agent/), and pi-installed packages.
   -ns, --no-skills               Disable skill discovery entirely
+      --no-extensions            Disable pi extension loading entirely
+      --trust-extensions         Also load project-local extensions from
+                                 <cwd>/.pi/extensions and <cwd>/.agents/extensions.
+                                 These execute project code, so off by default.
       --debug-tui                Enable TUI render diagnostics for manual repros
   -v, --verbose                  Verbose progress output to stderr
   -h, --help                     Show this help
@@ -123,6 +127,8 @@ interface CliFlags {
 	resumePicker: boolean;
 	noSession: boolean;
 	noSkills: boolean;
+	noExtensions: boolean;
+	trustExtensions: boolean;
 	debugTui: boolean;
 	jsonlIncludeDeltas: boolean;
 	jsonlIncludeImages: boolean;
@@ -177,6 +183,8 @@ function parseCliArgs(argv: string[]): CliFlags {
 				"no-session": { type: "boolean", default: false },
 				skill: { type: "string", multiple: true, default: [] },
 				"no-skills": { type: "boolean", default: false },
+				"no-extensions": { type: "boolean", default: false },
+				"trust-extensions": { type: "boolean", default: false },
 				"debug-tui": { type: "boolean", default: false },
 				output: { type: "string", short: "o" },
 				"jsonl-include-deltas": { type: "boolean", default: false },
@@ -223,6 +231,8 @@ function parseCliArgs(argv: string[]): CliFlags {
 		resumePicker: !!parsed.values.resume,
 		noSession: !!parsed.values["no-session"],
 		noSkills: !!parsed.values["no-skills"],
+		noExtensions: !!parsed.values["no-extensions"],
+		trustExtensions: !!parsed.values["trust-extensions"],
 		debugTui: !!parsed.values["debug-tui"],
 		model: parsed.values.model as string | undefined,
 		thinking: parsed.values.thinking as string | undefined,
@@ -255,6 +265,8 @@ function toHarnessFlags(flags: CliFlags): HarnessCliFlags {
 		resumePicker: flags.resumePicker,
 		noSession: flags.noSession,
 		noSkills: flags.noSkills,
+		noExtensions: flags.noExtensions,
+		trustExtensions: flags.trustExtensions,
 		debugTui: flags.debugTui,
 		jsonlIncludeDeltas: flags.jsonlIncludeDeltas,
 		jsonlIncludeImages: flags.jsonlIncludeImages,
