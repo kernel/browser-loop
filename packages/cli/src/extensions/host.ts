@@ -36,13 +36,6 @@ export interface HarnessExtensionHostOptions {
 	 * turn is sent without an attached screenshot.
 	 */
 	initialScreenshot?: () => Promise<ImageContent[] | undefined>;
-	/**
-	 * When false (default), the implicit `<cwd>/.pi/extensions` project scan is
-	 * suppressed by passing a project-config-dir-free cwd to the loader; global
-	 * `<agentDir>/extensions` and `configuredPaths` still load. Gate this on
-	 * project trust — project extensions execute arbitrary TypeScript in-process.
-	 */
-	projectExtensionsTrusted?: boolean;
 }
 
 /**
@@ -67,7 +60,6 @@ export class HarnessExtensionHost {
 	private readonly configuredPaths: string[];
 	private readonly agentDir?: string;
 	private readonly initialScreenshot?: () => Promise<ImageContent[] | undefined>;
-	private readonly projectExtensionsTrusted: boolean;
 	private readonly sessionManager: SessionManager;
 	private readonly modelRegistry: ModelRegistry;
 
@@ -105,7 +97,6 @@ export class HarnessExtensionHost {
 		this.configuredPaths = options.configuredPaths;
 		this.agentDir = options.agentDir;
 		this.initialScreenshot = options.initialScreenshot;
-		this.projectExtensionsTrusted = options.projectExtensionsTrusted ?? false;
 		this.sessionManager = SessionManager.inMemory(this.cwd);
 		this.modelRegistry = ModelRegistry.inMemory(AuthStorage.inMemory());
 
@@ -188,13 +179,7 @@ export class HarnessExtensionHost {
 	}
 
 	private async buildRunner(): Promise<void> {
-		// The loader always scans `<discoverCwd>/.pi/extensions` with no trust gate
-		// and executes each factory during load, so an untrusted project must never
-		// see its real cwd here. Redirecting only the discovery cwd (not the host's
-		// `this.cwd`) keeps SessionManager/exec cwd intact for global extensions
-		// while making the implicit project scan resolve to an absent dir.
-		const discoverCwd = this.projectExtensionsTrusted ? this.cwd : this.agentDir ?? this.cwd;
-		const result = await discoverAndLoadExtensions(this.configuredPaths, discoverCwd, this.agentDir);
+		const result = await discoverAndLoadExtensions(this.configuredPaths, this.cwd, this.agentDir);
 		this.loadErrors = result.errors;
 		this.runner = new ExtensionRunner(
 			result.extensions,

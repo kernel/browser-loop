@@ -74,12 +74,11 @@ describe("loadHarnessExtensions", () => {
 		expect(fx.harness.getTools().map((t) => t.name)).not.toContain("loader_probe");
 	});
 
-	it("does not load project-local <cwd>/.pi/extensions when untrusted", async () => {
+	it("loads the implicit project <cwd>/.pi/extensions scan by default", async () => {
 		fx = await buildTestHarness({ turns: [{ steps: [{ type: "text", text: "ok" }] }] });
-		// Unique per run so the whole-harness "tool absent" assertion can never be
-		// confused by another worker registering the same name — the security
-		// guarantee must hold regardless of test order or pool concurrency.
-		const probe = `untrusted_probe_${randomUUID().replace(/-/g, "")}`;
+		// Unique per run so the whole-harness tool assertion can't collide with
+		// another worker registering the same name under pool concurrency.
+		const probe = `pi_probe_${randomUUID().replace(/-/g, "")}`;
 		const projectExtDir = join(fx.cwd, ".pi", "extensions");
 		mkdirSync(projectExtDir, { recursive: true });
 		writeFileSync(join(projectExtDir, "probe.ts"), makeToolExtension(probe));
@@ -93,13 +92,13 @@ describe("loadHarnessExtensions", () => {
 		});
 
 		expect(host).toBeDefined();
-		expect(fx.harness.getTools().map((t) => t.name)).not.toContain(probe);
+		expect(fx.harness.getTools().map((t) => t.name)).toContain(probe);
 	});
 
-	it("loads project-local <cwd>/.pi/extensions when trustProject is true", async () => {
+	it("loads project <cwd>/.agents/extensions by default", async () => {
 		fx = await buildTestHarness({ turns: [{ steps: [{ type: "text", text: "ok" }] }] });
-		const probe = `trusted_probe_${randomUUID().replace(/-/g, "")}`;
-		const projectExtDir = join(fx.cwd, ".pi", "extensions");
+		const probe = `agents_probe_${randomUUID().replace(/-/g, "")}`;
+		const projectExtDir = join(fx.cwd, ".agents", "extensions");
 		mkdirSync(projectExtDir, { recursive: true });
 		writeFileSync(join(projectExtDir, "probe.ts"), makeToolExtension(probe));
 
@@ -108,7 +107,6 @@ describe("loadHarnessExtensions", () => {
 			session: fx.session,
 			cwd: fx.cwd,
 			noExtensions: false,
-			trustProject: true,
 			agentDir: tempAgentDir(),
 		});
 
