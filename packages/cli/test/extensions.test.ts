@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { cpSync, mkdtempSync } from "node:fs";
+import { cpSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -104,4 +104,48 @@ describe("HarnessExtensionHost", () => {
 
 		expect(fx!.harness.getTools().map((tool) => tool.name)).toContain("click_visual");
 	});
+
+	it("drops a renamed extension's old tool on reload", async () => {
+		// Model a meta-agent revising a learned tool: the extension file is rewritten
+		// to register a differently-named tool, and reload must reflect the on-disk
+		// state — the previous tool should not linger on the harness.
+		const extDir = mkdtempSync(join(tmpdir(), "cua-ext-"));
+		const extFile = join(extDir, "learned.ts");
+		writeFileSync(extFile, makeToolExtension("alpha_tool"));
+
+		fx = await buildTestHarness({ turns: [{ steps: [{ type: "text", text: "ok" }] }] });
+		const created = new HarnessExtensionHost({
+			harness: fx.harness,
+			session: fx.session,
+			cwd: fx.cwd,
+			configuredPaths: [extDir],
+			agentDir: mkdtempSync(join(tmpdir(), "cua-agentdir-")),
+		});
+		host = created;
+		await created.load();
+		expect(fx.harness.getTools().map((tool) => tool.name)).toContain("alpha_tool");
+
+		writeFileSync(extFile, makeToolExtension("beta_tool"));
+		await created.reload();
+
+		const toolNames = fx.harness.getTools().map((tool) => tool.name);
+		expect(toolNames).toContain("beta_tool");
+		expect(toolNames).not.toContain("alpha_tool");
+	});
 });
+
+/** A minimal, import-free extension that registers a single named tool. */
+function makeToolExtension(toolName: string): string {
+	return [
+		"export default function (pi) {",
+		"  pi.registerTool({",
+		`    name: ${JSON.stringify(toolName)},`,
+		`    label: ${JSON.stringify(toolName)},`,
+		`    description: ${JSON.stringify(toolName)},`,
+		'    parameters: { type: "object", properties: {}, additionalProperties: false },',
+		'    async execute() { return { content: [{ type: "text", text: "ok" }], details: {} }; },',
+		"  });",
+		"}",
+		"",
+	].join("\n");
+}

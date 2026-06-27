@@ -213,12 +213,20 @@ export class HarnessExtensionHost {
 		do {
 			this.reapplyQueued = false;
 			if (!this.runner) return;
+			// Prior-generation extension tool names must be dropped from base even
+			// when the new generation no longer registers them: after a reload that
+			// removes or renames an extension's tool, the stale tool is still on the
+			// harness and absent from the new set, so without this it would survive
+			// bound to the dead runner generation.
+			const priorExtensionNames = new Set(this.extensionTools.map((tool) => tool.name));
 			const nextExtensionTools = wrapRegisteredTools(
 				this.runner.getAllRegisteredTools(),
 				this.runner,
 			);
 			const extensionNames = new Set(nextExtensionTools.map((tool) => tool.name));
-			const base = this.harness.getTools().filter((tool) => !extensionNames.has(tool.name));
+			const base = this.harness
+				.getTools()
+				.filter((tool) => !extensionNames.has(tool.name) && !priorExtensionNames.has(tool.name));
 			const final = [...base, ...nextExtensionTools];
 			const finalNames = new Set(final.map((tool) => tool.name));
 			const activeNames = new Set(
