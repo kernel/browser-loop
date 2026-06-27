@@ -26,6 +26,13 @@ describe("parseSlashCommand", () => {
 		expect(parseSlashCommand("/compact")).toEqual({ command: "compact", argument: "" });
 	});
 
+	it("parses /reload", () => {
+		expect(parseSlashCommand("/reload")).toEqual({ command: "reload", argument: "" });
+		// Matches the existing builtin family: the bare command consumes any
+		// trailing text into `argument` (which /reload ignores), same as /compact.
+		expect(parseSlashCommand("/reload now")).toEqual({ command: "reload", argument: "now" });
+	});
+
 	it("parses /skill:<name> with optional remainder", () => {
 		expect(parseSlashCommand("/skill:hello")).toEqual({
 			command: "skill",
