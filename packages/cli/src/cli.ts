@@ -51,7 +51,7 @@ Options:
                                  match exactly one entry in \`cua models\`.
                                  Recommended:
                                    openai:    openai:gpt-5.5
-                                   anthropic: anthropic:claude-opus-4-7
+                                   anthropic: anthropic:claude-opus-4-8
                                    google:    google:gemini-3-flash-preview
                                    tzafon:    tzafon:tzafon.northstar-cua-fast
                                    yutori:    yutori:n1.5-latest

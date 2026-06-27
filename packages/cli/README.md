@@ -43,7 +43,7 @@ cua do "buy a pair of socks on amazon" --max-steps 20
 cua models
 cua models -p openai
 cua --print --model openai:gpt-5.5 "..."
-cua --print --model anthropic:claude-opus-4-7 "..."
+cua --print --model anthropic:claude-opus-4-8 "..."
 cua --print --model google:gemini-3-flash-preview "..."
 cua --print --model yutori:n1.5-latest "..."
 
