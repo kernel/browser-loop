@@ -182,7 +182,6 @@ export interface HarnessCliFlags {
 	noSession: boolean;
 	noSkills: boolean;
 	noExtensions: boolean;
-	trustExtensions: boolean;
 	debugTui: boolean;
 	jsonlIncludeDeltas: boolean;
 	jsonlIncludeImages: boolean;
@@ -504,7 +503,6 @@ async function finishHarnessRuntime(
 			session,
 			cwd,
 			noExtensions: flags.noExtensions,
-			trustProject: flags.trustExtensions,
 			initialScreenshot,
 		});
 	} catch (err) {
