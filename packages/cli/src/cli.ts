@@ -70,6 +70,9 @@ Options:
       --native-tool <type>       Drive an Anthropic model through its native tool schema:
                                  computer_20260701 (requires --mode computer) or
                                  browser_20260701 (requires --mode browser)
+      --self-extend              Allow the agent to author its own tools at runtime;
+                                 an authored tool joins the toolset at the next idle
+                                 boundary (no manual reload)
       --out <file|->             Output file for screenshot subcommand
       --filter <interactive>     Restrict \`cua snapshot\` to interactive elements
   -o, --output <fmt>             Output format for --print: text (default) | jsonl
@@ -131,6 +134,7 @@ interface CliFlags {
 	playwright: boolean;
 	mode?: string;
 	nativeTool?: string;
+	selfExtend: boolean;
 	model?: string;
 	thinking?: string;
 	browserProfile?: string;
@@ -185,6 +189,7 @@ function parseCliArgs(argv: string[]): CliFlags {
 				playwright: { type: "boolean", default: false },
 				mode: { type: "string" },
 				"native-tool": { type: "string" },
+				"self-extend": { type: "boolean", default: false },
 			},
 			allowPositionals: true,
 			strict: true,
@@ -244,6 +249,7 @@ function parseCliArgs(argv: string[]): CliFlags {
 		playwright: !!parsed.values.playwright,
 		mode: parsed.values.mode as string | undefined,
 		nativeTool: parsed.values["native-tool"] as string | undefined,
+		selfExtend: !!parsed.values["self-extend"],
 		positionals: parsed.positionals,
 	};
 }
@@ -263,6 +269,7 @@ function toHarnessFlags(flags: CliFlags): HarnessCliFlags {
 		playwright: flags.playwright,
 		mode: flags.mode,
 		nativeTool: flags.nativeTool,
+		selfExtend: flags.selfExtend,
 		model: flags.model,
 		thinking: flags.thinking,
 		browserProfile: flags.browserProfile,

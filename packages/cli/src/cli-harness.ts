@@ -188,6 +188,7 @@ export interface HarnessCliFlags {
 	playwright: boolean;
 	mode?: string;
 	nativeTool?: string;
+	selfExtend: boolean;
 	model?: string;
 	thinking?: string;
 	browserProfile?: string;
@@ -504,6 +505,7 @@ async function finishHarnessRuntime(
 			cwd,
 			noExtensions: flags.noExtensions,
 			initialScreenshot,
+			selfExtend: flags.selfExtend,
 		});
 	} catch (err) {
 		await provisioned.handle.close().catch(() => {});
