@@ -24,6 +24,7 @@ export async function loadHarnessExtensions(args: {
 	agentDir?: string;
 	configuredPaths?: string[];
 	initialScreenshot?: () => Promise<ImageContent[] | undefined>;
+	selfExtend?: boolean;
 }): Promise<HarnessExtensionHost | undefined> {
 	if (args.noExtensions) return undefined;
 	const agentDir = args.agentDir ?? getAgentDir();
@@ -35,6 +36,7 @@ export async function loadHarnessExtensions(args: {
 		configuredPaths,
 		agentDir,
 		initialScreenshot: args.initialScreenshot,
+		selfExtend: args.selfExtend,
 	});
 	await host.load();
 	return host;

@@ -1,4 +1,4 @@
-import type { AgentHarness, AgentTool, Session } from "@onkernel/cua-agent";
+import type { AgentHarness, AgentTool, AgentToolResult, Session } from "@onkernel/cua-agent";
 import type { ImageContent } from "@onkernel/cua-ai";
 import {
 	AuthStorage,
@@ -13,6 +13,9 @@ import type {
 	ExtensionCommandContextActions,
 	ExtensionContextActions,
 } from "@earendil-works/pi-coding-agent";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, isAbsolute, join, normalize, resolve } from "node:path";
 import { installBridge, type BridgeState } from "./bridge";
 import {
 	makeExtensionActions,
@@ -36,7 +39,58 @@ export interface HarnessExtensionHostOptions {
 	 * turn is sent without an attached screenshot.
 	 */
 	initialScreenshot?: () => Promise<ImageContent[] | undefined>;
+	/**
+	 * Opt-in: expose the `write_extension` tool so the agent can author its own
+	 * tools at runtime. Off by default; when off the tool is not registered.
+	 */
+	selfExtend?: boolean;
 }
+
+/** Structured details for a `write_extension` tool result. */
+interface WriteExtensionDetails {
+	/** Absolute path the extension file was written to. */
+	written: string;
+	/** True only when the trial load parsed and registered at least one tool. */
+	valid: boolean;
+	/** Tool names the trial load registered from the authored file. */
+	registeredTools: string[];
+	/** Errors from trial-loading the authored file in isolation. */
+	loadErrors: Array<{ path: string; error: string }>;
+	/** Load errors from the live host's last discover, surfaced for context. */
+	hostLoadErrors: Array<{ path: string; error: string }>;
+}
+
+const WRITE_EXTENSION_TOOL_NAME = "write_extension";
+
+const WRITE_EXTENSION_DESCRIPTION = [
+	"Author a new tool for yourself at runtime by writing a TypeScript extension",
+	"file. The file is validated immediately and joins your toolset at the next",
+	"idle boundary (after the current run completes), so the tool you write is",
+	"callable on a subsequent prompt without any manual reload.",
+	"",
+	"The `code` must be a complete extension module that default-exports a factory:",
+	"  export default function (pi) {",
+	"    pi.registerTool({",
+	"      name, label, description,",
+	"      parameters: <plain JSON Schema object literal>,",
+	"      async execute(id, params) {",
+	'        return { content: [{ type: "text", text: "..." }], details: {} };',
+	"      },",
+	"    });",
+	"  }",
+	"",
+	"Hard rules — a file that breaks any of these fails to load:",
+	"- No bare runtime imports. Type-only imports (import type { ... }) are fine",
+	"  because they are erased; a runtime import of any package cannot be resolved",
+	"  by the loader and hangs it.",
+	"- Declare `parameters` as an inline plain JSON Schema object literal",
+	"  (type/properties/required/additionalProperties). Never import a schema",
+	"  builder.",
+	"- Every execute() result must include a `details` object (it may be empty).",
+	"",
+	"The result reports `valid`, the registered tool names, and any load errors so",
+	"you can fix a broken file and call this again.",
+].join("\n");
 
 /**
  * Host that plays pi `AgentSession`'s role against a `CuaAgentHarness`.
@@ -63,6 +117,14 @@ export class HarnessExtensionHost {
 	private readonly sessionManager: SessionManager;
 	private readonly modelRegistry: ModelRegistry;
 
+	/**
+	 * Host-provided tools folded into the authoritative set on every reapply.
+	 * Empty unless `selfExtend` is on, in which case it holds `write_extension`.
+	 * Kept separate from extension tools so they survive both reload and
+	 * `setModel`'s tool rebuild.
+	 */
+	private readonly hostTools: AgentTool[];
+
 	private readonly actions: ExtensionActions;
 	private readonly contextActions: ExtensionContextActions;
 	private readonly commandActions: ExtensionCommandContextActions;
@@ -81,6 +143,10 @@ export class HarnessExtensionHost {
 	private reapplyQueued = false;
 	/** True inside `reload`'s critical section so shutdown requests are deferred. */
 	private reloading = false;
+	/** Set by `write_extension`; drained into a single reload at the next idle boundary. */
+	private reloadRequested = false;
+	/** The in-flight queued reload, so a drain can await one already running. */
+	private pendingReload: Promise<void> | undefined;
 	/** Sticky shutdown request raised by `ctx.shutdown()` or owner disposal. */
 	private shutdownRequested = false;
 	/** Guards `dispose` so `ctx.shutdown()` and an owner call don't double-tear-down. */
@@ -115,6 +181,7 @@ export class HarnessExtensionHost {
 			shutdown: () => this.requestShutdown(),
 		});
 		this.commandActions = makeExtensionCommandContextActions(this.harness, () => this.reload());
+		this.hostTools = options.selfExtend ? [this.makeWriteExtensionTool()] : [];
 	}
 
 	async load(): Promise<void> {
@@ -219,15 +286,36 @@ export class HarnessExtensionHost {
 			// harness and absent from the new set, so without this it would survive
 			// bound to the dead runner generation.
 			const priorExtensionNames = new Set(this.extensionTools.map((tool) => tool.name));
+			// Host tools own their names: they must survive both reload and
+			// `setModel`'s tool rebuild (which drops runtime-added tools), so they
+			// are prepended and an extension that registers a colliding name is
+			// dropped rather than allowed to crash `setTools`, which throws on
+			// duplicate names.
+			const hostNames = new Set(this.hostTools.map((tool) => tool.name));
 			const nextExtensionTools = wrapRegisteredTools(
 				this.runner.getAllRegisteredTools(),
 				this.runner,
-			);
+			).filter((tool) => {
+				if (!hostNames.has(tool.name)) return true;
+				const error = `extension tool "${tool.name}" collides with a host-provided tool and was dropped`;
+				// Reapply can run several times per runner generation (e.g. on each
+				// model switch) without a rebuild resetting loadErrors, so don't
+				// re-push the same collision.
+				if (!this.loadErrors.some((e) => e.path === tool.name && e.error === error)) {
+					this.loadErrors.push({ path: tool.name, error });
+				}
+				return false;
+			});
 			const extensionNames = new Set(nextExtensionTools.map((tool) => tool.name));
 			const base = this.harness
 				.getTools()
-				.filter((tool) => !extensionNames.has(tool.name) && !priorExtensionNames.has(tool.name));
-			const final = [...base, ...nextExtensionTools];
+				.filter(
+					(tool) =>
+						!extensionNames.has(tool.name) &&
+						!priorExtensionNames.has(tool.name) &&
+						!hostNames.has(tool.name),
+				);
+			const final = [...this.hostTools, ...base, ...nextExtensionTools];
 			const finalNames = new Set(final.map((tool) => tool.name));
 			const activeNames = new Set(
 				this.harness
@@ -235,6 +323,7 @@ export class HarnessExtensionHost {
 					.map((tool) => tool.name)
 					.filter((name) => finalNames.has(name)),
 			);
+			for (const name of hostNames) activeNames.add(name);
 			for (const name of extensionNames) {
 				if (!this.inactiveExtensionTools.has(name)) activeNames.add(name);
 			}
@@ -263,9 +352,164 @@ export class HarnessExtensionHost {
 
 	private installBridge(): void {
 		if (!this.runner) return;
-		this.teardownBridge = installBridge(this.harness, this.runner, this.bridgeState, () =>
-			this.reapplyTools(),
+		this.teardownBridge = installBridge(
+			this.harness,
+			this.runner,
+			this.bridgeState,
+			() => this.reapplyTools(),
+			() => this.drainPendingReloadFromBridge(),
 		);
+	}
+
+	/**
+	 * Bridge-scheduled drain. The bridge fires this off-stack and discards the
+	 * result, so a `reload()` failure (e.g. an unforeseen `setTools`/`buildRunner`
+	 * throw — authored parse errors and tool collisions are collected, not thrown)
+	 * must be caught here rather than left to surface as an unhandled rejection. It
+	 * is recorded in `loadErrors` so the next `write_extension` result reports it.
+	 */
+	private drainPendingReloadFromBridge(): void {
+		void this.drainPendingReload().catch((error) => {
+			const message = error instanceof Error ? error.message : String(error);
+			this.loadErrors.push({ path: "<reload>", error: message });
+		});
+	}
+
+	/**
+	 * Perform a reload queued by `write_extension`, if one is pending and it is
+	 * safe to do so. The bridge schedules this off-stack at `agent_end` (the only
+	 * idle boundary), never synchronously inside a tool's execute() or an event
+	 * handler — reloading there would swap the runner out from under the in-flight
+	 * loop and the listener dispatching the event. The `reloading` guard keeps an
+	 * in-flight reload from being re-entered; a write during a reload re-arms the
+	 * latch for the next boundary. `disposed` makes this a no-op during teardown.
+	 */
+	async drainPendingReload(): Promise<void> {
+		// Await a reload already running (the bridge fires this fire-and-forget, so
+		// a caller that awaits the drain — e.g. a test asserting the new tool is
+		// live — must observe that reload settle).
+		if (this.pendingReload) {
+			await this.pendingReload;
+			return;
+		}
+		if (!this.reloadRequested || this.reloading || this.disposed) return;
+		this.reloadRequested = false;
+		this.pendingReload = this.reload();
+		try {
+			await this.pendingReload;
+		} finally {
+			this.pendingReload = undefined;
+		}
+	}
+
+	/**
+	 * Build the `write_extension` tool. It writes the authored module into the
+	 * project extension dir, trial-loads it in isolation to validate it parses and
+	 * registers (without touching the live runner), and queues a reload at the next
+	 * idle boundary so the new tool joins the toolset for subsequent prompts. It
+	 * never reloads synchronously — see `drainPendingReload`.
+	 */
+	private makeWriteExtensionTool(): AgentTool {
+		const extensionDir = this.configuredPaths[0];
+		return {
+			name: WRITE_EXTENSION_TOOL_NAME,
+			label: "Write extension",
+			description: WRITE_EXTENSION_DESCRIPTION,
+			parameters: {
+				type: "object",
+				properties: {
+					filename: {
+						type: "string",
+						description:
+							"basename for the extension file, e.g. my_tool.ts; must end in .ts and contain no path separators",
+					},
+					code: {
+						type: "string",
+						description: "full TypeScript extension module source",
+					},
+				},
+				required: ["filename", "code"],
+				additionalProperties: false,
+			},
+			// Sequential so two concurrent authorings can't race the same dir/latch.
+			executionMode: "sequential",
+			execute: async (_toolCallId, params): Promise<AgentToolResult<WriteExtensionDetails>> => {
+				const { filename, code } = params as { filename: string; code: string };
+				if (!extensionDir) throw new Error("no extension directory configured for write_extension");
+				const target = this.resolveExtensionFilePath(extensionDir, filename);
+				await mkdir(extensionDir, { recursive: true });
+				await writeFile(target, code, "utf8");
+
+				const trial = await this.trialLoadExtension(target);
+				this.reloadRequested = true;
+
+				const valid = trial.errors.length === 0 && trial.registeredTools.length > 0;
+				const summary = valid
+					? `wrote ${target}; registered tool(s): ${trial.registeredTools.join(", ")}. it will be available on your next prompt.`
+					: `wrote ${target} but it did not load: ${
+							trial.errors.map((e) => e.error).join("; ") ||
+							"no tool was registered (the file must call pi.registerTool)"
+						}. fix it and call write_extension again.`;
+				return {
+					content: [{ type: "text", text: summary }],
+					details: {
+						written: target,
+						valid,
+						registeredTools: trial.registeredTools,
+						loadErrors: trial.errors,
+						hostLoadErrors: this.loadErrors,
+					},
+				};
+			},
+		};
+	}
+
+	/**
+	 * Constrain the authored filename to a fresh `.ts` basename inside the
+	 * extension dir: no separators, no absolute path, no traversal. Resolving the
+	 * dirname back to the extension dir is the final guard against escapes.
+	 */
+	private resolveExtensionFilePath(extensionDir: string, filename: string): string {
+		if (!filename || filename.includes("/") || filename.includes("\\") || isAbsolute(filename)) {
+			throw new Error("filename must be a bare basename with no path separators");
+		}
+		if (!filename.endsWith(".ts")) throw new Error("filename must end in .ts");
+		if (normalize(filename) !== filename || filename === "." || filename === "..") {
+			throw new Error("filename must be a plain basename");
+		}
+		const target = join(extensionDir, filename);
+		const expectedDir = resolve(extensionDir);
+		if (resolve(dirname(target)) !== expectedDir) {
+			throw new Error("filename must resolve inside the extension directory");
+		}
+		return target;
+	}
+
+	/**
+	 * Load just the authored file into a throwaway runner to collect
+	 * parse/registration errors and the tool names it exposes, without binding it
+	 * to the harness or mutating the live runner. Discovery runs with empty
+	 * throwaway cwd/agentDir so its implicit `<cwd>/.pi/extensions` and
+	 * `<agentDir>/extensions` scans pick up nothing — only the authored file
+	 * (passed by absolute path) is loaded, so an unrelated extension elsewhere
+	 * can't bias the result or hang the loader on its own bad import.
+	 */
+	private async trialLoadExtension(
+		filePath: string,
+	): Promise<{ errors: Array<{ path: string; error: string }>; registeredTools: string[] }> {
+		const isolatedRoot = await mkdtemp(join(tmpdir(), "cua-ext-trial-"));
+		const result = await discoverAndLoadExtensions([filePath], isolatedRoot, isolatedRoot);
+		const runner = new ExtensionRunner(
+			result.extensions,
+			result.runtime,
+			isolatedRoot,
+			this.sessionManager,
+			this.modelRegistry,
+		);
+		const registeredTools = runner
+			.getAllRegisteredTools()
+			.map((tool) => tool.definition.name);
+		return { errors: result.errors, registeredTools };
 	}
 
 	private requestShutdown(): void {

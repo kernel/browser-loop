@@ -28,6 +28,7 @@ export function installBridge(
 	runner: ExtensionRunner,
 	state: BridgeState,
 	reapplyTools: () => Promise<void>,
+	drainPendingReload: () => void,
 ): () => void {
 	const unsubscribes: Array<() => void> = [];
 
@@ -42,6 +43,16 @@ export function installBridge(
 				case "agent_end":
 					state.isIdle = true;
 					await runner.emit({ type: "agent_end", messages: event.messages });
+					// A reload requested by a tool during this run runs here, at the
+					// only true idle boundary (agent_end is where the harness sets
+					// phase=idle). It is scheduled off-stack rather than awaited: this
+					// listener runs inside the harness's synchronous event dispatch, so
+					// awaiting reload() here would tear down this very listener
+					// mid-dispatch and swap the runner out from under the in-flight loop.
+					// Deferring is safe because reload() immediately awaits async I/O
+					// (re-discovering extensions), yielding off the dispatch before any
+					// teardown or runner swap.
+					queueMicrotask(() => drainPendingReload());
 					break;
 				case "turn_start":
 					await runner.emit({ type: "turn_start", turnIndex: state.turnIndex, timestamp: Date.now() });
