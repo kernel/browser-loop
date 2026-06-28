@@ -60,6 +60,16 @@ interface WriteExtensionDetails {
 	hostLoadErrors: Array<{ path: string; error: string }>;
 }
 
+/**
+ * Result of a {@link HarnessExtensionHost.reload} call, so callers like the
+ * `/reload` command can report honestly instead of assuming success:
+ * - `reloaded`  — extensions were re-discovered and re-applied.
+ * - `coalesced` — a reload was already in flight; this request was latched onto
+ *   it rather than run concurrently, so nothing new was applied yet.
+ * - `disposed`  — the host was (or became) torn down, so no reload happened.
+ */
+export type ReloadOutcome = "reloaded" | "coalesced" | "disposed";
+
 const WRITE_EXTENSION_TOOL_NAME = "write_extension";
 
 const WRITE_EXTENSION_DESCRIPTION = [
@@ -146,13 +156,21 @@ export class HarnessExtensionHost {
 	/** Set by `write_extension`; drained into a single reload at the next idle boundary. */
 	private reloadRequested = false;
 	/** The in-flight queued reload, so a drain can await one already running. */
-	private pendingReload: Promise<void> | undefined;
+	private pendingReload: Promise<ReloadOutcome> | undefined;
 	/** Sticky shutdown request raised by `ctx.shutdown()` or owner disposal. */
 	private shutdownRequested = false;
 	/** Guards `dispose` so `ctx.shutdown()` and an owner call don't double-tear-down. */
 	private disposed = false;
+	/** Guards the actual teardown (`disposeNow`); `disposed` is set before the await. */
+	private teardownDone = false;
 	/** True once `load()` has run; guards against double-load and load-after-dispose. */
 	private loaded = false;
+	/**
+	 * False until `load()` finishes emitting the startup `session_start`. While
+	 * false, an extension-initiated `sendUserMessage` does not consume the
+	 * first-turn screenshot, so it can't pre-empt the user's real first prompt.
+	 */
+	private startedUp = false;
 	private sessionName: string | undefined;
 
 	/** Load errors surfaced from the last discover; non-fatal. */
@@ -182,7 +200,9 @@ export class HarnessExtensionHost {
 			getSignal: () => undefined,
 			shutdown: () => this.requestShutdown(),
 		});
-		this.commandActions = makeExtensionCommandContextActions(this.harness, () => this.reload());
+		this.commandActions = makeExtensionCommandContextActions(this.harness, async () => {
+			await this.reload();
+		});
 		this.hostTools = options.selfExtend ? [this.makeWriteExtensionTool()] : [];
 	}
 
@@ -203,6 +223,10 @@ export class HarnessExtensionHost {
 		await this.reapplyTools();
 		this.installBridge();
 		await this.runner?.emit({ type: "session_start", reason: "startup" });
+		// Startup is over: from here an extension sendUserMessage may carry the
+		// first-turn screenshot (it can no longer steal it from the user's first
+		// prompt, which the CLI captured before extensions loaded).
+		this.startedUp = true;
 		// An extension that calls ctx.shutdown() during session_start disposes via
 		// requestShutdown; honor it so load doesn't resolve a torn-down host as ready.
 		if (this.shutdownRequested) await this.dispose();
@@ -215,14 +239,16 @@ export class HarnessExtensionHost {
 	 * the bridge, then emit `session_start`. No extension cache is cleared because
 	 * the loader imports each extension fresh from disk.
 	 */
-	async reload(): Promise<void> {
-		if (this.disposed) return;
+	async reload(): Promise<ReloadOutcome> {
+		if (this.disposed) return "disposed";
 		// Reentrancy guard: a reload triggered (e.g. via ctx.reload()) while one is
 		// in flight must not run concurrently and double-tear-down the bridge. Re-arm
-		// the latch so the in-flight reload's drain picks up the newer request.
+		// the latch so the in-flight reload's loop picks up the newer request, and
+		// report `coalesced` so a caller (e.g. the /reload command) doesn't claim a
+		// completed reload it didn't perform.
 		if (this.reloading) {
 			this.reloadRequested = true;
-			return;
+			return "coalesced";
 		}
 		this.reloading = true;
 		try {
@@ -238,19 +264,19 @@ export class HarnessExtensionHost {
 				// scheduled off-stack at agent_end), so this resolves promptly and
 				// cannot deadlock on an awaited-in-loop reload.
 				await this.harness.waitForIdle();
-				if (this.disposed) return;
+				if (this.disposed) return "disposed";
 				const flags = this.runner?.getFlagValues() ?? new Map<string, boolean | string>();
 				await this.runner?.emit({ type: "session_shutdown", reason: "reload" });
-				if (await this.disposeIfShutdownRequested()) return;
+				if (await this.disposeIfShutdownRequested()) return "disposed";
 				this.teardownBridge?.();
 				this.teardownBridge = undefined;
 				try {
 					await this.buildRunner();
-					if (await this.disposeIfShutdownRequested()) return;
+					if (await this.disposeIfShutdownRequested()) return "disposed";
 					for (const [name, value] of flags) this.runner?.setFlagValue(name, value);
 
 					await this.reapplyTools();
-					if (await this.disposeIfShutdownRequested()) return;
+					if (await this.disposeIfShutdownRequested()) return "disposed";
 					this.installBridge();
 					await this.runner?.emit({ type: "session_start", reason: "reload" });
 				} catch (error) {
@@ -265,7 +291,13 @@ export class HarnessExtensionHost {
 			this.reloading = false;
 		}
 		// Honor a shutdown requested during the final emit, after `reloading` cleared.
-		if (this.shutdownRequested) await this.dispose();
+		// Still inside reload() (pendingReload may point at us), so tear down via
+		// disposeNow rather than dispose to avoid awaiting our own reload.
+		if (this.shutdownRequested) {
+			await this.disposeNow();
+			return "disposed";
+		}
+		return "reloaded";
 	}
 
 	/**
@@ -278,6 +310,29 @@ export class HarnessExtensionHost {
 	 */
 	async dispose(): Promise<void> {
 		if (this.disposed) return;
+		this.shutdownRequested = true;
+		this.disposed = true;
+		// A write_extension reload scheduled off-stack at agent_end may still be in
+		// flight (print/interactive/action cleanup runs in `finally`). Setting
+		// `disposed` stops new reloads and makes the in-flight one bail at its next
+		// await boundary; await it so teardown — and the caller closing the browser —
+		// doesn't race a live reload. Shutdowns raised from inside reload() use
+		// `disposeNow` directly, since awaiting the running reload from within its own
+		// call stack would deadlock.
+		const inFlight = this.pendingReload;
+		if (inFlight) await inFlight.catch(() => {});
+		await this.disposeNow();
+	}
+
+	/**
+	 * The actual teardown, split from `dispose` so reload()'s own shutdown paths
+	 * can run it without awaiting the in-flight reload (which is their call stack).
+	 * Idempotent via `teardownDone` — `disposed` is set before `dispose` awaits, so
+	 * it can't double as the teardown guard.
+	 */
+	private async disposeNow(): Promise<void> {
+		if (this.teardownDone) return;
+		this.teardownDone = true;
 		this.shutdownRequested = true;
 		this.disposed = true;
 		this.teardownBridge?.();
@@ -423,12 +478,14 @@ export class HarnessExtensionHost {
 	 * handler — reloading there would swap the runner out from under the in-flight
 	 * loop and the listener dispatching the event. The `reloading` guard keeps an
 	 * in-flight reload from being re-entered; a write during a reload re-arms the
-	 * latch for the next boundary. `disposed` makes this a no-op during teardown.
+	 * latch, which reload()'s own loop drains before it resolves. `disposed` makes
+	 * this a no-op during teardown.
 	 */
 	async drainPendingReload(): Promise<void> {
 		// Await a reload already running (the bridge fires this fire-and-forget, so
 		// a caller that awaits the drain — e.g. a test asserting the new tool is
-		// live — must observe that reload settle).
+		// live — must observe that reload settle). reload() drains any request
+		// latched mid-reload via its own loop, so a single pass suffices here.
 		if (this.pendingReload) {
 			await this.pendingReload;
 			return;
@@ -564,7 +621,9 @@ export class HarnessExtensionHost {
 	/** Honor a shutdown latched during reload. Returns true if the host disposed. */
 	private async disposeIfShutdownRequested(): Promise<boolean> {
 		if (!this.shutdownRequested && !this.disposed) return false;
-		await this.dispose();
+		// disposeNow, not dispose: this runs inside reload(), whose promise is the
+		// `pendingReload` dispose() would await — awaiting it here would deadlock.
+		await this.disposeNow();
 		return true;
 	}
 
@@ -590,6 +649,9 @@ export class HarnessExtensionHost {
 
 	private async maybeInitialScreenshot(): Promise<ImageContent[] | undefined> {
 		if (!this.initialScreenshot) return undefined;
+		// During startup the user's first prompt owns the first-turn screenshot; an
+		// extension message here must not consume it (see `startedUp`).
+		if (!this.startedUp) return undefined;
 		if (await sessionHasPriorTurn(this.session)) return undefined;
 		return this.initialScreenshot();
 	}

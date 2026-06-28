@@ -53,6 +53,20 @@ describe("applyReloadCommand (/reload glue)", () => {
 		expect(notices).not.toContain("extensions reloaded");
 	});
 
+	it("reports an in-progress reload instead of claiming success", async () => {
+		// A reload already in flight (e.g. a self-extend drain) coalesces this
+		// request; the command must not print "extensions reloaded" for work it
+		// didn't actually perform.
+		const reload = vi.fn(async () => "coalesced" as const);
+		const host = { reload, loadErrors: [], isDisposed: () => false } as unknown as HarnessExtensionHost;
+		const { opts, messages, notices } = setup(host);
+
+		await applyReloadCommand(opts, messages);
+
+		expect(notices.some((n) => n.includes("already in progress"))).toBe(true);
+		expect(notices).not.toContain("extensions reloaded");
+	});
+
 	it("does not report success when the host disposed during reload", async () => {
 		const reload = vi.fn(async () => {});
 		const host = { reload, loadErrors: [], isDisposed: () => true } as unknown as HarnessExtensionHost;
