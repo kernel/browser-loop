@@ -218,11 +218,14 @@ export class HarnessExtensionHost {
 		// the supported way to re-discover extensions.
 		if (this.disposed) throw new Error("cannot load a disposed extension host");
 		if (this.loaded) return;
-		this.loaded = true;
 		await this.buildRunner();
 		await this.reapplyTools();
 		this.installBridge();
 		await this.runner?.emit({ type: "session_start", reason: "startup" });
+		// Mark loaded only after wiring succeeds: an earlier throw leaves `loaded`
+		// false so a half-built host (no bridge or tool union) isn't mistaken for
+		// ready by a later load() call.
+		this.loaded = true;
 		// Startup is over: from here an extension sendUserMessage may carry the
 		// first-turn screenshot (it can no longer steal it from the user's first
 		// prompt, which the CLI captured before extensions loaded).
@@ -382,18 +385,32 @@ export class HarnessExtensionHost {
 			// harness and absent from the new set, so without this it would survive
 			// bound to the dead runner generation.
 			const priorExtensionNames = new Set(this.extensionTools.map((tool) => tool.name));
-			// Host tools own their names: they must survive both reload and
-			// `setModel`'s tool rebuild (which drops runtime-added tools), so they
-			// are prepended and an extension that registers a colliding name is
-			// dropped rather than allowed to crash `setTools`, which throws on
-			// duplicate names.
+			// Host tools own their names and must survive both reload and `setModel`'s
+			// tool rebuild, so they are prepended. Names already on the harness that
+			// are neither host tools nor a prior generation's extension tools are the
+			// CLI's built-ins. An extension may not collide with a host tool or shadow
+			// a built-in (the shadow would vanish the built-in when the extension is
+			// later removed) — either would mis-bind the tool union. Colliding tools
+			// are dropped and logged instead. (Two extensions registering the same
+			// name can't reach here: the loader/runner keeps one registration.)
 			const hostNames = new Set(this.hostTools.map((tool) => tool.name));
+			const baseToolNames = new Set(
+				this.harness
+					.getTools()
+					.filter((tool) => !hostNames.has(tool.name) && !priorExtensionNames.has(tool.name))
+					.map((tool) => tool.name),
+			);
 			const nextExtensionTools = wrapRegisteredTools(
 				this.runner.getAllRegisteredTools(),
 				this.runner,
 			).filter((tool) => {
-				if (!hostNames.has(tool.name)) return true;
-				const error = `extension tool "${tool.name}" collides with a host-provided tool and was dropped`;
+				const collidesWith = hostNames.has(tool.name)
+					? "a host-provided tool"
+					: baseToolNames.has(tool.name)
+						? "a built-in tool"
+						: undefined;
+				if (!collidesWith) return true;
+				const error = `extension tool "${tool.name}" collides with ${collidesWith} and was dropped`;
 				// Reapply can run several times per runner generation (e.g. on each
 				// model switch) without a rebuild resetting loadErrors, so don't
 				// re-push the same collision.
@@ -423,10 +440,13 @@ export class HarnessExtensionHost {
 			for (const name of extensionNames) {
 				if (!this.inactiveExtensionTools.has(name)) activeNames.add(name);
 			}
-			this.extensionTools = nextExtensionTools;
 			this.applyingTools = true;
 			try {
 				await this.harness.setTools(final, [...activeNames]);
+				// Record the applied set only after setTools succeeds: on a throw the
+				// harness keeps the previous generation, so `extensionTools` (which
+				// drives the next reapply's prior-name filtering) must still match it.
+				this.extensionTools = nextExtensionTools;
 			} finally {
 				this.applyingTools = false;
 			}
@@ -495,6 +515,12 @@ export class HarnessExtensionHost {
 		this.pendingReload = this.reload();
 		try {
 			await this.pendingReload;
+		} catch (error) {
+			// Re-arm the latch so the next idle boundary retries: a transient reload
+			// failure (e.g. setTools throwing) must not strand a valid on-disk
+			// extension until a manual /reload. The bridge's caller logs the error.
+			if (!this.disposed) this.reloadRequested = true;
+			throw error;
 		} finally {
 			this.pendingReload = undefined;
 		}
