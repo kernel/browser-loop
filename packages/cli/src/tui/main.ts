@@ -586,7 +586,11 @@ export async function applyReloadCommand(opts: InteractiveOptions, messages: Mes
 		// feedback; surface loadErrors so a broken edited extension isn't silently
 		// dropped with its tool missing.
 		await opts.host.reload();
-		if (opts.host.loadErrors.length > 0) {
+		if (opts.host.isDisposed()) {
+			// An extension calling ctx.shutdown() during the reload tears the host
+			// down; don't claim a successful reload.
+			messages.addNotice("session is shutting down; extensions were not reloaded");
+		} else if (opts.host.loadErrors.length > 0) {
 			for (const { path, error } of opts.host.loadErrors) messages.addError(`${path}: ${error}`);
 		} else {
 			messages.addNotice("extensions reloaded");
