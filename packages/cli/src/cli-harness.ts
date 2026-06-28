@@ -501,16 +501,19 @@ async function finishHarnessRuntime(
 		const png = await captureScreenshot(handle.client, handle.browser.session_id);
 		return png ? [{ type: "image", data: png.toString("base64"), mimeType: "image/png" }] : undefined;
 	};
-	// Decide the first-turn screenshot before extensions load: a resumed session
-	// already has turns, and capturing it now (rather than re-reading the live
-	// transcript at prompt time) keeps an extension's startup sendUserMessage from
-	// flipping the check and leaving the user's real first prompt without it.
-	const skipInitialScreenshot = resolved?.resumed === true || (await sessionHasPriorTurn(session));
-	// A throwing extension load (e.g. a tool name colliding with a base tool)
-	// must not leak the already-provisioned browser handle: the caller's finally
-	// only runs once this returns, so close the handle here before rethrowing.
+	// A throwing extension load (e.g. a tool name colliding with a base tool) must
+	// not leak the already-provisioned browser handle: the caller's finally only
+	// runs once this returns, so close the handle here before rethrowing. The
+	// first-turn screenshot decision reads the session, so keep it inside the same
+	// guard.
 	let host: HarnessExtensionHost | undefined;
+	let skipInitialScreenshot: boolean;
 	try {
+		// Decide the first-turn screenshot before extensions load: a resumed session
+		// already has turns, and capturing it now (rather than re-reading the live
+		// transcript at prompt time) keeps an extension's startup sendUserMessage from
+		// flipping the check and leaving the user's real first prompt without it.
+		skipInitialScreenshot = resolved?.resumed === true || (await sessionHasPriorTurn(session));
 		host = await loadHarnessExtensions({
 			harness,
 			session,

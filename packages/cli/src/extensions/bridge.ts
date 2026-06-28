@@ -42,7 +42,6 @@ export function installBridge(
 					break;
 				case "agent_end":
 					state.isIdle = true;
-					await runner.emit({ type: "agent_end", messages: event.messages });
 					// A reload requested by a tool during this run runs here, at the
 					// only true idle boundary (agent_end is where the harness sets
 					// phase=idle). It is scheduled off-stack rather than awaited: this
@@ -51,8 +50,13 @@ export function installBridge(
 					// mid-dispatch and swap the runner out from under the in-flight loop.
 					// Deferring is safe because reload() immediately awaits async I/O
 					// (re-discovering extensions), yielding off the dispatch before any
-					// teardown or runner swap.
-					queueMicrotask(() => drainPendingReload());
+					// teardown or runner swap. Scheduled in `finally` so a throwing
+					// agent_end handler can't strand the queued reload.
+					try {
+						await runner.emit({ type: "agent_end", messages: event.messages });
+					} finally {
+						queueMicrotask(() => drainPendingReload());
+					}
 					break;
 				case "turn_start":
 					await runner.emit({ type: "turn_start", turnIndex: state.turnIndex, timestamp: Date.now() });

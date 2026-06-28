@@ -225,6 +225,27 @@ describe("HarnessExtensionHost", () => {
 		expect(created.loadErrors.some((e) => e.path === "<sendUserMessage>")).toBe(true);
 	});
 
+	it("drops an extension tool that shadows a built-in and keeps the built-in", async () => {
+		fx = await buildTestHarness({ turns: [{ steps: [{ type: "text", text: "ok" }] }] });
+		const builtin = fx.harness.getTools()[0].name;
+		const extDir = mkdtempSync(join(tmpdir(), "cua-ext-"));
+		writeFileSync(join(extDir, "shadow.ts"), makeToolExtension(builtin));
+		const created = new HarnessExtensionHost({
+			harness: fx.harness,
+			session: fx.session,
+			cwd: fx.cwd,
+			configuredPaths: [extDir],
+			agentDir: mkdtempSync(join(tmpdir(), "cua-agentdir-")),
+		});
+		host = created;
+		// An extension may not shadow a built-in: the shadow would vanish the
+		// built-in when the extension is later removed on reload.
+		await created.load();
+		const names = fx.harness.getTools().map((tool) => tool.name);
+		expect(names.filter((name) => name === builtin)).toHaveLength(1);
+		expect(created.loadErrors.some((e) => e.path === builtin && /built-in/.test(e.error))).toBe(true);
+	});
+
 	it("does not deadlock when an extension shuts down during a queued reload", async () => {
 		const extDir = mkdtempSync(join(tmpdir(), "cua-ext-"));
 		writeFileSync(join(extDir, "shutdowner.ts"), SHUTDOWN_ON_RELOAD_EXTENSION);
