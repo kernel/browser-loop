@@ -27,7 +27,7 @@ function setup(host: HarnessExtensionHost | undefined): {
 describe("applyReloadCommand (/reload glue)", () => {
 	it("invokes host.reload() and reports a clean reload", async () => {
 		const reload = vi.fn(async () => {});
-		const host = { reload, loadErrors: [] } as unknown as HarnessExtensionHost;
+		const host = { reload, loadErrors: [], isDisposed: () => false } as unknown as HarnessExtensionHost;
 		const { opts, messages, notices, errors } = setup(host);
 
 		await applyReloadCommand(opts, messages);
@@ -42,6 +42,7 @@ describe("applyReloadCommand (/reload glue)", () => {
 		const host = {
 			reload,
 			loadErrors: [{ path: "/ext/broken.ts", error: "boom" }],
+			isDisposed: () => false,
 		} as unknown as HarnessExtensionHost;
 		const { opts, messages, errors, notices } = setup(host);
 
@@ -50,6 +51,17 @@ describe("applyReloadCommand (/reload glue)", () => {
 		expect(reload).toHaveBeenCalledTimes(1);
 		expect(errors).toContain("/ext/broken.ts: boom");
 		expect(notices).not.toContain("extensions reloaded");
+	});
+
+	it("does not report success when the host disposed during reload", async () => {
+		const reload = vi.fn(async () => {});
+		const host = { reload, loadErrors: [], isDisposed: () => true } as unknown as HarnessExtensionHost;
+		const { opts, messages, notices } = setup(host);
+
+		await applyReloadCommand(opts, messages);
+
+		expect(notices).not.toContain("extensions reloaded");
+		expect(notices.some((n) => n.includes("shutting down"))).toBe(true);
 	});
 
 	it("no-ops with a notice when no host is loaded", async () => {

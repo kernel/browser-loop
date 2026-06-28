@@ -132,6 +132,21 @@ describe("HarnessExtensionHost", () => {
 		expect(toolNames).toContain("beta_tool");
 		expect(toolNames).not.toContain("alpha_tool");
 	});
+
+	it("throws when load() is called after dispose", async () => {
+		const created = await loadHost();
+		await created.dispose();
+		await expect(created.load()).rejects.toThrow(/disposed/);
+	});
+
+	it("ignores a second load() rather than stacking a duplicate registration", async () => {
+		const created = await loadHost();
+		const count = () =>
+			fx!.harness.getTools().map((tool) => tool.name).filter((name) => name === "click_visual").length;
+		expect(count()).toBe(1);
+		await created.load();
+		expect(count()).toBe(1);
+	});
 });
 
 /** A minimal, import-free extension that registers a single named tool. */

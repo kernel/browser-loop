@@ -151,6 +151,8 @@ export class HarnessExtensionHost {
 	private shutdownRequested = false;
 	/** Guards `dispose` so `ctx.shutdown()` and an owner call don't double-tear-down. */
 	private disposed = false;
+	/** True once `load()` has run; guards against double-load and load-after-dispose. */
+	private loaded = false;
 	private sessionName: string | undefined;
 
 	/** Load errors surfaced from the last discover; non-fatal. */
@@ -184,11 +186,26 @@ export class HarnessExtensionHost {
 		this.hostTools = options.selfExtend ? [this.makeWriteExtensionTool()] : [];
 	}
 
+	/** True once the host has been torn down (via dispose or `ctx.shutdown()`). */
+	isDisposed(): boolean {
+		return this.disposed;
+	}
+
 	async load(): Promise<void> {
+		// One-shot: a disposed host can't be revived (load would rebuild the runner
+		// while `disposed` stays true, leaving dispose/reload/shutdown as no-ops),
+		// and a second load would stack a second bridge over the first. reload() is
+		// the supported way to re-discover extensions.
+		if (this.disposed) throw new Error("cannot load a disposed extension host");
+		if (this.loaded) return;
+		this.loaded = true;
 		await this.buildRunner();
 		await this.reapplyTools();
 		this.installBridge();
 		await this.runner?.emit({ type: "session_start", reason: "startup" });
+		// An extension that calls ctx.shutdown() during session_start disposes via
+		// requestShutdown; honor it so load doesn't resolve a torn-down host as ready.
+		if (this.shutdownRequested) await this.dispose();
 	}
 
 	/**
@@ -200,26 +217,43 @@ export class HarnessExtensionHost {
 	 */
 	async reload(): Promise<void> {
 		if (this.disposed) return;
-		const flags = this.runner?.getFlagValues() ?? new Map<string, boolean | string>();
-		// `reloading` defers any `ctx.shutdown()` raised by an extension's
-		// session_shutdown handler so an unawaited dispose can't tear down the
-		// runner/bridge mid-rebuild. Each await boundary then honors a pending
-		// request before continuing.
+		// Reentrancy guard: a reload triggered (e.g. via ctx.reload()) while one is
+		// in flight must not run concurrently and double-tear-down the bridge. Re-arm
+		// the latch so the in-flight reload's drain picks up the newer request.
+		if (this.reloading) {
+			this.reloadRequested = true;
+			return;
+		}
 		this.reloading = true;
 		try {
+			// Don't swap the runner/bridge mid-turn: wait for the agent loop to be
+			// idle first. All callers reach here at or after an idle point (the
+			// /reload command runs between prompts; the self-extend drain is scheduled
+			// off-stack at agent_end), so this resolves promptly and cannot deadlock
+			// on an awaited-in-loop reload.
+			await this.harness.waitForIdle();
+			if (this.disposed) return;
+			const flags = this.runner?.getFlagValues() ?? new Map<string, boolean | string>();
 			await this.runner?.emit({ type: "session_shutdown", reason: "reload" });
 			if (await this.disposeIfShutdownRequested()) return;
 			this.teardownBridge?.();
 			this.teardownBridge = undefined;
+			try {
+				await this.buildRunner();
+				if (await this.disposeIfShutdownRequested()) return;
+				for (const [name, value] of flags) this.runner?.setFlagValue(name, value);
 
-			await this.buildRunner();
-			if (await this.disposeIfShutdownRequested()) return;
-			for (const [name, value] of flags) this.runner?.setFlagValue(name, value);
-
-			await this.reapplyTools();
-			if (await this.disposeIfShutdownRequested()) return;
-			this.installBridge();
-			await this.runner?.emit({ type: "session_start", reason: "reload" });
+				await this.reapplyTools();
+				if (await this.disposeIfShutdownRequested()) return;
+				this.installBridge();
+				await this.runner?.emit({ type: "session_start", reason: "reload" });
+			} catch (error) {
+				// A failed rebuild left the bridge torn down; reinstall it over the
+				// current runner so extension events keep flowing rather than going
+				// silently dark for the rest of the session.
+				if (this.runner && !this.teardownBridge) this.installBridge();
+				throw error;
+			}
 		} finally {
 			this.reloading = false;
 		}
