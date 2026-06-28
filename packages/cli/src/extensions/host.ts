@@ -226,34 +226,41 @@ export class HarnessExtensionHost {
 		}
 		this.reloading = true;
 		try {
-			// Don't swap the runner/bridge mid-turn: wait for the agent loop to be
-			// idle first. All callers reach here at or after an idle point (the
-			// /reload command runs between prompts; the self-extend drain is scheduled
-			// off-stack at agent_end), so this resolves promptly and cannot deadlock
-			// on an awaited-in-loop reload.
-			await this.harness.waitForIdle();
-			if (this.disposed) return;
-			const flags = this.runner?.getFlagValues() ?? new Map<string, boolean | string>();
-			await this.runner?.emit({ type: "session_shutdown", reason: "reload" });
-			if (await this.disposeIfShutdownRequested()) return;
-			this.teardownBridge?.();
-			this.teardownBridge = undefined;
-			try {
-				await this.buildRunner();
+			// Loop so a reload requested mid-reload — via the reentrancy guard above,
+			// or a write_extension during this reload — is applied before reload()
+			// resolves, instead of waiting for the next idle boundary. The latch is
+			// cleared at the top of each pass and re-checked at the bottom.
+			do {
+				this.reloadRequested = false;
+				// Don't swap the runner/bridge mid-turn: wait for the agent loop to be
+				// idle first. All callers reach here at or after an idle point (the
+				// /reload command runs between prompts; the self-extend drain is
+				// scheduled off-stack at agent_end), so this resolves promptly and
+				// cannot deadlock on an awaited-in-loop reload.
+				await this.harness.waitForIdle();
+				if (this.disposed) return;
+				const flags = this.runner?.getFlagValues() ?? new Map<string, boolean | string>();
+				await this.runner?.emit({ type: "session_shutdown", reason: "reload" });
 				if (await this.disposeIfShutdownRequested()) return;
-				for (const [name, value] of flags) this.runner?.setFlagValue(name, value);
+				this.teardownBridge?.();
+				this.teardownBridge = undefined;
+				try {
+					await this.buildRunner();
+					if (await this.disposeIfShutdownRequested()) return;
+					for (const [name, value] of flags) this.runner?.setFlagValue(name, value);
 
-				await this.reapplyTools();
-				if (await this.disposeIfShutdownRequested()) return;
-				this.installBridge();
-				await this.runner?.emit({ type: "session_start", reason: "reload" });
-			} catch (error) {
-				// A failed rebuild left the bridge torn down; reinstall it over the
-				// current runner so extension events keep flowing rather than going
-				// silently dark for the rest of the session.
-				if (this.runner && !this.teardownBridge) this.installBridge();
-				throw error;
-			}
+					await this.reapplyTools();
+					if (await this.disposeIfShutdownRequested()) return;
+					this.installBridge();
+					await this.runner?.emit({ type: "session_start", reason: "reload" });
+				} catch (error) {
+					// A failed rebuild left the bridge torn down; reinstall it over the
+					// current runner so extension events keep flowing rather than going
+					// silently dark for the rest of the session.
+					if (this.runner && !this.teardownBridge) this.installBridge();
+					throw error;
+				}
+			} while (this.reloadRequested && !this.disposed);
 		} finally {
 			this.reloading = false;
 		}
@@ -567,8 +574,18 @@ export class HarnessExtensionHost {
 	 * matching the CLI's own prompt call sites.
 	 */
 	private async promptUserMessage(text: string): Promise<void> {
-		const images = await this.maybeInitialScreenshot();
-		await this.harness.prompt(text, images ? { images } : undefined);
+		// The seam voids this call, so a rejection (e.g. prompting while the harness
+		// is already driving a turn) would otherwise be an unhandled rejection.
+		// Record it where the agent can see it instead of crashing the process.
+		try {
+			const images = await this.maybeInitialScreenshot();
+			await this.harness.prompt(text, images ? { images } : undefined);
+		} catch (error) {
+			this.loadErrors.push({
+				path: "<sendUserMessage>",
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
 	}
 
 	private async maybeInitialScreenshot(): Promise<ImageContent[] | undefined> {
