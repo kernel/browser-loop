@@ -319,6 +319,39 @@ describe("self-extend: runtime tool authoring", () => {
 		expect(sawAuthoredCall).toBe(true);
 	});
 
+	it("drains a reload latched while another reload is in flight", async () => {
+		const extDir = mkdtempSync(join(tmpdir(), "cua-ext-"));
+		const extFile = join(extDir, "learned.ts");
+		writeFileSync(extFile, makeToolExtension("alpha_tool"));
+		fx = await buildTestHarness({ turns: [{ steps: [{ type: "text", text: "ok" }] }] });
+		host = new HarnessExtensionHost({
+			harness: fx.harness,
+			session: fx.session,
+			cwd: fx.cwd,
+			configuredPaths: [extDir],
+			agentDir: mkdtempSync(join(tmpdir(), "cua-agentdir-")),
+		});
+		await host.load();
+		expect(toolNames(fx.harness)).toContain("alpha_tool");
+
+		// Start a reload, then latch a second one via the reentrancy guard while it
+		// runs, having rewritten the extension. The drain loop must process the
+		// latched reload here (not defer it to the next agent_end), so the rewritten
+		// tool is live and the old one is gone once the drain settles.
+		const inFlight = host.reload();
+		expect(await host.reload()).toBe("coalesced");
+		writeFileSync(extFile, makeToolExtension("beta_tool"));
+		await inFlight;
+		await host.drainPendingReload();
+
+		const names = toolNames(fx.harness);
+		expect(names).toContain("beta_tool");
+		expect(names).not.toContain("alpha_tool");
+		// The drain ran to completion: a follow-up drain has nothing left to do.
+		await host.drainPendingReload();
+		expect(toolNames(fx.harness)).toContain("beta_tool");
+	});
+
 	it("keeps write_extension and the authored tool across a model switch", async () => {
 		const extDir = mkdtempSync(join(tmpdir(), "cua-ext-"));
 		fx = await buildTestHarness({

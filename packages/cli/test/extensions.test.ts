@@ -147,7 +147,154 @@ describe("HarnessExtensionHost", () => {
 		await created.load();
 		expect(count()).toBe(1);
 	});
+
+	it("coalesces a reload requested while another is in flight", async () => {
+		const created = await loadHost();
+		// reload() sets `reloading` synchronously before its first await, so a second
+		// call made before the first settles must report `coalesced`, not a completed
+		// reload — this is what keeps /reload from claiming false success.
+		const first = created.reload();
+		const second = await created.reload();
+		expect(second).toBe("coalesced");
+		expect(await first).toBe("reloaded");
+	});
+
+	it("waits for an in-flight queued reload before disposing", async () => {
+		const created = await loadHost();
+		// Put a reload in flight via a drain, then dispose concurrently: dispose must
+		// await the in-flight reload rather than tear down the bridge/runner under it.
+		const inFlight = created.reload();
+		expect(await created.reload()).toBe("coalesced");
+		await inFlight;
+		const drain = created.drainPendingReload();
+		const disposed = created.dispose();
+		await Promise.all([drain, disposed]);
+		expect(created.isDisposed()).toBe(true);
+		// The tool list is coherent — not left half-applied by a reload racing teardown.
+		const names = fx!.harness.getTools().map((tool) => tool.name);
+		expect(new Set(names).size).toBe(names.length);
+	});
+
+	it("does not let a startup extension message consume the first-turn screenshot", async () => {
+		const extDir = mkdtempSync(join(tmpdir(), "cua-ext-"));
+		writeFileSync(join(extDir, "startup-msg.ts"), SEND_ON_STARTUP_EXTENSION);
+		fx = await buildTestHarness({ turns: [{ steps: [{ type: "text", text: "ok" }] }] });
+		let screenshotCalls = 0;
+		const created = new HarnessExtensionHost({
+			harness: fx.harness,
+			session: fx.session,
+			cwd: fx.cwd,
+			configuredPaths: [extDir],
+			agentDir: mkdtempSync(join(tmpdir(), "cua-agentdir-")),
+			initialScreenshot: async () => {
+				screenshotCalls += 1;
+				return [{ type: "image", data: "x", mimeType: "image/png" }];
+			},
+		});
+		host = created;
+		await created.load();
+		// Let the fire-and-forget startup prompt settle so an unguarded capture would
+		// have happened by now.
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		// The extension's startup sendUserMessage must not have captured the
+		// first-turn screenshot — that belongs to the user's real first prompt.
+		expect(screenshotCalls).toBe(0);
+	});
+
+	it("captures a failing extension sendUserMessage instead of an unhandled rejection", async () => {
+		const extDir = mkdtempSync(join(tmpdir(), "cua-ext-"));
+		writeFileSync(join(extDir, "startup-msg.ts"), SEND_ON_STARTUP_EXTENSION);
+		fx = await buildTestHarness({ turns: [{ steps: [{ type: "text", text: "ok" }] }] });
+		// Force the extension-initiated prompt to reject (models a busy/concurrent
+		// harness); without a catch this would surface as an unhandled rejection.
+		const realPrompt = fx.harness.prompt.bind(fx.harness);
+		fx.harness.prompt = ((text: string, options?: unknown) =>
+			typeof text === "string" && text.includes("ext-startup-msg")
+				? Promise.reject(new Error("harness busy"))
+				: realPrompt(text, options as never)) as typeof fx.harness.prompt;
+		const created = new HarnessExtensionHost({
+			harness: fx.harness,
+			session: fx.session,
+			cwd: fx.cwd,
+			configuredPaths: [extDir],
+			agentDir: mkdtempSync(join(tmpdir(), "cua-agentdir-")),
+		});
+		host = created;
+		await created.load();
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(created.loadErrors.some((e) => e.path === "<sendUserMessage>")).toBe(true);
+	});
+
+	it("does not deadlock when an extension shuts down during a queued reload", async () => {
+		const extDir = mkdtempSync(join(tmpdir(), "cua-ext-"));
+		writeFileSync(join(extDir, "shutdowner.ts"), SHUTDOWN_ON_RELOAD_EXTENSION);
+		fx = await buildTestHarness({
+			turns: [
+				{
+					steps: [
+						{
+							type: "tool_call",
+							toolName: "write_extension",
+							args: { filename: "authored.ts", code: makeToolExtension("authored_tool") },
+						},
+					],
+				},
+				{ steps: [{ type: "text", text: "done" }] },
+			],
+		});
+		const created = new HarnessExtensionHost({
+			harness: fx.harness,
+			session: fx.session,
+			cwd: fx.cwd,
+			configuredPaths: [extDir],
+			agentDir: mkdtempSync(join(tmpdir(), "cua-agentdir-")),
+			selfExtend: true,
+		});
+		host = created;
+		await created.load();
+		await fx.harness.prompt("author it");
+		// The queued reload emits session_shutdown(reload); the extension calls
+		// ctx.shutdown() during it, tearing the host down from inside reload(). This
+		// must not deadlock — disposeNow avoids awaiting the in-flight reload from
+		// within its own call stack. A hang here trips the test timeout.
+		await created.drainPendingReload();
+		expect(created.isDisposed()).toBe(true);
+	}, 5000);
 });
+
+/** An extension that asks the host to shut down when a reload tears it down. */
+const SHUTDOWN_ON_RELOAD_EXTENSION = [
+	"export default function (pi) {",
+	'  pi.on("session_shutdown", (event, ctx) => {',
+	'    if (event.reason === "reload") ctx.shutdown();',
+	"  });",
+	"  pi.registerTool({",
+	'    name: "shutdown_probe",',
+	'    label: "shutdown probe",',
+	'    description: "noop",',
+	'    parameters: { type: "object", properties: {}, additionalProperties: false },',
+	'    async execute() { return { content: [{ type: "text", text: "ok" }], details: {} }; },',
+	"  });",
+	"}",
+	"",
+].join("\n");
+
+/** An extension that sends a user message during the startup session_start. */
+const SEND_ON_STARTUP_EXTENSION = [
+	"export default function (pi) {",
+	'  pi.on("session_start", (event) => {',
+	'    if (event.reason === "startup") pi.sendUserMessage("ext-startup-msg");',
+	"  });",
+	"  pi.registerTool({",
+	'    name: "startup_probe",',
+	'    label: "startup probe",',
+	'    description: "noop",',
+	'    parameters: { type: "object", properties: {}, additionalProperties: false },',
+	'    async execute() { return { content: [{ type: "text", text: "ok" }], details: {} }; },',
+	"  });",
+	"}",
+	"",
+].join("\n");
 
 /** A minimal, import-free extension that registers a single named tool. */
 function makeToolExtension(toolName: string): string {
