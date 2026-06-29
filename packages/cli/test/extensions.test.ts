@@ -148,6 +148,16 @@ describe("HarnessExtensionHost", () => {
 		expect(count()).toBe(1);
 	});
 
+	it("removes its tools from the harness on dispose", async () => {
+		const created = await loadHost();
+		expect(fx!.harness.getTools().map((tool) => tool.name)).toContain("click_visual");
+		// dispose (e.g. via an extension's ctx.shutdown) must not leave the tool
+		// registered+active once its runner binding is gone.
+		await created.dispose();
+		const names = fx!.harness.getTools().map((tool) => tool.name);
+		expect(names).not.toContain("click_visual");
+	});
+
 	it("coalesces a reload requested while another is in flight", async () => {
 		const created = await loadHost();
 		// reload() sets `reloading` synchronously before its first await, so a second
