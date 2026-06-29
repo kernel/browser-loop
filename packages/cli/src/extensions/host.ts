@@ -340,8 +340,26 @@ export class HarnessExtensionHost {
 		this.disposed = true;
 		this.teardownBridge?.();
 		this.teardownBridge = undefined;
+		// Drop the host + extension tools this host merged into the harness before
+		// the runner goes away: otherwise the model could still call a tool whose
+		// runner binding is gone. (Moot at process exit, but `ctx.shutdown()` from
+		// an extension disposes the host while the CLI keeps running.)
+		await this.removeMergedTools();
 		await this.runner?.emit({ type: "session_shutdown", reason: "quit" });
 		this.runner = undefined;
+	}
+
+	/** Restore the harness to its base tools, removing this host's host+extension tools. */
+	private async removeMergedTools(): Promise<void> {
+		const merged = new Set([...this.hostTools, ...this.extensionTools].map((tool) => tool.name));
+		if (merged.size === 0) return;
+		const base = this.harness.getTools().filter((tool) => !merged.has(tool.name));
+		const active = this.harness
+			.getActiveTools()
+			.map((tool) => tool.name)
+			.filter((name) => !merged.has(name));
+		// Best-effort: a failure here must not block the rest of teardown.
+		await this.harness.setTools(base, active).catch(() => {});
 	}
 
 	private async buildRunner(): Promise<void> {
