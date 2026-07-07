@@ -12,7 +12,7 @@ import {
 	type Api,
 	type CuaModelRef,
 	type Model,
-	getCuaEnvApiKey,
+	type Models,
 	getCuaModel,
 	resolveCuaRuntimeSpec,
 } from "@onkernel/cua-ai";
@@ -35,8 +35,8 @@ export interface BuildCuaHarnessOptions {
 	playwright?: boolean;
 	/** Override the default coding-tools extraTools (bash/read/edit/write/grep/find/ls). */
 	extraTools?: CuaAgentHarnessOptions["extraTools"];
-	/** Override env-var API-key resolution (mainly for tests). */
-	getApiKeyAndHeaders?: CuaAgentHarnessOptions["getApiKeyAndHeaders"];
+	/** Override the pi `Models` collection requests stream through (mainly for tests). */
+	models?: Models;
 	/** Override the catalog `baseUrl` on the resolved model (e.g. from `<PROVIDER>_BASE_URL`). */
 	modelBaseUrl?: string;
 }
@@ -44,9 +44,9 @@ export interface BuildCuaHarnessOptions {
 /**
  * Build a `CuaAgentHarness` wired with cua-cli's defaults: pi `NodeExecutionEnv`,
  * caller-supplied jsonl `Session`, pi-coding-agent's `createCodingTools` as
- * `extraTools`, env-var API-key resolution (via cua-ai conventions), and a
- * `systemPrompt` that composes the runtime spec's default prompt with the
- * formatted skill block.
+ * `extraTools`, the shared CUA `Models` collection (env-var API-key
+ * resolution via cua-ai conventions), and a `systemPrompt` that composes the
+ * runtime spec's default prompt with the formatted skill block.
  */
 export function buildCuaHarness(opts: BuildCuaHarnessOptions): CuaAgentHarness {
 	const skills = opts.skills ?? [];
@@ -69,12 +69,7 @@ export function buildCuaHarness(opts: BuildCuaHarnessOptions): CuaAgentHarness {
 			const runtime = resolveCuaRuntimeSpec(activeModel);
 			return composeSystemPrompt(runtime.defaultSystemPrompt, resources.skills ?? [], contextFiles);
 		},
-		getApiKeyAndHeaders:
-			opts.getApiKeyAndHeaders ??
-			(async (resolvedModel) => {
-				const apiKey = getCuaEnvApiKey(resolvedModel.provider);
-				return apiKey ? { apiKey } : undefined;
-			}),
+		models: opts.models,
 	});
 }
 

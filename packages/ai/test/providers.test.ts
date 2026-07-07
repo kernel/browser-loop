@@ -1,43 +1,52 @@
 import { describe, expect, it } from "vitest";
-import { getApiProvider, registerCuaProviders, resetApiProviders, tzafon, yutori } from "../src/index";
+import { createCuaModels, cuaModels, tzafon, yutori } from "../src/index";
+import { OPENAI_CUA_RESPONSES_API } from "../src/providers/openai/provider";
 
 const TZAFON_RESPONSES_API = tzafon.TZAFON_RESPONSES_API;
 const YUTORI_CHAT_COMPLETIONS_API = yutori.YUTORI_CHAT_COMPLETIONS_API;
 
-describe("CUA provider registration", () => {
-	it("registers Tzafon and Yutori APIs that pi-ai does not ship", () => {
-		expect(getApiProvider(YUTORI_CHAT_COMPLETIONS_API)).toBeDefined();
-		expect(getApiProvider(TZAFON_RESPONSES_API)).toBeDefined();
-	});
-
-	it("leaves pi-ai built-ins registered for the providers CUA targets", () => {
-		expect(getApiProvider("openai-responses")).toBeDefined();
-		expect(getApiProvider("anthropic-messages")).toBeDefined();
-		expect(getApiProvider("google-generative-ai")).toBeDefined();
-	});
-
-	it("exposes a stream function on every CUA-target API", () => {
-		for (const api of [
-			"openai-responses",
-			"anthropic-messages",
-			"google-generative-ai",
-			YUTORI_CHAT_COMPLETIONS_API,
-			TZAFON_RESPONSES_API,
-		] as const) {
-			const provider = getApiProvider(api);
+describe("createCuaModels", () => {
+	it("registers the CUA-only providers alongside pi's builtins", () => {
+		const models = createCuaModels();
+		for (const id of ["openai", "anthropic", "google", "tzafon", "yutori"]) {
+			const provider = models.getProvider(id);
+			expect(provider, id).toBeDefined();
 			expect(provider?.stream).toBeTypeOf("function");
 			expect(provider?.streamSimple).toBeTypeOf("function");
 		}
 	});
 
-	it("restores CUA providers after pi-ai registry mutators clobber them", () => {
-		resetApiProviders();
-		expect(getApiProvider(YUTORI_CHAT_COMPLETIONS_API)).toBeUndefined();
-		expect(getApiProvider(TZAFON_RESPONSES_API)).toBeUndefined();
+	it("lists the tzafon and yutori catalogs on their providers", () => {
+		const models = createCuaModels();
+		const tzafonIds = models.getModels("tzafon").map((m) => m.id);
+		expect(tzafonIds).toContain("tzafon.northstar-cua-fast");
+		const yutoriIds = models.getModels("yutori").map((m) => m.id);
+		expect(yutoriIds).toContain("n1.5-latest");
+		expect(models.getModel("tzafon", "tzafon.northstar-cua-fast")?.api).toBe(TZAFON_RESPONSES_API);
+		expect(models.getModel("yutori", "n1.5-latest")?.api).toBe(YUTORI_CHAT_COMPLETIONS_API);
+	});
 
-		registerCuaProviders();
-		registerCuaProviders();
-		expect(getApiProvider(YUTORI_CHAT_COMPLETIONS_API)).toBeDefined();
-		expect(getApiProvider(TZAFON_RESPONSES_API)).toBeDefined();
+	it("keeps pi's builtin openai catalog on the wrapped openai provider", () => {
+		const models = createCuaModels();
+		const openaiIds = models.getModels("openai").map((m) => m.id);
+		expect(openaiIds).toContain("gpt-5.4");
+		// The catalog keeps pi's api ids; getCuaModel() routes to
+		// openai-cua-responses, which the wrapped provider dispatches.
+		expect(models.getModel("openai", "gpt-5.4")?.api).not.toBe(OPENAI_CUA_RESPONSES_API);
+	});
+
+	it("returns independent collections", () => {
+		const a = createCuaModels();
+		const b = createCuaModels();
+		a.deleteProvider("tzafon");
+		expect(a.getProvider("tzafon")).toBeUndefined();
+		expect(b.getProvider("tzafon")).toBeDefined();
+	});
+});
+
+describe("cuaModels", () => {
+	it("memoizes the default collection", () => {
+		expect(cuaModels()).toBe(cuaModels());
+		expect(cuaModels().getProvider("yutori")).toBeDefined();
 	});
 });

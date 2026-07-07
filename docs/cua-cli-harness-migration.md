@@ -46,9 +46,10 @@ Goals, in priority order:
   interactive UI is rebuilt on pi-tui primitives instead. pi-tui 0.79 provides
   `Markdown`, `Image` (kitty/iTerm2), `Editor` (autocomplete), `SelectList`,
   overlays, keybindings, `ProcessTerminal`.
-- pi-ai's `registerApiProvider` registry is process-global: a test fixture can
-  register a scripted `streamSimple` for an API id and the real harness will
-  route model calls through it. This replaces the `InteractiveDriver` test seam.
+- The harness streams through a pi `Models` collection: a test fixture can
+  build a `createCuaModels()` collection with a scripted provider and pass it
+  to `buildCuaHarness({ models })`, and the real harness routes model calls
+  through it. This replaces the `InteractiveDriver` test seam.
 - `@onkernel/cua-ai` owns the model catalog: `listCuaModels`,
   `parseCuaModelRef`, `getCuaModel`, `CuaModelRef` (`provider:model`), and the
   documented API-key env-var conventions (`getCuaEnvApiKey`).
@@ -128,10 +129,10 @@ Module map (current → target):
 
 ## Test strategy
 
-- **Scripted provider fixture**: a test-only pi-ai provider registered with
-  `registerApiProvider`, whose `streamSimple` replays declarative steps (text
-  deltas, canonical CUA tool calls, errors, await-abort) — port of the current
-  `ScriptedDriver` JSON step DSL, moved below the harness.
+- **Scripted provider fixture**: a test-only pi provider placed in a
+  `createCuaModels()` collection, whose `streamSimple` replays declarative
+  steps (text deltas, canonical CUA tool calls, errors, await-abort) — port
+  of the current `ScriptedDriver` JSON step DSL, moved below the harness.
 - **Fake Kernel client**: plain object stubbing
   `browsers.computer.{batch,captureScreenshot,readClipboard}` etc. (pattern
   already proven in `packages/agent/test`).

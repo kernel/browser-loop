@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import {
-	complete,
+	cuaModels,
 	getCuaModel,
 	requireCuaEnvApiKeyForModel,
 	resolveCuaRuntimeSpec,
@@ -23,7 +23,7 @@ const spec = resolveCuaRuntimeSpec(modelRef, { actions: ["click"] });
 
 const screenshot = await readFile(new URL("./screenshot.png", import.meta.url));
 
-const response = await complete(
+const response = await cuaModels().complete(
 	model,
 	{
 		systemPrompt: [

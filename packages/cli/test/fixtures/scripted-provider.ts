@@ -3,10 +3,9 @@ import {
 	type AssistantMessage,
 	type Context,
 	createAssistantMessageEventStream,
+	createCuaModels,
 	type Model,
-	registerApiProvider,
-	type SimpleStreamOptions,
-	unregisterApiProviders,
+	type MutableModels,
 } from "@onkernel/cua-ai";
 
 /** One scripted step replayed when the harness asks the provider for a turn. */
@@ -26,48 +25,44 @@ export interface ScriptedTurn {
 }
 
 export interface ScriptedProviderHandle {
+	/** pi `Models` collection whose named provider replays the scripted turns. */
+	models: MutableModels;
 	/** Reset the turn cursor; the next provider call replays the first turn. */
 	reset(): void;
 	/** Number of provider calls dispatched so far. */
 	callCount(): number;
 	/** Latest context the provider was called with (assistant-side mock). */
 	lastContext(): Context | undefined;
-	/** Remove the registered provider. Safe to call from `afterEach`. */
-	dispose(): void;
 }
 
-const sourceCounter = { value: 0 };
-
 /**
- * Register a scripted provider on the pi-ai api registry. The provider
- * replays one `ScriptedTurn` per provider call against the supplied API
- * id; the harness drives this exactly like a real provider.
+ * Build a CUA `Models` collection whose named provider is replaced with a
+ * scripted double that replays one `ScriptedTurn` per provider call,
+ * regardless of the model's api id. Pass `handle.models` to
+ * `buildCuaHarness`; nothing global is mutated.
  */
-export function registerScriptedProvider(api: Api, turns: ScriptedTurn[]): ScriptedProviderHandle {
-	const sourceId = `cua-cli-test-${++sourceCounter.value}`;
+export function createScriptedCuaModels(providerId: string, turns: ScriptedTurn[]): ScriptedProviderHandle {
 	const state = {
 		index: 0,
 		lastContext: undefined as Context | undefined,
 	};
-	registerApiProvider(
-		{
-			api,
-			streamSimple: (model, context, options?: SimpleStreamOptions) => {
-				state.lastContext = context;
-				const turn = turns[state.index];
-				state.index += 1;
-				return buildStream(model, turn, options?.signal);
-			},
-			stream: (model, context, options) => {
-				state.lastContext = context;
-				const turn = turns[state.index];
-				state.index += 1;
-				return buildStream(model, turn, options?.signal);
-			},
-		},
-		sourceId,
-	);
+	const dispatch = (model: Model<Api>, context: Context, signal?: AbortSignal) => {
+		state.lastContext = context;
+		const turn = turns[state.index];
+		state.index += 1;
+		return buildStream(model, turn, signal);
+	};
+	const models = createCuaModels();
+	models.setProvider({
+		id: providerId,
+		name: `Scripted ${providerId}`,
+		auth: { apiKey: { name: "scripted test key", resolve: async () => ({ auth: { apiKey: "test-key" } }) } },
+		getModels: () => [],
+		stream: (model, context, options) => dispatch(model, context, options?.signal),
+		streamSimple: (model, context, options) => dispatch(model, context, options?.signal),
+	});
 	return {
+		models,
 		reset(): void {
 			state.index = 0;
 		},
@@ -76,9 +71,6 @@ export function registerScriptedProvider(api: Api, turns: ScriptedTurn[]): Scrip
 		},
 		lastContext(): Context | undefined {
 			return state.lastContext;
-		},
-		dispose(): void {
-			unregisterApiProviders(sourceId);
 		},
 	};
 }

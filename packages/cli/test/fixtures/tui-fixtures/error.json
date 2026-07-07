@@ -1,10 +1,12 @@
 {
   "modelRef": "openai:gpt-5.5",
-  "api": "openai-cua-responses",
   "turns": [
     {
       "steps": [
-        { "type": "error", "message": "fixture provider failed" }
+        {
+          "type": "error",
+          "message": "fixture provider failed"
+        }
       ]
     }
   ]

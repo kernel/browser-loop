@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.0 - 2026-07-07
+
+Breaking: follows pi-agent-core 0.80's `Models`-based harness.
+
+- `CuaAgentHarness` accepts an optional `models` (a pi `Models` collection)
+  and defaults to `cuaModels()` from `@onkernel/cua-ai`. The
+  `getApiKeyAndHeaders` option is gone — pi-agent-core 0.80 resolves auth
+  through provider auth on the collection; pass a custom `models` to override
+  resolution (e.g. in tests).
+- `CuaAgent`'s default stream path is `cuaModels().streamSimple` instead of
+  pi-ai's removed global `streamSimple`. Custom `streamFn` options work
+  unchanged.
+- Updated `@earendil-works/pi-agent-core` and `@earendil-works/pi-ai` to
+  0.80.3 and `@onkernel/cua-ai` to 0.4.0.
+
 ## 0.3.5 - 2026-06-24
 
 - Update the `@onkernel/cua-ai` dependency to 0.3.2, adding computer-use

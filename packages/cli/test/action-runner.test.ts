@@ -1,13 +1,8 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { runAction } from "../src/action/harness-runner";
 import { buildTestHarness, type TestHarnessFixture } from "./fixtures/harness";
 
 let fixture: TestHarnessFixture | undefined;
-
-afterEach(async () => {
-	await fixture?.dispose();
-	fixture = undefined;
-});
 
 describe("action harness-runner", () => {
 	it("exits 0 with formatted result when a click action succeeds", async () => {

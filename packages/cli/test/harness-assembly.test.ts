@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
 	formatSkillsForSystemPrompt,
 	InMemorySessionRepo,
@@ -11,17 +11,10 @@ import { join } from "node:path";
 import { resolveCuaRuntimeSpec } from "@onkernel/cua-ai";
 import { buildCuaHarness } from "../src/harness";
 import { createFakeKernelEnvironment } from "./fixtures/fake-kernel";
-import { registerScriptedProvider, type ScriptedProviderHandle } from "./fixtures/scripted-provider";
-
-let provider: ScriptedProviderHandle | undefined;
-
-afterEach(() => {
-	provider?.dispose();
-	provider = undefined;
-});
+import { createScriptedCuaModels } from "./fixtures/scripted-provider";
 
 describe("buildCuaHarness", () => {
-	it("installs createCodingTools as extraTools by default (pi-coding-agent 0.79 type compatibility)", async () => {
+	it("installs createCodingTools as extraTools by default", async () => {
 		const cwd = mkdtempSync(join(tmpdir(), "cua-cli-harness-"));
 		const kernel = createFakeKernelEnvironment();
 		const session = await new InMemorySessionRepo().create();
@@ -40,7 +33,7 @@ describe("buildCuaHarness", () => {
 	});
 
 	it("composes the cua-ai default system prompt with the skill block", async () => {
-		provider = registerScriptedProvider("openai-cua-responses", [
+		const provider = createScriptedCuaModels("openai", [
 			{ steps: [{ type: "text", text: "ok" }] },
 		]);
 		const cwd = mkdtempSync(join(tmpdir(), "cua-cli-harness-"));
@@ -60,7 +53,7 @@ describe("buildCuaHarness", () => {
 			model: "openai:gpt-5.5",
 			skills: [skill],
 			extraTools: [],
-			getApiKeyAndHeaders: async () => ({ apiKey: "test-key" }),
+			models: provider.models,
 		});
 		let capturedSystemPrompt: string | undefined;
 		harness.on("before_agent_start", (event) => {
@@ -75,7 +68,7 @@ describe("buildCuaHarness", () => {
 	});
 
 	it("injects loaded context files into the system prompt", async () => {
-		provider = registerScriptedProvider("openai-cua-responses", [
+		const provider = createScriptedCuaModels("openai", [
 			{ steps: [{ type: "text", text: "ok" }] },
 		]);
 		const cwd = mkdtempSync(join(tmpdir(), "cua-cli-harness-"));
@@ -89,7 +82,7 @@ describe("buildCuaHarness", () => {
 			model: "openai:gpt-5.5",
 			contextFiles: [{ path: join(cwd, "AGENTS.md"), content: "Always prefer tabs over spaces." }],
 			extraTools: [],
-			getApiKeyAndHeaders: async () => ({ apiKey: "test-key" }),
+			models: provider.models,
 		});
 		let capturedSystemPrompt: string | undefined;
 		harness.on("before_agent_start", (event) => {
@@ -102,7 +95,7 @@ describe("buildCuaHarness", () => {
 	});
 
 	it("delivers the first prompt with an image attached via harness.prompt({ images })", async () => {
-		provider = registerScriptedProvider("openai-cua-responses", [
+		const provider = createScriptedCuaModels("openai", [
 			{ steps: [{ type: "text", text: "done" }] },
 		]);
 
@@ -116,7 +109,7 @@ describe("buildCuaHarness", () => {
 			session,
 			model: "openai:gpt-5.5",
 			extraTools: [],
-			getApiKeyAndHeaders: async () => ({ apiKey: "test-key" }),
+			models: provider.models,
 		});
 
 		const tinyPngBase64 =
