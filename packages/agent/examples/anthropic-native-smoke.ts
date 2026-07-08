@@ -6,7 +6,7 @@
 //   computer (default)  canonical computer-plane (OS input) tools
 //   browser             canonical browser-plane (CDP page) tools
 //   hybrid              both planes, deduplicated
-//   native-computer     Anthropic computer_20260601 (requires the computer-use beta)
+//   native-computer     Anthropic computer_20260701 (requires the computer-use beta)
 //   native-browser      Anthropic browser_20260701 (requires the browser-use beta)
 import Kernel from "@onkernel/sdk";
 import { requireCuaEnvApiKeyForModel, type CuaModelRef, type CuaMode, type CuaNativeToolSpec } from "@onkernel/cua-ai";
@@ -20,7 +20,7 @@ const CONFIGS: Record<string, { mode?: CuaMode; nativeTool?: CuaNativeToolSpec }
 	computer: { mode: "computer" },
 	browser: { mode: "browser" },
 	hybrid: { mode: "hybrid" },
-	"native-computer": { nativeTool: { type: "computer_20260601", enable_zoom: true } },
+	"native-computer": { nativeTool: { type: "computer_20260701", enable_zoom: true } },
 	"native-browser": { nativeTool: { type: "browser_20260701" } },
 };
 

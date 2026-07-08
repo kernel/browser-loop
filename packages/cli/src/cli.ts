@@ -52,7 +52,7 @@ Options:
                                  (snapshot, find, click-by-ref, navigate, tabs).
                                  hybrid: both, deduplicated (computer_* + browser_* tools).
       --native-tool <type>       Drive an Anthropic model through its native tool schema:
-                                 computer_20260601 (requires --mode computer) or
+                                 computer_20260701 (requires --mode computer) or
                                  browser_20260701 (requires --mode browser)
       --js-exec                  Expose browser_evaluate (arbitrary JS in the page) in
                                  browser/hybrid modes

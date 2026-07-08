@@ -13,12 +13,12 @@ export const ANTHROPIC_NATIVE_COMPUTER_MESSAGES_API = "anthropic-cua-native-comp
 export const ANTHROPIC_NATIVE_BROWSER_MESSAGES_API = "anthropic-cua-native-browser-messages";
 
 export const ANTHROPIC_NATIVE_API_BETA_HEADERS: Record<string, string> = {
-	[ANTHROPIC_NATIVE_COMPUTER_MESSAGES_API]: "computer-use-2026-06-01",
+	[ANTHROPIC_NATIVE_COMPUTER_MESSAGES_API]: "computer-use-2026-07-01",
 	[ANTHROPIC_NATIVE_BROWSER_MESSAGES_API]: "browser-use-2026-07-01",
 };
 
 export function nativeApiForToolType(type: ResolvedCuaNativeTool["spec"]["type"]): string {
-	return type === "computer_20260601" ? ANTHROPIC_NATIVE_COMPUTER_MESSAGES_API : ANTHROPIC_NATIVE_BROWSER_MESSAGES_API;
+	return type === "computer_20260701" ? ANTHROPIC_NATIVE_COMPUTER_MESSAGES_API : ANTHROPIC_NATIVE_BROWSER_MESSAGES_API;
 }
 
 /** Merge a native tool's `anthropic-beta` header into stream options. */
@@ -45,7 +45,7 @@ export function nativeToolExecutors(resolved: ResolvedCuaNativeTool): CuaToolExe
 		parameters: NativeActionSchema,
 	};
 	const toActions =
-		resolved.spec.type === "computer_20260601"
+		resolved.spec.type === "computer_20260701"
 			? (args: unknown) => mapNativeComputerInput(asNativeInput(args))
 			: (args: unknown) => mapNativeBrowserInput(asNativeInput(args));
 	return [{ definition, toActions }];
@@ -83,7 +83,7 @@ function asNativeInput(args: unknown): NativeInput {
 
 const MAX_KEY_REPEAT = 100;
 
-/** Map one `computer_20260601` tool input onto canonical computer-plane actions. */
+/** Map one `computer_20260701` tool input onto canonical computer-plane actions. */
 export function mapNativeComputerInput(input: NativeInput): CuaAction[] {
 	switch (input.action) {
 		case "screenshot":
@@ -128,7 +128,7 @@ export function mapNativeComputerInput(input: NativeInput): CuaAction[] {
 		case "zoom":
 			return [{ type: "zoom", region: region(input.region) }];
 		default:
-			throw new Error(`unsupported computer_20260601 action "${input.action}"`);
+			throw new Error(`unsupported computer_20260701 action "${input.action}"`);
 	}
 }
 

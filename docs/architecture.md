@@ -129,7 +129,7 @@ system prompt.
 
 **Native tools.** `resolveCuaRuntimeSpec(model, { nativeTool })` drives an
 Anthropic model through its provider-defined tool schema instead of the
-canonical function tools: `computer_20260601` pairs with `computer` mode and
+canonical function tools: `computer_20260701` pairs with `computer` mode and
 `browser_20260701` with `browser` mode (mismatches throw, mirroring the API's
 own rejection of mixed frames). The spec routes the model to a CUA-owned api
 id; the registered `anthropic` provider dispatches it to pi's builtin

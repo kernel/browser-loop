@@ -15,17 +15,17 @@ import {
 
 describe("native tool validation", () => {
 	it("infers mode from the native tool", () => {
-		expect(modeForNativeTool({ type: "computer_20260601" })).toBe("computer");
+		expect(modeForNativeTool({ type: "computer_20260701" })).toBe("computer");
 		expect(modeForNativeTool({ type: "browser_20260701" })).toBe("browser");
 	});
 
 	it("carries the beta header per tool", () => {
-		expect(betaHeaderForNativeTool({ type: "computer_20260601" })).toBe("computer-use-2026-06-01");
+		expect(betaHeaderForNativeTool({ type: "computer_20260701" })).toBe("computer-use-2026-07-01");
 		expect(betaHeaderForNativeTool({ type: "browser_20260701" })).toBe("browser-use-2026-07-01");
 	});
 
 	it("rejects a native tool with a conflicting mode", () => {
-		expect(() => resolveCuaRuntimeSpec("anthropic:claude-opus-4-5", { mode: "browser", nativeTool: { type: "computer_20260601" } })).toThrow(
+		expect(() => resolveCuaRuntimeSpec("anthropic:claude-opus-4-5", { mode: "browser", nativeTool: { type: "computer_20260701" } })).toThrow(
 			/requires mode "computer"/,
 		);
 		expect(() =>
@@ -34,18 +34,18 @@ describe("native tool validation", () => {
 	});
 
 	it("rejects native tools on non-anthropic models", () => {
-		expect(() => resolveCuaRuntimeSpec("openai:gpt-5.5", { nativeTool: { type: "computer_20260601" } })).toThrow(
+		expect(() => resolveCuaRuntimeSpec("openai:gpt-5.5", { nativeTool: { type: "computer_20260701" } })).toThrow(
 			/requires an anthropic model/,
 		);
 	});
 });
 
 describe("native runtime specs", () => {
-	it("routes computer_20260601 to the native api with a single placeholder tool", () => {
-		const spec = resolveCuaRuntimeSpec("anthropic:claude-opus-4-5", { nativeTool: { type: "computer_20260601", enable_zoom: true } });
+	it("routes computer_20260701 to the native api with a single placeholder tool", () => {
+		const spec = resolveCuaRuntimeSpec("anthropic:claude-opus-4-5", { nativeTool: { type: "computer_20260701", enable_zoom: true } });
 		expect(spec.mode).toBe("computer");
 		expect(spec.model.api).toBe(ANTHROPIC_NATIVE_COMPUTER_MESSAGES_API);
-		expect(spec.nativeTool?.betaHeader).toBe("computer-use-2026-06-01");
+		expect(spec.nativeTool?.betaHeader).toBe("computer-use-2026-07-01");
 		expect(spec.toolDefinitions.map((tool) => tool.name)).toEqual(["computer"]);
 	});
 
@@ -57,7 +57,7 @@ describe("native runtime specs", () => {
 	});
 
 	it("swaps the placeholder tool for the native declaration in the payload", async () => {
-		const spec = resolveCuaRuntimeSpec("anthropic:claude-opus-4-5", { nativeTool: { type: "computer_20260601", enable_zoom: true } });
+		const spec = resolveCuaRuntimeSpec("anthropic:claude-opus-4-5", { nativeTool: { type: "computer_20260701", enable_zoom: true } });
 		const payload = {
 			tools: [
 				{ name: "computer", description: "placeholder", input_schema: {} },
@@ -65,12 +65,12 @@ describe("native runtime specs", () => {
 			],
 		};
 		const next = (await spec.onPayload?.(payload, spec.model)) as { tools: Array<Record<string, unknown>> };
-		expect(next.tools[0]).toEqual({ type: "computer_20260601", name: "computer", enable_zoom: true });
+		expect(next.tools[0]).toEqual({ type: "computer_20260701", name: "computer", enable_zoom: true });
 		expect(next.tools[1]!.name).toBe("playwright_execute");
 	});
 });
 
-describe("computer_20260601 action mapping", () => {
+describe("computer_20260701 action mapping", () => {
 	it("maps clicks with coordinates, buttons, and modifier chords", () => {
 		expect(mapNativeComputerInput({ action: "left_click", coordinate: [10, 20], text: "ctrl+shift" })).toEqual([
 			{ type: "click", x: 10, y: 20, button: "left", hold_keys: ["ctrl", "shift"] },
@@ -107,7 +107,7 @@ describe("computer_20260601 action mapping", () => {
 	});
 
 	it("rejects unknown actions", () => {
-		expect(() => mapNativeComputerInput({ action: "warp" })).toThrow(/unsupported computer_20260601 action/);
+		expect(() => mapNativeComputerInput({ action: "warp" })).toThrow(/unsupported computer_20260701 action/);
 	});
 });
 

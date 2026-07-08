@@ -465,9 +465,9 @@ function parseNativeTool(raw: string | undefined, jsExec: boolean | undefined): 
 	const value = raw.trim().toLowerCase();
 	// enable_zoom follows Anthropic's own recommendation for fine-grained
 	// visual targeting; the executor implements the zoom crop locally.
-	if (value === "computer_20260601") return { type: "computer_20260601", enable_zoom: true };
+	if (value === "computer_20260701") return { type: "computer_20260701", enable_zoom: true };
 	if (value === "browser_20260701") return { type: "browser_20260701", ...(jsExec ? { enable_javascript_exec: true } : {}) };
-	throw new Error(`invalid --native-tool value "${raw}"; expected one of: computer_20260601 | browser_20260701`);
+	throw new Error(`invalid --native-tool value "${raw}"; expected one of: computer_20260701 | browser_20260701`);
 }
 
 function mapThinkingLevel(raw: string | undefined): "off" | "minimal" | "low" | "medium" | "high" | "xhigh" {

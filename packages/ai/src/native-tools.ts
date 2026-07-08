@@ -3,13 +3,13 @@ import type { CuaMode } from "./modes";
 
 /**
  * Anthropic's native computer-use tool (`anthropic-beta:
- * computer-use-2026-06-01`). Server-defined: the declaration below is sent
+ * computer-use-2026-07-01`). Server-defined: the declaration below is sent
  * verbatim in `tools[]` and Anthropic fixes the input schema. Maps to CUA's
  * `computer` mode — actions arrive as OS-level input in screenshot-pixel
  * coordinates.
  */
 export interface AnthropicComputerNativeTool {
-	type: "computer_20260601";
+	type: "computer_20260701";
 	/** Tool name in the request; defaults to "computer". */
 	name?: string;
 	/** Adds a `zoom` action returning a cropped screenshot region. Default false. */
@@ -57,7 +57,7 @@ interface NativeToolInfo {
 }
 
 const NATIVE_TOOL_INFO: Record<CuaNativeToolType, NativeToolInfo> = {
-	computer_20260601: { mode: "computer", provider: "anthropic", betaHeader: "computer-use-2026-06-01", defaultName: "computer" },
+	computer_20260701: { mode: "computer", provider: "anthropic", betaHeader: "computer-use-2026-07-01", defaultName: "computer" },
 	browser_20260701: { mode: "browser", provider: "anthropic", betaHeader: "browser-use-2026-07-01", defaultName: "browser" },
 };
 

@@ -13,7 +13,7 @@ import {
  *
  * - `computer` — OS-level input only (mouse/keyboard/display against the
  *   VM). Today's default; coordinates are OS screenshot pixels. Pairs with
- *   Anthropic's native `computer_20260601` tool.
+ *   Anthropic's native `computer_20260701` tool.
  * - `browser` — page tools only, driven over CDP: accessibility snapshots
  *   with element refs, element-targeted interaction, navigation, tabs, and
  *   viewport screenshots. Coordinates, where used, are viewport pixels.

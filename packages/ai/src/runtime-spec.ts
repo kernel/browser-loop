@@ -29,7 +29,7 @@ export interface CuaRuntimeSpecOptions extends ComputerToolsOptions {
 	/**
 	 * Drive the model through a provider-native tool declaration instead of
 	 * CUA's canonical function tools. The native tool determines (and is
-	 * validated against) the mode: `computer_20260601` requires `"computer"`,
+	 * validated against) the mode: `computer_20260701` requires `"computer"`,
 	 * `browser_20260701` requires `"browser"`. When `mode` is omitted it is
 	 * inferred from the native tool.
 	 */
