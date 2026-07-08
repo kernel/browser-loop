@@ -2,7 +2,7 @@ import type Kernel from "@onkernel/sdk";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import type { CuaBrowserAction } from "@onkernel/cua-ai";
-import { BrowserExecutor } from "../src/translator/browser";
+import { BrowserExecutor, type BrowserExecutorOptions } from "../src/translator/browser";
 import type { CdpConnection } from "../src/translator/cdp";
 import { InternalComputerTranslator, type KernelBrowser } from "../src/translator/translator";
 import type { BatchReadResult } from "../src/translator/types";
@@ -100,9 +100,14 @@ interface SentCommand {
 	sessionId?: string;
 }
 
-function createFakeCdp(nodes: unknown[] = []) {
+function createFakeCdp(initialNodes: unknown[] = []) {
 	const sent: SentCommand[] = [];
 	const listeners: Array<(event: FakeCdpEvent) => void> = [];
+	let nodes = initialNodes as Array<{ backendDOMNodeId?: number }>;
+	let cursorBackendIds: number[] = [];
+	const requireBackendId = (id: unknown) => {
+		if (!nodes.some((node) => node.backendDOMNodeId === id)) throw new Error("No node with given id found");
+	};
 	const fake = {
 		onEvent: (listener: (event: FakeCdpEvent) => void) => {
 			listeners.push(listener);
@@ -112,10 +117,27 @@ function createFakeCdp(nodes: unknown[] = []) {
 			switch (method) {
 				case "Accessibility.getFullAXTree":
 					return { nodes };
+				case "DOM.scrollIntoViewIfNeeded":
+					requireBackendId(params.backendNodeId);
+					return {};
 				case "DOM.getBoxModel":
+					requireBackendId(params.backendNodeId);
 					return { model: { content: [0, 0, 10, 0, 10, 10, 0, 10] } };
+				case "DOM.resolveNode":
+					requireBackendId(params.backendNodeId);
+					return { object: { objectId: "node-obj" } };
 				case "Runtime.evaluate":
+					if (params.returnByValue === false) return { result: { objectId: "cursor-scan" } };
 					return { result: { value: "hello" } };
+				case "Runtime.getProperties":
+					return {
+						result: [
+							...cursorBackendIds.map((id, index) => ({ name: String(index), value: { objectId: `el-${id}` } })),
+							{ name: "length", value: {} },
+						],
+					};
+				case "DOM.describeNode":
+					return { node: { backendNodeId: Number(String(params.objectId).slice(3)) } };
 				default:
 					return {};
 			}
@@ -128,13 +150,21 @@ function createFakeCdp(nodes: unknown[] = []) {
 	const emit = (event: FakeCdpEvent) => {
 		for (const listener of listeners) listener(event);
 	};
-	return { sent, emit, cdp: fake as unknown as CdpConnection };
+	const setNodes = (next: unknown[]) => {
+		nodes = next as Array<{ backendDOMNodeId?: number }>;
+	};
+	const setCursorBackendIds = (ids: number[]) => {
+		cursorBackendIds = ids;
+	};
+	return { sent, emit, setNodes, setCursorBackendIds, cdp: fake as unknown as CdpConnection };
 }
 
 interface AXNodeSpec {
 	nodeId: string;
 	role?: string;
 	name?: string;
+	value?: unknown;
+	properties?: Array<{ name: string; value?: unknown }>;
 	backendDOMNodeId?: number;
 	parentId?: string;
 	childIds?: string[];
@@ -148,6 +178,8 @@ function ax(spec: AXNodeSpec) {
 		backendDOMNodeId: spec.backendDOMNodeId,
 		role: spec.role !== undefined ? { value: spec.role } : undefined,
 		name: spec.name !== undefined ? { value: spec.name } : undefined,
+		value: spec.value !== undefined ? { value: spec.value } : undefined,
+		properties: spec.properties?.map((property) => ({ name: property.name, value: { value: property.value } })),
 	};
 }
 
@@ -230,6 +262,148 @@ describe("BrowserExecutor snapshot rendering", () => {
 		expect(text).toContain('treeitem "Reports" [e1]');
 		expect(text).toContain('textarea "Notes"');
 		expect(text).not.toContain('textarea "Notes" [');
+	});
+
+	it("renders node states in a compact bracket after the ref", async () => {
+		const tree = [
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "3", "4", "5"] }),
+			ax({
+				nodeId: "2",
+				role: "checkbox",
+				name: "Terms",
+				backendDOMNodeId: 10,
+				parentId: "1",
+				properties: [{ name: "checked", value: "true" }, { name: "required", value: true }],
+			}),
+			ax({ nodeId: "3", role: "checkbox", name: "Maybe", backendDOMNodeId: 11, parentId: "1", properties: [{ name: "checked", value: "mixed" }] }),
+			ax({
+				nodeId: "4",
+				role: "button",
+				name: "Save",
+				backendDOMNodeId: 12,
+				parentId: "1",
+				properties: [{ name: "disabled", value: true }, { name: "expanded", value: false }],
+			}),
+			ax({ nodeId: "5", role: "textbox", name: "Email", backendDOMNodeId: 13, parentId: "1", value: "a@b.c" }),
+		];
+		const { cdp } = createFakeCdp(tree);
+		const executor = new BrowserExecutor(cdp);
+		const text = await snapshotText(executor);
+		expect(text).toContain('checkbox "Terms" [e1] [checked, required]');
+		expect(text).toContain('checkbox "Maybe" [e2] [checked=mixed]');
+		expect(text).toContain('button "Save" [e3] [disabled]');
+		expect(text).not.toContain("expanded");
+		expect(text).toContain('textbox "Email" [e4] [value="a@b.c"]');
+	});
+
+	it("skips StaticText duplicating the parent name and collapses wrappers without losing text", async () => {
+		const tree = [
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "4", "7"] }),
+			ax({ nodeId: "2", role: "heading", name: "Title", parentId: "1", childIds: ["3"] }),
+			ax({ nodeId: "3", role: "StaticText", name: "Title", parentId: "2" }),
+			ax({ nodeId: "4", role: "link", name: "Docs", backendDOMNodeId: 20, parentId: "1", childIds: ["5"] }),
+			ax({ nodeId: "5", role: "generic", parentId: "4", childIds: ["6"] }),
+			ax({ nodeId: "6", role: "StaticText", name: "Docs", parentId: "5" }),
+			ax({ nodeId: "7", role: "StaticText", name: "Standalone", parentId: "1" }),
+		];
+		const { cdp } = createFakeCdp(tree);
+		const executor = new BrowserExecutor(cdp);
+		const text = await snapshotText(executor);
+		expect(text).toBe(['RootWebArea "Page"', '  heading "Title"', '  link "Docs" [e1]', '  StaticText "Standalone"'].join("\n"));
+		expect(text.split("\n")).toHaveLength(4);
+	});
+});
+
+describe("BrowserExecutor stale-ref self-healing", () => {
+	it("heals a ref whose backend node moved when exactly one node matches the role/name triple", async () => {
+		const { cdp, sent, setNodes } = createFakeCdp(BUTTON_TREE);
+		const executor = new BrowserExecutor(cdp);
+		await snapshotText(executor);
+		setNodes([
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),
+			ax({ nodeId: "2", role: "button", name: "Save", backendDOMNodeId: 99, parentId: "1" }),
+		]);
+		await executor.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction);
+		expect(sent.some((cmd) => cmd.method === "DOM.scrollIntoViewIfNeeded" && cmd.params.backendNodeId === 99)).toBe(true);
+		expect(sent.some((cmd) => cmd.method === "Input.dispatchMouseEvent")).toBe(true);
+	});
+
+	it("refuses to heal when multiple nodes match the stored role and name", async () => {
+		const { cdp, setNodes } = createFakeCdp(BUTTON_TREE);
+		const executor = new BrowserExecutor(cdp);
+		await snapshotText(executor);
+		setNodes([
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "3"] }),
+			ax({ nodeId: "2", role: "button", name: "Save", backendDOMNodeId: 99, parentId: "1" }),
+			ax({ nodeId: "3", role: "button", name: "Save", backendDOMNodeId: 100, parentId: "1" }),
+		]);
+		await expect(executor.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction)).rejects.toThrow(/stale/);
+	});
+
+	it("refuses to heal a ref minted as a later duplicate", async () => {
+		const { cdp, setNodes } = createFakeCdp([
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "3"] }),
+			ax({ nodeId: "2", role: "button", name: "Save", backendDOMNodeId: 42, parentId: "1" }),
+			ax({ nodeId: "3", role: "button", name: "Save", backendDOMNodeId: 43, parentId: "1" }),
+		]);
+		const executor = new BrowserExecutor(cdp);
+		await snapshotText(executor);
+		setNodes([
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),
+			ax({ nodeId: "2", role: "button", name: "Save", backendDOMNodeId: 99, parentId: "1" }),
+		]);
+		await expect(executor.execute({ type: "browser_click", ref: "e2" } as CuaBrowserAction)).rejects.toThrow(/stale/);
+	});
+});
+
+describe("BrowserExecutor cursor-pointer hints", () => {
+	const POINTER_TREE = [
+		ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),
+		ax({ nodeId: "2", role: "generic", name: "Buy now", backendDOMNodeId: 77, parentId: "1" }),
+	];
+
+	it("does not run the cursor scan by default", async () => {
+		const { cdp, sent, setCursorBackendIds } = createFakeCdp(POINTER_TREE);
+		setCursorBackendIds([77]);
+		const executor = new BrowserExecutor(cdp);
+		const text = await snapshotText(executor);
+		expect(text).toContain('generic "Buy now"');
+		expect(text).not.toContain("cursor:pointer");
+		expect(sent.some((cmd) => cmd.method === "Runtime.evaluate")).toBe(false);
+	});
+
+	it("marks cursor:pointer elements as clickable hints when enabled", async () => {
+		const { cdp, sent, setCursorBackendIds } = createFakeCdp(POINTER_TREE);
+		setCursorBackendIds([77]);
+		const executor = new BrowserExecutor(cdp, { cursorHints: true });
+		const text = await snapshotText(executor);
+		expect(text).toContain('generic "Buy now" [e1] [cursor:pointer]');
+		expect(sent.some((cmd) => cmd.method === "DOM.describeNode")).toBe(true);
+		expect(sent.some((cmd) => cmd.method === "Runtime.releaseObject")).toBe(true);
+	});
+
+	it("only enables cursor hints on the executor in browser mode", () => {
+		const recordedFor = (mode?: "computer" | "browser" | "hybrid") => {
+			const recorded: BrowserExecutorOptions[] = [];
+			const { dom } = createFakeDom();
+			const { client } = createClient();
+			const translator = new InternalComputerTranslator({
+				browser,
+				client,
+				mode,
+				cursorHints: true,
+				createBrowserExecutor: (_cdpWsUrl, options) => {
+					recorded.push(options);
+					return dom;
+				},
+			});
+			translator.browser();
+			return recorded[0]!;
+		};
+		expect(recordedFor("browser").cursorHints).toBe(true);
+		expect(recordedFor("hybrid").cursorHints).toBe(false);
+		expect(recordedFor("computer").cursorHints).toBe(false);
+		expect(recordedFor(undefined).cursorHints).toBe(false);
 	});
 });
 

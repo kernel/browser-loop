@@ -27,6 +27,8 @@ interface AXNode {
 	ignored?: boolean;
 	role?: { value?: string };
 	name?: { value?: string };
+	value?: { value?: unknown };
+	properties?: Array<{ name: string; value?: { value?: unknown } }>;
 	backendDOMNodeId?: number;
 	parentId?: string;
 	childIds?: string[];
@@ -36,6 +38,22 @@ interface RefEntry {
 	backendNodeId: number;
 	targetId: string;
 	generation: number;
+	role: string;
+	name: string;
+	nth: number;
+}
+
+interface RenderContext {
+	targetId: string;
+	generation: number;
+	interactiveOnly: boolean;
+	nthIndex: Map<string, number>;
+	cursorIds?: ReadonlySet<number>;
+}
+
+export interface BrowserExecutorOptions {
+	/** Mark elements whose computed cursor is "pointer" as clickable hints in snapshots. Default false. */
+	cursorHints?: boolean;
 }
 
 /**
@@ -47,6 +65,11 @@ interface RefEntry {
  * via Page.frameNavigated — bumps the generation and prunes that target's
  * refs, so refs from earlier generations resolve to a stale-ref error whose
  * message tells the model how to recover.
+ *
+ * A ref whose backend node vanished without a navigation (DOM churn) is
+ * self-healed: the AX tree is re-fetched and the ref re-resolved by the
+ * (role, name, nth) triple recorded at mint time, but only when the fresh
+ * match is unambiguous.
  *
  * Native JavaScript dialogs (alert/confirm/prompt) are auto-dismissed so
  * they never wedge the CDP session; the dialog message is surfaced as an
@@ -60,10 +83,12 @@ export class BrowserExecutor {
 	private readonly dialogNotes: string[] = [];
 	private refCounter = 0;
 	private activeTargetId?: string;
+	private readonly cursorHints: boolean;
 
 	private readonly cdp: CdpConnection;
 
-	constructor(cdp: string | CdpConnection) {
+	constructor(cdp: string | CdpConnection, options: BrowserExecutorOptions = {}) {
+		this.cursorHints = options.cursorHints ?? false;
 		this.cdp = typeof cdp === "string" ? new CdpConnection(cdp) : cdp;
 		this.cdp.onEvent((event) => this.handleCdpEvent(event));
 	}
@@ -181,31 +206,37 @@ export class BrowserExecutor {
 		let rootIds = roots.map((node) => node.nodeId);
 		if (action.ref) {
 			const entry = this.resolveRef(action.ref, targetId);
-			const rootNode = nodes.find((node) => node.backendDOMNodeId === entry.backendNodeId);
-			if (!rootNode) throw new Error(`ref ${action.ref} is stale or not on the current page. ${STALE_REF_HINT}`);
+			const rootNode =
+				nodes.find((node) => node.backendDOMNodeId === entry.backendNodeId) ?? this.healEntry(action.ref, entry, nodes);
 			rootIds = [rootNode.nodeId];
 		}
 
-		const generation = this.generation(targetId);
+		const ctx: RenderContext = {
+			targetId,
+			generation: this.generation(targetId),
+			interactiveOnly: action.filter === "interactive",
+			nthIndex: buildNthIndex(nodes),
+			cursorIds: this.cursorHints ? await this.cursorPointerIds(session) : undefined,
+		};
 		const lines: string[] = [];
 		const maxDepth = action.depth ?? DEFAULT_SNAPSHOT_DEPTH;
-		const interactiveOnly = action.filter === "interactive";
-		const walk = (nodeId: string, depth: number): void => {
+		const walk = (nodeId: string, depth: number, parentName: string): void => {
 			const node = byId.get(nodeId);
 			if (!node) return;
 			let childDepth = depth;
 			if (!node.ignored) {
-				const line = this.renderNode(node, targetId, generation, depth, interactiveOnly);
+				const line = this.renderNode(node, depth, parentName, ctx);
 				if (line) {
 					lines.push(line);
 					childDepth = depth + 1;
 				}
 			}
 			if (childDepth <= maxDepth) {
-				for (const childId of node.childIds ?? []) walk(childId, childDepth);
+				const name = node.name?.value ?? "";
+				for (const childId of node.childIds ?? []) walk(childId, childDepth, name || parentName);
 			}
 		};
-		for (const rootId of rootIds) walk(rootId, 0);
+		for (const rootId of rootIds) walk(rootId, 0, "");
 
 		let text = lines.join("\n");
 		if (text.length > SNAPSHOT_CHAR_LIMIT) {
@@ -214,17 +245,46 @@ export class BrowserExecutor {
 		return text || "(empty accessibility tree)";
 	}
 
-	private renderNode(node: AXNode, targetId: string, generation: number, depth: number, interactiveOnly: boolean): string | undefined {
+	private renderNode(node: AXNode, depth: number, parentName: string, ctx: RenderContext): string | undefined {
 		const role = node.role?.value ?? "";
 		const name = node.name?.value ?? "";
 		const interactive = INTERACTIVE_ROLES.has(role);
-		if (interactiveOnly && !interactive) return undefined;
-		if (!interactiveOnly && !name && !interactive && SKIPPED_ROLES.has(role)) return undefined;
+		const pointer = node.backendDOMNodeId !== undefined && (ctx.cursorIds?.has(node.backendDOMNodeId) ?? false);
+		if (ctx.interactiveOnly && !interactive && !pointer) return undefined;
+		if (role === "StaticText" && name === parentName) return undefined;
+		if (!ctx.interactiveOnly && !name && !interactive && !pointer && SKIPPED_ROLES.has(role)) return undefined;
 		let line = `${"  ".repeat(Math.min(depth, 20))}${role || "node"}${name ? ` ${JSON.stringify(name)}` : ""}`;
-		if (node.backendDOMNodeId !== undefined && interactive) {
-			line += ` [${this.mintRef(node.backendDOMNodeId, targetId, generation)}]`;
+		if (node.backendDOMNodeId !== undefined && (interactive || pointer)) {
+			line += ` [${this.mintRef(node, ctx.targetId, ctx.generation, ctx.nthIndex)}]`;
 		}
+		const states = collectStates(node);
+		if (pointer && !interactive) states.push("cursor:pointer");
+		if (states.length > 0) line += ` [${states.join(", ")}]`;
 		return line;
+	}
+
+	/** Resolve backend node ids for elements whose own computed cursor is "pointer", without touching the DOM. */
+	private async cursorPointerIds(session: string): Promise<ReadonlySet<number>> {
+		const ids = new Set<number>();
+		const { result } = await this.cdp.send<{ result: { objectId?: string } }>(
+			"Runtime.evaluate",
+			{ expression: CURSOR_POINTER_SCAN, returnByValue: false },
+			session,
+		);
+		if (!result.objectId) return ids;
+		const { result: properties } = await this.cdp.send<{ result: Array<{ name: string; value?: { objectId?: string } }> }>(
+			"Runtime.getProperties",
+			{ objectId: result.objectId, ownProperties: true },
+			session,
+		);
+		for (const property of properties) {
+			const objectId = property.value?.objectId;
+			if (!/^\d+$/.test(property.name) || !objectId) continue;
+			const { node } = await this.cdp.send<{ node: { backendNodeId?: number } }>("DOM.describeNode", { objectId }, session);
+			if (node.backendNodeId !== undefined) ids.add(node.backendNodeId);
+		}
+		await this.cdp.send("Runtime.releaseObject", { objectId: result.objectId }, session);
+		return ids;
 	}
 
 	private async find(action: CuaActionBrowserFind): Promise<string> {
@@ -239,11 +299,12 @@ export class BrowserExecutor {
 			.sort((a, b) => b.score - a.score)
 			.slice(0, FIND_MATCH_LIMIT);
 		if (scored.length === 0) return `No elements matched ${JSON.stringify(action.query)}. Try snapshot for the full tree.`;
+		const nthIndex = buildNthIndex(nodes);
 		return scored
 			.map(({ node }) => {
 				const role = node.role?.value ?? "node";
 				const name = node.name?.value ? ` ${JSON.stringify(node.name.value)}` : "";
-				return `${role}${name} [${this.mintRef(node.backendDOMNodeId!, targetId, this.generation(targetId))}]`;
+				return `${role}${name} [${this.mintRef(node, targetId, this.generation(targetId), nthIndex)}]`;
 			})
 			.join("\n");
 	}
@@ -425,7 +486,8 @@ export class BrowserExecutor {
 		try {
 			await this.cdp.send("DOM.scrollIntoViewIfNeeded", { backendNodeId: entry.backendNodeId }, session);
 		} catch (err) {
-			throw new Error(`ref ${ref} is stale or not on the current page. ${STALE_REF_HINT}`, { cause: err });
+			await this.healRef(ref, entry, session, err);
+			await this.cdp.send("DOM.scrollIntoViewIfNeeded", { backendNodeId: entry.backendNodeId }, session);
 		}
 	}
 
@@ -438,21 +500,58 @@ export class BrowserExecutor {
 			);
 			return object.objectId;
 		} catch (err) {
-			throw new Error(`ref ${ref} is stale or not on the current page. ${STALE_REF_HINT}`, { cause: err });
+			await this.healRef(ref, entry, session, err);
+			const { object } = await this.cdp.send<{ object: { objectId: string } }>(
+				"DOM.resolveNode",
+				{ backendNodeId: entry.backendNodeId },
+				session,
+			);
+			return object.objectId;
 		}
 	}
 
-	private mintRef(backendNodeId: number, targetId: string, generation: number): string {
+	private async healRef(ref: string, entry: RefEntry, session: string, cause: unknown): Promise<void> {
+		const { nodes } = await this.cdp.send<{ nodes: AXNode[] }>("Accessibility.getFullAXTree", {}, session);
+		this.healEntry(ref, entry, nodes, cause);
+	}
+
+	/**
+	 * Re-resolve a stale entry by its (role, name, nth) triple against a fresh
+	 * AX tree. Heals only the unambiguous case — the ref was minted as the
+	 * first of its role+name cohort and exactly one fresh node matches.
+	 */
+	private healEntry(ref: string, entry: RefEntry, nodes: AXNode[], cause?: unknown): AXNode {
+		const candidates = nodes.filter(
+			(node) =>
+				!node.ignored &&
+				node.backendDOMNodeId !== undefined &&
+				(node.role?.value ?? "") === entry.role &&
+				(node.name?.value ?? "") === entry.name,
+		);
+		const match = candidates.length === 1 && entry.nth === 0 && (entry.role || entry.name) ? candidates[0] : undefined;
+		if (!match) throw staleRefError(ref, cause);
+		entry.backendNodeId = match.backendDOMNodeId!;
+		return match;
+	}
+
+	private mintRef(node: AXNode, targetId: string, generation: number, nthIndex: Map<string, number>): string {
 		this.refCounter += 1;
 		const ref = `e${this.refCounter}`;
-		this.refs.set(ref, { backendNodeId, targetId, generation });
+		this.refs.set(ref, {
+			backendNodeId: node.backendDOMNodeId!,
+			targetId,
+			generation,
+			role: node.role?.value ?? "",
+			name: node.name?.value ?? "",
+			nth: nthIndex.get(node.nodeId) ?? 0,
+		});
 		return ref;
 	}
 
 	private resolveRef(ref: string, targetId: string): RefEntry {
 		const entry = this.refs.get(ref);
 		if (!entry || entry.targetId !== targetId || entry.generation !== this.generation(targetId)) {
-			throw new Error(`ref ${ref} is stale or not on the current page. ${STALE_REF_HINT}`);
+			throw staleRefError(ref);
 		}
 		return entry;
 	}
@@ -516,6 +615,49 @@ export class BrowserExecutor {
 
 function tabOf(action: { tab_id?: string }): string | undefined {
 	return action.tab_id;
+}
+
+function staleRefError(ref: string, cause?: unknown): Error {
+	return new Error(`ref ${ref} is stale or not on the current page. ${STALE_REF_HINT}`, cause === undefined ? undefined : { cause });
+}
+
+/** Index each ref-eligible node by its position among nodes with the same role and name, in tree order. */
+function buildNthIndex(nodes: AXNode[]): Map<string, number> {
+	const counts = new Map<string, number>();
+	const index = new Map<string, number>();
+	for (const node of nodes) {
+		if (node.ignored || node.backendDOMNodeId === undefined) continue;
+		const key = `${node.role?.value ?? ""}\u0000${node.name?.value ?? ""}`;
+		const nth = counts.get(key) ?? 0;
+		counts.set(key, nth + 1);
+		index.set(node.nodeId, nth);
+	}
+	return index;
+}
+
+function collectStates(node: AXNode): string[] {
+	const states: string[] = [];
+	for (const property of node.properties ?? []) {
+		const value = property.value?.value;
+		switch (property.name) {
+			case "checked":
+			case "pressed":
+				if (value === true || value === "true") states.push(property.name);
+				else if (value === "mixed") states.push(`${property.name}=mixed`);
+				break;
+			case "expanded":
+			case "disabled":
+			case "selected":
+			case "required":
+				if (value === true || value === "true") states.push(property.name);
+				break;
+		}
+	}
+	const value = node.value?.value;
+	if (value !== undefined && value !== "" && String(value) !== (node.name?.value ?? "")) {
+		states.push(`value=${JSON.stringify(String(value))}`);
+	}
+	return states;
 }
 
 function shortTabId(targetId: string): string {
@@ -650,5 +792,21 @@ const INTERACTIVE_ROLES: ReadonlySet<string> = new Set([
 ]);
 
 const SKIPPED_ROLES: ReadonlySet<string> = new Set(["none", "generic", "InlineTextBox", "LineBreak", "StaticText"]);
+
+const CURSOR_POINTER_SCAN = `(() => {
+	const matches = [];
+	if (!document.body) return matches;
+	for (const el of document.body.querySelectorAll("*")) {
+		if (matches.length >= 100) break;
+		if (el.closest("a, button, input, select, textarea, summary")) continue;
+		if (getComputedStyle(el).cursor !== "pointer") continue;
+		const parent = el.parentElement;
+		if (parent && getComputedStyle(parent).cursor === "pointer") continue;
+		const rect = el.getBoundingClientRect();
+		if (rect.width === 0 || rect.height === 0) continue;
+		matches.push(el);
+	}
+	return matches;
+})()`;
 
 

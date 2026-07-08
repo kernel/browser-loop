@@ -25,6 +25,8 @@ export interface ComputerToolOptions {
 	screenshot?: CuaScreenshotSpec;
 	/** Action plane(s) in play; controls whether the post-action fallback capture is the OS display or the viewport. Default "computer". */
 	mode?: CuaMode;
+	/** Mark cursor:pointer elements as clickable hints in browser snapshots. Only honored in "browser" mode. Default false. */
+	cursorHints?: boolean;
 	computerUseExtra?: boolean;
 	playwright?: boolean;
 }

@@ -78,6 +78,8 @@ export type CuaAgentOptions = Omit<AgentOptions, "initialState"> & {
 	nativeTool?: CuaNativeToolSpec;
 	/** Expose `browser_evaluate` in browser/hybrid modes. Default false. */
 	javascriptExec?: boolean;
+	/** Mark cursor:pointer elements as clickable hints in browser snapshots. Browser mode only; default false. */
+	cursorHints?: boolean;
 	/** Expose a helper for browser navigation and URL reads. */
 	computerUseExtra?: boolean;
 	/** Expose a tool that runs Playwright code against the browser session. */
@@ -118,6 +120,8 @@ export type CuaAgentHarnessOptions<
 	nativeTool?: CuaNativeToolSpec;
 	/** Expose `browser_evaluate` in browser/hybrid modes. Default false. */
 	javascriptExec?: boolean;
+	/** Mark cursor:pointer elements as clickable hints in browser snapshots. Browser mode only; default false. */
+	cursorHints?: boolean;
 	/** Expose a helper for browser navigation and URL reads. */
 	computerUseExtra?: boolean;
 	/** Expose a tool that runs Playwright code against the browser session. */
@@ -146,6 +150,7 @@ class CuaRuntimeController {
 			mode?: CuaMode;
 			nativeTool?: CuaNativeToolSpec;
 			javascriptExec?: boolean;
+			cursorHints?: boolean;
 			computerUseExtra?: boolean;
 			playwright?: boolean;
 			onPayload?: SimpleStreamOptions["onPayload"];
@@ -233,6 +238,8 @@ class CuaRuntimeController {
 			client: this.options.client,
 			coordinateSystem: this.runtimeSpec.coordinateSystem,
 			screenshot: this.runtimeSpec.screenshot,
+			mode: this.runtimeSpec.mode,
+			cursorHints: this.options.cursorHints,
 		});
 	}
 }
@@ -267,6 +274,7 @@ export class CuaAgent extends Agent {
 			mode,
 			nativeTool,
 			javascriptExec,
+			cursorHints,
 			computerUseExtra,
 			playwright,
 			...agentOptions
@@ -279,6 +287,7 @@ export class CuaAgent extends Agent {
 			mode,
 			nativeTool,
 			javascriptExec,
+			cursorHints,
 			computerUseExtra,
 			playwright,
 			onPayload,
@@ -415,6 +424,7 @@ export class CuaAgentHarness<
 			mode,
 			nativeTool,
 			javascriptExec,
+			cursorHints,
 			computerUseExtra,
 			playwright,
 			systemPrompt,
@@ -430,6 +440,7 @@ export class CuaAgentHarness<
 			mode,
 			nativeTool,
 			javascriptExec,
+			cursorHints,
 			computerUseExtra,
 			playwright,
 			onPayload,

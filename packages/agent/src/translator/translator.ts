@@ -17,11 +17,12 @@ import {
 	type CuaActionZoom,
 	type CuaBrowserAction,
 	type CuaDragMouseButton,
+	type CuaMode,
 	type CuaMouseButton,
 	type CuaScreenshotSpec,
 } from "@onkernel/cua-ai";
 import sharp from "sharp";
-import { BrowserExecutor } from "./browser";
+import { BrowserExecutor, type BrowserExecutorOptions } from "./browser";
 import { isKernelModifierKey, normalizeKernelKey, normalizeKernelKeyCombo } from "./keys";
 import type { BatchExecutionResult } from "./types";
 
@@ -32,8 +33,12 @@ export interface InternalComputerTranslatorOptions {
 	client: Kernel;
 	coordinateSystem?: ComputerToolCoordinateSystem;
 	screenshot?: CuaScreenshotSpec;
+	/** Action plane(s) in play; browser-executor extras like cursor hints are gated to "browser". */
+	mode?: CuaMode;
+	/** Mark cursor:pointer elements as clickable hints in browser snapshots. Only honored in "browser" mode. Default false. */
+	cursorHints?: boolean;
 	/** Browser executor factory, overridable for tests. Defaults to a raw-CDP executor on the browser's cdp_ws_url. */
-	createBrowserExecutor?: (cdpWsUrl: string) => BrowserExecutor;
+	createBrowserExecutor?: (cdpWsUrl: string, options: BrowserExecutorOptions) => BrowserExecutor;
 }
 
 export class InternalComputerTranslator {
@@ -43,7 +48,8 @@ export class InternalComputerTranslator {
 	private readonly screenshotSpec?: CuaScreenshotSpec;
 	private readonly viewport: { width: number; height: number };
 	private readonly cdpWsUrl?: string;
-	private readonly browserExecutorFactory: (cdpWsUrl: string) => BrowserExecutor;
+	private readonly browserExecutorOptions: BrowserExecutorOptions;
+	private readonly browserExecutorFactory: (cdpWsUrl: string, options: BrowserExecutorOptions) => BrowserExecutor;
 	private browserExecutor?: BrowserExecutor;
 
 	constructor(opts: InternalComputerTranslatorOptions) {
@@ -53,7 +59,8 @@ export class InternalComputerTranslator {
 		this.screenshotSpec = opts.screenshot;
 		this.viewport = opts.browser.viewport ?? { width: 1920, height: 1080 };
 		this.cdpWsUrl = opts.browser.cdp_ws_url;
-		this.browserExecutorFactory = opts.createBrowserExecutor ?? ((cdpWsUrl) => new BrowserExecutor(cdpWsUrl));
+		this.browserExecutorOptions = { cursorHints: opts.cursorHints === true && opts.mode === "browser" };
+		this.browserExecutorFactory = opts.createBrowserExecutor ?? ((cdpWsUrl, options) => new BrowserExecutor(cdpWsUrl, options));
 	}
 
 	/** Release held resources: closes the browser executor's CDP connection if one was opened. */
@@ -66,7 +73,7 @@ export class InternalComputerTranslator {
 	browser(): BrowserExecutor {
 		if (!this.browserExecutor) {
 			if (!this.cdpWsUrl) throw new Error("browser has no cdp_ws_url; browser actions are unavailable");
-			this.browserExecutor = this.browserExecutorFactory(this.cdpWsUrl);
+			this.browserExecutor = this.browserExecutorFactory(this.cdpWsUrl, this.browserExecutorOptions);
 		}
 		return this.browserExecutor;
 	}
