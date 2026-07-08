@@ -47,6 +47,15 @@ Options:
       --max-steps <n>            Max turns for action subcommands (default 3)
       --playwright               Add the playwright_execute tool so the model can run
                                  Playwright code against the browser session
+      --mode <mode>              Action plane(s) to expose: os (default) | dom | hybrid
+                                 os: OS-level input only. dom: CDP page tools (snapshot,
+                                 find, click-by-ref, navigate, tabs). hybrid: both,
+                                 deduplicated (computer_* + page_* tools).
+      --native-tool <type>       Drive an Anthropic model through its native tool schema:
+                                 computer_20260601 (requires --mode os) or
+                                 browser_20260701 (requires --mode dom)
+      --js-exec                  Expose page_evaluate (arbitrary JS in the page) in
+                                 dom/hybrid modes
       --out <file|->             Output file for screenshot subcommand
   -o, --output <fmt>             Output format for --print: text (default) | jsonl
       --jsonl-include-deltas     Include assistant_text_delta events (default off)
@@ -101,6 +110,9 @@ interface CliFlags {
 	jsonlIncludeDeltas: boolean;
 	jsonlIncludeImages: boolean;
 	playwright: boolean;
+	mode?: string;
+	nativeTool?: string;
+	jsExec: boolean;
 	model?: string;
 	thinking?: string;
 	browserProfile?: string;
@@ -150,6 +162,9 @@ function parseCliArgs(argv: string[]): CliFlags {
 				"jsonl-include-deltas": { type: "boolean", default: false },
 				"jsonl-include-images": { type: "boolean", default: false },
 				playwright: { type: "boolean", default: false },
+				mode: { type: "string" },
+				"native-tool": { type: "string" },
+				"js-exec": { type: "boolean", default: false },
 			},
 			allowPositionals: true,
 			strict: true,
@@ -197,6 +212,9 @@ function parseCliArgs(argv: string[]): CliFlags {
 		jsonlIncludeDeltas: !!parsed.values["jsonl-include-deltas"],
 		jsonlIncludeImages: !!parsed.values["jsonl-include-images"],
 		playwright: !!parsed.values.playwright,
+		mode: parsed.values.mode as string | undefined,
+		nativeTool: parsed.values["native-tool"] as string | undefined,
+		jsExec: !!parsed.values["js-exec"],
 		positionals: parsed.positionals,
 	};
 }
@@ -213,6 +231,9 @@ function toHarnessFlags(flags: CliFlags): HarnessCliFlags {
 		jsonlIncludeDeltas: flags.jsonlIncludeDeltas,
 		jsonlIncludeImages: flags.jsonlIncludeImages,
 		playwright: flags.playwright,
+		mode: flags.mode,
+		nativeTool: flags.nativeTool,
+		jsExec: flags.jsExec,
 		model: flags.model,
 		thinking: flags.thinking,
 		browserProfile: flags.browserProfile,

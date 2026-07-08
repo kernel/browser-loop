@@ -7,6 +7,7 @@ import {
 	createCuaPlaywrightToolDefinition,
 	type ComputerToolCoordinateSystem,
 	type CuaBatchInput,
+	type CuaMode,
 	type CuaNavigationInput,
 	type CuaPlaywrightInput,
 	type CuaScreenshotSpec,
@@ -22,6 +23,8 @@ export interface ComputerToolOptions {
 	toolExecutors: CuaToolExecutorSpec[];
 	coordinateSystem?: ComputerToolCoordinateSystem;
 	screenshot?: CuaScreenshotSpec;
+	/** Action plane(s) in play; controls whether the post-action fallback capture is the OS display or the viewport. Default "os". */
+	mode?: CuaMode;
 	computerUseExtra?: boolean;
 	playwright?: boolean;
 }
@@ -30,7 +33,12 @@ type ToolContent = Array<TextContent | ImageContent>;
 
 export interface BatchDetails {
 	statusText: string;
-	readResults: Array<{ type: "url"; url: string } | { type: "screenshot"; bytes: number } | { type: "cursor_position"; x: number; y: number }>;
+	readResults: Array<
+		| { type: "url"; url: string }
+		| { type: "screenshot"; bytes: number }
+		| { type: "cursor_position"; x: number; y: number }
+		| { type: "dom_text"; label: string; bytes: number }
+	>;
 }
 
 export interface NavigationDetails {
@@ -78,10 +86,10 @@ export function createCuaComputerTools(args: ComputerToolOptions): CuaExecutorTo
 
 /** Build executor tools against an existing translator (internal; not part of the package surface). */
 export function buildCuaComputerTools(
-	args: Pick<ComputerToolOptions, "toolExecutors" | "computerUseExtra" | "playwright">,
+	args: Pick<ComputerToolOptions, "toolExecutors" | "computerUseExtra" | "playwright" | "mode">,
 	translator: InternalComputerTranslator,
 ): CuaExecutorTool[] {
-	return withExtraTools(args).map((executor) => createExecutorTool(executor, translator));
+	return withExtraTools(args).map((executor) => createExecutorTool(executor, translator, args.mode ?? "os"));
 }
 
 function withExtraTools(args: Pick<ComputerToolOptions, "toolExecutors" | "computerUseExtra" | "playwright">): ComputerExecutorSpec[] {
@@ -96,7 +104,7 @@ function withExtraTools(args: Pick<ComputerToolOptions, "toolExecutors" | "compu
 	return executors;
 }
 
-function createExecutorTool(executor: ComputerExecutorSpec, translator: InternalComputerTranslator): CuaExecutorTool {
+function createExecutorTool(executor: ComputerExecutorSpec, translator: InternalComputerTranslator, mode: CuaMode): CuaExecutorTool {
 	const { definition } = executor;
 	if (isNavigationExecutor(executor)) {
 		const tool: NavigationTool = {
@@ -130,7 +138,7 @@ function createExecutorTool(executor: ComputerExecutorSpec, translator: Internal
 		parameters: definition.parameters,
 		executionMode: "sequential",
 		async execute(_toolCallId: string, params: unknown): Promise<AgentToolResult<BatchDetails>> {
-			return executeBatchTool(translator, { actions: executor.toActions(params) });
+			return executeBatchTool(translator, { actions: executor.toActions(params) }, mode);
 		},
 	};
 	return tool;
@@ -144,7 +152,11 @@ function isPlaywrightExecutor(executor: ComputerExecutorSpec): executor is Playw
 	return "kind" in executor && executor.kind === "playwright";
 }
 
-async function executeBatchTool(translator: InternalComputerTranslator, params: CuaBatchInput): Promise<AgentToolResult<BatchDetails>> {
+async function executeBatchTool(
+	translator: InternalComputerTranslator,
+	params: CuaBatchInput,
+	mode: CuaMode = "os",
+): Promise<AgentToolResult<BatchDetails>> {
 	const content: ToolContent = [];
 	const readResults: BatchDetails["readResults"] = [];
 	try {
@@ -156,13 +168,18 @@ async function executeBatchTool(translator: InternalComputerTranslator, params: 
 			} else if (read.type === "cursor_position") {
 				readResults.push({ type: "cursor_position", x: read.x, y: read.y });
 				content.push({ type: "text", text: `cursor_position(): ${read.x},${read.y}` });
+			} else if (read.type === "dom_text") {
+				readResults.push({ type: "dom_text", label: read.label, bytes: read.text.length });
+				content.push({ type: "text", text: read.text });
 			} else {
 				readResults.push({ type: "screenshot", bytes: read.data.length });
 				content.push({ type: "image", data: read.data.toString("base64"), mimeType: read.mimeType });
 			}
 		}
 		if (content.length === 0) {
-			const screenshot = await translator.screenshot();
+			// Post-action grounding capture: the OS display in os/hybrid mode,
+			// the browser viewport in dom mode (the only frame the model sees).
+			const screenshot = mode === "dom" ? await translator.dom().screenshot() : await translator.screenshot();
 			readResults.push({ type: "screenshot", bytes: screenshot.data.length });
 			content.push({ type: "image", data: screenshot.data.toString("base64"), mimeType: screenshot.mimeType });
 		}

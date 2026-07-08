@@ -1,4 +1,4 @@
-import type { ComputerToolCoordinateSystem, CuaProviderModule } from "../common";
+import { assertOsModeOnly, type ComputerToolCoordinateSystem, type ComputerToolsOptions, type CuaProviderModule } from "../common";
 import { computerToolExecutors } from "./actions";
 import { yutoriCuaOnPayload } from "./provider";
 
@@ -63,8 +63,14 @@ export function buildYutoriSystemPrompt(opts: { suffix?: string } = {}): string 
 }
 
 export const providerModule = {
-	toolDefinitions: () => [],
-	toolExecutors: computerToolExecutors,
+	toolDefinitions: (options?: ComputerToolsOptions) => {
+		assertOsModeOnly("yutori", options);
+		return [];
+	},
+	toolExecutors: (options?: ComputerToolsOptions) => {
+		assertOsModeOnly("yutori", options);
+		return computerToolExecutors(options);
+	},
 	coordinateSystem,
 	buildSystemPrompt: buildYutoriSystemPrompt,
 	onPayload: yutoriCuaOnPayload,

@@ -1,6 +1,7 @@
 import type Kernel from "@onkernel/sdk";
 import type { BrowserCreateResponse, BrowserRetrieveResponse } from "@onkernel/sdk/resources/browsers";
 import {
+	isCuaDomAction,
 	normalizeGotoUrl,
 	type ComputerToolCoordinateSystem,
 	type CuaAction,
@@ -13,11 +14,14 @@ import {
 	type CuaActionScroll,
 	type CuaActionTypeText,
 	type CuaActionWait,
+	type CuaActionZoom,
+	type CuaDomAction,
 	type CuaDragMouseButton,
 	type CuaMouseButton,
 	type CuaScreenshotSpec,
 } from "@onkernel/cua-ai";
 import sharp from "sharp";
+import { createDomExecutor, type DomExecutor } from "./dom";
 import { isKernelModifierKey, normalizeKernelKey, normalizeKernelKeyCombo } from "./keys";
 import type { BatchExecutionResult } from "./types";
 
@@ -28,6 +32,8 @@ export interface InternalComputerTranslatorOptions {
 	client: Kernel;
 	coordinateSystem?: ComputerToolCoordinateSystem;
 	screenshot?: CuaScreenshotSpec;
+	/** DOM executor factory, overridable for tests. Defaults to a raw-CDP executor on the browser's cdp_ws_url. */
+	createDomExecutor?: (cdpWsUrl: string) => DomExecutor;
 }
 
 export class InternalComputerTranslator {
@@ -36,6 +42,9 @@ export class InternalComputerTranslator {
 	private readonly coordinateSystem: ComputerToolCoordinateSystem;
 	private readonly screenshotSpec?: CuaScreenshotSpec;
 	private readonly viewport: { width: number; height: number };
+	private readonly cdpWsUrl?: string;
+	private readonly domExecutorFactory: (cdpWsUrl: string) => DomExecutor;
+	private domExecutor?: DomExecutor;
 
 	constructor(opts: InternalComputerTranslatorOptions) {
 		this.sessionId = opts.browser.session_id;
@@ -43,6 +52,17 @@ export class InternalComputerTranslator {
 		this.coordinateSystem = opts.coordinateSystem ?? { type: "pixel" };
 		this.screenshotSpec = opts.screenshot;
 		this.viewport = opts.browser.viewport ?? { width: 1920, height: 1080 };
+		this.cdpWsUrl = opts.browser.cdp_ws_url;
+		this.domExecutorFactory = opts.createDomExecutor ?? createDomExecutor;
+	}
+
+	/** The DOM-plane executor, connected lazily over the browser's CDP websocket. */
+	dom(): DomExecutor {
+		if (!this.domExecutor) {
+			if (!this.cdpWsUrl) throw new Error("browser has no cdp_ws_url; DOM actions are unavailable");
+			this.domExecutor = this.domExecutorFactory(this.cdpWsUrl);
+		}
+		return this.domExecutor;
 	}
 
 	async screenshotRaw(): Promise<Buffer> {
@@ -106,10 +126,19 @@ export class InternalComputerTranslator {
 		};
 
 		for (const action of actions) {
+			if (isCuaDomAction(action)) {
+				await flush();
+				result.readResults.push(...(await this.dom().execute(action)));
+				continue;
+			}
 			switch (action.type) {
 				case "screenshot":
 					await flush();
 					result.readResults.push({ type: "screenshot", ...(await this.screenshot()) });
+					break;
+				case "zoom":
+					await flush();
+					result.readResults.push({ type: "screenshot", ...(await this.zoom(action)) });
 					break;
 				case "url":
 					await flush();
@@ -133,6 +162,17 @@ export class InternalComputerTranslator {
 					pending.push(keypress(["Alt", "Right"]));
 					break;
 				default:
+					// Native computer mappings may omit click coordinates, meaning
+					// "at the current cursor position" — resolve before batching.
+					if (
+						(action.type === "click" || action.type === "mouse_down" || action.type === "mouse_up") &&
+						(action.x === undefined || action.y === undefined)
+					) {
+						await flush();
+						const position = await this.currentMousePosition();
+						pending.push(this.toSdkAction({ ...action, x: action.x ?? position.x, y: action.y ?? position.y }));
+						break;
+					}
 					pending.push(this.toSdkAction(action));
 					break;
 			}
@@ -142,12 +182,27 @@ export class InternalComputerTranslator {
 		return result;
 	}
 
+	/** Crop the OS screenshot to a region; coordinates stay in the full-screenshot frame. */
+	async zoom(action: CuaActionZoom): Promise<{ data: Buffer; mimeType: string }> {
+		const screenshot = await this.screenshot();
+		const [x0, y0, x1, y1] = action.region;
+		const left = Math.max(0, Math.trunc(Math.min(x0, x1)));
+		const top = Math.max(0, Math.trunc(Math.min(y0, y1)));
+		const width = Math.max(1, Math.trunc(Math.abs(x1 - x0)));
+		const height = Math.max(1, Math.trunc(Math.abs(y1 - y0)));
+		const data = await sharp(screenshot.data).extract({ left, top, width, height }).png().toBuffer();
+		return { data, mimeType: "image/png" };
+	}
+
 	private toSdkAction(
-		action: Exclude<CuaAction, { type: "screenshot" | "url" | "cursor_position" | "goto" | "back" | "forward" }>,
+		action: Exclude<CuaAction, CuaDomAction | { type: "screenshot" | "zoom" | "url" | "cursor_position" | "goto" | "back" | "forward" }>,
 	): KernelBatchAction {
 		switch (action.type) {
 			case "click":
-				return this.clickAction(action, { button: mouseButton(action.button) });
+				return this.clickAction(action, {
+					button: mouseButton(action.button),
+					...(action.num_clicks !== undefined && action.num_clicks > 1 ? { num_clicks: Math.trunc(action.num_clicks) } : {}),
+				});
 			case "double_click":
 				return this.clickAction(action, { num_clicks: 2 });
 			case "mouse_down":
@@ -175,7 +230,7 @@ export class InternalComputerTranslator {
 		action: CuaActionClick | CuaActionDoubleClick | CuaActionMouseDown | CuaActionMouseUp,
 		extra: { button?: CuaMouseButton; num_clicks?: number; click_type?: "down" | "up" },
 	): KernelBatchAction {
-		const point = this.toViewportPoint(action.x, action.y);
+		const point = this.toViewportPoint(action.x ?? 0, action.y ?? 0);
 		return {
 			type: "click_mouse",
 			click_mouse: {

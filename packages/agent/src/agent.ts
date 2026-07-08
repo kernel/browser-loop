@@ -14,7 +14,9 @@ import {
 	CUA_NAVIGATION_TOOL_NAME,
 	CUA_PLAYWRIGHT_TOOL_NAME,
 	cuaModels,
+	type CuaMode,
 	type CuaModelRef,
+	type CuaNativeToolSpec,
 	type CuaRuntimeSpec,
 	type CuaSimpleStreamOptions,
 	getCuaEnvApiKey,
@@ -70,6 +72,12 @@ export type CuaAgentOptions = Omit<AgentOptions, "initialState"> & {
 	initialState: CuaAgentInitialState;
 	/** Add your own pi tools alongside the built-in browser tools. */
 	extraTools?: AgentTool[];
+	/** Which canonical action plane(s) to expose: "os" (default), "dom", or "hybrid". */
+	mode?: CuaMode;
+	/** Drive the model through a provider-native tool declaration (validated against `mode`). */
+	nativeTool?: CuaNativeToolSpec;
+	/** Expose `page_evaluate` in dom/hybrid modes. Default false. */
+	javascriptExec?: boolean;
 	/** Expose a helper for browser navigation and URL reads. */
 	computerUseExtra?: boolean;
 	/** Expose a tool that runs Playwright code against the browser session. */
@@ -104,6 +112,12 @@ export type CuaAgentHarnessOptions<
 	models?: Models;
 	/** Add your own pi tools alongside the built-in browser tools. */
 	extraTools?: AgentTool[];
+	/** Which canonical action plane(s) to expose: "os" (default), "dom", or "hybrid". */
+	mode?: CuaMode;
+	/** Drive the model through a provider-native tool declaration (validated against `mode`). */
+	nativeTool?: CuaNativeToolSpec;
+	/** Expose `page_evaluate` in dom/hybrid modes. Default false. */
+	javascriptExec?: boolean;
 	/** Expose a helper for browser navigation and URL reads. */
 	computerUseExtra?: boolean;
 	/** Expose a tool that runs Playwright code against the browser session. */
@@ -128,13 +142,24 @@ class CuaRuntimeController {
 			client: Kernel;
 			model: CuaRuntimeInput;
 			extraTools?: AgentTool[];
+			mode?: CuaMode;
+			nativeTool?: CuaNativeToolSpec;
+			javascriptExec?: boolean;
 			computerUseExtra?: boolean;
 			playwright?: boolean;
 			onPayload?: SimpleStreamOptions["onPayload"];
 		},
 	) {
-		this.runtimeSpec = resolveCuaRuntimeSpec(options.model);
+		this.runtimeSpec = this.resolveSpec(options.model);
 		this.translator = this.createTranslator();
+	}
+
+	private resolveSpec(model: CuaRuntimeInput): CuaRuntimeSpec {
+		return resolveCuaRuntimeSpec(model, {
+			mode: this.options.mode,
+			nativeTool: this.options.nativeTool,
+			javascriptExec: this.options.javascriptExec,
+		});
 	}
 
 	get model(): Model<Api> {
@@ -146,7 +171,7 @@ class CuaRuntimeController {
 	}
 
 	setModel(model: CuaRuntimeInput): void {
-		this.runtimeSpec = resolveCuaRuntimeSpec(model);
+		this.runtimeSpec = this.resolveSpec(model);
 		this.translator = this.createTranslator();
 	}
 
@@ -155,6 +180,7 @@ class CuaRuntimeController {
 			...buildCuaComputerTools(
 				{
 					toolExecutors: this.runtimeSpec.toolExecutors,
+					mode: this.runtimeSpec.mode,
 					computerUseExtra: this.options.computerUseExtra,
 					playwright: this.options.playwright,
 				},
@@ -221,6 +247,9 @@ export class CuaAgent extends Agent {
 			streamFn,
 			prepareNextTurn,
 			extraTools,
+			mode,
+			nativeTool,
+			javascriptExec,
 			computerUseExtra,
 			playwright,
 			...agentOptions
@@ -230,6 +259,9 @@ export class CuaAgent extends Agent {
 			client,
 			model: initialState.model,
 			extraTools,
+			mode,
+			nativeTool,
+			javascriptExec,
 			computerUseExtra,
 			playwright,
 			onPayload,
@@ -347,6 +379,9 @@ export class CuaAgentHarness<
 			model,
 			models,
 			extraTools,
+			mode,
+			nativeTool,
+			javascriptExec,
 			computerUseExtra,
 			playwright,
 			systemPrompt,
@@ -359,6 +394,9 @@ export class CuaAgentHarness<
 			client,
 			model,
 			extraTools,
+			mode,
+			nativeTool,
+			javascriptExec,
 			computerUseExtra,
 			playwright,
 			onPayload,

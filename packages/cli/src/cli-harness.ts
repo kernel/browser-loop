@@ -7,7 +7,9 @@ import {
 	type Skill,
 } from "@onkernel/cua-agent";
 import {
+	type CuaMode,
 	type CuaModelRef,
+	type CuaNativeToolSpec,
 	parseCuaModelRef,
 	requireCuaEnvApiKey,
 } from "@onkernel/cua-ai";
@@ -177,6 +179,9 @@ export interface HarnessCliFlags {
 	jsonlIncludeDeltas: boolean;
 	jsonlIncludeImages: boolean;
 	playwright: boolean;
+	mode?: string;
+	nativeTool?: string;
+	jsExec?: boolean;
 	model?: string;
 	thinking?: string;
 	browserProfile?: string;
@@ -414,6 +419,9 @@ async function setupHarnessRuntime(
 		skills,
 		contextFiles,
 		thinkingLevel,
+		mode: parseMode(flags.mode),
+		nativeTool: parseNativeTool(flags.nativeTool, flags.jsExec),
+		javascriptExec: flags.jsExec,
 		playwright: flags.playwright,
 		modelBaseUrl: baseUrlOverride,
 	});
@@ -443,6 +451,23 @@ function providerBaseUrlOverride(provider: string): string | undefined {
 	const envName = `${provider.toUpperCase()}_BASE_URL`;
 	const value = process.env[envName]?.trim();
 	return value && value.length > 0 ? value : undefined;
+}
+
+function parseMode(raw: string | undefined): CuaMode | undefined {
+	if (raw === undefined) return undefined;
+	const value = raw.trim().toLowerCase();
+	if (value === "os" || value === "dom" || value === "hybrid") return value;
+	throw new Error(`invalid --mode value "${raw}"; expected one of: os | dom | hybrid`);
+}
+
+function parseNativeTool(raw: string | undefined, jsExec: boolean | undefined): CuaNativeToolSpec | undefined {
+	if (raw === undefined) return undefined;
+	const value = raw.trim().toLowerCase();
+	// enable_zoom follows Anthropic's own recommendation for fine-grained
+	// visual targeting; the executor implements the zoom crop locally.
+	if (value === "computer_20260601") return { type: "computer_20260601", enable_zoom: true };
+	if (value === "browser_20260701") return { type: "browser_20260701", ...(jsExec ? { enable_javascript_exec: true } : {}) };
+	throw new Error(`invalid --native-tool value "${raw}"; expected one of: computer_20260601 | browser_20260701`);
 }
 
 function mapThinkingLevel(raw: string | undefined): "off" | "minimal" | "low" | "medium" | "high" | "xhigh" {
