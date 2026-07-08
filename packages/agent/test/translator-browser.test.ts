@@ -268,6 +268,17 @@ describe("BrowserExecutor ref lifecycle", () => {
 		expect(refsOf(executor).size).toBe(0);
 	});
 
+	it("does not let a same-document navigation suppress the next real navigation's invalidation", async () => {
+		const { cdp, emit } = createFakeCdp(BUTTON_TREE);
+		const executor = new BrowserExecutor(cdp);
+		await executor.execute({ type: "browser_navigate", url: "https://a.test/#section" } as CuaBrowserAction);
+		emit({ method: "Page.navigatedWithinDocument", params: { frameId: "TARGET-1", url: "https://a.test/#section" }, sessionId: "session-1" });
+		await snapshotText(executor);
+
+		emit({ method: "Page.frameNavigated", params: { frame: { id: "TARGET-1" } }, sessionId: "session-1" });
+		await expect(executor.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction)).rejects.toThrow(/stale/);
+	});
+
 	it("does not double-bump the generation for its own navigate", async () => {
 		const { cdp, emit } = createFakeCdp(BUTTON_TREE);
 		const executor = new BrowserExecutor(cdp);
@@ -335,9 +346,61 @@ describe("BrowserExecutor snapshot rendering", () => {
 		const text = await snapshotText(executor);
 		expect(text).toContain('checkbox "Terms" [e1] [checked, required]');
 		expect(text).toContain('checkbox "Maybe" [e2] [checked=mixed]');
-		expect(text).toContain('button "Save" [e3] [disabled]');
-		expect(text).not.toContain("expanded");
+		expect(text).toContain('button "Save" [e3] [disabled, expanded=false]');
 		expect(text).toContain('textbox "Email" [e4] [value="a@b.c"]');
+	});
+
+	it("renders false checked state, expanded, pressed, selected, and heading level", async () => {
+		const tree = [
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "3", "4", "5"] }),
+			ax({ nodeId: "2", role: "radio", name: "Solo", backendDOMNodeId: 10, parentId: "1", properties: [{ name: "checked", value: "false" }] }),
+			ax({ nodeId: "3", role: "button", name: "Bold", backendDOMNodeId: 11, parentId: "1", properties: [{ name: "pressed", value: "true" }] }),
+			ax({
+				nodeId: "4",
+				role: "tab",
+				name: "Overview",
+				backendDOMNodeId: 12,
+				parentId: "1",
+				properties: [{ name: "selected", value: true }, { name: "expanded", value: true }],
+			}),
+			ax({ nodeId: "5", role: "heading", name: "Pricing", backendDOMNodeId: 13, parentId: "1", properties: [{ name: "level", value: 2 }] }),
+		];
+		const { cdp } = createFakeCdp(tree);
+		const executor = new BrowserExecutor(cdp);
+		const text = await snapshotText(executor);
+		expect(text).toContain('radio "Solo" [e1] [checked=false]');
+		expect(text).toContain('button "Bold" [e2] [pressed]');
+		expect(text).toContain('tab "Overview" [e3] [selected, expanded]');
+		expect(text).toContain('heading "Pricing" [e4] [level=2]');
+	});
+
+	it("merges consecutive StaticText siblings into one line", async () => {
+		const tree = [
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "3", "4"] }),
+			ax({ nodeId: "2", role: "StaticText", name: "Fast", parentId: "1" }),
+			ax({ nodeId: "3", role: "StaticText", name: "browsers", parentId: "1" }),
+			ax({ nodeId: "4", role: "button", name: "Go", backendDOMNodeId: 42, parentId: "1" }),
+		];
+		const { cdp } = createFakeCdp(tree);
+		const executor = new BrowserExecutor(cdp);
+		expect(await snapshotText(executor)).toBe('RootWebArea "Page"\n  StaticText "Fast browsers"\n  button "Go" [e1]');
+	});
+
+	it("scopes a snapshot to a named content role's ref", async () => {
+		const tree = [
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "4"] }),
+			ax({ nodeId: "2", role: "navigation", name: "Menu", backendDOMNodeId: 30, parentId: "1", childIds: ["3"] }),
+			ax({ nodeId: "3", role: "link", name: "Home", backendDOMNodeId: 31, parentId: "2" }),
+			ax({ nodeId: "4", role: "button", name: "Save", backendDOMNodeId: 32, parentId: "1" }),
+		];
+		const { cdp } = createFakeCdp(tree);
+		const executor = new BrowserExecutor(cdp);
+		const full = await snapshotText(executor);
+		expect(full).toContain('navigation "Menu" [e1]');
+		const scoped = await snapshotText(executor, { ref: "e1" });
+		expect(scoped).toContain('navigation "Menu"');
+		expect(scoped).toContain('link "Home"');
+		expect(scoped).not.toContain('button "Save"');
 	});
 
 	it("skips StaticText duplicating the parent name and collapses wrappers without losing text", async () => {
@@ -372,6 +435,39 @@ describe("BrowserExecutor stale-ref self-healing", () => {
 		expect(sent.some((cmd) => cmd.method === "Input.dispatchMouseEvent")).toBe(true);
 	});
 
+	it("heals a duplicate ref by position when the cohort size is unchanged", async () => {
+		const { cdp, sent, setNodes } = createFakeCdp([
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "3"] }),
+			ax({ nodeId: "2", role: "button", name: "Save", backendDOMNodeId: 42, parentId: "1" }),
+			ax({ nodeId: "3", role: "button", name: "Save", backendDOMNodeId: 43, parentId: "1" }),
+		]);
+		const executor = new BrowserExecutor(cdp);
+		await snapshotText(executor);
+		setNodes([
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "3"] }),
+			ax({ nodeId: "2", role: "button", name: "Save", backendDOMNodeId: 99, parentId: "1" }),
+			ax({ nodeId: "3", role: "button", name: "Save", backendDOMNodeId: 100, parentId: "1" }),
+		]);
+		await executor.execute({ type: "browser_click", ref: "e2" } as CuaBrowserAction);
+		expect(sent.some((cmd) => cmd.method === "DOM.scrollIntoViewIfNeeded" && cmd.params.backendNodeId === 100)).toBe(true);
+	});
+
+	it("heals a stale ref on browser_fill and retries the resolve", async () => {
+		const { cdp, sent, setNodes } = createFakeCdp([
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),
+			ax({ nodeId: "2", role: "textbox", name: "Email", backendDOMNodeId: 42, parentId: "1" }),
+		]);
+		const executor = new BrowserExecutor(cdp);
+		await snapshotText(executor);
+		setNodes([
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),
+			ax({ nodeId: "2", role: "textbox", name: "Email", backendDOMNodeId: 99, parentId: "1" }),
+		]);
+		await executor.execute({ type: "browser_fill", ref: "e1", value: "a@b.c" } as CuaBrowserAction);
+		expect(sent.some((cmd) => cmd.method === "DOM.resolveNode" && cmd.params.backendNodeId === 99)).toBe(true);
+		expect(sent.some((cmd) => cmd.method === "Runtime.callFunctionOn")).toBe(true);
+	});
+
 	it("refuses to heal when multiple nodes match the stored role and name", async () => {
 		const { cdp, setNodes } = createFakeCdp(BUTTON_TREE);
 		const executor = new BrowserExecutor(cdp);
@@ -384,7 +480,7 @@ describe("BrowserExecutor stale-ref self-healing", () => {
 		await expect(executor.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction)).rejects.toThrow(/stale/);
 	});
 
-	it("refuses to heal a ref minted as a later duplicate", async () => {
+	it("refuses to heal a duplicate ref when the cohort shrank", async () => {
 		const { cdp, setNodes } = createFakeCdp([
 			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "3"] }),
 			ax({ nodeId: "2", role: "button", name: "Save", backendDOMNodeId: 42, parentId: "1" }),
@@ -423,7 +519,7 @@ describe("BrowserExecutor cursor-pointer hints", () => {
 		const text = await snapshotText(executor);
 		expect(text).toContain('generic "Buy now" [e1] [cursor:pointer]');
 		expect(sent.some((cmd) => cmd.method === "DOM.describeNode")).toBe(true);
-		expect(sent.some((cmd) => cmd.method === "Runtime.releaseObject")).toBe(true);
+		expect(sent.some((cmd) => cmd.method === "Runtime.releaseObjectGroup")).toBe(true);
 	});
 
 	it("only enables cursor hints on the executor in browser mode", () => {
@@ -452,20 +548,38 @@ describe("BrowserExecutor cursor-pointer hints", () => {
 });
 
 describe("BrowserExecutor dialog guard", () => {
-	it("auto-dismisses JavaScript dialogs and surfaces the message on the next action", async () => {
+	it("dismisses confirm/prompt dialogs and surfaces the message on the next action", async () => {
 		const { cdp, emit, sent } = createFakeCdp();
 		const executor = new BrowserExecutor(cdp);
 		await executor.execute({ type: "browser_text" } as CuaBrowserAction);
 
-		emit({ method: "Page.javascriptDialogOpening", params: { type: "confirm", message: "Leave page?" }, sessionId: "session-1" });
+		emit({ method: "Page.javascriptDialogOpening", params: { type: "confirm", message: "Delete item?" }, sessionId: "session-1" });
 		const handled = sent.find((cmd) => cmd.method === "Page.handleJavaScriptDialog");
 		expect(handled).toEqual({ method: "Page.handleJavaScriptDialog", params: { accept: false }, sessionId: "session-1" });
 
 		const results = await executor.execute({ type: "browser_text" } as CuaBrowserAction);
 		expect(results).toEqual([
 			{ type: "browser_text", label: "text", text: "hello" },
-			{ type: "browser_text", label: "dialog", text: 'Auto-dismissed a JavaScript confirm dialog: "Leave page?"' },
+			{ type: "browser_text", label: "dialog", text: 'Dismissed a JavaScript confirm dialog (answered No/cancel): "Delete item?"' },
 		]);
+	});
+
+	it("accepts alert and beforeunload dialogs so navigation can proceed", async () => {
+		const { cdp, emit, sent } = createFakeCdp();
+		const executor = new BrowserExecutor(cdp);
+		await executor.execute({ type: "browser_text" } as CuaBrowserAction);
+
+		emit({ method: "Page.javascriptDialogOpening", params: { type: "beforeunload", message: "" }, sessionId: "session-1" });
+		emit({ method: "Page.javascriptDialogOpening", params: { type: "alert", message: "Saved!" }, sessionId: "session-1" });
+		const handled = sent.filter((cmd) => cmd.method === "Page.handleJavaScriptDialog");
+		expect(handled.map((cmd) => cmd.params)).toEqual([{ accept: true }, { accept: true }]);
+
+		const results = await executor.execute({ type: "browser_text" } as CuaBrowserAction);
+		expect(results[1]).toEqual({
+			type: "browser_text",
+			label: "dialog",
+			text: 'Accepted a beforeunload dialog so navigation could proceed: ""\nAcknowledged a JavaScript alert dialog: "Saved!"',
+		});
 	});
 });
 
@@ -507,11 +621,11 @@ describe("BrowserExecutor iframe stitching", () => {
 		]);
 		const executor = new BrowserExecutor(cdp);
 		const text = await snapshotText(executor);
-		expect(text).toBe(['RootWebArea "Page"', "  Iframe", '    RootWebArea "Embed"', '      button "Inside" [e1]'].join("\n"));
-		await executor.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction);
+		expect(text).toBe(['RootWebArea "Page"', "  Iframe [e1]", '    RootWebArea "Embed"', '      button "Inside" [e2]'].join("\n"));
+		await executor.execute({ type: "browser_click", ref: "e2" } as CuaBrowserAction);
 
 		emit({ method: "Page.frameNavigated", params: { frame: { id: "FRAME-SP", parentId: "F0" } }, sessionId: "session-1" });
-		await expect(executor.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction)).rejects.toThrow(/stale/);
+		await expect(executor.execute({ type: "browser_click", ref: "e2" } as CuaBrowserAction)).rejects.toThrow(/stale/);
 	});
 
 	const OOPIF_PAGE = [
@@ -531,18 +645,18 @@ describe("BrowserExecutor iframe stitching", () => {
 		return fake;
 	};
 
-	it("resolves a ref inside an OOPIF through the child frame's session", async () => {
+	it("resolves an OOPIF ref's node through the child session but dispatches input on the page session", async () => {
 		const { cdp, sent } = setupOopif();
 		const executor = new BrowserExecutor(cdp);
 		const text = await snapshotText(executor);
 		expect(text).toContain('button "Top" [e1]');
-		expect(text).toContain('      button "Pay" [e2]');
+		expect(text).toContain('      button "Pay" [e3]');
 
-		await executor.execute({ type: "browser_click", ref: "e2" } as CuaBrowserAction);
+		await executor.execute({ type: "browser_click", ref: "e3" } as CuaBrowserAction);
 		const scrolled = sent.find((cmd) => cmd.method === "DOM.scrollIntoViewIfNeeded" && cmd.params.backendNodeId === 70);
 		expect(scrolled?.sessionId).toBe("session-oop");
 		const pressed = sent.find((cmd) => cmd.method === "Input.dispatchMouseEvent" && cmd.params.type === "mousePressed");
-		expect(pressed?.sessionId).toBe("session-oop");
+		expect(pressed?.sessionId).toBe("session-1");
 	});
 
 	it("invalidates only the child frame's refs when the child frame navigates", async () => {
@@ -551,7 +665,7 @@ describe("BrowserExecutor iframe stitching", () => {
 		await snapshotText(executor);
 
 		emit({ method: "Page.frameNavigated", params: { frame: { id: "FRAME-OOP" } }, sessionId: "session-oop" });
-		await expect(executor.execute({ type: "browser_click", ref: "e2" } as CuaBrowserAction)).rejects.toThrow(/stale/);
+		await expect(executor.execute({ type: "browser_click", ref: "e3" } as CuaBrowserAction)).rejects.toThrow(/stale/);
 		await executor.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction);
 
 		const text = await snapshotText(executor);

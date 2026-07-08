@@ -18,6 +18,7 @@ import type { BatchReadResult } from "./types";
 const SNAPSHOT_CHAR_LIMIT = 50_000;
 const DEFAULT_SNAPSHOT_DEPTH = 15;
 const FIND_MATCH_LIMIT = 20;
+const REF_LIMIT_PER_TARGET = 1000;
 const SCROLL_NOTCH_PX = 120;
 
 const STALE_REF_HINT = "Call snapshot (or find) to get fresh element references.";
@@ -47,6 +48,13 @@ interface RefEntry {
 	role: string;
 	name: string;
 	nth: number;
+	/** Size of the (role, name) cohort in the tree the ref was minted from. */
+	cohort: number;
+}
+
+interface NthIndex {
+	index: Map<string, number>;
+	cohorts: Map<string, number>;
 }
 
 interface RenderContext {
@@ -55,7 +63,7 @@ interface RenderContext {
 	sessionId: string;
 	generation: number;
 	interactiveOnly: boolean;
-	nthIndex: Map<string, number>;
+	nthIndex: NthIndex;
 	cursorIds?: ReadonlySet<number>;
 }
 
@@ -89,7 +97,7 @@ export interface BrowserExecutorOptions {
  * A ref whose backend node vanished without a navigation (DOM churn) is
  * self-healed: the AX tree is re-fetched and the ref re-resolved by the
  * (role, name, nth) triple recorded at mint time, but only when the fresh
- * match is unambiguous.
+ * cohort has the same size as at mint time.
  *
  * Snapshots stitch iframe content under each iframe node: same-process
  * frames via the page session's AX tree with a frameId, out-of-process
@@ -99,9 +107,10 @@ export interface BrowserExecutorOptions {
  * an unchanged page with the same params returns a short unchanged notice
  * instead of the full tree.
  *
- * Native JavaScript dialogs (alert/confirm/prompt) are auto-dismissed so
- * they never wedge the CDP session; the dialog message is surfaced as an
- * extra read result on the next executed action.
+ * Native JavaScript dialogs are auto-handled so they never wedge the CDP
+ * session: alert and beforeunload dialogs are accepted (so navigation can
+ * proceed), confirm and prompt dialogs are dismissed. The dialog message
+ * is surfaced as an extra read result on the next executed action.
  */
 export class BrowserExecutor {
 	private readonly refs = new Map<string, RefEntry>();
@@ -142,6 +151,15 @@ export class BrowserExecutor {
 				if (!this.selfNavigations.delete(targetId)) this.invalidateRefs(targetId);
 				return;
 			}
+			case "Page.navigatedWithinDocument": {
+				// A navigate() that turns out same-document never fires frameNavigated;
+				// consume the pending flag here so it can't swallow the next real navigation.
+				if (!event.sessionId) return;
+				const targetId = this.targetsBySession.get(event.sessionId);
+				const { frameId } = event.params as { frameId?: string };
+				if (targetId && frameId === targetId) this.selfNavigations.delete(targetId);
+				return;
+			}
 			case "Target.attachedToTarget": {
 				const { sessionId, targetInfo } = event.params as { sessionId?: string; targetInfo?: { targetId?: string; type?: string } };
 				if (!sessionId || !targetInfo?.targetId || targetInfo.type !== "iframe") return;
@@ -154,8 +172,15 @@ export class BrowserExecutor {
 			case "Page.javascriptDialogOpening": {
 				if (!event.sessionId) return;
 				const { type, message } = event.params as { type?: string; message?: string };
-				void this.cdp.send("Page.handleJavaScriptDialog", { accept: false }, event.sessionId).catch(() => {});
-				this.dialogNotes.push(`Auto-dismissed a JavaScript ${type ?? "dialog"} dialog: ${JSON.stringify(message ?? "")}`);
+				const accept = type === "alert" || type === "beforeunload";
+				void this.cdp.send("Page.handleJavaScriptDialog", { accept }, event.sessionId).catch(() => {});
+				const summary =
+					type === "beforeunload"
+						? "Accepted a beforeunload dialog so navigation could proceed"
+						: accept
+							? "Acknowledged a JavaScript alert dialog"
+							: `Dismissed a JavaScript ${type ?? "dialog"} dialog (answered No/cancel)`;
+				this.dialogNotes.push(`${summary}: ${JSON.stringify(message ?? "")}`);
 				return;
 			}
 			case "Target.detachedFromTarget": {
@@ -290,7 +315,18 @@ export class BrowserExecutor {
 				return;
 			}
 			const name = node.name?.value ?? "";
-			for (const childId of node.childIds ?? []) walk(tree, treeCtx, childId, childDepth, name || parentName);
+			const childName = name || parentName;
+			const childIds = node.childIds ?? [];
+			for (let i = 0; i < childIds.length; i += 1) {
+				const run = staticTextRun(tree, childIds, i);
+				if (run) {
+					const rendered = this.renderNode(run.node, childDepth, childName, treeCtx);
+					if (rendered) lines.push({ ...rendered, ctx: treeCtx });
+					i = run.end;
+					continue;
+				}
+				walk(tree, treeCtx, childIds[i]!, childDepth, childName);
+			}
 		};
 		for (const rootId of rootIds) walk(byId, ctx, rootId, 0, "");
 
@@ -301,12 +337,16 @@ export class BrowserExecutor {
 		this.lastSnapshots.set(targetId, { key, shape });
 		if (cached && cached.key === key && cached.shape === shape) return UNCHANGED_SNAPSHOT;
 
-		let text = lines
-			.map((line) => (line.refNode ? line.text.replace(REF_PLACEHOLDER, this.mintRef(line.refNode, line.ctx)) : line.text))
-			.join("\n");
+		let text = "";
+		for (const line of lines) {
+			if (text.length > SNAPSHOT_CHAR_LIMIT) break;
+			const rendered = line.refNode ? line.text.replace(REF_PLACEHOLDER, this.mintRef(line.refNode, line.ctx)) : line.text;
+			text = text ? `${text}\n${rendered}` : rendered;
+		}
 		if (text.length > SNAPSHOT_CHAR_LIMIT) {
 			text = `${text.slice(0, SNAPSHOT_CHAR_LIMIT)}\n… truncated at ${SNAPSHOT_CHAR_LIMIT} characters. Re-request with a smaller depth, filter: "interactive", or a ref to narrow the subtree.`;
 		}
+		this.pruneRefs(targetId);
 		return text || "(empty accessibility tree)";
 	}
 
@@ -320,7 +360,8 @@ export class BrowserExecutor {
 		if (!ctx.interactiveOnly && !name && !interactive && !pointer && SKIPPED_ROLES.has(role)) return undefined;
 		let line = `${"  ".repeat(Math.min(depth, 20))}${role || "node"}${name ? ` ${JSON.stringify(name)}` : ""}`;
 		let refNode: AXNode | undefined;
-		if (node.backendDOMNodeId !== undefined && (interactive || pointer)) {
+		const refWorthy = interactive || pointer || FRAME_ROLES.has(role) || (name !== "" && CONTENT_ROLES.has(role));
+		if (node.backendDOMNodeId !== undefined && refWorthy) {
 			line += ` [${REF_PLACEHOLDER}]`;
 			refNode = node;
 		}
@@ -351,7 +392,7 @@ export class BrowserExecutor {
 	): Promise<Map<number, FrameStitch>> {
 		const stitches = new Map<number, FrameStitch>();
 		for (const node of nodes) {
-			if (node.ignored || node.role?.value !== "Iframe" || node.backendDOMNodeId === undefined) continue;
+			if (node.ignored || !FRAME_ROLES.has(node.role?.value ?? "") || node.backendDOMNodeId === undefined) continue;
 			try {
 				const { node: dom } = await this.cdp.send<{ node: { frameId?: string; contentDocument?: { frameId?: string } } }>(
 					"DOM.describeNode",
@@ -385,22 +426,28 @@ export class BrowserExecutor {
 		const ids = new Set<number>();
 		const { result } = await this.cdp.send<{ result: { objectId?: string } }>(
 			"Runtime.evaluate",
-			{ expression: CURSOR_POINTER_SCAN, returnByValue: false },
+			{ expression: CURSOR_POINTER_SCAN, returnByValue: false, objectGroup: CURSOR_SCAN_GROUP },
 			session,
 		);
 		if (!result.objectId) return ids;
-		const { result: properties } = await this.cdp.send<{ result: Array<{ name: string; value?: { objectId?: string } }> }>(
-			"Runtime.getProperties",
-			{ objectId: result.objectId, ownProperties: true },
-			session,
-		);
-		for (const property of properties) {
-			const objectId = property.value?.objectId;
-			if (!/^\d+$/.test(property.name) || !objectId) continue;
-			const { node } = await this.cdp.send<{ node: { backendNodeId?: number } }>("DOM.describeNode", { objectId }, session);
-			if (node.backendNodeId !== undefined) ids.add(node.backendNodeId);
+		try {
+			const { result: properties } = await this.cdp.send<{ result: Array<{ name: string; value?: { objectId?: string } }> }>(
+				"Runtime.getProperties",
+				{ objectId: result.objectId, ownProperties: true },
+				session,
+			);
+			const objectIds = properties
+				.filter((property) => /^\d+$/.test(property.name) && property.value?.objectId)
+				.map((property) => property.value!.objectId!);
+			const described = await Promise.all(
+				objectIds.map((objectId) => this.cdp.send<{ node: { backendNodeId?: number } }>("DOM.describeNode", { objectId }, session)),
+			);
+			for (const { node } of described) {
+				if (node.backendNodeId !== undefined) ids.add(node.backendNodeId);
+			}
+		} finally {
+			await this.cdp.send("Runtime.releaseObjectGroup", { objectGroup: CURSOR_SCAN_GROUP }, session).catch(() => {});
 		}
-		await this.cdp.send("Runtime.releaseObject", { objectId: result.objectId }, session);
 		return ids;
 	}
 
@@ -424,13 +471,15 @@ export class BrowserExecutor {
 			interactiveOnly: false,
 			nthIndex: buildNthIndex(nodes),
 		};
-		return scored
+		const text = scored
 			.map(({ node }) => {
 				const role = node.role?.value ?? "node";
 				const name = node.name?.value ? ` ${JSON.stringify(node.name.value)}` : "";
 				return `${role}${name} [${this.mintRef(node, ctx)}]`;
 			})
 			.join("\n");
+		this.pruneRefs(targetId);
+		return text;
 	}
 
 	private async click(action: CuaActionBrowserClick): Promise<void> {
@@ -599,7 +648,9 @@ export class BrowserExecutor {
 				entry.sessionId,
 			);
 			const quad = model.content;
-			return { x: (quad[0]! + quad[4]!) / 2, y: (quad[1]! + quad[5]!) / 2, session: entry.sessionId };
+			// Box-model quads are main-viewport coordinates even through an OOPIF's
+			// session, so input always dispatches on the page target's session.
+			return { x: (quad[0]! + quad[4]!) / 2, y: (quad[1]! + quad[5]!) / 2, session };
 		}
 		if (typeof action.x === "number" && typeof action.y === "number") return { x: action.x, y: action.y, session };
 		throw new Error("page target required: pass a ref or viewport coordinates");
@@ -640,8 +691,8 @@ export class BrowserExecutor {
 
 	/**
 	 * Re-resolve a stale entry by its (role, name, nth) triple against a fresh
-	 * AX tree. Heals only the unambiguous case — the ref was minted as the
-	 * first of its role+name cohort and exactly one fresh node matches.
+	 * AX tree. Heals only when the fresh role+name cohort has the same size as
+	 * at mint time, so the nth position still identifies the same element.
 	 */
 	private healEntry(ref: string, entry: RefEntry, nodes: AXNode[], cause?: unknown): AXNode {
 		const candidates = nodes.filter(
@@ -651,13 +702,18 @@ export class BrowserExecutor {
 				(node.role?.value ?? "") === entry.role &&
 				(node.name?.value ?? "") === entry.name,
 		);
-		const match = candidates.length === 1 && entry.nth === 0 && (entry.role || entry.name) ? candidates[0] : undefined;
+		const match =
+			(entry.role || entry.name) && candidates.length === entry.cohort && entry.nth < candidates.length
+				? candidates[entry.nth]
+				: undefined;
 		if (!match) throw staleRefError(ref, cause);
 		entry.backendNodeId = match.backendDOMNodeId!;
 		return match;
 	}
 
 	private mintRef(node: AXNode, ctx: RenderContext): string {
+		const role = node.role?.value ?? "";
+		const name = node.name?.value ?? "";
 		this.refCounter += 1;
 		const ref = `e${this.refCounter}`;
 		this.refs.set(ref, {
@@ -666,15 +722,18 @@ export class BrowserExecutor {
 			frameId: ctx.frameKey,
 			sessionId: ctx.sessionId,
 			generation: ctx.generation,
-			role: node.role?.value ?? "",
-			name: node.name?.value ?? "",
-			nth: ctx.nthIndex.get(node.nodeId) ?? 0,
+			role,
+			name,
+			nth: ctx.nthIndex.index.get(node.nodeId) ?? 0,
+			cohort: ctx.nthIndex.cohorts.get(cohortKey(role, name)) ?? 1,
 		});
 		return ref;
 	}
 
 	private resolveRef(ref: string, targetId: string): RefEntry {
 		const entry = this.refs.get(ref);
+		// Entries are deleted eagerly on invalidation; the generation check only
+		// guards refs resolved while a navigation event is still in flight.
 		if (!entry || entry.targetId !== targetId || entry.generation !== this.generation(entry.frameId)) {
 			throw staleRefError(ref);
 		}
@@ -693,10 +752,16 @@ export class BrowserExecutor {
 	}
 
 	private invalidateFrame(frameKey: string): void {
-		this.generations.set(frameKey, this.generation(frameKey) + 1);
+		let tracked = this.generations.has(frameKey) || this.frameSessions.has(frameKey);
 		for (const [ref, entry] of this.refs) {
-			if (entry.frameId === frameKey) this.refs.delete(ref);
+			if (entry.frameId === frameKey) {
+				this.refs.delete(ref);
+				tracked = true;
+			}
 		}
+		// Frames we never referenced don't get a generation entry, or pages with
+		// rotating ad iframes would grow the map without bound.
+		if (tracked) this.generations.set(frameKey, this.generation(frameKey) + 1);
 	}
 
 	private dropTarget(targetId: string): void {
@@ -706,8 +771,20 @@ export class BrowserExecutor {
 		this.frameSessions.delete(targetId);
 		this.frameTargets.delete(targetId);
 		for (const [ref, entry] of this.refs) {
-			if (entry.targetId === targetId || entry.frameId === targetId) this.refs.delete(ref);
+			if (entry.targetId === targetId || entry.frameId === targetId) {
+				if (entry.frameId !== targetId) this.generations.delete(entry.frameId);
+				this.refs.delete(ref);
+			}
 		}
+	}
+
+	/** SPAs can mint refs indefinitely without ever navigating; bound per-target growth by evicting the oldest. */
+	private pruneRefs(targetId: string): void {
+		const owned: string[] = [];
+		for (const [ref, entry] of this.refs) {
+			if (entry.targetId === targetId) owned.push(ref);
+		}
+		for (const ref of owned.slice(0, Math.max(0, owned.length - REF_LIMIT_PER_TARGET))) this.refs.delete(ref);
 	}
 
 	private drainDialogNotes(): string | undefined {
@@ -757,17 +834,37 @@ function staleRefError(ref: string, cause?: unknown): Error {
 }
 
 /** Index each ref-eligible node by its position among nodes with the same role and name, in tree order. */
-function buildNthIndex(nodes: AXNode[]): Map<string, number> {
-	const counts = new Map<string, number>();
+function buildNthIndex(nodes: AXNode[]): NthIndex {
+	const cohorts = new Map<string, number>();
 	const index = new Map<string, number>();
 	for (const node of nodes) {
 		if (node.ignored || node.backendDOMNodeId === undefined) continue;
-		const key = `${node.role?.value ?? ""}\u0000${node.name?.value ?? ""}`;
-		const nth = counts.get(key) ?? 0;
-		counts.set(key, nth + 1);
+		const key = cohortKey(node.role?.value ?? "", node.name?.value ?? "");
+		const nth = cohorts.get(key) ?? 0;
+		cohorts.set(key, nth + 1);
 		index.set(node.nodeId, nth);
 	}
-	return index;
+	return { index, cohorts };
+}
+
+function cohortKey(role: string, name: string): string {
+	return `${role}\u0000${name}`;
+}
+
+/** Merge a run of two or more consecutive StaticText siblings (text split by inline markup) into one node. */
+function staticTextRun(tree: Map<string, AXNode>, childIds: string[], start: number): { node: AXNode; end: number } | undefined {
+	let end = start;
+	const parts: string[] = [];
+	while (end < childIds.length) {
+		const node = tree.get(childIds[end]!);
+		if (!node || node.ignored || node.role?.value !== "StaticText") break;
+		const text = node.name?.value ?? "";
+		if (text) parts.push(text);
+		end += 1;
+	}
+	if (end - start < 2) return undefined;
+	const first = tree.get(childIds[start]!)!;
+	return { node: { ...first, name: { value: parts.join(" ") }, childIds: [] }, end: end - 1 };
 }
 
 function collectStates(node: AXNode): string[] {
@@ -777,14 +874,20 @@ function collectStates(node: AXNode): string[] {
 		switch (property.name) {
 			case "checked":
 			case "pressed":
+			case "expanded":
+				// False is meaningful here: it distinguishes an unchecked checkbox or
+				// collapsed disclosure from an element without the state at all.
 				if (value === true || value === "true") states.push(property.name);
+				else if (value === false || value === "false") states.push(`${property.name}=false`);
 				else if (value === "mixed") states.push(`${property.name}=mixed`);
 				break;
-			case "expanded":
 			case "disabled":
 			case "selected":
 			case "required":
 				if (value === true || value === "true") states.push(property.name);
+				break;
+			case "level":
+				if (typeof value === "number") states.push(`level=${value}`);
 				break;
 		}
 	}
@@ -927,6 +1030,31 @@ const INTERACTIVE_ROLES: ReadonlySet<string> = new Set([
 ]);
 
 const SKIPPED_ROLES: ReadonlySet<string> = new Set(["none", "generic", "InlineTextBox", "LineBreak", "StaticText"]);
+
+const FRAME_ROLES: ReadonlySet<string> = new Set(["Iframe", "IframePresentational"]);
+
+/** Non-interactive roles that get refs when named, so scroll_to / ref-scoped snapshots can target them. */
+const CONTENT_ROLES: ReadonlySet<string> = new Set([
+	"heading",
+	"cell",
+	"gridcell",
+	"columnheader",
+	"rowheader",
+	"row",
+	"listitem",
+	"article",
+	"region",
+	"main",
+	"navigation",
+	"banner",
+	"contentinfo",
+	"complementary",
+	"tabpanel",
+	"figure",
+	"image",
+]);
+
+const CURSOR_SCAN_GROUP = "cua-cursor-scan";
 
 const CURSOR_POINTER_SCAN = `(() => {
 	const matches = [];

@@ -123,7 +123,8 @@ const BROWSER_ACTION_DESCRIPTIONS: Record<CuaBrowserActionType, string> = {
 		"Use the refs to target elements in other page tools. Refs are only valid until the page changes; re-snapshot when told a ref is stale. " +
 		"If the page has not changed since your previous snapshot, a short unchanged notice is returned instead and earlier refs remain valid.",
 	browser_text: "Return the page's visible text content as plain text. Best for articles and text-heavy pages.",
-	browser_find: "Find elements matching a natural-language description and return them with element references, like a filtered snapshot.",
+	browser_find:
+		"Find elements in the main frame matching a natural-language description and return them with element references, like a filtered snapshot.",
 	browser_click: "Click an element. Prefer targeting by element reference from a snapshot.",
 	browser_hover: "Move the pointer over an element without clicking.",
 	browser_drag: "Drag from one viewport coordinate to another.",
