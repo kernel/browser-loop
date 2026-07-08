@@ -52,7 +52,11 @@ const apiKey = requireCuaEnvApiKeyForModel("openai:gpt-5.5"); // throws unless O
 // module so the snippet does not depend on the process working directory.
 const screenshot = await readFile(new URL("./screenshot.png", import.meta.url));
 
-const response = await cuaModels().complete(
+// The default CUA model collection: pi's builtin providers plus Kernel's
+// computer-use providers. Use createCuaModels() for an isolated collection.
+const models = cuaModels();
+
+const response = await models.complete(
   model,
   {
     systemPrompt: "You are a browser automation agent.",
@@ -139,6 +143,7 @@ A minimal two-turn loop:
 ```ts
 import { cuaModels, getCuaModel, openai, requireCuaEnvApiKeyForModel, type Message } from "@onkernel/cua-ai";
 
+const models = cuaModels();
 const model = getCuaModel("openai:gpt-5.5");
 const apiKey = requireCuaEnvApiKeyForModel("openai:gpt-5.5");
 const tools = openai.computerTools({ actions: ["click", "type", "screenshot"] });
@@ -155,7 +160,7 @@ const messages: Message[] = [
 ];
 
 // Turn 1: the model responds with tool calls.
-const first = await cuaModels().complete(model, { messages, tools }, { apiKey });
+const first = await models.complete(model, { messages, tools }, { apiKey });
 if (first.stopReason === "error" || first.stopReason === "aborted") {
   throw new Error(first.errorMessage);
 }
@@ -180,7 +185,7 @@ for (const block of first.content) {
 }
 
 // Turn 2: the model sees the results and plans the next action.
-const second = await cuaModels().complete(model, { messages, tools }, { apiKey });
+const second = await models.complete(model, { messages, tools }, { apiKey });
 ```
 
 ## Core Concepts
