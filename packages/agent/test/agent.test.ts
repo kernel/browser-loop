@@ -161,6 +161,26 @@ describe("CuaAgent", () => {
 		]);
 	});
 
+	it("toggles playwright_execute on and off through setPlaywright", () => {
+		const runtime = resolveCuaRuntimeSpec("openai:gpt-5.5");
+		const baseNames = runtime.toolExecutors.map((tool) => tool.definition.name);
+		const agent = new CuaAgent({
+			browser,
+			client,
+			initialState: {
+				model: "openai:gpt-5.5",
+			},
+		});
+
+		expect(agent.state.tools.map((tool) => tool.name)).toEqual(baseNames);
+
+		agent.setPlaywright(true);
+		expect(agent.state.tools.map((tool) => tool.name)).toEqual([...baseNames, "playwright_execute"]);
+
+		agent.setPlaywright(false);
+		expect(agent.state.tools.map((tool) => tool.name)).toEqual(baseNames);
+	});
+
 	it("refreshes CUA runtime state when state.model changes", () => {
 		const runtime = resolveCuaRuntimeSpec("google:gemini-3-flash-preview");
 		const agent = new CuaAgent({
@@ -375,6 +395,25 @@ describe("CuaAgentHarness", () => {
 		expect(harness).toBeInstanceOf(AgentHarness);
 		expect(harness.getModel().id).toBe("gpt-5.5");
 		expect(harness.getTools().length).toBeGreaterThan(0);
+	});
+
+	it("toggles playwright_execute on and off through harness.setPlaywright", async () => {
+		const runtime = resolveCuaRuntimeSpec("openai:gpt-5.5");
+		const baseNames = runtime.toolExecutors.map((tool) => tool.definition.name);
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "openai:gpt-5.5",
+		});
+
+		expect(harness.getTools().map((tool) => tool.name)).toEqual(baseNames);
+
+		await harness.setPlaywright(true);
+		expect(harness.getTools().map((tool) => tool.name)).toEqual([...baseNames, "playwright_execute"]);
+
+		await harness.setPlaywright(false);
+		expect(harness.getTools().map((tool) => tool.name)).toEqual(baseNames);
 	});
 
 	it("refreshes CUA runtime state through setModel", async () => {

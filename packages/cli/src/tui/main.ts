@@ -311,6 +311,10 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 				await applyCompactCommand(opts, messages);
 				return;
 			}
+			if (parsed?.command === "playwright") {
+				await applyPlaywrightCommand(opts, messages, parsed.argument);
+				return;
+			}
 			if (parsed?.command === "skill") {
 				const skill = (opts.skills ?? []).find((s) => s.name === parsed.name);
 				if (!skill) {
@@ -509,6 +513,24 @@ async function applyThinkingCommand(
 
 function isThinkingLevel(value: string): value is ThinkingLevel {
 	return ["off", "minimal", "low", "medium", "high", "xhigh"].includes(value);
+}
+
+async function applyPlaywrightCommand(
+	opts: InteractiveOptions,
+	messages: MessageList,
+	argument: string,
+): Promise<void> {
+	const value = argument.trim().toLowerCase();
+	if (value !== "on" && value !== "off") {
+		messages.addError("usage: /playwright <on|off>");
+		return;
+	}
+	try {
+		await opts.harness.setPlaywright(value === "on");
+		messages.addNotice(`playwright → ${value}`);
+	} catch (err) {
+		messages.addError((err as Error).message);
+	}
 }
 
 async function applyCompactCommand(opts: InteractiveOptions, messages: MessageList): Promise<void> {

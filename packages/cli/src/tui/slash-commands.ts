@@ -39,6 +39,13 @@ export function buildAutocompleteProvider(
 		description: "Summarize older turns to free context budget",
 	});
 
+	commands.push({
+		name: "playwright",
+		description: "Toggle the playwright_execute tool",
+		argumentHint: "<on|off>",
+		getArgumentCompletions: (prefix: string) => playwrightCompletions(prefix),
+	});
+
 	for (const skill of skills) {
 		commands.push({
 			name: `skill:${skill.name}`,
@@ -73,10 +80,22 @@ function thinkingCompletions(prefix: string): AutocompleteItem[] {
 	return filtered.map((t) => ({ value: t.value, label: t.value, description: t.description }));
 }
 
+const PLAYWRIGHT_TOGGLES: ReadonlyArray<{ value: string; description: string }> = [
+	{ value: "on", description: "Enable the playwright_execute tool" },
+	{ value: "off", description: "Disable the playwright_execute tool" },
+];
+
+function playwrightCompletions(prefix: string): AutocompleteItem[] {
+	const trimmed = prefix.trim().toLowerCase();
+	const filtered = trimmed ? PLAYWRIGHT_TOGGLES.filter((t) => t.value.startsWith(trimmed)) : PLAYWRIGHT_TOGGLES;
+	return filtered.map((t) => ({ value: t.value, label: t.value, description: t.description }));
+}
+
 export type ParsedSlashCommand =
 	| { command: "model"; argument: string }
 	| { command: "thinking"; argument: string }
 	| { command: "compact"; argument: string }
+	| { command: "playwright"; argument: string }
 	| { command: "skill"; name: string; remainder: string };
 
 /**
@@ -91,11 +110,11 @@ export function parseSlashCommand(text: string): ParsedSlashCommand | undefined 
 		const [, name, rest] = skillMatch;
 		return { command: "skill", name: name ?? "", remainder: (rest ?? "").trim() };
 	}
-	const builtinMatch = trimmed.match(/^\/(model|thinking|compact)\s*(.*)$/);
+	const builtinMatch = trimmed.match(/^\/(model|thinking|compact|playwright)\s*(.*)$/);
 	if (builtinMatch) {
 		const [, name, rest] = builtinMatch;
 		return {
-			command: name as "model" | "thinking" | "compact",
+			command: name as "model" | "thinking" | "compact" | "playwright",
 			argument: (rest ?? "").trim(),
 		};
 	}

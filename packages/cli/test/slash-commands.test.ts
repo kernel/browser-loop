@@ -26,6 +26,12 @@ describe("parseSlashCommand", () => {
 		expect(parseSlashCommand("/compact")).toEqual({ command: "compact", argument: "" });
 	});
 
+	it("parses /playwright with on|off arguments", () => {
+		expect(parseSlashCommand("/playwright on")).toEqual({ command: "playwright", argument: "on" });
+		expect(parseSlashCommand("/playwright off")).toEqual({ command: "playwright", argument: "off" });
+		expect(parseSlashCommand("/playwright")).toEqual({ command: "playwright", argument: "" });
+	});
+
 	it("parses /skill:<name> with optional remainder", () => {
 		expect(parseSlashCommand("/skill:hello")).toEqual({
 			command: "skill",
