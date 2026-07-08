@@ -470,6 +470,7 @@ export class CuaAgentHarness<
 	 * plane conflicts with the requested mode.
 	 */
 	async setMode(mode: CuaMode): Promise<void> {
+		const previousMode = this.runtime.mode;
 		const previousNames = new Set(this.getTools().map((tool) => tool.name));
 		this.runtime.setMode(mode);
 		const tools = this.runtime.tools();
@@ -479,7 +480,13 @@ export class CuaAgentHarness<
 		const active = requested
 			? tools.map((tool) => tool.name).filter((name) => !previousNames.has(name) || requested.includes(name))
 			: tools.map((tool) => tool.name);
-		await super.setTools(tools, active);
+		try {
+			await super.setTools(tools, active);
+		} catch (err) {
+			// Keep the runtime in step with the exposed tools when the switch fails.
+			this.runtime.setMode(previousMode);
+			throw err;
+		}
 		// The requested subset now reflects this mode's toolset; without this a
 		// later setModel would restore the pre-switch names.
 		if (requested) this.requestedActiveToolNames = active;

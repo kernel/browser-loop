@@ -660,6 +660,29 @@ describe("BrowserExecutor iframe stitching", () => {
 		expect(pressed?.sessionId).toBe("session-1");
 	});
 
+	it("invalidates a frame target's refs when a subframe inside it navigates", async () => {
+		const { cdp, emit } = setupOopif();
+		const executor = new BrowserExecutor(cdp);
+		await snapshotText(executor);
+
+		emit({ method: "Page.frameNavigated", params: { frame: { id: "FRAME-INNER", parentId: "FRAME-OOP" } }, sessionId: "session-oop" });
+		await expect(executor.execute({ type: "browser_click", ref: "e3" } as CuaBrowserAction)).rejects.toThrow(/stale/);
+	});
+
+	it("finds elements inside stitched iframes", async () => {
+		const { cdp, sent } = setupOopif();
+		const executor = new BrowserExecutor(cdp);
+
+		const results = await executor.execute({ type: "browser_find", query: "pay button" } as CuaBrowserAction);
+		const text = (results[0] as { text: string }).text;
+		expect(text).toContain('button "Pay" [e');
+
+		const ref = /\[(e\d+)\]/.exec(text)![1]!;
+		await executor.execute({ type: "browser_click", ref } as CuaBrowserAction);
+		const resolved = sent.find((cmd) => cmd.method === "DOM.getBoxModel" && cmd.params.backendNodeId === 70);
+		expect(resolved?.sessionId).toBe("session-oop");
+	});
+
 	it("invalidates only the child frame's refs when the child frame navigates", async () => {
 		const { cdp, emit } = setupOopif();
 		const executor = new BrowserExecutor(cdp);

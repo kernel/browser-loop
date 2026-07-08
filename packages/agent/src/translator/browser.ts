@@ -141,7 +141,10 @@ export class BrowserExecutor {
 				const targetId = this.targetsBySession.get(event.sessionId);
 				if (!targetId) return;
 				if (this.frameTargets.has(targetId)) {
-					if (frame.id === targetId) this.invalidateFrame(targetId);
+					// Refs from a frame target's tree (its root and any same-process
+					// subframes inlined in it) are all minted against the target's key,
+					// so any navigation observed in its session stales them.
+					this.invalidateFrame(targetId);
 					return;
 				}
 				if (frame.parentId) {
@@ -455,24 +458,38 @@ export class BrowserExecutor {
 		const targetId = await this.resolveTarget(action.tab_id);
 		const session = await this.attach(targetId);
 		const { nodes } = await this.cdp.send<{ nodes: AXNode[] }>("Accessibility.getFullAXTree", {}, session);
+		const pools: Array<{ nodes: AXNode[]; ctx: RenderContext }> = [
+			{
+				nodes,
+				ctx: {
+					targetId,
+					frameKey: targetId,
+					sessionId: session,
+					generation: this.generation(targetId),
+					interactiveOnly: false,
+					nthIndex: buildNthIndex(nodes),
+				},
+			},
+		];
+		// Search stitched frames too so find sees everything snapshot renders.
+		for (const stitch of (await this.stitchFrames(nodes, targetId, session, false)).values()) {
+			pools.push({ nodes: [...stitch.byId.values()], ctx: stitch.ctx });
+		}
 		const queryTokens = tokenize(action.query);
-		const scored = nodes
-			.filter((node) => !node.ignored && node.backendDOMNodeId !== undefined && (node.name?.value || INTERACTIVE_ROLES.has(node.role?.value ?? "")))
-			.map((node) => ({ node, score: overlapScore(queryTokens, tokenize(`${node.role?.value ?? ""} ${node.name?.value ?? ""}`)) }))
+		const scored = pools
+			.flatMap(({ nodes: poolNodes, ctx }) =>
+				poolNodes
+					.filter(
+						(node) => !node.ignored && node.backendDOMNodeId !== undefined && (node.name?.value || INTERACTIVE_ROLES.has(node.role?.value ?? "")),
+					)
+					.map((node) => ({ node, ctx, score: overlapScore(queryTokens, tokenize(`${node.role?.value ?? ""} ${node.name?.value ?? ""}`)) })),
+			)
 			.filter((entry) => entry.score > 0)
 			.sort((a, b) => b.score - a.score)
 			.slice(0, FIND_MATCH_LIMIT);
 		if (scored.length === 0) return `No elements matched ${JSON.stringify(action.query)}. Try snapshot for the full tree.`;
-		const ctx: RenderContext = {
-			targetId,
-			frameKey: targetId,
-			sessionId: session,
-			generation: this.generation(targetId),
-			interactiveOnly: false,
-			nthIndex: buildNthIndex(nodes),
-		};
 		const text = scored
-			.map(({ node }) => {
+			.map(({ node, ctx }) => {
 				const role = node.role?.value ?? "node";
 				const name = node.name?.value ? ` ${JSON.stringify(node.name.value)}` : "";
 				return `${role}${name} [${this.mintRef(node, ctx)}]`;
