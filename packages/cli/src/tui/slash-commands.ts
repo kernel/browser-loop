@@ -68,7 +68,7 @@ function modelCompletions(prefix: string): AutocompleteItem[] {
 const MODES: ReadonlyArray<{ value: string; description: string }> = [
 	{ value: "computer", description: "OS-level input only (default)" },
 	{ value: "browser", description: "CDP page tools: snapshot, find, click-by-ref, navigate, tabs" },
-	{ value: "hybrid", description: "Both planes: computer_* input + ref-only page_* tools" },
+	{ value: "hybrid", description: "Both planes: computer_* input + ref-only browser_* tools" },
 ];
 
 function modeCompletions(prefix: string): AutocompleteItem[] {

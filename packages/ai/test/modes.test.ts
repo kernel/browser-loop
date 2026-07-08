@@ -17,16 +17,16 @@ describe("mode action sets", () => {
 		expect(defaultActionsForMode("computer")).toEqual(CUA_ACTION_TYPES);
 	});
 
-	it("browser mode defaults to DOM actions plus wait, without page_evaluate", () => {
+	it("browser mode defaults to DOM actions plus wait, without browser_evaluate", () => {
 		const actions = defaultActionsForMode("browser");
-		expect(actions).toContain("page_snapshot");
+		expect(actions).toContain("browser_snapshot");
 		expect(actions).toContain("wait");
-		expect(actions).not.toContain("page_evaluate");
+		expect(actions).not.toContain("browser_evaluate");
 		expect(actions).not.toContain("click");
 	});
 
-	it("browser mode exposes page_evaluate only with javascriptExec", () => {
-		expect(defaultActionsForMode("browser", { javascriptExec: true })).toContain("page_evaluate");
+	it("browser mode exposes browser_evaluate only with javascriptExec", () => {
+		expect(defaultActionsForMode("browser", { javascriptExec: true })).toContain("browser_evaluate");
 	});
 
 	it("hybrid mode dedupes to one tool per capability", () => {
@@ -34,14 +34,14 @@ describe("mode action sets", () => {
 		// Navigation lives on the DOM plane.
 		expect(actions).not.toContain("goto");
 		expect(actions).not.toContain("url");
-		expect(actions).toContain("page_navigate");
+		expect(actions).toContain("browser_navigate");
 		// One screenshot: the OS display.
 		expect(actions).toContain("screenshot");
 		expect(actions).toContain("zoom");
-		expect(actions).not.toContain("page_screenshot");
+		expect(actions).not.toContain("browser_screenshot");
 		// Pointer/keyboard stays OS-level.
-		expect(actions).not.toContain("page_type");
-		expect(actions).not.toContain("page_scroll");
+		expect(actions).not.toContain("browser_type");
+		expect(actions).not.toContain("browser_scroll");
 		expect(actions).toEqual([...CUA_HYBRID_COMPUTER_ACTION_TYPES, ...CUA_HYBRID_BROWSER_ACTION_TYPES]);
 	});
 });
@@ -51,19 +51,19 @@ describe("mode tool naming", () => {
 		expect(cuaToolNameForAction("click", "computer")).toBe("click");
 	});
 
-	it("browser mode strips the page_ prefix", () => {
-		expect(cuaToolNameForAction("page_snapshot", "browser")).toBe("snapshot");
-		expect(cuaToolNameForAction("page_click", "browser")).toBe("click");
+	it("browser mode strips the browser_ prefix", () => {
+		expect(cuaToolNameForAction("browser_snapshot", "browser")).toBe("snapshot");
+		expect(cuaToolNameForAction("browser_click", "browser")).toBe("click");
 		expect(cuaToolNameForAction("wait", "browser")).toBe("wait");
 	});
 
-	it("hybrid mode prefixes computer actions and keeps page_ names", () => {
+	it("hybrid mode prefixes computer actions and keeps browser_ names", () => {
 		expect(cuaToolNameForAction("click", "hybrid")).toBe("computer_click");
-		expect(cuaToolNameForAction("page_click", "hybrid")).toBe("page_click");
+		expect(cuaToolNameForAction("browser_click", "hybrid")).toBe("browser_click");
 	});
 
 	it("computer mode rejects DOM actions", () => {
-		expect(() => cuaToolNameForAction("page_click", "computer")).toThrow(/not available in computer mode/);
+		expect(() => cuaToolNameForAction("browser_click", "computer")).toThrow(/not available in computer mode/);
 	});
 });
 
@@ -75,9 +75,9 @@ describe("mode tool schemas", () => {
 		expect(click.parameters.properties.x).toBeDefined();
 	});
 
-	it("hybrid mode page_click is ref-only, keeping one coordinate frame", () => {
+	it("hybrid mode browser_click is ref-only, keeping one coordinate frame", () => {
 		const tools = computerTools({ mode: "hybrid" });
-		const pageClick = tools.find((tool) => tool.name === "page_click")!;
+		const pageClick = tools.find((tool) => tool.name === "browser_click")!;
 		expect(pageClick.parameters.properties.ref).toBeDefined();
 		expect(pageClick.parameters.properties.x).toBeUndefined();
 		expect(pageClick.parameters.required).toContain("ref");
@@ -87,7 +87,7 @@ describe("mode tool schemas", () => {
 		const tools = computerTools({ mode: "browser" });
 		const names = tools.map((tool) => tool.name);
 		for (const action of CUA_DEFAULT_BROWSER_ACTION_TYPES) {
-			expect(names).toContain(action.slice("page_".length));
+			expect(names).toContain(action.slice("browser_".length));
 		}
 	});
 });
@@ -105,7 +105,7 @@ describe("mode runtime specs", () => {
 		expect(spec.mode).toBe("hybrid");
 		const names = spec.toolDefinitions.map((tool) => tool.name);
 		expect(names).toContain("computer_click");
-		expect(names).toContain("page_snapshot");
+		expect(names).toContain("browser_snapshot");
 		expect(spec.defaultSystemPrompt).toBe(openai.buildOpenAISystemPrompt({ mode: "hybrid" }));
 	});
 

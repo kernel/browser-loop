@@ -20,21 +20,21 @@ import {
  *   Pairs with Anthropic's native `browser_20260701` tool.
  * - `hybrid` — both planes, deduplicated to one tool per capability.
  *   Computer tools are prefixed `computer_`, browser tools keep their
- *   `page_` prefix and accept element refs only, and the OS screenshot
+ *   `browser_` prefix and accept element refs only, and the OS screenshot
  *   frame is the single live coordinate frame.
  */
 export type CuaMode = "computer" | "browser" | "hybrid";
 
 /** Options for resolving a mode's action set. */
 export interface CuaModeOptions {
-	/** Expose `page_evaluate` (arbitrary JavaScript in the page). Default false. */
+	/** Expose `browser_evaluate` (arbitrary JavaScript in the page). Default false. */
 	javascriptExec?: boolean;
 }
 
 /**
  * Computer actions exposed in hybrid mode: navigation reads/writes are
- * excluded because they live on the browser plane (`page_navigate`,
- * `page_list_tabs`), and `zoom` is included since the OS screenshot is
+ * excluded because they live on the browser plane (`browser_navigate`,
+ * `browser_list_tabs`), and `zoom` is included since the OS screenshot is
  * hybrid's only capture.
  */
 export const CUA_HYBRID_COMPUTER_ACTION_TYPES: readonly CuaComputerActionType[] = [
@@ -55,21 +55,21 @@ export const CUA_HYBRID_COMPUTER_ACTION_TYPES: readonly CuaComputerActionType[] 
 
 /**
  * Browser actions exposed in hybrid mode: reads and element-targeted writes
- * only. Pointer/keyboard capabilities (`page_click` by coordinate,
- * `page_type`, `page_key`, `page_scroll`, `page_hover`, `page_drag`) and
- * `page_screenshot` are excluded — real OS input and the OS screenshot cover
+ * only. Pointer/keyboard capabilities (`browser_click` by coordinate,
+ * `browser_type`, `browser_key`, `browser_scroll`, `browser_hover`, `browser_drag`) and
+ * `browser_screenshot` are excluded — real OS input and the OS screenshot cover
  * those, keeping one tool per capability and one coordinate frame.
  */
 export const CUA_HYBRID_BROWSER_ACTION_TYPES: readonly CuaBrowserActionType[] = [
-	"page_snapshot",
-	"page_text",
-	"page_find",
-	"page_click",
-	"page_fill",
-	"page_scroll_to",
-	"page_navigate",
-	"page_list_tabs",
-	"page_new_tab",
+	"browser_snapshot",
+	"browser_text",
+	"browser_find",
+	"browser_click",
+	"browser_fill",
+	"browser_scroll_to",
+	"browser_navigate",
+	"browser_list_tabs",
+	"browser_new_tab",
 ];
 
 /** Resolve the default canonical action set for a mode. */
@@ -78,12 +78,12 @@ export function defaultActionsForMode(mode: CuaMode, options: CuaModeOptions = {
 		case "computer":
 			return CUA_DEFAULT_COMPUTER_ACTION_TYPES;
 		case "browser":
-			return [...CUA_DEFAULT_BROWSER_ACTION_TYPES, ...(options.javascriptExec ? (["page_evaluate"] as const) : []), "wait"];
+			return [...CUA_DEFAULT_BROWSER_ACTION_TYPES, ...(options.javascriptExec ? (["browser_evaluate"] as const) : []), "wait"];
 		case "hybrid":
 			return [
 				...CUA_HYBRID_COMPUTER_ACTION_TYPES,
 				...CUA_HYBRID_BROWSER_ACTION_TYPES,
-				...(options.javascriptExec ? (["page_evaluate"] as const) : []),
+				...(options.javascriptExec ? (["browser_evaluate"] as const) : []),
 			];
 	}
 }
@@ -100,10 +100,10 @@ export function schemaOptionsForMode(mode: CuaMode): CuaActionSchemaOptions {
  * The model-facing tool name for a canonical action in a mode.
  *
  * - `computer`: canonical action ids as-is (`click`, `screenshot`, …).
- * - `browser`: browser ids with the `page_` prefix stripped (`snapshot`,
+ * - `browser`: browser ids with the `browser_` prefix stripped (`snapshot`,
  *   `click`, …); the prefix only exists to disambiguate planes, and
  *   browser mode has one.
- * - `hybrid`: computer ids prefixed `computer_`, browser ids kept as `page_*`.
+ * - `hybrid`: computer ids prefixed `computer_`, browser ids kept as `browser_*`.
  */
 export function cuaToolNameForAction(action: CuaActionType, mode: CuaMode): string {
 	switch (mode) {
@@ -111,31 +111,31 @@ export function cuaToolNameForAction(action: CuaActionType, mode: CuaMode): stri
 			if (!isCuaComputerActionType(action)) throw new Error(`browser action "${action}" is not available in computer mode`);
 			return action;
 		case "browser":
-			return isCuaComputerActionType(action) ? action : action.slice("page_".length);
+			return isCuaComputerActionType(action) ? action : action.slice("browser_".length);
 		case "hybrid":
 			return isCuaComputerActionType(action) ? `computer_${action}` : action;
 	}
 }
 
 const BROWSER_ACTION_DESCRIPTIONS: Record<CuaBrowserActionType, string> = {
-	page_snapshot:
+	browser_snapshot:
 		"Return an accessibility-tree snapshot of the page with element references like [e12]. " +
 		"Use the refs to target elements in other page tools. Refs are only valid until the page changes; re-snapshot when told a ref is stale.",
-	page_text: "Return the page's visible text content as plain text. Best for articles and text-heavy pages.",
-	page_find: "Find elements matching a natural-language description and return them with element references, like a filtered snapshot.",
-	page_click: "Click an element. Prefer targeting by element reference from a snapshot.",
-	page_hover: "Move the pointer over an element without clicking.",
-	page_drag: "Drag from one viewport coordinate to another.",
-	page_fill: "Set the value of a form element (input, textarea, select, checkbox) by element reference.",
-	page_scroll_to: "Scroll an element into view by element reference.",
-	page_scroll: "Scroll the page at a viewport position by wheel notches.",
-	page_type: "Type a literal string at the current focus.",
-	page_key: "Press a key or chord, e.g. \"Return\" or \"ctrl+a\".",
-	page_navigate: "Navigate the page to a URL, or \"back\" / \"forward\" in history.",
-	page_list_tabs: "List open tabs with each tab's id, title, and URL.",
-	page_new_tab: "Open a new empty tab and return its tab id.",
-	page_screenshot: "Capture the current browser viewport.",
-	page_evaluate: "Execute JavaScript in the page context and return the value of the last expression.",
+	browser_text: "Return the page's visible text content as plain text. Best for articles and text-heavy pages.",
+	browser_find: "Find elements matching a natural-language description and return them with element references, like a filtered snapshot.",
+	browser_click: "Click an element. Prefer targeting by element reference from a snapshot.",
+	browser_hover: "Move the pointer over an element without clicking.",
+	browser_drag: "Drag from one viewport coordinate to another.",
+	browser_fill: "Set the value of a form element (input, textarea, select, checkbox) by element reference.",
+	browser_scroll_to: "Scroll an element into view by element reference.",
+	browser_scroll: "Scroll the page at a viewport position by wheel notches.",
+	browser_type: "Type a literal string at the current focus.",
+	browser_key: "Press a key or chord, e.g. \"Return\" or \"ctrl+a\".",
+	browser_navigate: "Navigate the page to a URL, or \"back\" / \"forward\" in history.",
+	browser_list_tabs: "List open tabs with each tab's id, title, and URL.",
+	browser_new_tab: "Open a new empty tab and return its tab id.",
+	browser_screenshot: "Capture the current browser viewport.",
+	browser_evaluate: "Execute JavaScript in the page context and return the value of the last expression.",
 };
 
 // Hybrid exposes both planes, so tool descriptions carry the arbitration
@@ -144,7 +144,7 @@ const BROWSER_ACTION_DESCRIPTIONS: Record<CuaBrowserActionType, string> = {
 const HYBRID_COMPUTER_DESCRIPTION_OVERRIDES: Partial<Record<CuaComputerActionType, string>> = {
 	click:
 		"Click at a coordinate in OS screenshot pixels using real OS-level input. " +
-		"Preferred over page_click when the target is visible in the screenshot — OS input is indistinguishable from a human user.",
+		"Preferred over browser_click when the target is visible in the screenshot — OS input is indistinguishable from a human user.",
 	screenshot: "Capture the display. This is the only screenshot tool; all coordinates refer to this image's pixels.",
 	zoom: "Return a cropped view of the current display for closer inspection. Coordinates in later actions still refer to the full screenshot, not the crop.",
 	scroll: "Scroll with the OS-level mouse wheel at a coordinate in OS screenshot pixels.",
@@ -153,10 +153,10 @@ const HYBRID_COMPUTER_DESCRIPTION_OVERRIDES: Partial<Record<CuaComputerActionTyp
 };
 
 const HYBRID_BROWSER_DESCRIPTION_OVERRIDES: Partial<Record<CuaBrowserActionType, string>> = {
-	page_click:
-		"Click an element by reference from a page_snapshot. Dispatched via CDP, which protected sites may detect — " +
-		"prefer computer_click when the element is visible in the screenshot; use page_click for elements that are hard to hit by coordinate.",
-	page_snapshot:
+	browser_click:
+		"Click an element by reference from a browser_snapshot. Dispatched via CDP, which protected sites may detect — " +
+		"prefer computer_click when the element is visible in the screenshot; use browser_click for elements that are hard to hit by coordinate.",
+	browser_snapshot:
 		"Return an accessibility-tree snapshot of the page with element references like [e12]. " +
 		"This is the high-fidelity way to read page structure — prefer it over screenshots for reading and locating elements. " +
 		"Refs are only valid until the page changes; re-snapshot when told a ref is stale.",

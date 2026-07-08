@@ -37,7 +37,7 @@ export interface BuildCuaHarnessOptions {
 	mode?: CuaMode;
 	/** Drive the model through a provider-native tool declaration (validated against `mode`). */
 	nativeTool?: CuaNativeToolSpec;
-	/** Expose `page_evaluate` in browser/hybrid modes. */
+	/** Expose `browser_evaluate` in browser/hybrid modes. */
 	javascriptExec?: boolean;
 	/** Expose the playwright_execute tool that runs Playwright code against the browser session. */
 	playwright?: boolean;

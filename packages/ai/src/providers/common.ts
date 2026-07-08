@@ -119,7 +119,7 @@ export interface ComputerToolsOptions {
 	actions?: readonly CuaActionType[];
 	/** Which action plane(s) to expose. Default "computer". */
 	mode?: CuaMode;
-	/** Expose `page_evaluate` in browser/hybrid modes. Default false. */
+	/** Expose `browser_evaluate` in browser/hybrid modes. Default false. */
 	javascriptExec?: boolean;
 }
 

@@ -101,7 +101,7 @@ under `packages/ai/src/actions/`:
   VM: mouse, keyboard, display capture, executed through Kernel's
   `browsers.computer` REST API. Coordinates are pixels in the OS screenshot
   frame.
-- **Browser plane** (`actions/browser.ts`, ids prefixed `page_`) — CDP-driven page
+- **Browser plane** (`actions/browser.ts`, ids prefixed `browser_`) — CDP-driven page
   tools: accessibility snapshots with element refs, element-targeted
   interaction, navigation, tabs, viewport screenshots. Executed by
   `packages/agent/src/translator/page.ts` over a raw CDP websocket
@@ -113,8 +113,8 @@ A `CuaMode` selects which plane(s) the model sees:
 | mode | tools | coordinate frame |
 | --- | --- | --- |
 | `computer` (default) | computer actions under their canonical ids (`click`, `screenshot`, …) | OS screenshot pixels |
-| `browser` | browser actions with the `page_` prefix stripped (`snapshot`, `click`, …) plus `wait` | none for refs; viewport pixels where coordinates are allowed |
-| `hybrid` | both planes, one tool per capability: computer actions as `computer_*`, browser reads/element-writes as `page_*` (ref-only) | OS screenshot pixels — the single live frame |
+| `browser` | browser actions with the `browser_` prefix stripped (`snapshot`, `click`, …) plus `wait` | none for refs; viewport pixels where coordinates are allowed |
+| `hybrid` | both planes, one tool per capability: computer actions as `computer_*`, browser reads/element-writes as `browser_*` (ref-only) | OS screenshot pixels — the single live frame |
 
 Hybrid deduplicates capabilities: navigation and tabs live on the browser plane,
 pointer/keyboard input and the (only) screenshot live on the OS plane, and

@@ -21,7 +21,7 @@ import {
 	type CuaScreenshotSpec,
 } from "@onkernel/cua-ai";
 import sharp from "sharp";
-import { createPageExecutor, type PageExecutor } from "./page";
+import { createBrowserExecutor, type BrowserExecutor } from "./browser";
 import { isKernelModifierKey, normalizeKernelKey, normalizeKernelKeyCombo } from "./keys";
 import type { BatchExecutionResult } from "./types";
 
@@ -32,8 +32,8 @@ export interface InternalComputerTranslatorOptions {
 	client: Kernel;
 	coordinateSystem?: ComputerToolCoordinateSystem;
 	screenshot?: CuaScreenshotSpec;
-	/** Page executor factory, overridable for tests. Defaults to a raw-CDP executor on the browser's cdp_ws_url. */
-	createPageExecutor?: (cdpWsUrl: string) => PageExecutor;
+	/** Browser executor factory, overridable for tests. Defaults to a raw-CDP executor on the browser's cdp_ws_url. */
+	createBrowserExecutor?: (cdpWsUrl: string) => BrowserExecutor;
 }
 
 export class InternalComputerTranslator {
@@ -43,8 +43,8 @@ export class InternalComputerTranslator {
 	private readonly screenshotSpec?: CuaScreenshotSpec;
 	private readonly viewport: { width: number; height: number };
 	private readonly cdpWsUrl?: string;
-	private readonly pageExecutorFactory: (cdpWsUrl: string) => PageExecutor;
-	private pageExecutor?: PageExecutor;
+	private readonly browserExecutorFactory: (cdpWsUrl: string) => BrowserExecutor;
+	private browserExecutor?: BrowserExecutor;
 
 	constructor(opts: InternalComputerTranslatorOptions) {
 		this.sessionId = opts.browser.session_id;
@@ -53,16 +53,16 @@ export class InternalComputerTranslator {
 		this.screenshotSpec = opts.screenshot;
 		this.viewport = opts.browser.viewport ?? { width: 1920, height: 1080 };
 		this.cdpWsUrl = opts.browser.cdp_ws_url;
-		this.pageExecutorFactory = opts.createPageExecutor ?? createPageExecutor;
+		this.browserExecutorFactory = opts.createBrowserExecutor ?? createBrowserExecutor;
 	}
 
 	/** The browser-plane executor, connected lazily over the browser's CDP websocket. */
-	page(): PageExecutor {
-		if (!this.pageExecutor) {
+	browser(): BrowserExecutor {
+		if (!this.browserExecutor) {
 			if (!this.cdpWsUrl) throw new Error("browser has no cdp_ws_url; browser actions are unavailable");
-			this.pageExecutor = this.pageExecutorFactory(this.cdpWsUrl);
+			this.browserExecutor = this.browserExecutorFactory(this.cdpWsUrl);
 		}
-		return this.pageExecutor;
+		return this.browserExecutor;
 	}
 
 	async screenshotRaw(): Promise<Buffer> {
@@ -128,7 +128,7 @@ export class InternalComputerTranslator {
 		for (const action of actions) {
 			if (isCuaBrowserAction(action)) {
 				await flush();
-				result.readResults.push(...(await this.page().execute(action)));
+				result.readResults.push(...(await this.browser().execute(action)));
 				continue;
 			}
 			switch (action.type) {

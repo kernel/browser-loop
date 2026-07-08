@@ -37,7 +37,7 @@ export const ANTHROPIC_COMPUTER_INSTRUCTIONS = `You control a Kernel cloud brows
 
 export const ANTHROPIC_BROWSER_INSTRUCTIONS = `You control a Kernel cloud browser through page tools. Prefer reading the page with snapshot or find and targeting elements by reference; use screenshots when you need to inspect visual state. Element references go stale when the page changes — re-snapshot when told so.`;
 
-export const ANTHROPIC_HYBRID_INSTRUCTIONS = `You control a Kernel cloud browser through two kinds of tools: computer_* tools perform real OS-level input (coordinates are pixels in the most recent computer_screenshot), and page_* tools read and act on the page itself by element reference. Prefer page_snapshot/page_find for reading and locating, and computer_* input for interaction; use page_* interaction for elements that are hard to hit by coordinate.`;
+export const ANTHROPIC_HYBRID_INSTRUCTIONS = `You control a Kernel cloud browser through two kinds of tools: computer_* tools perform real OS-level input (coordinates are pixels in the most recent computer_screenshot), and browser_* tools read and act on the page itself by element reference. Prefer browser_snapshot/browser_find for reading and locating, and computer_* input for interaction; use browser_* interaction for elements that are hard to hit by coordinate.`;
 
 export function buildAnthropicSystemPrompt(opts: { suffix?: string; mode?: CuaMode } = {}): string {
 	const base =

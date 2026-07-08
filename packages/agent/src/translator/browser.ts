@@ -1,15 +1,15 @@
 import {
 	normalizeGotoUrl,
-	type CuaActionPageClick,
-	type CuaActionPageDrag,
-	type CuaActionPageFill,
-	type CuaActionPageFind,
-	type CuaActionPageHover,
-	type CuaActionPageKey,
-	type CuaActionPageNavigate,
-	type CuaActionPageScroll,
-	type CuaActionPageScrollTo,
-	type CuaActionPageSnapshot,
+	type CuaActionBrowserClick,
+	type CuaActionBrowserDrag,
+	type CuaActionBrowserFill,
+	type CuaActionBrowserFind,
+	type CuaActionBrowserHover,
+	type CuaActionBrowserKey,
+	type CuaActionBrowserNavigate,
+	type CuaActionBrowserScroll,
+	type CuaActionBrowserScrollTo,
+	type CuaActionBrowserSnapshot,
 	type CuaBrowserAction,
 } from "@onkernel/cua-ai";
 import { CdpConnection } from "./cdp";
@@ -46,7 +46,7 @@ interface RefEntry {
  * navigation bumps the generation, and refs from earlier generations resolve
  * to a stale-ref error whose message tells the model how to recover.
  */
-export class PageExecutor {
+export class BrowserExecutor {
 	private readonly refs = new Map<string, RefEntry>();
 	private readonly generations = new Map<string, number>();
 	private refCounter = 0;
@@ -56,48 +56,48 @@ export class PageExecutor {
 
 	async execute(action: CuaBrowserAction): Promise<BatchReadResult[]> {
 		switch (action.type) {
-			case "page_snapshot":
-				return [{ type: "page_text", label: "snapshot", text: await this.snapshot(action) }];
-			case "page_text":
-				return [{ type: "page_text", label: "text", text: await this.pageText(tabOf(action)) }];
-			case "page_find":
-				return [{ type: "page_text", label: "find", text: await this.find(action) }];
-			case "page_click":
+			case "browser_snapshot":
+				return [{ type: "browser_text", label: "snapshot", text: await this.snapshot(action) }];
+			case "browser_text":
+				return [{ type: "browser_text", label: "text", text: await this.pageText(tabOf(action)) }];
+			case "browser_find":
+				return [{ type: "browser_text", label: "find", text: await this.find(action) }];
+			case "browser_click":
 				await this.click(action);
 				return [];
-			case "page_hover":
+			case "browser_hover":
 				await this.hover(action);
 				return [];
-			case "page_drag":
+			case "browser_drag":
 				await this.drag(action);
 				return [];
-			case "page_fill":
+			case "browser_fill":
 				await this.fill(action);
 				return [];
-			case "page_scroll_to":
+			case "browser_scroll_to":
 				await this.scrollTo(action);
 				return [];
-			case "page_scroll":
+			case "browser_scroll":
 				await this.scroll(action);
 				return [];
-			case "page_type": {
+			case "browser_type": {
 				const session = await this.session(tabOf(action));
 				await this.cdp.send("Input.insertText", { text: action.text }, session);
 				return [];
 			}
-			case "page_key":
+			case "browser_key":
 				await this.key(action);
 				return [];
-			case "page_navigate":
-				return [{ type: "page_text", label: "navigate", text: await this.navigate(action) }];
-			case "page_list_tabs":
-				return [{ type: "page_text", label: "tabs", text: await this.listTabs() }];
-			case "page_new_tab":
-				return [{ type: "page_text", label: "new_tab", text: await this.newTab() }];
-			case "page_screenshot":
+			case "browser_navigate":
+				return [{ type: "browser_text", label: "navigate", text: await this.navigate(action) }];
+			case "browser_list_tabs":
+				return [{ type: "browser_text", label: "tabs", text: await this.listTabs() }];
+			case "browser_new_tab":
+				return [{ type: "browser_text", label: "new_tab", text: await this.newTab() }];
+			case "browser_screenshot":
 				return [{ type: "screenshot", ...(await this.screenshot(action.region, action.tab_id)) }];
-			case "page_evaluate":
-				return [{ type: "page_text", label: "evaluate", text: await this.evaluate(action.code, tabOf(action)) }];
+			case "browser_evaluate":
+				return [{ type: "browser_text", label: "evaluate", text: await this.evaluate(action.code, tabOf(action)) }];
 		}
 	}
 
@@ -110,7 +110,7 @@ export class PageExecutor {
 		return { data: Buffer.from(data, "base64"), mimeType: "image/png" };
 	}
 
-	private async snapshot(action: CuaActionPageSnapshot): Promise<string> {
+	private async snapshot(action: CuaActionBrowserSnapshot): Promise<string> {
 		const targetId = await this.resolveTarget(action.tab_id);
 		const session = await this.attach(targetId);
 		const { nodes } = await this.cdp.send<{ nodes: AXNode[] }>("Accessibility.getFullAXTree", {}, session);
@@ -161,7 +161,7 @@ export class PageExecutor {
 		return line;
 	}
 
-	private async find(action: CuaActionPageFind): Promise<string> {
+	private async find(action: CuaActionBrowserFind): Promise<string> {
 		const targetId = await this.resolveTarget(action.tab_id);
 		const session = await this.attach(targetId);
 		const { nodes } = await this.cdp.send<{ nodes: AXNode[] }>("Accessibility.getFullAXTree", {}, session);
@@ -182,7 +182,7 @@ export class PageExecutor {
 			.join("\n");
 	}
 
-	private async click(action: CuaActionPageClick): Promise<void> {
+	private async click(action: CuaActionBrowserClick): Promise<void> {
 		const targetId = await this.resolveTarget(action.tab_id);
 		const session = await this.attach(targetId);
 		const point = await this.resolvePoint(action, targetId, session);
@@ -202,21 +202,21 @@ export class PageExecutor {
 		);
 	}
 
-	private async hover(action: CuaActionPageHover): Promise<void> {
+	private async hover(action: CuaActionBrowserHover): Promise<void> {
 		const targetId = await this.resolveTarget(action.tab_id);
 		const session = await this.attach(targetId);
 		const point = await this.resolvePoint(action, targetId, session);
 		await this.cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y }, session);
 	}
 
-	private async drag(action: CuaActionPageDrag): Promise<void> {
+	private async drag(action: CuaActionBrowserDrag): Promise<void> {
 		const session = await this.session(tabOf(action));
 		await this.cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x: action.from.x, y: action.from.y, button: "left", clickCount: 1 }, session);
 		await this.cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: action.to.x, y: action.to.y, button: "left" }, session);
 		await this.cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: action.to.x, y: action.to.y, button: "left", clickCount: 1 }, session);
 	}
 
-	private async fill(action: CuaActionPageFill): Promise<void> {
+	private async fill(action: CuaActionBrowserFill): Promise<void> {
 		const targetId = await this.resolveTarget(action.tab_id);
 		const session = await this.attach(targetId);
 		const entry = this.resolveRef(action.ref, targetId);
@@ -231,18 +231,18 @@ export class PageExecutor {
 			session,
 		);
 		if (exceptionDetails) {
-			throw new Error(`page_fill failed: ${exceptionDetails.exception?.description ?? "element rejected the value"}`);
+			throw new Error(`browser_fill failed: ${exceptionDetails.exception?.description ?? "element rejected the value"}`);
 		}
 	}
 
-	private async scrollTo(action: CuaActionPageScrollTo): Promise<void> {
+	private async scrollTo(action: CuaActionBrowserScrollTo): Promise<void> {
 		const targetId = await this.resolveTarget(action.tab_id);
 		const session = await this.attach(targetId);
 		const entry = this.resolveRef(action.ref, targetId);
 		await this.scrollIntoView(entry, action.ref, session);
 	}
 
-	private async scroll(action: CuaActionPageScroll): Promise<void> {
+	private async scroll(action: CuaActionBrowserScroll): Promise<void> {
 		const session = await this.session(tabOf(action));
 		const notches = action.amount ?? 3;
 		const delta = Math.trunc(notches) * SCROLL_NOTCH_PX;
@@ -251,7 +251,7 @@ export class PageExecutor {
 		await this.cdp.send("Input.dispatchMouseEvent", { type: "mouseWheel", x: action.x, y: action.y, deltaX, deltaY }, session);
 	}
 
-	private async key(action: CuaActionPageKey): Promise<void> {
+	private async key(action: CuaActionBrowserKey): Promise<void> {
 		const session = await this.session(tabOf(action));
 		const repeat = Math.min(Math.max(1, Math.trunc(action.repeat ?? 1)), 100);
 		const chords = action.text.trim().split(/\s+/).filter(Boolean);
@@ -273,7 +273,7 @@ export class PageExecutor {
 		await this.cdp.send("Input.dispatchKeyEvent", { type: "keyUp", ...base }, session);
 	}
 
-	private async navigate(action: CuaActionPageNavigate): Promise<string> {
+	private async navigate(action: CuaActionBrowserNavigate): Promise<string> {
 		const targetId = await this.resolveTarget(action.tab_id);
 		const session = await this.attach(targetId);
 		const direction = action.url.trim().toLowerCase();
@@ -314,7 +314,7 @@ export class PageExecutor {
 			result: { value?: unknown; description?: string; type?: string };
 			exceptionDetails?: { exception?: { description?: string } };
 		}>("Runtime.evaluate", { expression: code, returnByValue: true, awaitPromise: true }, session);
-		if (exceptionDetails) throw new Error(`page_evaluate failed: ${exceptionDetails.exception?.description ?? "evaluation threw"}`);
+		if (exceptionDetails) throw new Error(`browser_evaluate failed: ${exceptionDetails.exception?.description ?? "evaluation threw"}`);
 		if (result.value === undefined) return result.description ?? String(result.type ?? "undefined");
 		return typeof result.value === "string" ? result.value : JSON.stringify(result.value);
 	}
@@ -330,7 +330,7 @@ export class PageExecutor {
 	}
 
 	private async resolvePoint(
-		action: CuaActionPageClick | CuaActionPageHover,
+		action: CuaActionBrowserClick | CuaActionBrowserHover,
 		targetId: string,
 		session: string,
 	): Promise<{ x: number; y: number }> {
@@ -555,6 +555,6 @@ const INTERACTIVE_ROLES: ReadonlySet<string> = new Set([
 
 const SKIPPED_ROLES: ReadonlySet<string> = new Set(["none", "generic", "InlineTextBox", "LineBreak", "StaticText"]);
 
-export function createPageExecutor(cdpWsUrl: string): PageExecutor {
-	return new PageExecutor(new CdpConnection(cdpWsUrl));
+export function createBrowserExecutor(cdpWsUrl: string): BrowserExecutor {
+	return new BrowserExecutor(new CdpConnection(cdpWsUrl));
 }

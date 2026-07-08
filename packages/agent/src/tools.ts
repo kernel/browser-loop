@@ -37,7 +37,7 @@ export interface BatchDetails {
 		| { type: "url"; url: string }
 		| { type: "screenshot"; bytes: number }
 		| { type: "cursor_position"; x: number; y: number }
-		| { type: "page_text"; label: string; bytes: number }
+		| { type: "browser_text"; label: string; bytes: number }
 	>;
 }
 
@@ -168,8 +168,8 @@ async function executeBatchTool(
 			} else if (read.type === "cursor_position") {
 				readResults.push({ type: "cursor_position", x: read.x, y: read.y });
 				content.push({ type: "text", text: `cursor_position(): ${read.x},${read.y}` });
-			} else if (read.type === "page_text") {
-				readResults.push({ type: "page_text", label: read.label, bytes: read.text.length });
+			} else if (read.type === "browser_text") {
+				readResults.push({ type: "browser_text", label: read.label, bytes: read.text.length });
 				content.push({ type: "text", text: read.text });
 			} else {
 				readResults.push({ type: "screenshot", bytes: read.data.length });
@@ -179,7 +179,7 @@ async function executeBatchTool(
 		if (content.length === 0) {
 			// Post-action grounding capture: the OS display in os/hybrid mode,
 			// the browser viewport in browser mode (the only frame the model sees).
-			const screenshot = mode === "browser" ? await translator.page().screenshot() : await translator.screenshot();
+			const screenshot = mode === "browser" ? await translator.browser().screenshot() : await translator.screenshot();
 			readResults.push({ type: "screenshot", bytes: screenshot.data.length });
 			content.push({ type: "image", data: screenshot.data.toString("base64"), mimeType: screenshot.mimeType });
 		}

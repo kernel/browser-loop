@@ -137,15 +137,15 @@ export function mapNativeBrowserInput(input: NativeInput): CuaAction[] {
 	const tab = tabId(input);
 	switch (input.action) {
 		case "navigate":
-			return [{ type: "page_navigate", url: requireString(input.url, "url"), ...tab }];
+			return [{ type: "browser_navigate", url: requireString(input.url, "url"), ...tab }];
 		case "list_tabs":
-			return [{ type: "page_list_tabs" }];
+			return [{ type: "browser_list_tabs" }];
 		case "new_tab":
-			return [{ type: "page_new_tab" }];
+			return [{ type: "browser_new_tab" }];
 		case "read_page":
 			return [
 				{
-					type: "page_snapshot",
+					type: "browser_snapshot",
 					...(input.filter === "interactive" || input.filter === "all" ? { filter: input.filter } : {}),
 					...(typeof input.depth === "number" ? { depth: input.depth } : {}),
 					...(typeof input.ref === "string" ? { ref: input.ref } : {}),
@@ -153,33 +153,33 @@ export function mapNativeBrowserInput(input: NativeInput): CuaAction[] {
 				},
 			];
 		case "get_page_text":
-			return [{ type: "page_text", ...tab }];
+			return [{ type: "browser_text", ...tab }];
 		case "find":
-			return [{ type: "page_find", query: requireString(input.query, "query"), ...tab }];
+			return [{ type: "browser_find", query: requireString(input.query, "query"), ...tab }];
 		case "form_input":
-			return [{ type: "page_fill", ref: refTarget(input.target), value: fillValue(input.value), ...tab }];
+			return [{ type: "browser_fill", ref: refTarget(input.target), value: fillValue(input.value), ...tab }];
 		case "scroll_to":
-			return [{ type: "page_scroll_to", ref: refTarget(input.target), ...tab }];
+			return [{ type: "browser_scroll_to", ref: refTarget(input.target), ...tab }];
 		case "screenshot":
-			return [{ type: "page_screenshot", ...tab }];
+			return [{ type: "browser_screenshot", ...tab }];
 		case "zoom":
-			return [{ type: "page_screenshot", region: region(input.region), ...tab }];
+			return [{ type: "browser_screenshot", region: region(input.region), ...tab }];
 		case "left_click":
-			return [{ type: "page_click", ...pageTarget(input.target), ...modifiers(input.modifiers), ...tab }];
+			return [{ type: "browser_click", ...pageTarget(input.target), ...modifiers(input.modifiers), ...tab }];
 		case "right_click":
-			return [{ type: "page_click", ...pageTarget(input.target), button: "right", ...modifiers(input.modifiers), ...tab }];
+			return [{ type: "browser_click", ...pageTarget(input.target), button: "right", ...modifiers(input.modifiers), ...tab }];
 		case "double_click":
-			return [{ type: "page_click", ...pageTarget(input.target), num_clicks: 2, ...modifiers(input.modifiers), ...tab }];
+			return [{ type: "browser_click", ...pageTarget(input.target), num_clicks: 2, ...modifiers(input.modifiers), ...tab }];
 		case "triple_click":
-			return [{ type: "page_click", ...pageTarget(input.target), num_clicks: 3, ...modifiers(input.modifiers), ...tab }];
+			return [{ type: "browser_click", ...pageTarget(input.target), num_clicks: 3, ...modifiers(input.modifiers), ...tab }];
 		case "hover":
-			return [{ type: "page_hover", ...pageTarget(input.target), ...tab }];
+			return [{ type: "browser_hover", ...pageTarget(input.target), ...tab }];
 		case "left_click_drag":
-			return [{ type: "page_drag", from: coordinateTarget(input.from, "from"), to: coordinateTarget(input.target, "target"), ...tab }];
+			return [{ type: "browser_drag", from: coordinateTarget(input.from, "from"), to: coordinateTarget(input.target, "target"), ...tab }];
 		case "scroll":
 			return [
 				{
-					type: "page_scroll",
+					type: "browser_scroll",
 					...coordinateTarget(input.target, "target"),
 					direction: scrollDirection(input.scroll_direction),
 					...(typeof input.scroll_amount === "number" ? { amount: input.scroll_amount } : {}),
@@ -187,15 +187,15 @@ export function mapNativeBrowserInput(input: NativeInput): CuaAction[] {
 				},
 			];
 		case "type":
-			return [{ type: "page_type", text: text(input), ...tab }];
+			return [{ type: "browser_type", text: text(input), ...tab }];
 		case "key": {
 			const repeat = clampRepeat(input.repeat);
-			return Array.from({ length: repeat }, () => ({ type: "page_key" as const, text: text(input), ...tab }));
+			return Array.from({ length: repeat }, () => ({ type: "browser_key" as const, text: text(input), ...tab }));
 		}
 		case "wait":
 			return [{ type: "wait", ms: durationSeconds(input) * 1000 }];
 		case "javascript_exec":
-			return [{ type: "page_evaluate", code: text(input), ...tab }];
+			return [{ type: "browser_evaluate", code: text(input), ...tab }];
 		default:
 			throw new Error(`unsupported browser_20260701 action "${input.action}"`);
 	}

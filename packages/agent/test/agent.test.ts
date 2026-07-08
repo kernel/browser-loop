@@ -440,7 +440,7 @@ describe("CuaAgentHarness", () => {
 		expect(harness.getMode()).toBe("hybrid");
 		const names = harness.getTools().map((tool) => tool.name);
 		expect(names).toContain("computer_click");
-		expect(names).toContain("page_snapshot");
+		expect(names).toContain("browser_snapshot");
 	});
 
 	it("appends extraTools in harness construction", async () => {

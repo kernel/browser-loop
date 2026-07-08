@@ -76,7 +76,7 @@ export type CuaAgentOptions = Omit<AgentOptions, "initialState"> & {
 	mode?: CuaMode;
 	/** Drive the model through a provider-native tool declaration (validated against `mode`). */
 	nativeTool?: CuaNativeToolSpec;
-	/** Expose `page_evaluate` in browser/hybrid modes. Default false. */
+	/** Expose `browser_evaluate` in browser/hybrid modes. Default false. */
 	javascriptExec?: boolean;
 	/** Expose a helper for browser navigation and URL reads. */
 	computerUseExtra?: boolean;
@@ -116,7 +116,7 @@ export type CuaAgentHarnessOptions<
 	mode?: CuaMode;
 	/** Drive the model through a provider-native tool declaration (validated against `mode`). */
 	nativeTool?: CuaNativeToolSpec;
-	/** Expose `page_evaluate` in browser/hybrid modes. Default false. */
+	/** Expose `browser_evaluate` in browser/hybrid modes. Default false. */
 	javascriptExec?: boolean;
 	/** Expose a helper for browser navigation and URL reads. */
 	computerUseExtra?: boolean;

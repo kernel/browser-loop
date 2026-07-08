@@ -50,11 +50,11 @@ Options:
       --mode <mode>              Action plane(s) to expose: computer (default) | browser | hybrid
                                  computer: OS-level input only. browser: CDP page tools
                                  (snapshot, find, click-by-ref, navigate, tabs).
-                                 hybrid: both, deduplicated (computer_* + page_* tools).
+                                 hybrid: both, deduplicated (computer_* + browser_* tools).
       --native-tool <type>       Drive an Anthropic model through its native tool schema:
                                  computer_20260601 (requires --mode computer) or
                                  browser_20260701 (requires --mode browser)
-      --js-exec                  Expose page_evaluate (arbitrary JS in the page) in
+      --js-exec                  Expose browser_evaluate (arbitrary JS in the page) in
                                  browser/hybrid modes
       --out <file|->             Output file for screenshot subcommand
   -o, --output <fmt>             Output format for --print: text (default) | jsonl

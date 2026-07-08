@@ -3,7 +3,7 @@
  *
  * Connects to a Kernel browser's `cdp_ws_url` over a plain WebSocket and
  * speaks the DevTools JSON-RPC protocol directly — no Playwright and no
- * driver dependency. Only what the page executor needs: command dispatch on
+ * driver dependency. Only what the browser executor needs: command dispatch on
  * the browser connection and on attached page sessions.
  */
 

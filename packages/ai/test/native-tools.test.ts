@@ -114,36 +114,36 @@ describe("computer_20260601 action mapping", () => {
 describe("browser_20260701 action mapping", () => {
 	it("maps DOM reads", () => {
 		expect(mapNativeBrowserInput({ action: "read_page", filter: "interactive", depth: 5 })).toEqual([
-			{ type: "page_snapshot", filter: "interactive", depth: 5 },
+			{ type: "browser_snapshot", filter: "interactive", depth: 5 },
 		]);
-		expect(mapNativeBrowserInput({ action: "find", query: "search bar" })).toEqual([{ type: "page_find", query: "search bar" }]);
-		expect(mapNativeBrowserInput({ action: "get_page_text", tab_id: "T1" })).toEqual([{ type: "page_text", tab_id: "T1" }]);
+		expect(mapNativeBrowserInput({ action: "find", query: "search bar" })).toEqual([{ type: "browser_find", query: "search bar" }]);
+		expect(mapNativeBrowserInput({ action: "get_page_text", tab_id: "T1" })).toEqual([{ type: "browser_text", tab_id: "T1" }]);
 	});
 
 	it("maps ref and coordinate click targets", () => {
 		expect(mapNativeBrowserInput({ action: "left_click", target: { type: "ref", ref: "e7" } })).toEqual([
-			{ type: "page_click", ref: "e7" },
+			{ type: "browser_click", ref: "e7" },
 		]);
 		expect(mapNativeBrowserInput({ action: "left_click", target: { type: "coordinate", x: 4, y: 5 }, modifiers: "shift" })).toEqual([
-			{ type: "page_click", x: 4, y: 5, modifiers: ["shift"] },
+			{ type: "browser_click", x: 4, y: 5, modifiers: ["shift"] },
 		]);
 	});
 
 	it("requires ref targets on form_input and scroll_to", () => {
 		expect(mapNativeBrowserInput({ action: "form_input", target: { type: "ref", ref: "e7" }, value: "hi" })).toEqual([
-			{ type: "page_fill", ref: "e7", value: "hi" },
+			{ type: "browser_fill", ref: "e7", value: "hi" },
 		]);
 		expect(() => mapNativeBrowserInput({ action: "scroll_to", target: { type: "coordinate", x: 1, y: 2 } })).toThrow(/requires a ref/);
 	});
 
 	it("maps navigation, tabs, zoom, and javascript_exec", () => {
-		expect(mapNativeBrowserInput({ action: "navigate", url: "back" })).toEqual([{ type: "page_navigate", url: "back" }]);
-		expect(mapNativeBrowserInput({ action: "list_tabs" })).toEqual([{ type: "page_list_tabs" }]);
+		expect(mapNativeBrowserInput({ action: "navigate", url: "back" })).toEqual([{ type: "browser_navigate", url: "back" }]);
+		expect(mapNativeBrowserInput({ action: "list_tabs" })).toEqual([{ type: "browser_list_tabs" }]);
 		expect(mapNativeBrowserInput({ action: "zoom", region: [1, 2, 3, 4] })).toEqual([
-			{ type: "page_screenshot", region: [1, 2, 3, 4] },
+			{ type: "browser_screenshot", region: [1, 2, 3, 4] },
 		]);
 		expect(mapNativeBrowserInput({ action: "javascript_exec", text: "document.title" })).toEqual([
-			{ type: "page_evaluate", code: "document.title" },
+			{ type: "browser_evaluate", code: "document.title" },
 		]);
 	});
 });
@@ -153,7 +153,7 @@ describe("native tool executors", () => {
 		const spec = resolveCuaRuntimeSpec("anthropic:claude-opus-4-5", { nativeTool: { type: "browser_20260701" } });
 		const executor = spec.toolExecutors[0]!;
 		const actions: CuaAction[] = executor.toActions({ action: "left_click", target: { type: "ref", ref: "e3" } });
-		expect(actions).toEqual([{ type: "page_click", ref: "e3" }]);
+		expect(actions).toEqual([{ type: "browser_click", ref: "e3" }]);
 	});
 
 	it("exports the anthropic namespace surface", () => {

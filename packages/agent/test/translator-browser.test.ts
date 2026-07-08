@@ -2,7 +2,7 @@ import type Kernel from "@onkernel/sdk";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import type { CuaBrowserAction } from "@onkernel/cua-ai";
-import type { PageExecutor } from "../src/translator/page";
+import type { BrowserExecutor } from "../src/translator/browser";
 import { InternalComputerTranslator, type KernelBrowser } from "../src/translator/translator";
 import type { BatchReadResult } from "../src/translator/types";
 
@@ -29,11 +29,11 @@ function createFakeDom() {
 	const dom = {
 		execute: async (action: CuaBrowserAction): Promise<BatchReadResult[]> => {
 			executed.push(action);
-			if (action.type === "page_text") return [{ type: "page_text", label: "text", text: "hello" }];
+			if (action.type === "browser_text") return [{ type: "browser_text", label: "text", text: "hello" }];
 			return [];
 		},
 		screenshot: async () => ({ data: Buffer.from("png"), mimeType: "image/png" }),
-	} as unknown as PageExecutor;
+	} as unknown as BrowserExecutor;
 	return { executed, dom };
 }
 
@@ -41,23 +41,23 @@ describe("InternalComputerTranslator DOM plane", () => {
 	it("dispatches DOM actions to the DOM executor, flushing pending OS input first", async () => {
 		const { batches, client } = createClient();
 		const { executed, dom } = createFakeDom();
-		const translator = new InternalComputerTranslator({ browser, client, createPageExecutor: () => dom });
+		const translator = new InternalComputerTranslator({ browser, client, createBrowserExecutor: () => dom });
 
 		const result = await translator.executeBatch([
 			{ type: "click", x: 1, y: 2 },
-			{ type: "page_text" },
-			{ type: "page_click", ref: "e3" },
+			{ type: "browser_text" },
+			{ type: "browser_click", ref: "e3" },
 		]);
 
 		expect(batches).toHaveLength(1);
-		expect(executed.map((action) => action.type)).toEqual(["page_text", "page_click"]);
-		expect(result.readResults).toEqual([{ type: "page_text", label: "text", text: "hello" }]);
+		expect(executed.map((action) => action.type)).toEqual(["browser_text", "browser_click"]);
+		expect(result.readResults).toEqual([{ type: "browser_text", label: "text", text: "hello" }]);
 	});
 
 	it("errors on DOM actions when the browser has no cdp_ws_url", async () => {
 		const { client } = createClient();
 		const translator = new InternalComputerTranslator({ browser: { session_id: "b" } as KernelBrowser, client });
-		await expect(translator.executeBatch([{ type: "page_text" }])).rejects.toThrow(/cdp_ws_url/);
+		await expect(translator.executeBatch([{ type: "browser_text" }])).rejects.toThrow(/cdp_ws_url/);
 	});
 });
 
