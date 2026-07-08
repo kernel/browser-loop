@@ -94,14 +94,20 @@ jobs:
         run: npm test --workspace @onkernel/cua-cli
       - name: Build cua-cli
         run: npm run build --workspace @onkernel/cua-cli
-      - name: Pack tarball
-        run: npm pack --workspace @onkernel/cua-cli --pack-destination "$RUNNER_TEMP"
+      - name: Pack tarballs
+        # Pack the workspace dependencies too so the smoke install resolves
+        # them from the tarballs instead of the registry, where the versions
+        # under development are not published yet.
+        run: |
+          npm pack --workspace @onkernel/cua-ai --pack-destination "$RUNNER_TEMP"
+          npm pack --workspace @onkernel/cua-agent --pack-destination "$RUNNER_TEMP"
+          npm pack --workspace @onkernel/cua-cli --pack-destination "$RUNNER_TEMP"
       - name: CLI bin smoke test
         run: |
           SMOKE_DIR=$(mktemp -d)
           cd "$SMOKE_DIR"
           npm init -y > /dev/null
-          npm install "$RUNNER_TEMP"/onkernel-cua-cli-*.tgz
+          npm install "$RUNNER_TEMP"/onkernel-cua-ai-*.tgz "$RUNNER_TEMP"/onkernel-cua-agent-*.tgz "$RUNNER_TEMP"/onkernel-cua-cli-*.tgz
           OUTPUT=$(./node_modules/.bin/cua --help)
           echo "$OUTPUT"
           echo "$OUTPUT" | grep -q "Usage:"
