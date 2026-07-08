@@ -12,7 +12,7 @@ import {
 	type CuaActionBrowserSnapshot,
 	type CuaBrowserAction,
 } from "@onkernel/cua-ai";
-import { CdpConnection } from "./cdp";
+import { CdpConnection, type CdpEventMessage } from "./cdp";
 import type { BatchReadResult } from "./types";
 
 const SNAPSHOT_CHAR_LIMIT = 50_000;
@@ -42,20 +42,58 @@ interface RefEntry {
  * Executes browser-plane canonical actions over CDP.
  *
  * Element refs are snapshot-scoped: each snapshot/find mints `e<N>` ids
- * mapped to CDP backend node ids for the target's current generation. A
- * navigation bumps the generation, and refs from earlier generations resolve
- * to a stale-ref error whose message tells the model how to recover.
+ * mapped to CDP backend node ids for the target's current generation. Any
+ * main-frame navigation — our own navigate() or a page-initiated one seen
+ * via Page.frameNavigated — bumps the generation and prunes that target's
+ * refs, so refs from earlier generations resolve to a stale-ref error whose
+ * message tells the model how to recover.
+ *
+ * Native JavaScript dialogs (alert/confirm/prompt) are auto-dismissed so
+ * they never wedge the CDP session; the dialog message is surfaced as an
+ * extra read result on the next executed action.
  */
 export class BrowserExecutor {
 	private readonly refs = new Map<string, RefEntry>();
 	private readonly generations = new Map<string, number>();
+	private readonly targetsBySession = new Map<string, string>();
+	private readonly selfNavigations = new Set<string>();
+	private readonly dialogNotes: string[] = [];
 	private refCounter = 0;
 	private activeTargetId?: string;
 
 	private readonly cdp: CdpConnection;
 
-	constructor(cdpWsUrl: string) {
-		this.cdp = new CdpConnection(cdpWsUrl);
+	constructor(cdp: string | CdpConnection) {
+		this.cdp = typeof cdp === "string" ? new CdpConnection(cdp) : cdp;
+		this.cdp.onEvent((event) => this.handleCdpEvent(event));
+	}
+
+	private handleCdpEvent(event: CdpEventMessage): void {
+		switch (event.method) {
+			case "Page.frameNavigated": {
+				const frame = event.params.frame as { parentId?: string } | undefined;
+				if (!event.sessionId || frame?.parentId) return;
+				const targetId = this.targetsBySession.get(event.sessionId);
+				if (!targetId) return;
+				if (!this.selfNavigations.delete(targetId)) this.invalidateRefs(targetId);
+				return;
+			}
+			case "Page.javascriptDialogOpening": {
+				if (!event.sessionId) return;
+				const { type, message } = event.params as { type?: string; message?: string };
+				void this.cdp.send("Page.handleJavaScriptDialog", { accept: false }, event.sessionId).catch(() => {});
+				this.dialogNotes.push(`Auto-dismissed a JavaScript ${type ?? "dialog"} dialog: ${JSON.stringify(message ?? "")}`);
+				return;
+			}
+			case "Target.detachedFromTarget": {
+				const sessionId = event.params.sessionId;
+				if (typeof sessionId !== "string") return;
+				const targetId = this.targetsBySession.get(sessionId);
+				this.targetsBySession.delete(sessionId);
+				if (targetId) this.dropTarget(targetId);
+				return;
+			}
+		}
 	}
 
 	/** Close the CDP connection. Safe to call when never connected. */
@@ -64,6 +102,13 @@ export class BrowserExecutor {
 	}
 
 	async execute(action: CuaBrowserAction): Promise<BatchReadResult[]> {
+		const results = await this.dispatch(action);
+		const dialogs = this.drainDialogNotes();
+		if (dialogs) results.push({ type: "browser_text", label: "dialog", text: dialogs });
+		return results;
+	}
+
+	private async dispatch(action: CuaBrowserAction): Promise<BatchReadResult[]> {
 		switch (action.type) {
 			case "browser_snapshot":
 				return [{ type: "browser_text", label: "snapshot", text: await this.snapshot(action) }];
@@ -148,12 +193,16 @@ export class BrowserExecutor {
 		const walk = (nodeId: string, depth: number): void => {
 			const node = byId.get(nodeId);
 			if (!node) return;
-			if (depth <= maxDepth && !node.ignored) {
+			let childDepth = depth;
+			if (!node.ignored) {
 				const line = this.renderNode(node, targetId, generation, depth, interactiveOnly);
-				if (line) lines.push(line);
+				if (line) {
+					lines.push(line);
+					childDepth = depth + 1;
+				}
 			}
-			if (depth < maxDepth) {
-				for (const childId of node.childIds ?? []) walk(childId, depth + 1);
+			if (childDepth <= maxDepth) {
+				for (const childId of node.childIds ?? []) walk(childId, childDepth);
 			}
 		};
 		for (const rootId of rootIds) walk(rootId, 0);
@@ -302,14 +351,19 @@ export class BrowserExecutor {
 			);
 			const entry = history.entries[history.currentIndex + (direction === "back" ? -1 : 1)];
 			if (!entry) throw new Error(`cannot go ${direction}: no history entry`);
+			this.selfNavigations.add(targetId);
 			await this.cdp.send("Page.navigateToHistoryEntry", { entryId: entry.id }, session);
 			this.invalidateRefs(targetId);
 			return `Navigated ${direction}.\n${await this.tabContext(targetId)}`;
 		}
 		const url = normalizeGotoUrl(action.url);
 		if (!url) throw new Error("invalid url");
+		this.selfNavigations.add(targetId);
 		const { errorText } = await this.cdp.send<{ errorText?: string }>("Page.navigate", { url }, session);
-		if (errorText) throw new Error(`navigation to ${url} failed: ${errorText}`);
+		if (errorText) {
+			this.selfNavigations.delete(targetId);
+			throw new Error(`navigation to ${url} failed: ${errorText}`);
+		}
 		this.invalidateRefs(targetId);
 		return `Navigated to ${url}.\n${await this.tabContext(targetId)}`;
 	}
@@ -408,7 +462,26 @@ export class BrowserExecutor {
 	}
 
 	private invalidateRefs(targetId: string): void {
-		this.generations.set(targetId, this.generation(targetId) + 1);
+		const generation = this.generation(targetId) + 1;
+		this.generations.set(targetId, generation);
+		for (const [ref, entry] of this.refs) {
+			if (entry.targetId === targetId && entry.generation < generation) this.refs.delete(ref);
+		}
+	}
+
+	private dropTarget(targetId: string): void {
+		this.generations.delete(targetId);
+		this.selfNavigations.delete(targetId);
+		for (const [ref, entry] of this.refs) {
+			if (entry.targetId === targetId) this.refs.delete(ref);
+		}
+	}
+
+	private drainDialogNotes(): string | undefined {
+		if (this.dialogNotes.length === 0) return undefined;
+		const text = this.dialogNotes.join("\n");
+		this.dialogNotes.length = 0;
+		return text;
 	}
 
 	private async session(tabId?: string): Promise<string> {
@@ -416,7 +489,12 @@ export class BrowserExecutor {
 	}
 
 	private async attach(targetId: string): Promise<string> {
-		return this.cdp.attachToTarget(targetId);
+		const session = await this.cdp.attachToTarget(targetId);
+		if (!this.targetsBySession.has(session)) {
+			this.targetsBySession.set(session, targetId);
+			await this.cdp.send("Page.enable", {}, session);
+		}
+		return session;
 	}
 
 	private async resolveTarget(tabId?: string): Promise<string> {
@@ -568,7 +646,7 @@ const INTERACTIVE_ROLES: ReadonlySet<string> = new Set([
 	"spinbutton",
 	"switch",
 	"tab",
-	"textarea",
+	"treeitem",
 ]);
 
 const SKIPPED_ROLES: ReadonlySet<string> = new Set(["none", "generic", "InlineTextBox", "LineBreak", "StaticText"]);

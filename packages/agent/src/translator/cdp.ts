@@ -12,7 +12,7 @@ interface PendingCommand {
 	reject(error: Error): void;
 }
 
-interface CdpEventMessage {
+export interface CdpEventMessage {
 	method: string;
 	params: Record<string, unknown>;
 	sessionId?: string;
