@@ -185,12 +185,8 @@ async function executeNavigationTool(translator: InternalComputerTranslator, par
 		} else {
 			await translator.executeBatch([{ type: action }]);
 		}
-		const screenshot = await translator.screenshot();
 		return {
-			content: [
-				{ type: "text", text: statusText },
-				{ type: "image", data: screenshot.data.toString("base64"), mimeType: screenshot.mimeType },
-			],
+			content: [{ type: "text", text: statusText }],
 			details: { action, statusText, ...(url ? { url } : {}) },
 		};
 	} catch (err) {

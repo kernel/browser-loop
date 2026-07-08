@@ -86,6 +86,30 @@ describe("Cua tool executor coverage", () => {
 		expect(result.content.at(-1)).toMatchObject({ type: "image", mimeType: "image/png" });
 	});
 
+	it("runs computer_use_extra without auto-appending a screenshot", async () => {
+		const runtime = resolveCuaRuntimeSpec("openai:gpt-5.5");
+		const tools = createCuaComputerTools({
+			browser,
+			client: {
+				browsers: {
+					computer: {
+						batch: async () => undefined,
+						captureScreenshot: async () => new Response(tinyPng),
+					},
+				},
+			} as unknown as Kernel,
+			toolExecutors: runtime.toolExecutors,
+			computerUseExtra: true,
+		});
+		const nav = tools.find((tool) => tool.name === "computer_use_extra");
+		expect(nav).toBeDefined();
+
+		const result = await nav!.execute("call_1", { action: "back" });
+
+		expect(result.content).toEqual([{ type: "text", text: "back executed successfully." }]);
+		expect(result.details).toMatchObject({ action: "back", statusText: "back executed successfully." });
+	});
+
 	it("runs the playwright_execute tool and returns result + stdout as tool content", async () => {
 		const calls: Array<{ id: string; body: { code: string; timeout_sec?: number } }> = [];
 		const runtime = resolveCuaRuntimeSpec("openai:gpt-5.5");

@@ -124,7 +124,9 @@ Not every provider's native computer-use vocabulary includes browser
 navigation — some models can click and type but have no direct way to open a
 URL or go back. `computerUseExtra: true` adds `computer_use_extra`, a
 provider-neutral escape hatch exposing `goto`, `back`, `forward`, and `url`
-so navigation works uniformly regardless of which model is driving.
+so navigation works uniformly regardless of which model is driving. No
+screenshot is returned automatically; request one on a follow-up turn when
+the model needs to see the page.
 
 Some steps are awkward as raw pointer/keyboard actions: precise DOM reads,
 form fills, data extraction, or waiting on a specific selector.
