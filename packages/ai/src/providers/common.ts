@@ -9,7 +9,7 @@ import {
 	type TSchema,
 	type Tool,
 } from "@earendil-works/pi-ai";
-import { CUA_DEFAULT_OS_ACTION_TYPES, cuaActionSchemaByType, type CuaAction, type CuaActionType } from "../actions/index";
+import { CUA_DEFAULT_COMPUTER_ACTION_TYPES, cuaActionSchemaByType, type CuaAction, type CuaActionType } from "../actions/index";
 import { cuaToolDescriptionForAction, cuaToolNameForAction, defaultActionsForMode, schemaOptionsForMode, type CuaMode } from "../modes";
 import type { ResolvedCuaNativeTool } from "../native-tools";
 import type { CuaModelRef, CuaProvider } from "../models";
@@ -19,11 +19,11 @@ export * from "../modes";
 export * from "../native-tools";
 
 /**
- * The default os-mode action set: every OS-plane action except `zoom`.
+ * The default os-mode action set: every computer-plane action except `zoom`.
  * The full canonical vocabulary is split by plane into
- * {@link CUA_OS_ACTION_TYPES} and {@link CUA_DOM_ACTION_TYPES}.
+ * {@link CUA_COMPUTER_ACTION_TYPES} and {@link CUA_BROWSER_ACTION_TYPES}.
  */
-export const CUA_ACTION_TYPES = CUA_DEFAULT_OS_ACTION_TYPES;
+export const CUA_ACTION_TYPES = CUA_DEFAULT_COMPUTER_ACTION_TYPES;
 
 type ObjectSchemaWithProperties = TSchema & { properties: Record<string, TSchema> };
 
@@ -33,14 +33,14 @@ function createCuaActionArgumentSchema(action: CuaActionType, mode: CuaMode): TS
 	return Type.Object(properties, { additionalProperties: false });
 }
 
-export function createCuaActionSchema(actions: readonly CuaActionType[] = CUA_ACTION_TYPES, mode: CuaMode = "os"): TSchema {
+export function createCuaActionSchema(actions: readonly CuaActionType[] = CUA_ACTION_TYPES, mode: CuaMode = "computer"): TSchema {
 	if (actions.length === 0) throw new Error("actions must include at least one CUA action type");
 	const schemaByType = cuaActionSchemaByType(schemaOptionsForMode(mode));
 	if (actions.length === 1) return schemaByType[actions[0]!];
 	return Type.Union(actions.map((action) => schemaByType[action]));
 }
 
-export function createCuaActionToolDefinitions(actions: readonly CuaActionType[] = CUA_ACTION_TYPES, mode: CuaMode = "os"): Tool[] {
+export function createCuaActionToolDefinitions(actions: readonly CuaActionType[] = CUA_ACTION_TYPES, mode: CuaMode = "computer"): Tool[] {
 	return actions.map((action) => ({
 		name: cuaToolNameForAction(action, mode),
 		description: cuaToolDescriptionForAction(action, mode),
@@ -50,7 +50,7 @@ export function createCuaActionToolDefinitions(actions: readonly CuaActionType[]
 
 export const CuaActionSchema = createCuaActionSchema();
 
-export function createCuaBatchSchema(actions?: readonly CuaActionType[], mode: CuaMode = "os"): TSchema {
+export function createCuaBatchSchema(actions?: readonly CuaActionType[], mode: CuaMode = "computer"): TSchema {
 	return Type.Object({
 		actions: Type.Array(createCuaActionSchema(actions, mode), { description: "Ordered computer actions to execute." }),
 	});
@@ -117,9 +117,9 @@ export const CUA_PLAYWRIGHT_TOOL_DESCRIPTION = [
 
 export interface ComputerToolsOptions {
 	actions?: readonly CuaActionType[];
-	/** Which action plane(s) to expose. Default "os". */
+	/** Which action plane(s) to expose. Default "computer". */
 	mode?: CuaMode;
-	/** Expose `page_evaluate` in dom/hybrid modes. Default false. */
+	/** Expose `page_evaluate` in browser/hybrid modes. Default false. */
 	javascriptExec?: boolean;
 }
 
@@ -140,22 +140,22 @@ export type ComputerToolCoordinateSystem =
  * smaller set, such as `["click"]`.
  */
 export function computerTools(options: ComputerToolsOptions = {}): Tool[] {
-	return createCuaActionToolDefinitions(resolveModeActions(options), options.mode ?? "os");
+	return createCuaActionToolDefinitions(resolveModeActions(options), options.mode ?? "computer");
 }
 
 /** Resolve the action list for a tools-options object: explicit list, or the mode's default set. */
 export function resolveModeActions(options: ComputerToolsOptions = {}): readonly CuaActionType[] {
-	return options.actions ?? defaultActionsForMode(options.mode ?? "os", { javascriptExec: options.javascriptExec });
+	return options.actions ?? defaultActionsForMode(options.mode ?? "computer", { javascriptExec: options.javascriptExec });
 }
 
-/** Guard for providers whose computer-use vocabulary only covers the OS plane. */
-export function assertOsModeOnly(provider: CuaProvider, options: ComputerToolsOptions = {}): void {
-	const mode = options.mode ?? "os";
-	if (mode !== "os") throw new Error(`provider "${provider}" does not support mode "${mode}" (os only)`);
+/** Guard for providers whose computer-use vocabulary only covers the computer plane. */
+export function assertComputerModeOnly(provider: CuaProvider, options: ComputerToolsOptions = {}): void {
+	const mode = options.mode ?? "computer";
+	if (mode !== "computer") throw new Error(`provider "${provider}" does not support mode "${mode}" (computer only)`);
 }
 
 /** Build execution adapters for individual canonical CUA action tools. */
-export function createCuaActionToolExecutors(actions: readonly CuaActionType[] = CUA_ACTION_TYPES, mode: CuaMode = "os"): CuaToolExecutorSpec[] {
+export function createCuaActionToolExecutors(actions: readonly CuaActionType[] = CUA_ACTION_TYPES, mode: CuaMode = "computer"): CuaToolExecutorSpec[] {
 	const definitions = createCuaActionToolDefinitions(actions, mode);
 	return definitions.map((definition, index) => {
 		const actionType = actions[index]!;
@@ -194,7 +194,7 @@ export function createCuaBatchToolDefinition(
 	return {
 		name: options.name ?? CUA_BATCH_TOOL_NAME,
 		description: options.description ?? CUA_BATCH_TOOL_DESCRIPTION,
-		parameters: createCuaBatchSchema(actions, options.mode ?? "os"),
+		parameters: createCuaBatchSchema(actions, options.mode ?? "computer"),
 	};
 }
 
@@ -215,7 +215,7 @@ export function createCuaBatchToolExecutor(
 
 /** Build the provider's default CUA tool execution adapters. */
 export function computerToolExecutors(options: ComputerToolsOptions = {}): CuaToolExecutorSpec[] {
-	return createCuaActionToolExecutors(resolveModeActions(options), options.mode ?? "os");
+	return createCuaActionToolExecutors(resolveModeActions(options), options.mode ?? "computer");
 }
 
 function isBatchInput(value: unknown): value is CuaBatchInput {

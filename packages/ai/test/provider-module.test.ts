@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { anthropic, CUA_OS_ACTION_TYPES, CUA_PROVIDERS, type CuaProvider, gemini, openai, tzafon, yutori } from "../src/index";
+import { anthropic, CUA_COMPUTER_ACTION_TYPES, CUA_PROVIDERS, type CuaProvider, gemini, openai, tzafon, yutori } from "../src/index";
 import type { CuaProviderModule } from "../src/providers/common";
 
 const MODULES: Record<CuaProvider, { providerModule: CuaProviderModule }> = {
@@ -62,7 +62,7 @@ describe("provider namespaces export a uniform surface", () => {
 			expect(Array.isArray(actionTypes), `${prefix}_CUA_ACTION_TYPES must be exported`).toBe(true);
 			expect((actionTypes as unknown[]).length).toBeGreaterThan(0);
 			for (const action of actionTypes as string[]) {
-				expect(CUA_OS_ACTION_TYPES).toContain(action);
+				expect(CUA_COMPUTER_ACTION_TYPES).toContain(action);
 			}
 
 			expect(namespace[`${prefix}_COMPUTER_INSTRUCTIONS`], `${prefix}_COMPUTER_INSTRUCTIONS must be exported`).toBeTypeOf(

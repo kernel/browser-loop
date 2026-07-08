@@ -456,8 +456,8 @@ function providerBaseUrlOverride(provider: string): string | undefined {
 function parseMode(raw: string | undefined): CuaMode | undefined {
 	if (raw === undefined) return undefined;
 	const value = raw.trim().toLowerCase();
-	if (value === "os" || value === "dom" || value === "hybrid") return value;
-	throw new Error(`invalid --mode value "${raw}"; expected one of: os | dom | hybrid`);
+	if (value === "computer" || value === "browser" || value === "hybrid") return value;
+	throw new Error(`invalid --mode value "${raw}"; expected one of: computer | browser | hybrid`);
 }
 
 function parseNativeTool(raw: string | undefined, jsExec: boolean | undefined): CuaNativeToolSpec | undefined {

@@ -5,7 +5,7 @@ import type { CuaMode } from "./modes";
  * Anthropic's native computer-use tool (`anthropic-beta:
  * computer-use-2026-06-01`). Server-defined: the declaration below is sent
  * verbatim in `tools[]` and Anthropic fixes the input schema. Maps to CUA's
- * `os` mode — actions arrive as OS-plane input in screenshot-pixel
+ * `computer` mode — actions arrive as OS-level input in screenshot-pixel
  * coordinates.
  */
 export interface AnthropicComputerNativeTool {
@@ -23,7 +23,7 @@ export interface AnthropicComputerNativeTool {
 /**
  * Anthropic's native browser tool (`anthropic-beta: browser-use-2026-07-01`,
  * proposed — the tool version and schema may change before release). Maps to
- * CUA's `dom` mode — DOM reads by element reference plus pointer actions in
+ * CUA's `browser` mode — page reads by element reference plus pointer actions in
  * viewport-pixel coordinates.
  */
 export interface AnthropicBrowserNativeTool {
@@ -50,15 +50,15 @@ export type CuaNativeToolSpec = AnthropicComputerNativeTool | AnthropicBrowserNa
 export type CuaNativeToolType = CuaNativeToolSpec["type"];
 
 interface NativeToolInfo {
-	mode: Extract<CuaMode, "os" | "dom">;
+	mode: Extract<CuaMode, "computer" | "browser">;
 	provider: "anthropic";
 	betaHeader: string;
 	defaultName: string;
 }
 
 const NATIVE_TOOL_INFO: Record<CuaNativeToolType, NativeToolInfo> = {
-	computer_20260601: { mode: "os", provider: "anthropic", betaHeader: "computer-use-2026-06-01", defaultName: "computer" },
-	browser_20260701: { mode: "dom", provider: "anthropic", betaHeader: "browser-use-2026-07-01", defaultName: "browser" },
+	computer_20260601: { mode: "computer", provider: "anthropic", betaHeader: "computer-use-2026-06-01", defaultName: "computer" },
+	browser_20260701: { mode: "browser", provider: "anthropic", betaHeader: "browser-use-2026-07-01", defaultName: "browser" },
 };
 
 /** The {@link CuaMode} a native tool requires. */

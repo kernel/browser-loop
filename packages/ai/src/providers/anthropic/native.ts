@@ -83,7 +83,7 @@ function asNativeInput(args: unknown): NativeInput {
 
 const MAX_KEY_REPEAT = 100;
 
-/** Map one `computer_20260601` tool input onto canonical OS-plane actions. */
+/** Map one `computer_20260601` tool input onto canonical computer-plane actions. */
 export function mapNativeComputerInput(input: NativeInput): CuaAction[] {
 	switch (input.action) {
 		case "screenshot":
@@ -132,7 +132,7 @@ export function mapNativeComputerInput(input: NativeInput): CuaAction[] {
 	}
 }
 
-/** Map one `browser_20260701` tool input onto canonical DOM-plane actions. */
+/** Map one `browser_20260701` tool input onto canonical browser-plane actions. */
 export function mapNativeBrowserInput(input: NativeInput): CuaAction[] {
 	const tab = tabId(input);
 	switch (input.action) {

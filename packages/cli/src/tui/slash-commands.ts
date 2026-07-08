@@ -29,8 +29,8 @@ export function buildAutocompleteProvider(
 
 	commands.push({
 		name: "mode",
-		description: "Switch the action plane(s): os | dom | hybrid",
-		argumentHint: "<os|dom|hybrid>",
+		description: "Switch the action plane(s): computer | browser | hybrid",
+		argumentHint: "<computer|browser|hybrid>",
 		getArgumentCompletions: (prefix: string) => modeCompletions(prefix),
 	});
 
@@ -66,8 +66,8 @@ function modelCompletions(prefix: string): AutocompleteItem[] {
 }
 
 const MODES: ReadonlyArray<{ value: string; description: string }> = [
-	{ value: "os", description: "OS-level input only (default)" },
-	{ value: "dom", description: "CDP page tools: snapshot, find, click-by-ref, navigate, tabs" },
+	{ value: "computer", description: "OS-level input only (default)" },
+	{ value: "browser", description: "CDP page tools: snapshot, find, click-by-ref, navigate, tabs" },
 	{ value: "hybrid", description: "Both planes: computer_* input + ref-only page_* tools" },
 ];
 

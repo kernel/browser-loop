@@ -1,14 +1,14 @@
 import { Type, type TSchema } from "@earendil-works/pi-ai";
 
 /**
- * OS-plane canonical actions.
+ * Computer-plane canonical actions.
  *
  * These execute as real OS-level input against the Kernel browser VM (mouse,
  * keyboard, display capture) — never CDP. All coordinates are pixels in the
- * OS screenshot frame. The DOM-plane vocabulary lives in `./dom` and is
+ * OS screenshot frame. The browser-plane vocabulary lives in `./browser` and is
  * executed over CDP; the two planes never share a coordinate frame.
  */
-export const CUA_OS_ACTION_TYPES = [
+export const CUA_COMPUTER_ACTION_TYPES = [
 	"click",
 	"double_click",
 	"mouse_down",
@@ -28,15 +28,15 @@ export const CUA_OS_ACTION_TYPES = [
 	"cursor_position",
 ] as const;
 
-export type CuaOsActionType = (typeof CUA_OS_ACTION_TYPES)[number];
+export type CuaComputerActionType = (typeof CUA_COMPUTER_ACTION_TYPES)[number];
 
 /**
  * The default OS-mode toolset. This is the pre-modes canonical action list:
  * every OS action except `zoom`, which is only exposed by default in hybrid
  * mode and by Anthropic's native computer tool (`enable_zoom`).
  */
-export const CUA_DEFAULT_OS_ACTION_TYPES = CUA_OS_ACTION_TYPES.filter(
-	(action): action is Exclude<CuaOsActionType, "zoom"> => action !== "zoom",
+export const CUA_DEFAULT_COMPUTER_ACTION_TYPES = CUA_COMPUTER_ACTION_TYPES.filter(
+	(action): action is Exclude<CuaComputerActionType, "zoom"> => action !== "zoom",
 );
 
 /**
@@ -153,7 +153,7 @@ export interface CuaActionCursorPosition {
 	type: "cursor_position";
 }
 
-export type CuaOsAction =
+export type CuaComputerAction =
 	| CuaActionClick
 	| CuaActionDoubleClick
 	| CuaActionMouseDown
@@ -180,7 +180,7 @@ const PointSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
-export const CUA_OS_ACTION_SCHEMA_BY_TYPE = {
+export const CUA_COMPUTER_ACTION_SCHEMA_BY_TYPE = {
 	click: Type.Object(
 		{
 			type: Type.Literal("click"),
@@ -296,6 +296,6 @@ export const CUA_OS_ACTION_SCHEMA_BY_TYPE = {
 	forward: Type.Object({ type: Type.Literal("forward") }, { additionalProperties: false }),
 	url: Type.Object({ type: Type.Literal("url") }, { additionalProperties: false }),
 	cursor_position: Type.Object({ type: Type.Literal("cursor_position") }, { additionalProperties: false }),
-} satisfies Record<CuaOsActionType, TSchema>;
+} satisfies Record<CuaComputerActionType, TSchema>;
 
 export type CuaZoomRegion = CuaActionZoom["region"];

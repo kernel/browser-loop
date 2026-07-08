@@ -1,5 +1,5 @@
 import {
-	assertOsModeOnly,
+	assertComputerModeOnly,
 	computerToolExecutors,
 	computerTools,
 	type ComputerToolCoordinateSystem,
@@ -52,11 +52,11 @@ export function buildTzafonSystemPrompt(opts: { suffix?: string } = {}): string 
 
 export const providerModule = {
 	toolDefinitions: (options?: ComputerToolsOptions) => {
-		assertOsModeOnly("tzafon", options);
+		assertComputerModeOnly("tzafon", options);
 		return computerTools(options);
 	},
 	toolExecutors: (options?: ComputerToolsOptions) => {
-		assertOsModeOnly("tzafon", options);
+		assertComputerModeOnly("tzafon", options);
 		return computerToolExecutors(options);
 	},
 	coordinateSystem,

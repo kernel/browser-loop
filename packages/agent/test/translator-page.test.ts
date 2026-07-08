@@ -1,8 +1,8 @@
 import type Kernel from "@onkernel/sdk";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
-import type { CuaDomAction } from "@onkernel/cua-ai";
-import type { DomExecutor } from "../src/translator/dom";
+import type { CuaBrowserAction } from "@onkernel/cua-ai";
+import type { PageExecutor } from "../src/translator/page";
 import { InternalComputerTranslator, type KernelBrowser } from "../src/translator/translator";
 import type { BatchReadResult } from "../src/translator/types";
 
@@ -25,15 +25,15 @@ function createClient() {
 }
 
 function createFakeDom() {
-	const executed: CuaDomAction[] = [];
+	const executed: CuaBrowserAction[] = [];
 	const dom = {
-		execute: async (action: CuaDomAction): Promise<BatchReadResult[]> => {
+		execute: async (action: CuaBrowserAction): Promise<BatchReadResult[]> => {
 			executed.push(action);
-			if (action.type === "page_text") return [{ type: "dom_text", label: "text", text: "hello" }];
+			if (action.type === "page_text") return [{ type: "page_text", label: "text", text: "hello" }];
 			return [];
 		},
 		screenshot: async () => ({ data: Buffer.from("png"), mimeType: "image/png" }),
-	} as unknown as DomExecutor;
+	} as unknown as PageExecutor;
 	return { executed, dom };
 }
 
@@ -41,7 +41,7 @@ describe("InternalComputerTranslator DOM plane", () => {
 	it("dispatches DOM actions to the DOM executor, flushing pending OS input first", async () => {
 		const { batches, client } = createClient();
 		const { executed, dom } = createFakeDom();
-		const translator = new InternalComputerTranslator({ browser, client, createDomExecutor: () => dom });
+		const translator = new InternalComputerTranslator({ browser, client, createPageExecutor: () => dom });
 
 		const result = await translator.executeBatch([
 			{ type: "click", x: 1, y: 2 },
@@ -51,7 +51,7 @@ describe("InternalComputerTranslator DOM plane", () => {
 
 		expect(batches).toHaveLength(1);
 		expect(executed.map((action) => action.type)).toEqual(["page_text", "page_click"]);
-		expect(result.readResults).toEqual([{ type: "dom_text", label: "text", text: "hello" }]);
+		expect(result.readResults).toEqual([{ type: "page_text", label: "text", text: "hello" }]);
 	});
 
 	it("errors on DOM actions when the browser has no cdp_ws_url", async () => {

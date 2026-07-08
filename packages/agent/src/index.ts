@@ -3,7 +3,7 @@ export { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
 
 export type { KernelBrowser } from "./translator/translator";
 export { CdpConnection } from "./translator/cdp";
-export { DomExecutor } from "./translator/dom";
+export { PageExecutor } from "./translator/page";
 export type { BatchExecutionResult, BatchReadResult } from "./translator/types";
 export { createCuaComputerTools } from "./tools";
 export type {

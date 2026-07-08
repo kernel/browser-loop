@@ -186,16 +186,16 @@ describe("CuaAgent", () => {
 				model: "anthropic:claude-opus-4-5",
 			},
 		});
-		expect(agent.getMode()).toBe("os");
+		expect(agent.getMode()).toBe("computer");
 		expect(agent.state.tools.map((tool) => tool.name)).toContain("click");
 
-		agent.setMode("dom");
+		agent.setMode("browser");
 
-		expect(agent.getMode()).toBe("dom");
+		expect(agent.getMode()).toBe("browser");
 		const names = agent.state.tools.map((tool) => tool.name);
 		expect(names).toContain("snapshot");
 		expect(names).not.toContain("move");
-		expect(agent.state.systemPrompt).toBe(resolveCuaRuntimeSpec("anthropic:claude-opus-4-5", { mode: "dom" }).defaultSystemPrompt);
+		expect(agent.state.systemPrompt).toBe(resolveCuaRuntimeSpec("anthropic:claude-opus-4-5", { mode: "browser" }).defaultSystemPrompt);
 	});
 
 	it("rejects setMode conflicting with a configured native tool", () => {
@@ -207,9 +207,9 @@ describe("CuaAgent", () => {
 				model: "anthropic:claude-opus-4-5",
 			},
 		});
-		expect(agent.getMode()).toBe("dom");
-		expect(() => agent.setMode("os")).toThrow(/requires mode "dom"/);
-		expect(agent.getMode()).toBe("dom");
+		expect(agent.getMode()).toBe("browser");
+		expect(() => agent.setMode("computer")).toThrow(/requires mode "browser"/);
+		expect(agent.getMode()).toBe("browser");
 	});
 
 	it("keeps extra tools and caller-owned system prompt when state.model changes", () => {
@@ -433,7 +433,7 @@ describe("CuaAgentHarness", () => {
 			client,
 			model: "anthropic:claude-opus-4-5",
 		});
-		expect(harness.getMode()).toBe("os");
+		expect(harness.getMode()).toBe("computer");
 
 		await harness.setMode("hybrid");
 

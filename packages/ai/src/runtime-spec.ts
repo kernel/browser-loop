@@ -29,8 +29,8 @@ export interface CuaRuntimeSpecOptions extends ComputerToolsOptions {
 	/**
 	 * Drive the model through a provider-native tool declaration instead of
 	 * CUA's canonical function tools. The native tool determines (and is
-	 * validated against) the mode: `computer_20260601` requires `"os"`,
-	 * `browser_20260701` requires `"dom"`. When `mode` is omitted it is
+	 * validated against) the mode: `computer_20260601` requires `"computer"`,
+	 * `browser_20260701` requires `"browser"`. When `mode` is omitted it is
 	 * inferred from the native tool.
 	 */
 	nativeTool?: CuaNativeToolSpec;
@@ -48,7 +48,7 @@ export function resolveCuaRuntimeSpec(input: CuaRuntimeSpecInput, options: CuaRu
 	const model = typeof input === "string" ? getCuaModel(input) : routeCuaApi(input);
 	const provider = providerForModel(model);
 	const mod: CuaProviderModule = PROVIDERS[provider];
-	const mode = options.mode ?? (options.nativeTool ? modeForNativeTool(options.nativeTool) : "os");
+	const mode = options.mode ?? (options.nativeTool ? modeForNativeTool(options.nativeTool) : "computer");
 
 	if (options.nativeTool) {
 		const nativeTool = resolveNativeTool(options.nativeTool, model, mode);

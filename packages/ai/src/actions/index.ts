@@ -1,47 +1,47 @@
 import type { TSchema } from "@earendil-works/pi-ai";
-import { CUA_DOM_ACTION_TYPES, createCuaDomActionSchemaByType, type CuaDomAction, type CuaDomActionType, type CuaDomSchemaOptions } from "./dom";
-import { CUA_OS_ACTION_SCHEMA_BY_TYPE, CUA_OS_ACTION_TYPES, type CuaOsAction, type CuaOsActionType } from "./os";
+import { CUA_BROWSER_ACTION_TYPES, createCuaBrowserActionSchemaByType, type CuaBrowserAction, type CuaBrowserActionType, type CuaBrowserSchemaOptions } from "./browser";
+import { CUA_COMPUTER_ACTION_SCHEMA_BY_TYPE, CUA_COMPUTER_ACTION_TYPES, type CuaComputerAction, type CuaComputerActionType } from "./computer";
 
-export * from "./dom";
-export * from "./os";
+export * from "./browser";
+export * from "./computer";
 
-/** Any canonical CUA action type, across the OS and DOM planes. */
-export type CuaActionType = CuaOsActionType | CuaDomActionType;
+/** Any canonical CUA action type, across the OS and browser planes. */
+export type CuaActionType = CuaComputerActionType | CuaBrowserActionType;
 
-/** Any canonical CUA action, across the OS and DOM planes. */
-export type CuaAction = CuaOsAction | CuaDomAction;
+/** Any canonical CUA action, across the OS and browser planes. */
+export type CuaAction = CuaComputerAction | CuaBrowserAction;
 
-/** Every canonical action type: the OS plane followed by the DOM plane. */
-export const CUA_ALL_ACTION_TYPES: readonly CuaActionType[] = [...CUA_OS_ACTION_TYPES, ...CUA_DOM_ACTION_TYPES];
+/** Every canonical action type: the computer plane followed by the browser plane. */
+export const CUA_ALL_ACTION_TYPES: readonly CuaActionType[] = [...CUA_COMPUTER_ACTION_TYPES, ...CUA_BROWSER_ACTION_TYPES];
 
-const OS_ACTION_TYPE_SET: ReadonlySet<string> = new Set(CUA_OS_ACTION_TYPES);
-const DOM_ACTION_TYPE_SET: ReadonlySet<string> = new Set(CUA_DOM_ACTION_TYPES);
+const OS_ACTION_TYPE_SET: ReadonlySet<string> = new Set(CUA_COMPUTER_ACTION_TYPES);
+const DOM_ACTION_TYPE_SET: ReadonlySet<string> = new Set(CUA_BROWSER_ACTION_TYPES);
 
-/** Whether a canonical action type belongs to the OS plane. */
-export function isCuaOsActionType(action: CuaActionType): action is CuaOsActionType {
+/** Whether a canonical action type belongs to the computer plane. */
+export function isCuaComputerActionType(action: CuaActionType): action is CuaComputerActionType {
 	return OS_ACTION_TYPE_SET.has(action);
 }
 
-/** Whether a canonical action type belongs to the DOM plane. */
-export function isCuaDomActionType(action: CuaActionType): action is CuaDomActionType {
+/** Whether a canonical action type belongs to the browser plane. */
+export function isCuaBrowserActionType(action: CuaActionType): action is CuaBrowserActionType {
 	return DOM_ACTION_TYPE_SET.has(action);
 }
 
-/** Whether a canonical action belongs to the DOM plane. */
-export function isCuaDomAction(action: CuaAction): action is CuaDomAction {
+/** Whether a canonical action belongs to the browser plane. */
+export function isCuaBrowserAction(action: CuaAction): action is CuaBrowserAction {
 	return DOM_ACTION_TYPE_SET.has(action.type);
 }
 
 /** Options for building canonical action schemas. */
 export interface CuaActionSchemaOptions {
-	/** DOM-plane schema variants; see {@link CuaDomSchemaOptions}. Defaults to coordinates allowed. */
-	dom?: CuaDomSchemaOptions;
+	/** browser-plane schema variants; see {@link CuaBrowserSchemaOptions}. Defaults to coordinates allowed. */
+	browser?: CuaBrowserSchemaOptions;
 }
 
 /** Build the full action-type → schema map for a schema-options combination. */
 export function cuaActionSchemaByType(options: CuaActionSchemaOptions = {}): Record<CuaActionType, TSchema> {
 	return {
-		...CUA_OS_ACTION_SCHEMA_BY_TYPE,
-		...createCuaDomActionSchemaByType(options.dom ?? { coordinates: true }),
+		...CUA_COMPUTER_ACTION_SCHEMA_BY_TYPE,
+		...createCuaBrowserActionSchemaByType(options.browser ?? { coordinates: true }),
 	};
 }

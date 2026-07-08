@@ -23,7 +23,7 @@ export interface ComputerToolOptions {
 	toolExecutors: CuaToolExecutorSpec[];
 	coordinateSystem?: ComputerToolCoordinateSystem;
 	screenshot?: CuaScreenshotSpec;
-	/** Action plane(s) in play; controls whether the post-action fallback capture is the OS display or the viewport. Default "os". */
+	/** Action plane(s) in play; controls whether the post-action fallback capture is the OS display or the viewport. Default "computer". */
 	mode?: CuaMode;
 	computerUseExtra?: boolean;
 	playwright?: boolean;
@@ -37,7 +37,7 @@ export interface BatchDetails {
 		| { type: "url"; url: string }
 		| { type: "screenshot"; bytes: number }
 		| { type: "cursor_position"; x: number; y: number }
-		| { type: "dom_text"; label: string; bytes: number }
+		| { type: "page_text"; label: string; bytes: number }
 	>;
 }
 
@@ -89,7 +89,7 @@ export function buildCuaComputerTools(
 	args: Pick<ComputerToolOptions, "toolExecutors" | "computerUseExtra" | "playwright" | "mode">,
 	translator: InternalComputerTranslator,
 ): CuaExecutorTool[] {
-	return withExtraTools(args).map((executor) => createExecutorTool(executor, translator, args.mode ?? "os"));
+	return withExtraTools(args).map((executor) => createExecutorTool(executor, translator, args.mode ?? "computer"));
 }
 
 function withExtraTools(args: Pick<ComputerToolOptions, "toolExecutors" | "computerUseExtra" | "playwright">): ComputerExecutorSpec[] {
@@ -155,7 +155,7 @@ function isPlaywrightExecutor(executor: ComputerExecutorSpec): executor is Playw
 async function executeBatchTool(
 	translator: InternalComputerTranslator,
 	params: CuaBatchInput,
-	mode: CuaMode = "os",
+	mode: CuaMode = "computer",
 ): Promise<AgentToolResult<BatchDetails>> {
 	const content: ToolContent = [];
 	const readResults: BatchDetails["readResults"] = [];
@@ -168,8 +168,8 @@ async function executeBatchTool(
 			} else if (read.type === "cursor_position") {
 				readResults.push({ type: "cursor_position", x: read.x, y: read.y });
 				content.push({ type: "text", text: `cursor_position(): ${read.x},${read.y}` });
-			} else if (read.type === "dom_text") {
-				readResults.push({ type: "dom_text", label: read.label, bytes: read.text.length });
+			} else if (read.type === "page_text") {
+				readResults.push({ type: "page_text", label: read.label, bytes: read.text.length });
 				content.push({ type: "text", text: read.text });
 			} else {
 				readResults.push({ type: "screenshot", bytes: read.data.length });
@@ -178,8 +178,8 @@ async function executeBatchTool(
 		}
 		if (content.length === 0) {
 			// Post-action grounding capture: the OS display in os/hybrid mode,
-			// the browser viewport in dom mode (the only frame the model sees).
-			const screenshot = mode === "dom" ? await translator.dom().screenshot() : await translator.screenshot();
+			// the browser viewport in browser mode (the only frame the model sees).
+			const screenshot = mode === "browser" ? await translator.page().screenshot() : await translator.screenshot();
 			readResults.push({ type: "screenshot", bytes: screenshot.data.length });
 			content.push({ type: "image", data: screenshot.data.toString("base64"), mimeType: screenshot.mimeType });
 		}

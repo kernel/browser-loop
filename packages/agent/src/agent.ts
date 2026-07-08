@@ -72,11 +72,11 @@ export type CuaAgentOptions = Omit<AgentOptions, "initialState"> & {
 	initialState: CuaAgentInitialState;
 	/** Add your own pi tools alongside the built-in browser tools. */
 	extraTools?: AgentTool[];
-	/** Which canonical action plane(s) to expose: "os" (default), "dom", or "hybrid". */
+	/** Which canonical action plane(s) to expose: "computer" (default), "browser", or "hybrid". */
 	mode?: CuaMode;
 	/** Drive the model through a provider-native tool declaration (validated against `mode`). */
 	nativeTool?: CuaNativeToolSpec;
-	/** Expose `page_evaluate` in dom/hybrid modes. Default false. */
+	/** Expose `page_evaluate` in browser/hybrid modes. Default false. */
 	javascriptExec?: boolean;
 	/** Expose a helper for browser navigation and URL reads. */
 	computerUseExtra?: boolean;
@@ -112,11 +112,11 @@ export type CuaAgentHarnessOptions<
 	models?: Models;
 	/** Add your own pi tools alongside the built-in browser tools. */
 	extraTools?: AgentTool[];
-	/** Which canonical action plane(s) to expose: "os" (default), "dom", or "hybrid". */
+	/** Which canonical action plane(s) to expose: "computer" (default), "browser", or "hybrid". */
 	mode?: CuaMode;
 	/** Drive the model through a provider-native tool declaration (validated against `mode`). */
 	nativeTool?: CuaNativeToolSpec;
-	/** Expose `page_evaluate` in dom/hybrid modes. Default false. */
+	/** Expose `page_evaluate` in browser/hybrid modes. Default false. */
 	javascriptExec?: boolean;
 	/** Expose a helper for browser navigation and URL reads. */
 	computerUseExtra?: boolean;

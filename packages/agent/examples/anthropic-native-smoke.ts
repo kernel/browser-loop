@@ -1,24 +1,24 @@
 // Smoke-test the mode/native-tool matrix against a live Kernel browser:
 //
-//   MODEL_REF=anthropic:claude-opus-4-8 CONFIG=native-computer tsx examples/anthropic-native-smoke.ts
+//   MODEL_REF=anthropic:claude-opus-4-8 CONFIG=native-browser tsx examples/anthropic-native-smoke.ts
 //
 // CONFIG selects the runtime shape:
-//   os (default)     canonical OS-plane tools
-//   dom              canonical DOM-plane tools over CDP
-//   hybrid           both planes, deduplicated
-//   native-computer  Anthropic computer_20260601 (requires the computer-use beta)
-//   native-browser   Anthropic browser_20260701 (requires the browser-use beta)
+//   computer (default)  canonical computer-plane (OS input) tools
+//   browser             canonical browser-plane (CDP page) tools
+//   hybrid              both planes, deduplicated
+//   native-computer     Anthropic computer_20260601 (requires the computer-use beta)
+//   native-browser      Anthropic browser_20260701 (requires the browser-use beta)
 import Kernel from "@onkernel/sdk";
 import { requireCuaEnvApiKeyForModel, type CuaModelRef, type CuaMode, type CuaNativeToolSpec } from "@onkernel/cua-ai";
 import { CuaAgent } from "../src/index";
 import { logAgentEvent, logAssistant } from "./shared/logging";
 
 const modelRef = (process.env.MODEL_REF as CuaModelRef | undefined) ?? "anthropic:claude-opus-4-8";
-const config = process.env.CONFIG ?? "os";
+const config = process.env.CONFIG ?? "computer";
 
 const CONFIGS: Record<string, { mode?: CuaMode; nativeTool?: CuaNativeToolSpec }> = {
-	os: { mode: "os" },
-	dom: { mode: "dom" },
+	computer: { mode: "computer" },
+	browser: { mode: "browser" },
 	hybrid: { mode: "hybrid" },
 	"native-computer": { nativeTool: { type: "computer_20260601", enable_zoom: true } },
 	"native-browser": { nativeTool: { type: "browser_20260701" } },

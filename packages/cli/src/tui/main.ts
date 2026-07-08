@@ -493,8 +493,8 @@ async function applyModelCommand(
 
 async function applyModeCommand(opts: InteractiveOptions, messages: MessageList, argument: string): Promise<void> {
 	const value = argument.trim().toLowerCase();
-	if (value !== "os" && value !== "dom" && value !== "hybrid") {
-		messages.addError("usage: /mode <os|dom|hybrid>");
+	if (value !== "computer" && value !== "browser" && value !== "hybrid") {
+		messages.addError("usage: /mode <computer|browser|hybrid>");
 		return;
 	}
 	try {

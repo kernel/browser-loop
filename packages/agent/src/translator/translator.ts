@@ -1,7 +1,7 @@
 import type Kernel from "@onkernel/sdk";
 import type { BrowserCreateResponse, BrowserRetrieveResponse } from "@onkernel/sdk/resources/browsers";
 import {
-	isCuaDomAction,
+	isCuaBrowserAction,
 	normalizeGotoUrl,
 	type ComputerToolCoordinateSystem,
 	type CuaAction,
@@ -15,13 +15,13 @@ import {
 	type CuaActionTypeText,
 	type CuaActionWait,
 	type CuaActionZoom,
-	type CuaDomAction,
+	type CuaBrowserAction,
 	type CuaDragMouseButton,
 	type CuaMouseButton,
 	type CuaScreenshotSpec,
 } from "@onkernel/cua-ai";
 import sharp from "sharp";
-import { createDomExecutor, type DomExecutor } from "./dom";
+import { createPageExecutor, type PageExecutor } from "./page";
 import { isKernelModifierKey, normalizeKernelKey, normalizeKernelKeyCombo } from "./keys";
 import type { BatchExecutionResult } from "./types";
 
@@ -32,8 +32,8 @@ export interface InternalComputerTranslatorOptions {
 	client: Kernel;
 	coordinateSystem?: ComputerToolCoordinateSystem;
 	screenshot?: CuaScreenshotSpec;
-	/** DOM executor factory, overridable for tests. Defaults to a raw-CDP executor on the browser's cdp_ws_url. */
-	createDomExecutor?: (cdpWsUrl: string) => DomExecutor;
+	/** Page executor factory, overridable for tests. Defaults to a raw-CDP executor on the browser's cdp_ws_url. */
+	createPageExecutor?: (cdpWsUrl: string) => PageExecutor;
 }
 
 export class InternalComputerTranslator {
@@ -43,8 +43,8 @@ export class InternalComputerTranslator {
 	private readonly screenshotSpec?: CuaScreenshotSpec;
 	private readonly viewport: { width: number; height: number };
 	private readonly cdpWsUrl?: string;
-	private readonly domExecutorFactory: (cdpWsUrl: string) => DomExecutor;
-	private domExecutor?: DomExecutor;
+	private readonly pageExecutorFactory: (cdpWsUrl: string) => PageExecutor;
+	private pageExecutor?: PageExecutor;
 
 	constructor(opts: InternalComputerTranslatorOptions) {
 		this.sessionId = opts.browser.session_id;
@@ -53,16 +53,16 @@ export class InternalComputerTranslator {
 		this.screenshotSpec = opts.screenshot;
 		this.viewport = opts.browser.viewport ?? { width: 1920, height: 1080 };
 		this.cdpWsUrl = opts.browser.cdp_ws_url;
-		this.domExecutorFactory = opts.createDomExecutor ?? createDomExecutor;
+		this.pageExecutorFactory = opts.createPageExecutor ?? createPageExecutor;
 	}
 
-	/** The DOM-plane executor, connected lazily over the browser's CDP websocket. */
-	dom(): DomExecutor {
-		if (!this.domExecutor) {
-			if (!this.cdpWsUrl) throw new Error("browser has no cdp_ws_url; DOM actions are unavailable");
-			this.domExecutor = this.domExecutorFactory(this.cdpWsUrl);
+	/** The browser-plane executor, connected lazily over the browser's CDP websocket. */
+	page(): PageExecutor {
+		if (!this.pageExecutor) {
+			if (!this.cdpWsUrl) throw new Error("browser has no cdp_ws_url; browser actions are unavailable");
+			this.pageExecutor = this.pageExecutorFactory(this.cdpWsUrl);
 		}
-		return this.domExecutor;
+		return this.pageExecutor;
 	}
 
 	async screenshotRaw(): Promise<Buffer> {
@@ -126,9 +126,9 @@ export class InternalComputerTranslator {
 		};
 
 		for (const action of actions) {
-			if (isCuaDomAction(action)) {
+			if (isCuaBrowserAction(action)) {
 				await flush();
-				result.readResults.push(...(await this.dom().execute(action)));
+				result.readResults.push(...(await this.page().execute(action)));
 				continue;
 			}
 			switch (action.type) {
@@ -195,7 +195,7 @@ export class InternalComputerTranslator {
 	}
 
 	private toSdkAction(
-		action: Exclude<CuaAction, CuaDomAction | { type: "screenshot" | "zoom" | "url" | "cursor_position" | "goto" | "back" | "forward" }>,
+		action: Exclude<CuaAction, CuaBrowserAction | { type: "screenshot" | "zoom" | "url" | "cursor_position" | "goto" | "back" | "forward" }>,
 	): KernelBatchAction {
 		switch (action.type) {
 			case "click":

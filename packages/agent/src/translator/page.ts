@@ -10,7 +10,7 @@ import {
 	type CuaActionPageScroll,
 	type CuaActionPageScrollTo,
 	type CuaActionPageSnapshot,
-	type CuaDomAction,
+	type CuaBrowserAction,
 } from "@onkernel/cua-ai";
 import { CdpConnection } from "./cdp";
 import type { BatchReadResult } from "./types";
@@ -39,14 +39,14 @@ interface RefEntry {
 }
 
 /**
- * Executes DOM-plane canonical actions over CDP.
+ * Executes browser-plane canonical actions over CDP.
  *
  * Element refs are snapshot-scoped: each snapshot/find mints `e<N>` ids
  * mapped to CDP backend node ids for the target's current generation. A
  * navigation bumps the generation, and refs from earlier generations resolve
  * to a stale-ref error whose message tells the model how to recover.
  */
-export class DomExecutor {
+export class PageExecutor {
 	private readonly refs = new Map<string, RefEntry>();
 	private readonly generations = new Map<string, number>();
 	private refCounter = 0;
@@ -54,14 +54,14 @@ export class DomExecutor {
 
 	constructor(private readonly cdp: CdpConnection) {}
 
-	async execute(action: CuaDomAction): Promise<BatchReadResult[]> {
+	async execute(action: CuaBrowserAction): Promise<BatchReadResult[]> {
 		switch (action.type) {
 			case "page_snapshot":
-				return [{ type: "dom_text", label: "snapshot", text: await this.snapshot(action) }];
+				return [{ type: "page_text", label: "snapshot", text: await this.snapshot(action) }];
 			case "page_text":
-				return [{ type: "dom_text", label: "text", text: await this.pageText(tabOf(action)) }];
+				return [{ type: "page_text", label: "text", text: await this.pageText(tabOf(action)) }];
 			case "page_find":
-				return [{ type: "dom_text", label: "find", text: await this.find(action) }];
+				return [{ type: "page_text", label: "find", text: await this.find(action) }];
 			case "page_click":
 				await this.click(action);
 				return [];
@@ -89,15 +89,15 @@ export class DomExecutor {
 				await this.key(action);
 				return [];
 			case "page_navigate":
-				return [{ type: "dom_text", label: "navigate", text: await this.navigate(action) }];
+				return [{ type: "page_text", label: "navigate", text: await this.navigate(action) }];
 			case "page_list_tabs":
-				return [{ type: "dom_text", label: "tabs", text: await this.listTabs() }];
+				return [{ type: "page_text", label: "tabs", text: await this.listTabs() }];
 			case "page_new_tab":
-				return [{ type: "dom_text", label: "new_tab", text: await this.newTab() }];
+				return [{ type: "page_text", label: "new_tab", text: await this.newTab() }];
 			case "page_screenshot":
 				return [{ type: "screenshot", ...(await this.screenshot(action.region, action.tab_id)) }];
 			case "page_evaluate":
-				return [{ type: "dom_text", label: "evaluate", text: await this.evaluate(action.code, tabOf(action)) }];
+				return [{ type: "page_text", label: "evaluate", text: await this.evaluate(action.code, tabOf(action)) }];
 		}
 	}
 
@@ -555,6 +555,6 @@ const INTERACTIVE_ROLES: ReadonlySet<string> = new Set([
 
 const SKIPPED_ROLES: ReadonlySet<string> = new Set(["none", "generic", "InlineTextBox", "LineBreak", "StaticText"]);
 
-export function createDomExecutor(cdpWsUrl: string): DomExecutor {
-	return new DomExecutor(new CdpConnection(cdpWsUrl));
+export function createPageExecutor(cdpWsUrl: string): PageExecutor {
+	return new PageExecutor(new CdpConnection(cdpWsUrl));
 }

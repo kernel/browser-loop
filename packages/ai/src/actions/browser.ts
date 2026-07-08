@@ -1,21 +1,21 @@
 import { Type, type TSchema } from "@earendil-works/pi-ai";
 
 /**
- * DOM-plane canonical actions.
+ * Browser-plane canonical actions.
  *
  * These execute over CDP against the browser itself: accessibility-tree
  * reads with element references, element-targeted interaction, navigation,
- * tabs, and viewport screenshots. Where a DOM action takes coordinates
+ * tabs, and viewport screenshots. Where a browser action takes coordinates
  * (`page_click`, `page_hover`, `page_drag`, `page_scroll`), they are pixels
- * in the browser viewport — a different frame from the OS-plane actions in
- * `./os`. Modes that expose both planes (hybrid) therefore restrict DOM
+ * in the browser viewport — a different frame from the computer-plane actions in
+ * `./computer`. Modes that expose both planes (hybrid) therefore restrict browser
  * actions to element references so exactly one coordinate frame is live.
  *
  * Element references (`ref`) are snapshot-scoped opaque ids (`e12`) minted
  * by `page_snapshot` / `page_find`; a stale ref is an error instructing the
  * model to re-snapshot.
  */
-export const CUA_DOM_ACTION_TYPES = [
+export const CUA_BROWSER_ACTION_TYPES = [
 	"page_snapshot",
 	"page_text",
 	"page_find",
@@ -34,15 +34,15 @@ export const CUA_DOM_ACTION_TYPES = [
 	"page_evaluate",
 ] as const;
 
-export type CuaDomActionType = (typeof CUA_DOM_ACTION_TYPES)[number];
+export type CuaBrowserActionType = (typeof CUA_BROWSER_ACTION_TYPES)[number];
 
 /**
- * The default DOM-mode toolset: everything except `page_evaluate`, which
+ * The default browser-mode toolset: everything except `page_evaluate`, which
  * runs arbitrary JavaScript in the page and must be enabled explicitly
  * (`javascriptExec: true`).
  */
-export const CUA_DEFAULT_DOM_ACTION_TYPES = CUA_DOM_ACTION_TYPES.filter(
-	(action): action is Exclude<CuaDomActionType, "page_evaluate"> => action !== "page_evaluate",
+export const CUA_DEFAULT_BROWSER_ACTION_TYPES = CUA_BROWSER_ACTION_TYPES.filter(
+	(action): action is Exclude<CuaBrowserActionType, "page_evaluate"> => action !== "page_evaluate",
 );
 
 export interface CuaActionPageSnapshot {
@@ -153,7 +153,7 @@ export interface CuaActionPageEvaluate {
 	tab_id?: string;
 }
 
-export type CuaDomAction =
+export type CuaBrowserAction =
 	| CuaActionPageSnapshot
 	| CuaActionPageText
 	| CuaActionPageFind
@@ -171,11 +171,11 @@ export type CuaDomAction =
 	| CuaActionPageScreenshot
 	| CuaActionPageEvaluate;
 
-/** Options for building DOM action schemas. */
-export interface CuaDomSchemaOptions {
+/** Options for building browser action schemas. */
+export interface CuaBrowserSchemaOptions {
 	/**
 	 * Whether coordinate targeting is allowed on `page_click` / `page_hover`
-	 * and whether `page_drag` / `page_scroll` are expressible at all. DOM
+	 * and whether `page_drag` / `page_scroll` are expressible at all. Browser
 	 * mode allows viewport coordinates (they are the only frame); hybrid mode
 	 * must disallow them so the OS screenshot frame stays the single live
 	 * coordinate frame.
@@ -187,7 +187,7 @@ const TabId = () => Type.Optional(Type.String({ description: "Tab to act on. Def
 
 const RefProperty = () => Type.String({ description: "Element reference from page_snapshot or page_find, e.g. \"e12\"." });
 
-export function createCuaDomActionSchemaByType(options: CuaDomSchemaOptions): Record<CuaDomActionType, TSchema> {
+export function createCuaBrowserActionSchemaByType(options: CuaBrowserSchemaOptions): Record<CuaBrowserActionType, TSchema> {
 	const clickTarget: Record<string, TSchema> = options.coordinates
 		? {
 				ref: Type.Optional(RefProperty()),

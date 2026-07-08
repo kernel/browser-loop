@@ -15,8 +15,8 @@ import {
 
 describe("native tool validation", () => {
 	it("infers mode from the native tool", () => {
-		expect(modeForNativeTool({ type: "computer_20260601" })).toBe("os");
-		expect(modeForNativeTool({ type: "browser_20260701" })).toBe("dom");
+		expect(modeForNativeTool({ type: "computer_20260601" })).toBe("computer");
+		expect(modeForNativeTool({ type: "browser_20260701" })).toBe("browser");
 	});
 
 	it("carries the beta header per tool", () => {
@@ -25,12 +25,12 @@ describe("native tool validation", () => {
 	});
 
 	it("rejects a native tool with a conflicting mode", () => {
-		expect(() => resolveCuaRuntimeSpec("anthropic:claude-opus-4-5", { mode: "dom", nativeTool: { type: "computer_20260601" } })).toThrow(
-			/requires mode "os"/,
+		expect(() => resolveCuaRuntimeSpec("anthropic:claude-opus-4-5", { mode: "browser", nativeTool: { type: "computer_20260601" } })).toThrow(
+			/requires mode "computer"/,
 		);
 		expect(() =>
 			resolveCuaRuntimeSpec("anthropic:claude-opus-4-5", { mode: "hybrid", nativeTool: { type: "browser_20260701" } }),
-		).toThrow(/requires mode "dom"/);
+		).toThrow(/requires mode "browser"/);
 	});
 
 	it("rejects native tools on non-anthropic models", () => {
@@ -43,7 +43,7 @@ describe("native tool validation", () => {
 describe("native runtime specs", () => {
 	it("routes computer_20260601 to the native api with a single placeholder tool", () => {
 		const spec = resolveCuaRuntimeSpec("anthropic:claude-opus-4-5", { nativeTool: { type: "computer_20260601", enable_zoom: true } });
-		expect(spec.mode).toBe("os");
+		expect(spec.mode).toBe("computer");
 		expect(spec.model.api).toBe(ANTHROPIC_NATIVE_COMPUTER_MESSAGES_API);
 		expect(spec.nativeTool?.betaHeader).toBe("computer-use-2026-06-01");
 		expect(spec.toolDefinitions.map((tool) => tool.name)).toEqual(["computer"]);
@@ -51,7 +51,7 @@ describe("native runtime specs", () => {
 
 	it("routes browser_20260701 to the native api under the default name", () => {
 		const spec = resolveCuaRuntimeSpec("anthropic:claude-opus-4-5", { nativeTool: { type: "browser_20260701" } });
-		expect(spec.mode).toBe("dom");
+		expect(spec.mode).toBe("browser");
 		expect(spec.model.api).toBe(ANTHROPIC_NATIVE_BROWSER_MESSAGES_API);
 		expect(spec.toolDefinitions.map((tool) => tool.name)).toEqual(["browser"]);
 	});

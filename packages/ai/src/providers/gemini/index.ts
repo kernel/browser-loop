@@ -1,4 +1,4 @@
-import { assertOsModeOnly, computerToolExecutors, computerTools } from "../common";
+import { assertComputerModeOnly, computerToolExecutors, computerTools } from "../common";
 import type { ComputerToolCoordinateSystem, ComputerToolsOptions, CuaProviderModule } from "../common";
 
 export {
@@ -31,14 +31,14 @@ export function buildGeminiSystemPrompt(opts: { suffix?: string } = {}): string 
 
 export const providerModule = {
 	// Gemini's computer-use coordinate convention is normalized 0-999, which
-	// only maps onto the OS plane today; DOM-plane viewport coordinates are
+	// only maps onto the computer plane today; browser-plane viewport coordinates are
 	// unvalidated for it.
 	toolDefinitions: (options?: ComputerToolsOptions) => {
-		assertOsModeOnly("google", options);
+		assertComputerModeOnly("google", options);
 		return computerTools(options);
 	},
 	toolExecutors: (options?: ComputerToolsOptions) => {
-		assertOsModeOnly("google", options);
+		assertComputerModeOnly("google", options);
 		return computerToolExecutors(options);
 	},
 	coordinateSystem,

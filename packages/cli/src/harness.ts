@@ -33,11 +33,11 @@ export interface BuildCuaHarnessOptions {
 	/** Context files (AGENTS.md, CLAUDE.md, …) appended to the system prompt. */
 	contextFiles?: ContextFile[];
 	thinkingLevel?: ThinkingLevel;
-	/** Which canonical action plane(s) to expose: "os" (default), "dom", or "hybrid". */
+	/** Which canonical action plane(s) to expose: "computer" (default), "browser", or "hybrid". */
 	mode?: CuaMode;
 	/** Drive the model through a provider-native tool declaration (validated against `mode`). */
 	nativeTool?: CuaNativeToolSpec;
-	/** Expose `page_evaluate` in dom/hybrid modes. */
+	/** Expose `page_evaluate` in browser/hybrid modes. */
 	javascriptExec?: boolean;
 	/** Expose the playwright_execute tool that runs Playwright code against the browser session. */
 	playwright?: boolean;

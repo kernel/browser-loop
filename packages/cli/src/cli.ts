@@ -47,15 +47,15 @@ Options:
       --max-steps <n>            Max turns for action subcommands (default 3)
       --playwright               Add the playwright_execute tool so the model can run
                                  Playwright code against the browser session
-      --mode <mode>              Action plane(s) to expose: os (default) | dom | hybrid
-                                 os: OS-level input only. dom: CDP page tools (snapshot,
-                                 find, click-by-ref, navigate, tabs). hybrid: both,
-                                 deduplicated (computer_* + page_* tools).
+      --mode <mode>              Action plane(s) to expose: computer (default) | browser | hybrid
+                                 computer: OS-level input only. browser: CDP page tools
+                                 (snapshot, find, click-by-ref, navigate, tabs).
+                                 hybrid: both, deduplicated (computer_* + page_* tools).
       --native-tool <type>       Drive an Anthropic model through its native tool schema:
-                                 computer_20260601 (requires --mode os) or
-                                 browser_20260701 (requires --mode dom)
+                                 computer_20260601 (requires --mode computer) or
+                                 browser_20260701 (requires --mode browser)
       --js-exec                  Expose page_evaluate (arbitrary JS in the page) in
-                                 dom/hybrid modes
+                                 browser/hybrid modes
       --out <file|->             Output file for screenshot subcommand
   -o, --output <fmt>             Output format for --print: text (default) | jsonl
       --jsonl-include-deltas     Include assistant_text_delta events (default off)

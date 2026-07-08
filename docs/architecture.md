@@ -97,14 +97,14 @@ provider conditionals. A new provider difference is a new or extended
 The canonical action vocabulary is split into two planes, delineated in code
 under `packages/ai/src/actions/`:
 
-- **OS plane** (`actions/os.ts`) — real OS-level input against the browser
+- **Computer plane** (`actions/computer.ts`) — real OS-level input against the browser
   VM: mouse, keyboard, display capture, executed through Kernel's
   `browsers.computer` REST API. Coordinates are pixels in the OS screenshot
   frame.
-- **DOM plane** (`actions/dom.ts`, ids prefixed `page_`) — CDP-driven page
+- **Browser plane** (`actions/browser.ts`, ids prefixed `page_`) — CDP-driven page
   tools: accessibility snapshots with element refs, element-targeted
   interaction, navigation, tabs, viewport screenshots. Executed by
-  `packages/agent/src/translator/dom.ts` over a raw CDP websocket
+  `packages/agent/src/translator/page.ts` over a raw CDP websocket
   (`translator/cdp.ts`) to the browser's `cdp_ws_url` — no Playwright.
   Coordinates, where used, are viewport pixels.
 
@@ -112,20 +112,20 @@ A `CuaMode` selects which plane(s) the model sees:
 
 | mode | tools | coordinate frame |
 | --- | --- | --- |
-| `os` (default) | OS actions under their canonical ids (`click`, `screenshot`, …) | OS screenshot pixels |
-| `dom` | DOM actions with the `page_` prefix stripped (`snapshot`, `click`, …) plus `wait` | none for refs; viewport pixels where coordinates are allowed |
-| `hybrid` | both planes, one tool per capability: OS actions as `computer_*`, DOM reads/element-writes as `page_*` (ref-only) | OS screenshot pixels — the single live frame |
+| `computer` (default) | computer actions under their canonical ids (`click`, `screenshot`, …) | OS screenshot pixels |
+| `browser` | browser actions with the `page_` prefix stripped (`snapshot`, `click`, …) plus `wait` | none for refs; viewport pixels where coordinates are allowed |
+| `hybrid` | both planes, one tool per capability: computer actions as `computer_*`, browser reads/element-writes as `page_*` (ref-only) | OS screenshot pixels — the single live frame |
 
-Hybrid deduplicates capabilities: navigation and tabs live on the DOM plane,
+Hybrid deduplicates capabilities: navigation and tabs live on the browser plane,
 pointer/keyboard input and the (only) screenshot live on the OS plane, and
-DOM tools take element refs only so exactly one coordinate frame exists.
+page tools take element refs only so exactly one coordinate frame exists.
 Element refs are snapshot-scoped (`e12`); a stale ref resolves to an error
 string that tells the model to re-snapshot.
 
 **Native tools.** `resolveCuaRuntimeSpec(model, { nativeTool })` drives an
 Anthropic model through its provider-defined tool schema instead of the
-canonical function tools: `computer_20260601` pairs with `os` mode and
-`browser_20260701` with `dom` mode (mismatches throw, mirroring the API's
+canonical function tools: `computer_20260601` pairs with `computer` mode and
+`browser_20260701` with `browser` mode (mismatches throw, mirroring the API's
 own rejection of mixed frames). The spec routes the model to a CUA-owned api
 id; the registered `anthropic` provider dispatches it to pi's builtin
 `anthropic-messages` transport with the tool's `anthropic-beta` header, an
