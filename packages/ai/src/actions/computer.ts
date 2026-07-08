@@ -31,8 +31,8 @@ export const CUA_COMPUTER_ACTION_TYPES = [
 export type CuaComputerActionType = (typeof CUA_COMPUTER_ACTION_TYPES)[number];
 
 /**
- * The default OS-mode toolset. This is the pre-modes canonical action list:
- * every OS action except `zoom`, which is only exposed by default in hybrid
+ * The default computer-mode toolset. This is the pre-modes canonical action list:
+ * every computer action except `zoom`, which is only exposed by default in hybrid
  * mode and by Anthropic's native computer tool (`enable_zoom`).
  */
 export const CUA_DEFAULT_COMPUTER_ACTION_TYPES = CUA_COMPUTER_ACTION_TYPES.filter(

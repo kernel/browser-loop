@@ -76,12 +76,8 @@ export type CuaAgentOptions = Omit<AgentOptions, "initialState"> & {
 	mode?: CuaMode;
 	/** Drive the model through a provider-native tool declaration (validated against `mode`). */
 	nativeTool?: CuaNativeToolSpec;
-	/** Expose `browser_evaluate` in browser/hybrid modes. Default false. */
-	javascriptExec?: boolean;
 	/** Mark cursor:pointer elements as clickable hints in browser snapshots. Browser mode only; default false. */
 	cursorHints?: boolean;
-	/** Expose a helper for browser navigation and URL reads. */
-	computerUseExtra?: boolean;
 	/** Expose a tool that runs Playwright code against the browser session. */
 	playwright?: boolean;
 };
@@ -118,12 +114,8 @@ export type CuaAgentHarnessOptions<
 	mode?: CuaMode;
 	/** Drive the model through a provider-native tool declaration (validated against `mode`). */
 	nativeTool?: CuaNativeToolSpec;
-	/** Expose `browser_evaluate` in browser/hybrid modes. Default false. */
-	javascriptExec?: boolean;
 	/** Mark cursor:pointer elements as clickable hints in browser snapshots. Browser mode only; default false. */
 	cursorHints?: boolean;
-	/** Expose a helper for browser navigation and URL reads. */
-	computerUseExtra?: boolean;
 	/** Expose a tool that runs Playwright code against the browser session. */
 	playwright?: boolean;
 	/** Optional payload hook composed after the provider-specific CUA payload hook. */
@@ -149,9 +141,7 @@ class CuaRuntimeController {
 			extraTools?: AgentTool[];
 			mode?: CuaMode;
 			nativeTool?: CuaNativeToolSpec;
-			javascriptExec?: boolean;
 			cursorHints?: boolean;
-			computerUseExtra?: boolean;
 			playwright?: boolean;
 			onPayload?: SimpleStreamOptions["onPayload"];
 		},
@@ -165,7 +155,6 @@ class CuaRuntimeController {
 		return resolveCuaRuntimeSpec(model, {
 			mode,
 			nativeTool: this.options.nativeTool,
-			javascriptExec: this.options.javascriptExec,
 		});
 	}
 
@@ -203,7 +192,6 @@ class CuaRuntimeController {
 				{
 					toolExecutors: this.runtimeSpec.toolExecutors,
 					mode: this.runtimeSpec.mode,
-					computerUseExtra: this.options.computerUseExtra,
 					playwright: this.options.playwright,
 				},
 				this.translator,
@@ -227,7 +215,7 @@ class CuaRuntimeController {
 	keepToolNames(): string[] {
 		return [
 			...(this.options.extraTools ?? []).map((tool) => tool.name),
-			...(this.options.computerUseExtra ? [CUA_NAVIGATION_TOOL_NAME] : []),
+			CUA_NAVIGATION_TOOL_NAME,
 			...(this.options.playwright ? [CUA_PLAYWRIGHT_TOOL_NAME] : []),
 		];
 	}
@@ -273,9 +261,7 @@ export class CuaAgent extends Agent {
 			extraTools,
 			mode,
 			nativeTool,
-			javascriptExec,
 			cursorHints,
-			computerUseExtra,
 			playwright,
 			...agentOptions
 		} = options;
@@ -286,9 +272,7 @@ export class CuaAgent extends Agent {
 			extraTools,
 			mode,
 			nativeTool,
-			javascriptExec,
 			cursorHints,
-			computerUseExtra,
 			playwright,
 			onPayload,
 		});
@@ -423,9 +407,7 @@ export class CuaAgentHarness<
 			extraTools,
 			mode,
 			nativeTool,
-			javascriptExec,
 			cursorHints,
-			computerUseExtra,
 			playwright,
 			systemPrompt,
 			onPayload,
@@ -439,9 +421,7 @@ export class CuaAgentHarness<
 			extraTools,
 			mode,
 			nativeTool,
-			javascriptExec,
 			cursorHints,
-			computerUseExtra,
 			playwright,
 			onPayload,
 		});

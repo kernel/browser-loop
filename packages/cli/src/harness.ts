@@ -37,8 +37,6 @@ export interface BuildCuaHarnessOptions {
 	mode?: CuaMode;
 	/** Drive the model through a provider-native tool declaration (validated against `mode`). */
 	nativeTool?: CuaNativeToolSpec;
-	/** Expose `browser_evaluate` in browser/hybrid modes. */
-	javascriptExec?: boolean;
 	/** Expose the playwright_execute tool that runs Playwright code against the browser session. */
 	playwright?: boolean;
 	/** Override the default coding-tools extraTools (bash/read/edit/write/grep/find/ls). */
@@ -75,7 +73,6 @@ export function buildCuaHarness(opts: BuildCuaHarnessOptions): CuaAgentHarness {
 		extraTools,
 		mode: opts.mode,
 		nativeTool: opts.nativeTool,
-		javascriptExec: opts.javascriptExec,
 		playwright: opts.playwright,
 		resources: { skills },
 		thinkingLevel: opts.thinkingLevel,
@@ -83,7 +80,6 @@ export function buildCuaHarness(opts: BuildCuaHarnessOptions): CuaAgentHarness {
 			const runtime = resolveCuaRuntimeSpec(activeModel, {
 				mode: harness?.getMode() ?? opts.mode,
 				nativeTool: opts.nativeTool,
-				javascriptExec: opts.javascriptExec,
 			});
 			return composeSystemPrompt(runtime.defaultSystemPrompt, resources.skills ?? [], contextFiles);
 		},

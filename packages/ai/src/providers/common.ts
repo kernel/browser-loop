@@ -19,7 +19,7 @@ export * from "../modes";
 export * from "../native-tools";
 
 /**
- * The default os-mode action set: every computer-plane action except `zoom`.
+ * The default computer-mode action set: every computer-plane action except `zoom`.
  * The full canonical vocabulary is split by plane into
  * {@link CUA_COMPUTER_ACTION_TYPES} and {@link CUA_BROWSER_ACTION_TYPES}.
  */
@@ -119,8 +119,6 @@ export interface ComputerToolsOptions {
 	actions?: readonly CuaActionType[];
 	/** Which action plane(s) to expose. Default "computer". */
 	mode?: CuaMode;
-	/** Expose `browser_evaluate` in browser/hybrid modes. Default false. */
-	javascriptExec?: boolean;
 }
 
 export type ComputerToolCoordinateSystem =
@@ -145,7 +143,7 @@ export function computerTools(options: ComputerToolsOptions = {}): Tool[] {
 
 /** Resolve the action list for a tools-options object: explicit list, or the mode's default set. */
 export function resolveModeActions(options: ComputerToolsOptions = {}): readonly CuaActionType[] {
-	return options.actions ?? defaultActionsForMode(options.mode ?? "computer", { javascriptExec: options.javascriptExec });
+	return options.actions ?? defaultActionsForMode(options.mode ?? "computer");
 }
 
 /** Guard for providers whose computer-use vocabulary only covers the computer plane. */

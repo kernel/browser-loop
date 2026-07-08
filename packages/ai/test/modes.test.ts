@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	CUA_ACTION_TYPES,
-	CUA_DEFAULT_BROWSER_ACTION_TYPES,
+	CUA_BROWSER_ACTION_TYPES,
 	CUA_HYBRID_BROWSER_ACTION_TYPES,
 	CUA_HYBRID_COMPUTER_ACTION_TYPES,
 	anthropic,
@@ -17,21 +17,17 @@ describe("mode action sets", () => {
 		expect(defaultActionsForMode("computer")).toEqual(CUA_ACTION_TYPES);
 	});
 
-	it("browser mode defaults to DOM actions plus wait, without browser_evaluate", () => {
+	it("browser mode defaults to every browser action plus wait", () => {
 		const actions = defaultActionsForMode("browser");
 		expect(actions).toContain("browser_snapshot");
 		expect(actions).toContain("wait");
-		expect(actions).not.toContain("browser_evaluate");
+		expect(actions).toContain("browser_evaluate");
 		expect(actions).not.toContain("click");
-	});
-
-	it("browser mode exposes browser_evaluate only with javascriptExec", () => {
-		expect(defaultActionsForMode("browser", { javascriptExec: true })).toContain("browser_evaluate");
 	});
 
 	it("hybrid mode dedupes to one tool per capability", () => {
 		const actions = defaultActionsForMode("hybrid");
-		// Navigation lives on the DOM plane.
+		// Navigation lives on the browser plane.
 		expect(actions).not.toContain("goto");
 		expect(actions).not.toContain("url");
 		expect(actions).toContain("browser_navigate");
@@ -62,7 +58,7 @@ describe("mode tool naming", () => {
 		expect(cuaToolNameForAction("browser_click", "hybrid")).toBe("browser_click");
 	});
 
-	it("computer mode rejects DOM actions", () => {
+	it("computer mode rejects browser actions", () => {
 		expect(() => cuaToolNameForAction("browser_click", "computer")).toThrow(/not available in computer mode/);
 	});
 });
@@ -83,10 +79,10 @@ describe("mode tool schemas", () => {
 		expect(pageClick.parameters.required).toContain("ref");
 	});
 
-	it("browser mode exposes every default DOM action under its unprefixed name", () => {
+	it("browser mode exposes every default browser action under its unprefixed name", () => {
 		const tools = computerTools({ mode: "browser" });
 		const names = tools.map((tool) => tool.name);
-		for (const action of CUA_DEFAULT_BROWSER_ACTION_TYPES) {
+		for (const action of CUA_BROWSER_ACTION_TYPES) {
 			expect(names).toContain(action.slice("browser_".length));
 		}
 	});

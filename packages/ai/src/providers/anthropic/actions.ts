@@ -70,7 +70,7 @@ function resolveAnthropicActions(options: AnthropicComputerToolsOptions): readon
 		options.actions ??
 		(mode === "computer"
 			? ANTHROPIC_CUA_ACTION_TYPES.filter((action) => action !== "zoom")
-			: defaultActionsForMode(mode, { javascriptExec: options.javascriptExec }).filter(
+			: defaultActionsForMode(mode).filter(
 					(action) => isCuaBrowserActionType(action) || isAnthropicCanonicalAction(action),
 				));
 	const supported: AnthropicCanonicalActionType[] = [];

@@ -51,7 +51,7 @@ export function resolveCuaRuntimeSpec(input: CuaRuntimeSpecInput, options: CuaRu
 	const mode = options.mode ?? (options.nativeTool ? modeForNativeTool(options.nativeTool) : "computer");
 
 	if (options.nativeTool) {
-		const nativeTool = resolveNativeTool(withJavascriptExec(options.nativeTool, options.javascriptExec), model, mode);
+		const nativeTool = resolveNativeTool(withDefaultJavascriptExec(options.nativeTool), model, mode);
 		const nativeModel: Model<Api> = { ...model, api: nativeApiForToolType(nativeTool.spec.type) as Model<Api>["api"] };
 		const executors = nativeToolExecutors(nativeTool);
 		return {
@@ -82,11 +82,11 @@ export function resolveCuaRuntimeSpec(input: CuaRuntimeSpecInput, options: CuaRu
 	};
 }
 
-// Fold the mode-level javascriptExec option into the native browser tool
-// declaration so it behaves like canonical browser mode. An explicit
+// JavaScript execution is on by default, matching canonical browser mode
+// where `browser_evaluate` is part of the default toolset. An explicit
 // enable_javascript_exec on the spec wins.
-function withJavascriptExec(spec: CuaNativeToolSpec, javascriptExec: boolean | undefined): CuaNativeToolSpec {
-	if (!javascriptExec || spec.type !== "browser_20260701" || spec.enable_javascript_exec !== undefined) return spec;
+function withDefaultJavascriptExec(spec: CuaNativeToolSpec): CuaNativeToolSpec {
+	if (spec.type !== "browser_20260701" || spec.enable_javascript_exec !== undefined) return spec;
 	return { ...spec, enable_javascript_exec: true };
 }
 

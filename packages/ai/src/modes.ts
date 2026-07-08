@@ -1,5 +1,5 @@
 import {
-	CUA_DEFAULT_BROWSER_ACTION_TYPES,
+	CUA_BROWSER_ACTION_TYPES,
 	CUA_DEFAULT_COMPUTER_ACTION_TYPES,
 	isCuaComputerActionType,
 	type CuaActionSchemaOptions,
@@ -25,12 +25,6 @@ import {
  */
 export type CuaMode = "computer" | "browser" | "hybrid";
 
-/** Options for resolving a mode's action set. */
-export interface CuaModeOptions {
-	/** Expose `browser_evaluate` (arbitrary JavaScript in the page). Default false. */
-	javascriptExec?: boolean;
-}
-
 /**
  * Computer actions exposed in hybrid mode: navigation reads/writes are
  * excluded because they live on the browser plane (`browser_navigate`,
@@ -54,8 +48,8 @@ export const CUA_HYBRID_COMPUTER_ACTION_TYPES: readonly CuaComputerActionType[] 
 ];
 
 /**
- * Browser actions exposed in hybrid mode: reads and element-targeted writes
- * only. Pointer/keyboard capabilities (`browser_click` by coordinate,
+ * Browser actions exposed in hybrid mode: reads, element-targeted writes,
+ * and JavaScript evaluation. Pointer/keyboard capabilities (`browser_click` by coordinate,
  * `browser_type`, `browser_key`, `browser_scroll`, `browser_hover`, `browser_drag`) and
  * `browser_screenshot` are excluded — real OS input and the OS screenshot cover
  * those, keeping one tool per capability and one coordinate frame.
@@ -70,21 +64,18 @@ export const CUA_HYBRID_BROWSER_ACTION_TYPES: readonly CuaBrowserActionType[] = 
 	"browser_navigate",
 	"browser_list_tabs",
 	"browser_new_tab",
+	"browser_evaluate",
 ];
 
 /** Resolve the default canonical action set for a mode. */
-export function defaultActionsForMode(mode: CuaMode, options: CuaModeOptions = {}): readonly CuaActionType[] {
+export function defaultActionsForMode(mode: CuaMode): readonly CuaActionType[] {
 	switch (mode) {
 		case "computer":
 			return CUA_DEFAULT_COMPUTER_ACTION_TYPES;
 		case "browser":
-			return [...CUA_DEFAULT_BROWSER_ACTION_TYPES, ...(options.javascriptExec ? (["browser_evaluate"] as const) : []), "wait"];
+			return [...CUA_BROWSER_ACTION_TYPES, "wait"];
 		case "hybrid":
-			return [
-				...CUA_HYBRID_COMPUTER_ACTION_TYPES,
-				...CUA_HYBRID_BROWSER_ACTION_TYPES,
-				...(options.javascriptExec ? (["browser_evaluate"] as const) : []),
-			];
+			return [...CUA_HYBRID_COMPUTER_ACTION_TYPES, ...CUA_HYBRID_BROWSER_ACTION_TYPES];
 	}
 }
 

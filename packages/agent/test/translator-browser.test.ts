@@ -25,9 +25,9 @@ function createClient() {
 	return { batches, client };
 }
 
-function createFakeDom() {
+function createFakeBrowserExecutor() {
 	const executed: CuaBrowserAction[] = [];
-	const dom = {
+	const executor = {
 		execute: async (action: CuaBrowserAction): Promise<BatchReadResult[]> => {
 			executed.push(action);
 			if (action.type === "browser_text") return [{ type: "browser_text", label: "text", text: "hello" }];
@@ -35,14 +35,14 @@ function createFakeDom() {
 		},
 		screenshot: async () => ({ data: Buffer.from("png"), mimeType: "image/png" }),
 	} as unknown as BrowserExecutor;
-	return { executed, dom };
+	return { executed, executor };
 }
 
-describe("InternalComputerTranslator DOM plane", () => {
-	it("dispatches DOM actions to the DOM executor, flushing pending OS input first", async () => {
+describe("InternalComputerTranslator browser plane", () => {
+	it("dispatches browser actions to the browser executor, flushing pending OS input first", async () => {
 		const { batches, client } = createClient();
-		const { executed, dom } = createFakeDom();
-		const translator = new InternalComputerTranslator({ browser, client, createBrowserExecutor: () => dom });
+		const { executed, executor } = createFakeBrowserExecutor();
+		const translator = new InternalComputerTranslator({ browser, client, createBrowserExecutor: () => executor });
 
 		const result = await translator.executeBatch([
 			{ type: "click", x: 1, y: 2 },
@@ -55,14 +55,14 @@ describe("InternalComputerTranslator DOM plane", () => {
 		expect(result.readResults).toEqual([{ type: "browser_text", label: "text", text: "hello" }]);
 	});
 
-	it("errors on DOM actions when the browser has no cdp_ws_url", async () => {
+	it("errors on browser actions when the browser has no cdp_ws_url", async () => {
 		const { client } = createClient();
 		const translator = new InternalComputerTranslator({ browser: { session_id: "b" } as KernelBrowser, client });
 		await expect(translator.executeBatch([{ type: "browser_text" }])).rejects.toThrow(/cdp_ws_url/);
 	});
 });
 
-describe("InternalComputerTranslator OS additions", () => {
+describe("InternalComputerTranslator computer additions", () => {
 	it("crops the OS screenshot for zoom, staying in the screenshot frame", async () => {
 		const { client } = createClient();
 		const translator = new InternalComputerTranslator({ browser, client });
@@ -525,7 +525,7 @@ describe("BrowserExecutor cursor-pointer hints", () => {
 	it("only enables cursor hints on the executor in browser mode", () => {
 		const recordedFor = (mode?: "computer" | "browser" | "hybrid") => {
 			const recorded: BrowserExecutorOptions[] = [];
-			const { dom } = createFakeDom();
+			const { executor } = createFakeBrowserExecutor();
 			const { client } = createClient();
 			const translator = new InternalComputerTranslator({
 				browser,
@@ -534,7 +534,7 @@ describe("BrowserExecutor cursor-pointer hints", () => {
 				cursorHints: true,
 				createBrowserExecutor: (_cdpWsUrl, options) => {
 					recorded.push(options);
-					return dom;
+					return executor;
 				},
 			});
 			translator.browser();

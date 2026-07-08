@@ -181,7 +181,6 @@ export interface HarnessCliFlags {
 	playwright: boolean;
 	mode?: string;
 	nativeTool?: string;
-	jsExec?: boolean;
 	model?: string;
 	thinking?: string;
 	browserProfile?: string;
@@ -380,7 +379,7 @@ async function setupHarnessRuntime(
 	// Validate mode/native-tool flags before provisioning so a bad combination
 	// never leaves an orphaned browser behind.
 	const mode = parseMode(flags.mode);
-	const nativeTool = parseNativeTool(flags.nativeTool, flags.jsExec);
+	const nativeTool = parseNativeTool(flags.nativeTool);
 
 	const provisioned = await provisionForFlags(flags, auth);
 	try {
@@ -450,7 +449,6 @@ async function finishHarnessRuntime(
 		thinkingLevel,
 		mode,
 		nativeTool,
-		javascriptExec: flags.jsExec,
 		playwright: flags.playwright,
 		modelBaseUrl: baseUrlOverride,
 	});
@@ -489,13 +487,13 @@ function parseMode(raw: string | undefined): CuaMode | undefined {
 	throw new Error(`invalid --mode value "${raw}"; expected one of: computer | browser | hybrid`);
 }
 
-function parseNativeTool(raw: string | undefined, jsExec: boolean | undefined): CuaNativeToolSpec | undefined {
+function parseNativeTool(raw: string | undefined): CuaNativeToolSpec | undefined {
 	if (raw === undefined) return undefined;
 	const value = raw.trim().toLowerCase();
 	// enable_zoom follows Anthropic's own recommendation for fine-grained
 	// visual targeting; the executor implements the zoom crop locally.
 	if (value === "computer_20260701") return { type: "computer_20260701", enable_zoom: true };
-	if (value === "browser_20260701") return { type: "browser_20260701", ...(jsExec ? { enable_javascript_exec: true } : {}) };
+	if (value === "browser_20260701") return { type: "browser_20260701" };
 	throw new Error(`invalid --native-tool value "${raw}"; expected one of: computer_20260701 | browser_20260701`);
 }
 

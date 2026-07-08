@@ -54,8 +54,6 @@ Options:
       --native-tool <type>       Drive an Anthropic model through its native tool schema:
                                  computer_20260701 (requires --mode computer) or
                                  browser_20260701 (requires --mode browser)
-      --js-exec                  Expose browser_evaluate (arbitrary JS in the page) in
-                                 browser/hybrid modes
       --out <file|->             Output file for screenshot subcommand
   -o, --output <fmt>             Output format for --print: text (default) | jsonl
       --jsonl-include-deltas     Include assistant_text_delta events (default off)
@@ -112,7 +110,6 @@ interface CliFlags {
 	playwright: boolean;
 	mode?: string;
 	nativeTool?: string;
-	jsExec: boolean;
 	model?: string;
 	thinking?: string;
 	browserProfile?: string;
@@ -164,7 +161,6 @@ function parseCliArgs(argv: string[]): CliFlags {
 				playwright: { type: "boolean", default: false },
 				mode: { type: "string" },
 				"native-tool": { type: "string" },
-				"js-exec": { type: "boolean", default: false },
 			},
 			allowPositionals: true,
 			strict: true,
@@ -222,7 +218,6 @@ function parseCliArgs(argv: string[]): CliFlags {
 		playwright: !!parsed.values.playwright,
 		mode: parsed.values.mode as string | undefined,
 		nativeTool: parsed.values["native-tool"] as string | undefined,
-		jsExec: !!parsed.values["js-exec"],
 		positionals: parsed.positionals,
 	};
 }
@@ -241,7 +236,6 @@ function toHarnessFlags(flags: CliFlags): HarnessCliFlags {
 		playwright: flags.playwright,
 		mode: flags.mode,
 		nativeTool: flags.nativeTool,
-		jsExec: flags.jsExec,
 		model: flags.model,
 		thinking: flags.thinking,
 		browserProfile: flags.browserProfile,

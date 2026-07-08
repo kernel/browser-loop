@@ -92,7 +92,7 @@ describe("CuaAgent", () => {
 			},
 		});
 
-		expect(agent.state.tools.map((item) => item.name)).toEqual([...runtime.toolExecutors.map((item) => item.definition.name), "custom"]);
+		expect(agent.state.tools.map((item) => item.name)).toEqual([...runtime.toolExecutors.map((item) => item.definition.name), "computer_use_extra", "custom"]);
 	});
 
 	it("always keeps provider CUA tools when adding extra tools", () => {
@@ -109,7 +109,7 @@ describe("CuaAgent", () => {
 			},
 		});
 
-		expect(agent.state.tools.map((item) => item.name)).toEqual([...runtime.toolExecutors.map((item) => item.definition.name), "custom"]);
+		expect(agent.state.tools.map((item) => item.name)).toEqual([...runtime.toolExecutors.map((item) => item.definition.name), "computer_use_extra", "custom"]);
 		expect(agent.state.systemPrompt).toBe("Use the browser carefully.");
 	});
 
@@ -124,15 +124,14 @@ describe("CuaAgent", () => {
 		});
 
 		expect(runtime.toolDefinitions.map((tool) => tool.name)).toContain(ANTHROPIC_BATCH_TOOL_NAME);
-		expect(agent.state.tools.map((tool) => tool.name)).toEqual(runtime.toolExecutors.map((tool) => tool.definition.name));
+		expect(agent.state.tools.map((tool) => tool.name)).toEqual([...runtime.toolExecutors.map((tool) => tool.definition.name), "computer_use_extra"]);
 	});
 
-	it("synthesizes navigation tools when requested", () => {
+	it("synthesizes navigation tools by default", () => {
 		const runtime = resolveCuaRuntimeSpec("openai:gpt-5.5");
 		const agent = new CuaAgent({
 			browser,
 			client,
-			computerUseExtra: true,
 			initialState: {
 				model: "openai:gpt-5.5",
 			},
@@ -157,6 +156,7 @@ describe("CuaAgent", () => {
 
 		expect(agent.state.tools.map((tool) => tool.name)).toEqual([
 			...runtime.toolExecutors.map((tool) => tool.definition.name),
+			"computer_use_extra",
 			"playwright_execute",
 		]);
 	});
@@ -175,7 +175,7 @@ describe("CuaAgent", () => {
 
 		expect(agent.state.model.id).toBe(runtime.model.id);
 		expect(agent.state.systemPrompt).toBe(runtime.defaultSystemPrompt);
-		expect(agent.state.tools).toHaveLength(runtime.toolExecutors.length);
+		expect(agent.state.tools).toHaveLength(runtime.toolExecutors.length + 1);
 	});
 
 	it("switches action planes through setMode", () => {
@@ -227,7 +227,7 @@ describe("CuaAgent", () => {
 		agent.state.model = "google:gemini-3-flash-preview";
 
 		const runtime = resolveCuaRuntimeSpec("google:gemini-3-flash-preview");
-		expect(agent.state.tools.map((item) => item.name)).toEqual([...runtime.toolExecutors.map((item) => item.definition.name), "custom"]);
+		expect(agent.state.tools.map((item) => item.name)).toEqual([...runtime.toolExecutors.map((item) => item.definition.name), "computer_use_extra", "custom"]);
 		expect(agent.state.systemPrompt).toBe("custom prompt");
 	});
 
@@ -299,7 +299,6 @@ describe("CuaAgent", () => {
 			client: screenshotClient,
 			streamFn,
 			extraTools: [createCustomTool("custom_tool")],
-			computerUseExtra: true,
 			initialState: {
 				model: "yutori:n1.5-latest",
 			},
@@ -342,7 +341,7 @@ describe("CuaAgent", () => {
 
 		const update = await agent.prepareNextTurn?.(undefined);
 		expect(update?.model?.id).toBe(runtime.model.id);
-		expect(update?.context?.tools).toHaveLength(runtime.toolExecutors.length);
+		expect(update?.context?.tools).toHaveLength(runtime.toolExecutors.length + 1);
 
 		await expect(agent.prepareNextTurn?.(undefined)).resolves.toBeUndefined();
 	});
@@ -423,7 +422,7 @@ describe("CuaAgentHarness", () => {
 		await harness.setModel("google:gemini-3-flash-preview");
 
 		expect(harness.getModel().id).toBe(runtime.model.id);
-		expect(harness.getTools()).toHaveLength(runtime.toolExecutors.length);
+		expect(harness.getTools()).toHaveLength(runtime.toolExecutors.length + 1);
 	});
 
 	it("switches action planes through setMode", async () => {
@@ -477,6 +476,7 @@ describe("CuaAgentHarness", () => {
 
 		expect(harness.getTools().map((item) => item.name)).toEqual([
 			...runtime.toolExecutors.map((item) => item.definition.name),
+			"computer_use_extra",
 			"custom",
 		]);
 	});
@@ -509,7 +509,7 @@ describe("CuaAgentHarness", () => {
 		await harness.setModel("google:gemini-3-flash-preview");
 
 		expect(harness.getTools()).toHaveLength(
-			resolveCuaRuntimeSpec("google:gemini-3-flash-preview").toolExecutors.length,
+			resolveCuaRuntimeSpec("google:gemini-3-flash-preview").toolExecutors.length + 1,
 		);
 		expect(harness.getActiveTools().map((tool) => tool.name)).toEqual(["click", "screenshot"]);
 

@@ -56,16 +56,14 @@ describe("native runtime specs", () => {
 		expect(spec.toolDefinitions.map((tool) => tool.name)).toEqual(["browser"]);
 	});
 
-	it("folds javascriptExec into the native browser declaration unless the spec is explicit", () => {
-		const folded = resolveCuaRuntimeSpec("anthropic:claude-opus-4-5", {
+	it("enables javascript exec on the native browser declaration unless the spec is explicit", () => {
+		const defaulted = resolveCuaRuntimeSpec("anthropic:claude-opus-4-5", {
 			nativeTool: { type: "browser_20260701" },
-			javascriptExec: true,
 		});
-		expect(folded.nativeTool?.declaration.enable_javascript_exec).toBe(true);
+		expect(defaulted.nativeTool?.declaration.enable_javascript_exec).toBe(true);
 
 		const explicit = resolveCuaRuntimeSpec("anthropic:claude-opus-4-5", {
 			nativeTool: { type: "browser_20260701", enable_javascript_exec: false },
-			javascriptExec: true,
 		});
 		expect(explicit.nativeTool?.declaration.enable_javascript_exec).toBe(false);
 	});
@@ -126,7 +124,7 @@ describe("computer_20260701 action mapping", () => {
 });
 
 describe("browser_20260701 action mapping", () => {
-	it("maps DOM reads", () => {
+	it("maps browser reads", () => {
 		expect(mapNativeBrowserInput({ action: "read_page", filter: "interactive", depth: 5 })).toEqual([
 			{ type: "browser_snapshot", filter: "interactive", depth: 5 },
 		]);

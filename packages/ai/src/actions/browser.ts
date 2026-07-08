@@ -36,15 +36,6 @@ export const CUA_BROWSER_ACTION_TYPES = [
 
 export type CuaBrowserActionType = (typeof CUA_BROWSER_ACTION_TYPES)[number];
 
-/**
- * The default browser-mode toolset: everything except `browser_evaluate`, which
- * runs arbitrary JavaScript in the page and must be enabled explicitly
- * (`javascriptExec: true`).
- */
-export const CUA_DEFAULT_BROWSER_ACTION_TYPES = CUA_BROWSER_ACTION_TYPES.filter(
-	(action): action is Exclude<CuaBrowserActionType, "browser_evaluate"> => action !== "browser_evaluate",
-);
-
 export interface CuaActionBrowserSnapshot {
 	type: "browser_snapshot";
 	filter?: "all" | "interactive";

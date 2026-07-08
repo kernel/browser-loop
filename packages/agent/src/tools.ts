@@ -27,7 +27,6 @@ export interface ComputerToolOptions {
 	mode?: CuaMode;
 	/** Mark cursor:pointer elements as clickable hints in browser snapshots. Only honored in "browser" mode. Default false. */
 	cursorHints?: boolean;
-	computerUseExtra?: boolean;
 	playwright?: boolean;
 }
 
@@ -88,16 +87,16 @@ export function createCuaComputerTools(args: ComputerToolOptions): CuaExecutorTo
 
 /** Build executor tools against an existing translator (internal; not part of the package surface). */
 export function buildCuaComputerTools(
-	args: Pick<ComputerToolOptions, "toolExecutors" | "computerUseExtra" | "playwright" | "mode">,
+	args: Pick<ComputerToolOptions, "toolExecutors" | "playwright" | "mode">,
 	translator: InternalComputerTranslator,
 ): CuaExecutorTool[] {
 	return withExtraTools(args).map((executor) => createExecutorTool(executor, translator, args.mode ?? "computer"));
 }
 
-function withExtraTools(args: Pick<ComputerToolOptions, "toolExecutors" | "computerUseExtra" | "playwright">): ComputerExecutorSpec[] {
+function withExtraTools(args: Pick<ComputerToolOptions, "toolExecutors" | "playwright">): ComputerExecutorSpec[] {
 	const executors: ComputerExecutorSpec[] = [...args.toolExecutors];
 	const existing = new Set(executors.map((executor) => executor.definition.name));
-	if (args.computerUseExtra && !existing.has(CUA_NAVIGATION_TOOL_NAME)) {
+	if (!existing.has(CUA_NAVIGATION_TOOL_NAME)) {
 		executors.push({ kind: "navigation", definition: createCuaNavigationToolDefinition() });
 	}
 	if (args.playwright && !existing.has(CUA_PLAYWRIGHT_TOOL_NAME)) {
@@ -179,7 +178,7 @@ async function executeBatchTool(
 			}
 		}
 		if (content.length === 0) {
-			// Post-action grounding capture: the OS display in os/hybrid mode,
+			// Post-action grounding capture: the OS display in computer/hybrid mode,
 			// the browser viewport in browser mode (the only frame the model sees).
 			const screenshot = mode === "browser" ? await translator.browser().screenshot() : await translator.screenshot();
 			readResults.push({ type: "screenshot", bytes: screenshot.data.length });
