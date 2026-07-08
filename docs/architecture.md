@@ -247,7 +247,7 @@ user prompt
                     ├─► resolveCuaRuntimeSpec(model) provides toolDefinitions,
                     │   toolExecutors, defaultSystemPrompt, onPayload, …
                     ├─► onPayload (cua-ai) — provider payload transforms
-                    ├─► pi-ai streamSimple → provider HTTP SSE
+                    ├─► pi Models.streamSimple (cuaModels) → provider HTTP SSE
                     │   (OpenAI Responses / Anthropic Messages / Google GenAI / Tzafon / Yutori)
                     ├─► tool_call events carry canonical CuaAction args
                     │   └─► cua-agent executor
@@ -286,7 +286,7 @@ flowchart LR
   browserMod --> sdk[("@onkernel/sdk")]
   harness --> agentPkg["cua-agent: CuaAgentHarness"]
   agentPkg --> piHarness["pi-agent-core AgentHarness"]
-  piHarness --> piAi["pi-ai streamSimple"]
+  piHarness --> piAi["pi Models.streamSimple (cuaModels)"]
   piAi -->|"openai-responses"| openai[("api.openai.com /v1/responses")]
   piAi -->|"anthropic-messages + beta header"| anthro[("api.anthropic.com /v1/messages")]
   piAi -->|"google-generative-ai"| gemini[("generativelanguage.googleapis.com")]

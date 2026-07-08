@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import {
-	complete,
+	cuaModels,
 	getCuaModel,
 	requireCuaEnvApiKeyForModel,
 	resolveCuaRuntimeSpec,
@@ -23,7 +23,13 @@ const spec = resolveCuaRuntimeSpec(modelRef, { actions: ["click"] });
 
 const screenshot = await readFile(new URL("./screenshot.png", import.meta.url));
 
-const response = await complete(
+// The default CUA model collection: pi's builtin providers plus Kernel's
+// computer-use providers, with API keys resolved from the env vars above.
+// Use createCuaModels() instead for an isolated collection (e.g. with a
+// custom credential store).
+const models = cuaModels();
+
+const response = await models.complete(
 	model,
 	{
 		systemPrompt: [

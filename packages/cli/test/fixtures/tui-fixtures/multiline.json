@@ -1,10 +1,12 @@
 {
   "modelRef": "openai:gpt-5.5",
-  "api": "openai-cua-responses",
   "turns": [
     {
       "steps": [
-        { "type": "text", "text": "multiline ok" }
+        {
+          "type": "text",
+          "text": "multiline ok"
+        }
       ]
     }
   ]

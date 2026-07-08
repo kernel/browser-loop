@@ -8,7 +8,7 @@ import {
 	type CuaActionType,
 	type CuaProvider,
 	anthropic,
-	complete,
+	cuaModels,
 	gemini,
 	getCuaModel,
 	openai,
@@ -114,7 +114,7 @@ describe("individual computer action integration", () => {
 		(ciEnabled ? test : it.skip)(`${c.provider} returns a canonical click tool call`, async () => {
 			const model = getCuaModel(c.modelRef as never);
 			const context = await buildContext(c.tools);
-			const response = await complete(model, context, {
+			const response = await cuaModels().complete(model, context, {
 				apiKey: process.env[c.envVar],
 				maxTokens: 1024,
 				...c.extraOptions,
@@ -148,7 +148,7 @@ describe("individual computer action integration", () => {
 		async () => {
 			const model = getCuaModel("yutori:n1.5-latest");
 			const context = await buildYutoriContext();
-			const response = await complete(model, context, {
+			const response = await cuaModels().complete(model, context, {
 				apiKey: process.env.YUTORI_API_KEY,
 				maxTokens: 1024,
 			});

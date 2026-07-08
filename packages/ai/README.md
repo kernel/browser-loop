@@ -36,16 +36,14 @@ The exported helpers wrap this table:
 
 Pass the resolved key as the `apiKey` stream option (as in the Quick Start
 below) so a missing key fails loudly before any request is made. If you omit
-`apiKey`, pi-ai's built-in providers fall back to their own env lookup
-(`OPENAI_API_KEY`; `ANTHROPIC_OAUTH_TOKEN`/`ANTHROPIC_API_KEY`; for `google`
-only `GEMINI_API_KEY`, not `GOOGLE_API_KEY`), and this package's Tzafon/Yutori
-stream adapters read `TZAFON_API_KEY`/`YUTORI_API_KEY`.
+`apiKey`, the `cuaModels()` collection resolves auth per provider from the
+same table above.
 
 ## Quick Start
 
 ```ts
 import { readFile } from "node:fs/promises";
-import { complete, getCuaModel, openai, requireCuaEnvApiKeyForModel } from "@onkernel/cua-ai";
+import { cuaModels, getCuaModel, openai, requireCuaEnvApiKeyForModel } from "@onkernel/cua-ai";
 
 const model = getCuaModel("openai:gpt-5.5");
 const apiKey = requireCuaEnvApiKeyForModel("openai:gpt-5.5"); // throws unless OPENAI_API_KEY is set
@@ -54,7 +52,11 @@ const apiKey = requireCuaEnvApiKeyForModel("openai:gpt-5.5"); // throws unless O
 // module so the snippet does not depend on the process working directory.
 const screenshot = await readFile(new URL("./screenshot.png", import.meta.url));
 
-const response = await complete(
+// The default CUA model collection: pi's builtin providers plus Kernel's
+// computer-use providers. Use createCuaModels() for an isolated collection.
+const models = cuaModels();
+
+const response = await models.complete(
   model,
   {
     systemPrompt: "You are a browser automation agent.",
@@ -91,8 +93,8 @@ e.g. `CUA_MODEL=anthropic:claude-opus-4-7`.
 
 ## Error Handling
 
-pi-ai's `complete()` and `stream()` **resolve instead of throwing** when a
-request fails. The returned `AssistantMessage` carries the outcome on
+pi-ai's `complete()` and `stream()` methods **resolve instead of throwing**
+when a request fails. The returned `AssistantMessage` carries the outcome on
 `stopReason`:
 
 - `"stop"`, `"length"`, `"toolUse"` — success; `content` holds the response.
@@ -139,8 +141,9 @@ type ToolResultMessage = {
 A minimal two-turn loop:
 
 ```ts
-import { complete, getCuaModel, openai, requireCuaEnvApiKeyForModel, type Message } from "@onkernel/cua-ai";
+import { cuaModels, getCuaModel, openai, requireCuaEnvApiKeyForModel, type Message } from "@onkernel/cua-ai";
 
+const models = cuaModels();
 const model = getCuaModel("openai:gpt-5.5");
 const apiKey = requireCuaEnvApiKeyForModel("openai:gpt-5.5");
 const tools = openai.computerTools({ actions: ["click", "type", "screenshot"] });
@@ -157,7 +160,7 @@ const messages: Message[] = [
 ];
 
 // Turn 1: the model responds with tool calls.
-const first = await complete(model, { messages, tools }, { apiKey });
+const first = await models.complete(model, { messages, tools }, { apiKey });
 if (first.stopReason === "error" || first.stopReason === "aborted") {
   throw new Error(first.errorMessage);
 }
@@ -182,7 +185,7 @@ for (const block of first.content) {
 }
 
 // Turn 2: the model sees the results and plans the next action.
-const second = await complete(model, { messages, tools }, { apiKey });
+const second = await models.complete(model, { messages, tools }, { apiKey });
 ```
 
 ## Core Concepts
@@ -190,10 +193,13 @@ const second = await complete(model, { messages, tools }, { apiKey });
 `@onkernel/cua-ai` re-exports the full surface of
 [`@earendil-works/pi-ai`](https://github.com/earendil-works/pi/tree/main/packages/ai)
 (`export * from "@earendil-works/pi-ai"`), including the core primitives:
-`Model`, `Context`, `Message`, `Tool`, `complete`, `stream`, `completeSimple`,
-`streamSimple`, `Type`, `Static`, `TSchema`, and the event/validation helpers.
-Some familiarity with pi-ai is assumed; Kernel adds the computer-use model
-catalog and provider/tool metadata.
+`Model`, `Context`, `Message`, `Tool`, `Models`, `createModels`,
+`createProvider`, `Type`, `Static`, `TSchema`, and the event/validation
+helpers. Requests stream through a pi `Models` collection — use
+`cuaModels()` (or build your own with `createCuaModels()`) and call
+`complete`/`stream`/`completeSimple`/`streamSimple` on it. Some familiarity
+with pi-ai is assumed; Kernel adds the computer-use model catalog and
+provider/tool metadata.
 
 ### Model Refs
 
@@ -208,9 +214,9 @@ getCuaModel("tzafon:tzafon.northstar-cua-fast");
 getCuaModel("yutori:n1.5-latest");
 ```
 
-`getCuaModel(ref)` returns a pi-ai `Model<Api>` you can pass to `complete()`
-or `stream()`. It throws when the ref names a model without a CUA-support
-annotation.
+`getCuaModel(ref)` returns a pi-ai `Model<Api>` you can pass to
+`cuaModels().complete()` or `cuaModels().stream()`. It throws when the ref
+names a model without a CUA-support annotation.
 
 See [`docs/supported-models.md`](./docs/supported-models.md) for the current
 list of CUA-supporting models per provider.
@@ -320,17 +326,24 @@ definitions and executors; it is forwarded to the provider module's
   `CuaNavigationInput`, `CuaPlaywrightInput`, `CuaToolExecutorSpec`, `ComputerToolsOptions`,
   `ComputerToolCoordinateSystem`
 
-### Provider registration
+### Model collections
 
-- `registerCuaProviders(): void` — re-register the Yutori/Tzafon stream
-  providers with pi-ai's global registry (runs automatically on import;
-  idempotent; call it after any pi-ai registry mutator)
+- `createCuaModels(options?): MutableModels` — build a pi `Models` collection
+  with pi's builtin providers plus CUA's adjustments: OpenAI models route
+  through cua's `openai-cua-responses` stream (threads
+  `previous_response_id`), Google resolves `GOOGLE_API_KEY` or
+  `GEMINI_API_KEY`, and the Tzafon/Yutori providers are registered. Each call
+  returns an independent collection.
+- `cuaModels(): MutableModels` — the shared default collection, created on
+  first use. `CuaAgent` and `CuaAgentHarness` stream through it unless given
+  another one.
 
 ## Provider Tools
 
 Provider namespaces expose `computerTools({ actions? })` for
 building the provider's default CUA `Tool[]` definitions. These are the tools
-sent to the model when you call `complete()` or `stream()` directly. The
+sent to the model when you call `cuaModels().complete()` or
+`cuaModels().stream()` directly. The
 default set can differ by provider: Anthropic includes its `computer_batch`
 tool from the computer-use best-practices reference, while providers such as
 OpenAI currently expose individual canonical browser actions. Omit `actions`

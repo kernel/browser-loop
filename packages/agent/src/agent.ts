@@ -13,20 +13,25 @@ import {
 	type Api,
 	CUA_NAVIGATION_TOOL_NAME,
 	CUA_PLAYWRIGHT_TOOL_NAME,
+	cuaModels,
 	type CuaModelRef,
 	type CuaRuntimeSpec,
 	type CuaSimpleStreamOptions,
 	getCuaEnvApiKey,
 	type Model,
+	type Models,
 	resolveCuaRuntimeSpec,
 	type SimpleStreamOptions,
-	streamSimple,
 } from "@onkernel/cua-ai";
 import type Kernel from "@onkernel/sdk";
 import { buildCuaComputerTools } from "./tools";
 import { InternalComputerTranslator, type KernelBrowser } from "./translator/translator";
 
-/** A CUA model reference string or a concrete pi model object. */
+/**
+ * A model selection: a CUA model ref like `"openai:gpt-5.5"` or a concrete
+ * pi model object. Selects *which* model runs; *how* requests stream and
+ * authenticate is the `models` collection's concern.
+ */
 type CuaRuntimeInput = CuaModelRef | Model<Api>;
 
 /**
@@ -81,13 +86,22 @@ export type CuaAgentOptions = Omit<AgentOptions, "initialState"> & {
 export type CuaAgentHarnessOptions<
 	TSkill extends Skill = Skill,
 	TPromptTemplate extends PromptTemplate = PromptTemplate,
-> = Omit<AgentHarnessOptions<TSkill, TPromptTemplate, AgentTool>, "model" | "tools"> & {
+> = Omit<AgentHarnessOptions<TSkill, TPromptTemplate, AgentTool>, "model" | "tools" | "models"> & {
 	/** Kernel browser session used by default CUA tools. */
 	browser: KernelBrowser;
 	/** Kernel SDK client used by default CUA tools. */
 	client: Kernel;
-	/** Model used by the harness. CUA refs are resolved before pi sees the model. */
+	/**
+	 * The model the harness starts with (switch later with `setModel()`).
+	 * CUA refs are resolved before pi sees the model.
+	 */
 	model: CuaRuntimeInput;
+	/**
+	 * pi `Models` provider collection requests stream through — providers,
+	 * auth, and stream dispatch, mirroring pi's `AgentHarnessOptions.models`.
+	 * Defaults to {@link cuaModels}. Not the model selection; that is `model`.
+	 */
+	models?: Models;
 	/** Add your own pi tools alongside the built-in browser tools. */
 	extraTools?: AgentTool[];
 	/** Expose a helper for browser navigation and URL reads. */
@@ -180,11 +194,8 @@ class CuaRuntimeController {
 	}
 }
 
-/** Harness auth default following the documented CUA env-var convention. */
-async function getCuaEnvApiKeyAndHeaders(model: Model<Api>): Promise<{ apiKey: string } | undefined> {
-	const apiKey = getCuaEnvApiKey(model.provider);
-	return apiKey ? { apiKey } : undefined;
-}
+/** Default stream path: the shared CUA `Models` collection. */
+const defaultCuaStream: StreamFn = (model, context, options) => cuaModels().streamSimple(model, context, options);
 
 /**
  * Pi `Agent` configured for Kernel browser computer use.
@@ -229,7 +240,7 @@ export class CuaAgent extends Agent {
 				onPayload: runtime.onPayload(),
 				keepToolNames: runtime.keepToolNames(),
 			};
-			return (streamFn ?? streamSimple)(model, context, optionsWithCuaRuntime);
+			return (streamFn ?? defaultCuaStream)(model, context, optionsWithCuaRuntime);
 		};
 
 		super({
@@ -334,11 +345,11 @@ export class CuaAgentHarness<
 			browser,
 			client,
 			model,
+			models,
 			extraTools,
 			computerUseExtra,
 			playwright,
 			systemPrompt,
-			getApiKeyAndHeaders,
 			onPayload,
 			activeToolNames,
 			...harnessOptions
@@ -357,9 +368,9 @@ export class CuaAgentHarness<
 		super({
 			...harnessOptions,
 			model: runtime.model,
+			models: models ?? cuaModels(),
 			tools: resolvedTools,
 			systemPrompt: systemPrompt ?? (() => runtime.systemPrompt),
-			getApiKeyAndHeaders: getApiKeyAndHeaders ?? getCuaEnvApiKeyAndHeaders,
 			activeToolNames: activeToolNames ?? resolvedTools.map((tool) => tool.name),
 		});
 

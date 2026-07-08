@@ -1,12 +1,14 @@
 import {
-	streamOpenAIResponses as piStreamOpenAIResponses,
-	streamSimpleOpenAIResponses as piStreamSimpleOpenAIResponses,
 	type Context,
 	type OpenAIResponsesOptions as PiOpenAIResponsesOptions,
 	type SimpleStreamOptions,
 	type StreamFunction,
 	type StreamOptions,
 } from "@earendil-works/pi-ai";
+import {
+	stream as piStreamOpenAIResponses,
+	streamSimple as piStreamSimpleOpenAIResponses,
+} from "@earendil-works/pi-ai/api/openai-responses";
 import { responseThreadingDelta, responseThreadingEnabled, type ResponseThreadingOptions } from "../common";
 
 export const OPENAI_CUA_RESPONSES_API = "openai-cua-responses";

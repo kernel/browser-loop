@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.4.0 - 2026-07-07
+
+Breaking: adopts pi-ai 0.80's instance-based `Models` API and drops the
+global api-registry surface.
+
+- Requests now stream through a pi `Models` collection. New exports:
+  `createCuaModels(options?)` builds a collection with pi's builtin providers
+  plus CUA's adjustments (OpenAI routed through `openai-cua-responses`,
+  Google accepting `GOOGLE_API_KEY` or `GEMINI_API_KEY`, Tzafon and Yutori
+  registered); `cuaModels()` returns the shared default collection.
+- Removed `registerCuaProviders()` and the import-time registration side
+  effect. Build a collection with `createCuaModels()` instead; nothing global
+  is mutated.
+- The pi-ai re-export now follows pi-ai 0.80: the free functions `complete`,
+  `stream`, `completeSimple`, `streamSimple`, `getModel`, `getModels`, and
+  the api-registry (`registerApiProvider`, `getApiProvider`,
+  `resetApiProviders`, …) are gone. Call the equivalent methods on
+  `cuaModels()`.
+- API keys resolve from the documented env-var convention through provider
+  auth when streaming via the collection; explicit `apiKey` stream options
+  still take precedence.
+- Removed the `claude-sonnet-5` and `gpt-5.5` model overrides (pi-ai 0.80's
+  registry carries both) and the `gpt-5.5-2026-04-23` dated-snapshot
+  override. Dated snapshot refs no longer resolve — use the family id
+  (`openai:gpt-5.5`).
+- Updated `@earendil-works/pi-ai` to 0.80.3.
+
 ## 0.3.4 - 2026-06-30
 
 - Adapt newer Anthropic models to the adaptive thinking payload format, including `claude-sonnet-5`, `claude-opus-4-8`, and `claude-opus-4-7`.

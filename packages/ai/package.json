@@ -1,6 +1,6 @@
 {
   "name": "@onkernel/cua-ai",
-  "version": "0.3.4",
+  "version": "0.4.0",
   "description": "Kernel-curated computer-use model access built on pi-ai",
   "license": "MIT",
   "type": "module",
@@ -41,7 +41,7 @@
     "test:integration": "vitest --run --config vitest.integration.config.ts"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "0.79.1",
+    "@earendil-works/pi-ai": "0.80.3",
     "@tzafon/lightcone": "^0.7.0",
     "openai": "^6.26.0"
   },

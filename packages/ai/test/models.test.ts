@@ -58,17 +58,16 @@ describe("CUA model refs", () => {
 	});
 
 	it("routes OpenAI CUA models to the threading-aware openai-cua-responses api", () => {
-		// gpt-5.5 resolves from pi-ai's registry (carrying its builtin
-		// "openai-responses" api) while gpt-5.5-2026-04-23 is a local override;
-		// both must be routed to cua's own previous_response_id-threading provider.
+		// Registry models carry pi-ai's builtin "openai-responses" api and must
+		// be routed to cua's own previous_response_id-threading provider.
 		expect(getCuaModel("openai:gpt-5.5").api).toBe(openai.OPENAI_CUA_RESPONSES_API);
-		expect(getCuaModel("openai:gpt-5.5-2026-04-23").api).toBe(openai.OPENAI_CUA_RESPONSES_API);
 		expect(getCuaModel("openai:gpt-5.4-mini").api).toBe(openai.OPENAI_CUA_RESPONSES_API);
 	});
 
 	it("rejects supported model IDs that are not in pi-ai or overrides", () => {
-		// Matches the openai allowlist but has no pi-ai or override entry.
-		expect(() => getCuaModel("openai:gpt-5.4-2099-01-01")).toThrow(
+		// Dated snapshots match the family annotation but pi-ai's registry
+		// (generated from models.dev) only carries family roots.
+		expect(() => getCuaModel("openai:gpt-5.5-2026-04-23")).toThrow(
 			/not registered/,
 		);
 	});

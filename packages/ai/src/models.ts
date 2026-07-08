@@ -1,9 +1,5 @@
-import {
-	type Api,
-	type Model,
-	getModel,
-	getModels,
-} from "@earendil-works/pi-ai";
+import type { Api, Model } from "@earendil-works/pi-ai";
+import { getBuiltinModel, getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
 import { OPENAI_CUA_RESPONSES_API } from "./providers/openai/provider";
 
 /** Providers with curated computer-use model support. */
@@ -101,13 +97,8 @@ export const CUA_MODEL_ANNOTATIONS: Record<CuaProvider, readonly CuaModelAnnotat
 // ships a new model before pi-ai picks it up — and add a matching annotation
 // in CUA_MODEL_ANNOTATIONS above so the support filter recognizes it.
 const CUA_MODEL_OVERRIDES: Record<CuaProvider, readonly Model<Api>[]> = {
-	openai: [
-		cuaModel("openai", "gpt-5.5", "GPT-5.5"),
-		cuaModel("openai", "gpt-5.5-2026-04-23", "GPT-5.5 (2026-04-23)"),
-	],
-	anthropic: [
-		cuaModel("anthropic", "claude-sonnet-5", "Claude Sonnet 5"),
-	],
+	openai: [],
+	anthropic: [],
 	google: [],
 	tzafon: [
 		cuaModel("tzafon", "tzafon.northstar-cua-fast", "Tzafon Northstar CUA Fast"),
@@ -121,6 +112,11 @@ const CUA_MODEL_OVERRIDES: Record<CuaProvider, readonly Model<Api>[]> = {
 		cuaModel("yutori", "n1-20260203", "Yutori Navigator n1 (2026-02-03)"),
 	],
 };
+
+/** Models CUA supports that pi-ai's registry does not carry for a provider. */
+export function cuaOverrideModels(provider: CuaProvider): readonly Model<Api>[] {
+	return CUA_MODEL_OVERRIDES[provider];
+}
 
 /**
  * Split a provider-qualified ref like `"openai:gpt-5.5"` into its parts.
@@ -162,7 +158,7 @@ export function listCuaModels(provider?: CuaProvider): CuaModelInfo[] {
 			const ref = formatCuaModelRef(p, model.id);
 			byRef.set(ref, { ref, provider: p, model: model.id, name: model.name });
 		}
-		for (const model of getModels(p as never) as Model<Api>[]) {
+		for (const model of getBuiltinModels(p as never) as Model<Api>[]) {
 			if (!supportsCuaProvider(p, model.id)) continue;
 			const ref = formatCuaModelRef(p, model.id);
 			if (byRef.has(ref)) continue;
@@ -190,7 +186,7 @@ export function getCuaModel(ref: CuaModelRef): Model<Api> {
 	if (!supportsCuaProvider(provider, modelId)) {
 		throw new Error(`unsupported CUA model "${ref}"`);
 	}
-	const fromRegistry = getModel(provider as never, modelId as never) as Model<Api> | undefined;
+	const fromRegistry = getBuiltinModel(provider as never, modelId as never) as Model<Api> | undefined;
 	if (fromRegistry) return routeCuaApi(fromRegistry);
 	const override = CUA_MODEL_OVERRIDES[provider].find((m) => m.id === modelId);
 	if (override) return routeCuaApi(override);
