@@ -21,7 +21,7 @@ import {
 	type CuaScreenshotSpec,
 } from "@onkernel/cua-ai";
 import sharp from "sharp";
-import { createBrowserExecutor, type BrowserExecutor } from "./browser";
+import { BrowserExecutor } from "./browser";
 import { isKernelModifierKey, normalizeKernelKey, normalizeKernelKeyCombo } from "./keys";
 import type { BatchExecutionResult } from "./types";
 
@@ -53,7 +53,7 @@ export class InternalComputerTranslator {
 		this.screenshotSpec = opts.screenshot;
 		this.viewport = opts.browser.viewport ?? { width: 1920, height: 1080 };
 		this.cdpWsUrl = opts.browser.cdp_ws_url;
-		this.browserExecutorFactory = opts.createBrowserExecutor ?? createBrowserExecutor;
+		this.browserExecutorFactory = opts.createBrowserExecutor ?? ((cdpWsUrl) => new BrowserExecutor(cdpWsUrl));
 	}
 
 	/** Release held resources: closes the browser executor's CDP connection if one was opened. */

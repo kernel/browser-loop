@@ -52,9 +52,13 @@ export class BrowserExecutor {
 	private refCounter = 0;
 	private activeTargetId?: string;
 
-	constructor(private readonly cdp: CdpConnection) {}
+	private readonly cdp: CdpConnection;
 
-	/** Close the underlying CDP connection. Safe to call when never connected. */
+	constructor(cdpWsUrl: string) {
+		this.cdp = new CdpConnection(cdpWsUrl);
+	}
+
+	/** Close the CDP connection. Safe to call when never connected. */
 	close(): void {
 		this.cdp.close();
 	}
@@ -569,6 +573,4 @@ const INTERACTIVE_ROLES: ReadonlySet<string> = new Set([
 
 const SKIPPED_ROLES: ReadonlySet<string> = new Set(["none", "generic", "InlineTextBox", "LineBreak", "StaticText"]);
 
-export function createBrowserExecutor(cdpWsUrl: string): BrowserExecutor {
-	return new BrowserExecutor(new CdpConnection(cdpWsUrl));
-}
+
