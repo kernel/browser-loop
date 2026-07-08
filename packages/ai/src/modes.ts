@@ -119,8 +119,9 @@ export function cuaToolNameForAction(action: CuaActionType, mode: CuaMode): stri
 
 const BROWSER_ACTION_DESCRIPTIONS: Record<CuaBrowserActionType, string> = {
 	browser_snapshot:
-		"Return an accessibility-tree snapshot of the page with element references like [e12]. " +
-		"Use the refs to target elements in other page tools. Refs are only valid until the page changes; re-snapshot when told a ref is stale.",
+		"Return an accessibility-tree snapshot of the page, including iframe content, with element references like [e12]. " +
+		"Use the refs to target elements in other page tools. Refs are only valid until the page changes; re-snapshot when told a ref is stale. " +
+		"If the page has not changed since your previous snapshot, a short unchanged notice is returned instead and earlier refs remain valid.",
 	browser_text: "Return the page's visible text content as plain text. Best for articles and text-heavy pages.",
 	browser_find: "Find elements matching a natural-language description and return them with element references, like a filtered snapshot.",
 	browser_click: "Click an element. Prefer targeting by element reference from a snapshot.",
@@ -157,9 +158,10 @@ const HYBRID_BROWSER_DESCRIPTION_OVERRIDES: Partial<Record<CuaBrowserActionType,
 		"Click an element by reference from a browser_snapshot. Dispatched via CDP, which protected sites may detect — " +
 		"prefer computer_click when the element is visible in the screenshot; use browser_click for elements that are hard to hit by coordinate.",
 	browser_snapshot:
-		"Return an accessibility-tree snapshot of the page with element references like [e12]. " +
+		"Return an accessibility-tree snapshot of the page, including iframe content, with element references like [e12]. " +
 		"This is the high-fidelity way to read page structure — prefer it over screenshots for reading and locating elements. " +
-		"Refs are only valid until the page changes; re-snapshot when told a ref is stale.",
+		"Refs are only valid until the page changes; re-snapshot when told a ref is stale. " +
+		"If the page has not changed since your previous snapshot, a short unchanged notice is returned instead and earlier refs remain valid.",
 };
 
 /** The model-facing tool description for a canonical action in a mode. */

@@ -105,8 +105,21 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 	const listeners: Array<(event: FakeCdpEvent) => void> = [];
 	let nodes = initialNodes as Array<{ backendDOMNodeId?: number }>;
 	let cursorBackendIds: number[] = [];
-	const requireBackendId = (id: unknown) => {
-		if (!nodes.some((node) => node.backendDOMNodeId === id)) throw new Error("No node with given id found");
+	const sessionTrees = new Map<string, Array<{ backendDOMNodeId?: number }>>();
+	const frameTrees = new Map<string, Array<{ backendDOMNodeId?: number }>>();
+	const iframeFrameIds = new Map<number, string>();
+	const autoAttachFrames: Array<{ targetId: string; sessionId: string }> = [];
+	const emit = (event: FakeCdpEvent) => {
+		for (const listener of listeners) listener(event);
+	};
+	const treeFor = (sessionId?: string, frameId?: unknown) => {
+		if (typeof frameId === "string" && frameTrees.has(frameId)) return frameTrees.get(frameId)!;
+		if (sessionId && sessionTrees.has(sessionId)) return sessionTrees.get(sessionId)!;
+		return nodes;
+	};
+	const requireBackendId = (id: unknown, sessionId?: string) => {
+		const candidates = sessionId && sessionTrees.has(sessionId) ? [sessionTrees.get(sessionId)!] : [nodes, ...frameTrees.values()];
+		if (!candidates.some((tree) => tree.some((node) => node.backendDOMNodeId === id))) throw new Error("No node with given id found");
 	};
 	const fake = {
 		onEvent: (listener: (event: FakeCdpEvent) => void) => {
@@ -116,15 +129,24 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 			sent.push({ method, params, sessionId });
 			switch (method) {
 				case "Accessibility.getFullAXTree":
-					return { nodes };
+					return { nodes: treeFor(sessionId, params.frameId) };
+				case "Target.setAutoAttach":
+					for (const frame of autoAttachFrames.splice(0)) {
+						emit({
+							method: "Target.attachedToTarget",
+							params: { sessionId: frame.sessionId, targetInfo: { targetId: frame.targetId, type: "iframe" } },
+							sessionId,
+						});
+					}
+					return {};
 				case "DOM.scrollIntoViewIfNeeded":
-					requireBackendId(params.backendNodeId);
+					requireBackendId(params.backendNodeId, sessionId);
 					return {};
 				case "DOM.getBoxModel":
-					requireBackendId(params.backendNodeId);
+					requireBackendId(params.backendNodeId, sessionId);
 					return { model: { content: [0, 0, 10, 0, 10, 10, 0, 10] } };
 				case "DOM.resolveNode":
-					requireBackendId(params.backendNodeId);
+					requireBackendId(params.backendNodeId, sessionId);
 					return { object: { objectId: "node-obj" } };
 				case "Runtime.evaluate":
 					if (params.returnByValue === false) return { result: { objectId: "cursor-scan" } };
@@ -137,6 +159,9 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 						],
 					};
 				case "DOM.describeNode":
+					if (typeof params.backendNodeId === "number") {
+						return { node: { backendNodeId: params.backendNodeId, frameId: iframeFrameIds.get(params.backendNodeId) } };
+					}
 					return { node: { backendNodeId: Number(String(params.objectId).slice(3)) } };
 				default:
 					return {};
@@ -147,16 +172,35 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 		createTarget: async () => "TARGET-2",
 		close: () => {},
 	};
-	const emit = (event: FakeCdpEvent) => {
-		for (const listener of listeners) listener(event);
-	};
 	const setNodes = (next: unknown[]) => {
 		nodes = next as Array<{ backendDOMNodeId?: number }>;
 	};
 	const setCursorBackendIds = (ids: number[]) => {
 		cursorBackendIds = ids;
 	};
-	return { sent, emit, setNodes, setCursorBackendIds, cdp: fake as unknown as CdpConnection };
+	const setSessionTree = (sessionId: string, tree: unknown[]) => {
+		sessionTrees.set(sessionId, tree as Array<{ backendDOMNodeId?: number }>);
+	};
+	const setFrameTree = (frameId: string, tree: unknown[]) => {
+		frameTrees.set(frameId, tree as Array<{ backendDOMNodeId?: number }>);
+	};
+	const setIframeFrame = (backendNodeId: number, frameId: string) => {
+		iframeFrameIds.set(backendNodeId, frameId);
+	};
+	const addAutoAttachFrame = (frame: { targetId: string; sessionId: string }) => {
+		autoAttachFrames.push(frame);
+	};
+	return {
+		sent,
+		emit,
+		setNodes,
+		setCursorBackendIds,
+		setSessionTree,
+		setFrameTree,
+		setIframeFrame,
+		addAutoAttachFrame,
+		cdp: fake as unknown as CdpConnection,
+	};
 }
 
 interface AXNodeSpec {
@@ -422,5 +466,95 @@ describe("BrowserExecutor dialog guard", () => {
 			{ type: "browser_text", label: "text", text: "hello" },
 			{ type: "browser_text", label: "dialog", text: 'Auto-dismissed a JavaScript confirm dialog: "Leave page?"' },
 		]);
+	});
+});
+
+describe("BrowserExecutor snapshot diffing", () => {
+	const UNCHANGED = "Page unchanged since the last snapshot; previous element refs are still valid.";
+
+	it("returns a short unchanged notice for an identical re-snapshot and the full tree after a change", async () => {
+		const { cdp, setNodes } = createFakeCdp(BUTTON_TREE);
+		const executor = new BrowserExecutor(cdp);
+		expect(await snapshotText(executor)).toContain('button "Save" [e1]');
+		expect(await snapshotText(executor)).toBe(UNCHANGED);
+		await executor.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction);
+		setNodes([
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),
+			ax({ nodeId: "2", role: "button", name: "Delete", backendDOMNodeId: 43, parentId: "1" }),
+		]);
+		expect(await snapshotText(executor)).toContain('button "Delete" [e2]');
+	});
+
+	it("returns the full tree when the params differ from the previous snapshot", async () => {
+		const { cdp } = createFakeCdp(BUTTON_TREE);
+		const executor = new BrowserExecutor(cdp);
+		await snapshotText(executor);
+		expect(await snapshotText(executor, { filter: "interactive" })).toContain('button "Save" [e2]');
+	});
+});
+
+describe("BrowserExecutor iframe stitching", () => {
+	it("stitches a same-process iframe subtree indented under its iframe node", async () => {
+		const tree = [
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),
+			ax({ nodeId: "2", role: "Iframe", backendDOMNodeId: 50, parentId: "1" }),
+		];
+		const { cdp, emit, setFrameTree, setIframeFrame } = createFakeCdp(tree);
+		setIframeFrame(50, "FRAME-SP");
+		setFrameTree("FRAME-SP", [
+			ax({ nodeId: "f1", role: "RootWebArea", name: "Embed", childIds: ["f2"] }),
+			ax({ nodeId: "f2", role: "button", name: "Inside", backendDOMNodeId: 60, parentId: "f1" }),
+		]);
+		const executor = new BrowserExecutor(cdp);
+		const text = await snapshotText(executor);
+		expect(text).toBe(['RootWebArea "Page"', "  Iframe", '    RootWebArea "Embed"', '      button "Inside" [e1]'].join("\n"));
+		await executor.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction);
+
+		emit({ method: "Page.frameNavigated", params: { frame: { id: "FRAME-SP", parentId: "F0" } }, sessionId: "session-1" });
+		await expect(executor.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction)).rejects.toThrow(/stale/);
+	});
+
+	const OOPIF_PAGE = [
+		ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "3"] }),
+		ax({ nodeId: "2", role: "button", name: "Top", backendDOMNodeId: 40, parentId: "1" }),
+		ax({ nodeId: "3", role: "Iframe", backendDOMNodeId: 50, parentId: "1" }),
+	];
+	const OOPIF_CHILD = [
+		ax({ nodeId: "f1", role: "RootWebArea", name: "Widget", childIds: ["f2"] }),
+		ax({ nodeId: "f2", role: "button", name: "Pay", backendDOMNodeId: 70, parentId: "f1" }),
+	];
+	const setupOopif = () => {
+		const fake = createFakeCdp(OOPIF_PAGE);
+		fake.setIframeFrame(50, "FRAME-OOP");
+		fake.addAutoAttachFrame({ targetId: "FRAME-OOP", sessionId: "session-oop" });
+		fake.setSessionTree("session-oop", OOPIF_CHILD);
+		return fake;
+	};
+
+	it("resolves a ref inside an OOPIF through the child frame's session", async () => {
+		const { cdp, sent } = setupOopif();
+		const executor = new BrowserExecutor(cdp);
+		const text = await snapshotText(executor);
+		expect(text).toContain('button "Top" [e1]');
+		expect(text).toContain('      button "Pay" [e2]');
+
+		await executor.execute({ type: "browser_click", ref: "e2" } as CuaBrowserAction);
+		const scrolled = sent.find((cmd) => cmd.method === "DOM.scrollIntoViewIfNeeded" && cmd.params.backendNodeId === 70);
+		expect(scrolled?.sessionId).toBe("session-oop");
+		const pressed = sent.find((cmd) => cmd.method === "Input.dispatchMouseEvent" && cmd.params.type === "mousePressed");
+		expect(pressed?.sessionId).toBe("session-oop");
+	});
+
+	it("invalidates only the child frame's refs when the child frame navigates", async () => {
+		const { cdp, emit } = setupOopif();
+		const executor = new BrowserExecutor(cdp);
+		await snapshotText(executor);
+
+		emit({ method: "Page.frameNavigated", params: { frame: { id: "FRAME-OOP" } }, sessionId: "session-oop" });
+		await expect(executor.execute({ type: "browser_click", ref: "e2" } as CuaBrowserAction)).rejects.toThrow(/stale/);
+		await executor.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction);
+
+		const text = await snapshotText(executor);
+		expect(text).toContain('button "Pay" [e');
 	});
 });
