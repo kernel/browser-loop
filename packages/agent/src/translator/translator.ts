@@ -56,6 +56,12 @@ export class InternalComputerTranslator {
 		this.browserExecutorFactory = opts.createBrowserExecutor ?? createBrowserExecutor;
 	}
 
+	/** Release held resources: closes the browser executor's CDP connection if one was opened. */
+	dispose(): void {
+		this.browserExecutor?.close();
+		this.browserExecutor = undefined;
+	}
+
 	/** The browser-plane executor, connected lazily over the browser's CDP websocket. */
 	browser(): BrowserExecutor {
 		if (!this.browserExecutor) {

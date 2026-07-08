@@ -56,6 +56,20 @@ describe("native runtime specs", () => {
 		expect(spec.toolDefinitions.map((tool) => tool.name)).toEqual(["browser"]);
 	});
 
+	it("folds javascriptExec into the native browser declaration unless the spec is explicit", () => {
+		const folded = resolveCuaRuntimeSpec("anthropic:claude-opus-4-5", {
+			nativeTool: { type: "browser_20260701" },
+			javascriptExec: true,
+		});
+		expect(folded.nativeTool?.declaration.enable_javascript_exec).toBe(true);
+
+		const explicit = resolveCuaRuntimeSpec("anthropic:claude-opus-4-5", {
+			nativeTool: { type: "browser_20260701", enable_javascript_exec: false },
+			javascriptExec: true,
+		});
+		expect(explicit.nativeTool?.declaration.enable_javascript_exec).toBe(false);
+	});
+
 	it("swaps the placeholder tool for the native declaration in the payload", async () => {
 		const spec = resolveCuaRuntimeSpec("anthropic:claude-opus-4-5", { nativeTool: { type: "computer_20260701", enable_zoom: true } });
 		const payload = {

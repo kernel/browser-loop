@@ -443,6 +443,27 @@ describe("CuaAgentHarness", () => {
 		expect(names).toContain("browser_snapshot");
 	});
 
+	it("setMode keeps the requested activation state of surviving tools", async () => {
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "anthropic:claude-opus-4-5",
+			extraTools: [createCustomTool()],
+		});
+		const withoutCustom = harness
+			.getTools()
+			.map((tool) => tool.name)
+			.filter((name) => name !== "custom");
+		await harness.setActiveTools(withoutCustom);
+
+		await harness.setMode("browser");
+
+		const active = harness.getActiveTools().map((tool) => tool.name);
+		expect(active).toContain("snapshot");
+		expect(active).not.toContain("custom");
+	});
+
 	it("appends extraTools in harness construction", async () => {
 		const runtime = resolveCuaRuntimeSpec("openai:gpt-5.5");
 		const tool = createCustomTool();

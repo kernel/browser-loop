@@ -54,6 +54,11 @@ export class BrowserExecutor {
 
 	constructor(private readonly cdp: CdpConnection) {}
 
+	/** Close the underlying CDP connection. Safe to call when never connected. */
+	close(): void {
+		this.cdp.close();
+	}
+
 	async execute(action: CuaBrowserAction): Promise<BatchReadResult[]> {
 		switch (action.type) {
 			case "browser_snapshot":
@@ -104,7 +109,15 @@ export class BrowserExecutor {
 	async screenshot(region?: [number, number, number, number], tabId?: string): Promise<{ data: Buffer; mimeType: string }> {
 		const session = await this.session(tabId);
 		const clip = region
-			? { clip: { x: region[0], y: region[1], width: Math.max(1, region[2] - region[0]), height: Math.max(1, region[3] - region[1]), scale: 1 } }
+			? {
+					clip: {
+						x: Math.min(region[0], region[2]),
+						y: Math.min(region[1], region[3]),
+						width: Math.max(1, Math.abs(region[2] - region[0])),
+						height: Math.max(1, Math.abs(region[3] - region[1])),
+						scale: 1,
+					},
+				}
 			: {};
 		const { data } = await this.cdp.send<{ data: string }>("Page.captureScreenshot", { format: "png", ...clip }, session);
 		return { data: Buffer.from(data, "base64"), mimeType: "image/png" };
@@ -305,6 +318,7 @@ export class BrowserExecutor {
 
 	private async newTab(): Promise<string> {
 		const targetId = await this.cdp.createTarget("about:blank");
+		this.activeTargetId = targetId;
 		return `Opened tab_id ${shortTabId(targetId)}.\n${await this.tabContext(targetId)}`;
 	}
 

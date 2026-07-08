@@ -77,7 +77,10 @@ export class CdpConnection {
 		this.socket = undefined;
 		this.opening = undefined;
 		this.sessionsByTarget.clear();
-		const error = new Error("CDP connection closed");
+		this.rejectPending(new Error("CDP connection closed"));
+	}
+
+	private rejectPending(error: Error): void {
 		for (const pending of this.pending.values()) pending.reject(error);
 		this.pending.clear();
 	}
@@ -98,6 +101,7 @@ export class CdpConnection {
 				this.socket = undefined;
 				this.opening = undefined;
 				this.sessionsByTarget.clear();
+				this.rejectPending(new Error("CDP connection closed"));
 			});
 			socket.addEventListener("message", (event) => {
 				this.handleMessage(typeof event.data === "string" ? event.data : String(event.data));

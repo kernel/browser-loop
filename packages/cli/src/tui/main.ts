@@ -447,6 +447,9 @@ async function maybeInitialScreenshot(
 ): Promise<ImageContent[] | undefined> {
 	if (firstPromptSent) return undefined;
 	if (opts.skipInitialScreenshot) return undefined;
+	// Browser mode's only frame is the viewport; skip the OS-display capture
+	// rather than mix coordinate frames on the first turn.
+	if (opts.harness.getMode() === "browser") return undefined;
 	if (await sessionHasPriorTurn(opts.session)) return undefined;
 	const png = await captureScreenshot(opts.browserHandle.client, opts.browserHandle.browser.session_id);
 	if (!png) return undefined;

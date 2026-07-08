@@ -186,6 +186,14 @@ function parseCliArgs(argv: string[]): CliFlags {
 			);
 		}
 	}
+	const modeRaw = parsed.values.mode as string | undefined;
+	if (modeRaw !== undefined && !["computer", "browser", "hybrid"].includes(modeRaw.trim().toLowerCase())) {
+		throw new Error(`invalid --mode value "${modeRaw}"; expected one of: computer | browser | hybrid`);
+	}
+	const nativeToolRaw = parsed.values["native-tool"] as string | undefined;
+	if (nativeToolRaw !== undefined && !["computer_20260701", "browser_20260701"].includes(nativeToolRaw.trim().toLowerCase())) {
+		throw new Error(`invalid --native-tool value "${nativeToolRaw}"; expected one of: computer_20260701 | browser_20260701`);
+	}
 
 	return {
 		help: !!parsed.values.help,

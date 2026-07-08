@@ -175,6 +175,11 @@ class CuaRuntimeController {
 	setMode(mode: CuaMode): void {
 		this.runtimeSpec = this.resolveSpec(this.runtimeSpec.model, mode);
 		this.currentMode = mode;
+		this.replaceTranslator();
+	}
+
+	private replaceTranslator(): void {
+		this.translator.dispose();
 		this.translator = this.createTranslator();
 	}
 
@@ -184,7 +189,7 @@ class CuaRuntimeController {
 
 	setModel(model: CuaRuntimeInput): void {
 		this.runtimeSpec = this.resolveSpec(model);
-		this.translator = this.createTranslator();
+		this.replaceTranslator();
 	}
 
 	tools(): AgentTool[] {
@@ -474,9 +479,16 @@ export class CuaAgentHarness<
 	 * plane conflicts with the requested mode.
 	 */
 	async setMode(mode: CuaMode): Promise<void> {
+		const previousNames = new Set(this.getTools().map((tool) => tool.name));
 		this.runtime.setMode(mode);
 		const tools = this.runtime.tools();
-		await super.setTools(tools, tools.map((tool) => tool.name));
+		// Tools that survive the mode switch (extraTools, shared names) keep
+		// their requested activation state; names new in this mode activate.
+		const requested = this.requestedActiveToolNames;
+		const active = requested
+			? tools.map((tool) => tool.name).filter((name) => !previousNames.has(name) || requested.includes(name))
+			: tools.map((tool) => tool.name);
+		await super.setTools(tools, active);
 	}
 
 	/** The action plane(s) currently exposed to the model. */

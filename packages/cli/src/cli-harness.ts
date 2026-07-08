@@ -377,10 +377,39 @@ async function setupHarnessRuntime(
 		disabled: flags.noSkills,
 	});
 
+	// Validate mode/native-tool flags before provisioning so a bad combination
+	// never leaves an orphaned browser behind.
+	const mode = parseMode(flags.mode);
+	const nativeTool = parseNativeTool(flags.nativeTool, flags.jsExec);
+
 	const provisioned = await provisionForFlags(flags, auth);
+	try {
+		return await finishHarnessRuntime(flags, auth, provisioned, { cwd, skills, contextFiles, mode, nativeTool, skipDisk: opts.skipDiskSession === true });
+	} catch (err) {
+		await provisioned.handle.close().catch(() => {});
+		throw err;
+	}
+}
+
+interface FinishHarnessRuntimeContext {
+	cwd: string;
+	skills: Skill[];
+	contextFiles: ContextFile[];
+	mode: CuaMode | undefined;
+	nativeTool: CuaNativeToolSpec | undefined;
+	skipDisk: boolean;
+}
+
+async function finishHarnessRuntime(
+	flags: HarnessCliFlags,
+	auth: ResolvedAuth,
+	provisioned: ProvisionedBrowser,
+	context: FinishHarnessRuntimeContext,
+): Promise<HarnessRuntime> {
+	const { cwd, skills, contextFiles, mode, nativeTool } = context;
 	const repo = createSessionRepo(flags.sessionDir);
 
-	const skipDisk = opts.skipDiskSession === true && !hasExplicitSessionFlag(flags);
+	const skipDisk = context.skipDisk && !hasExplicitSessionFlag(flags);
 	const resolved = skipDisk ? undefined : await resolveSession(repo, cwd, flags, provisioned.named);
 
 	let inMemorySession: Session | undefined;
@@ -419,8 +448,8 @@ async function setupHarnessRuntime(
 		skills,
 		contextFiles,
 		thinkingLevel,
-		mode: parseMode(flags.mode),
-		nativeTool: parseNativeTool(flags.nativeTool, flags.jsExec),
+		mode,
+		nativeTool,
 		javascriptExec: flags.jsExec,
 		playwright: flags.playwright,
 		modelBaseUrl: baseUrlOverride,
