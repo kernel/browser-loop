@@ -27,7 +27,11 @@ import type Kernel from "@onkernel/sdk";
 import { buildCuaComputerTools } from "./tools";
 import { InternalComputerTranslator, type KernelBrowser } from "./translator/translator";
 
-/** A CUA model reference string or a concrete pi model object. */
+/**
+ * A model selection: a CUA model ref like `"openai:gpt-5.5"` or a concrete
+ * pi model object. Selects *which* model runs; *how* requests stream and
+ * authenticate is the `models` collection's concern.
+ */
 type CuaRuntimeInput = CuaModelRef | Model<Api>;
 
 /**
@@ -87,9 +91,16 @@ export type CuaAgentHarnessOptions<
 	browser: KernelBrowser;
 	/** Kernel SDK client used by default CUA tools. */
 	client: Kernel;
-	/** Model used by the harness. CUA refs are resolved before pi sees the model. */
+	/**
+	 * The model the harness starts with (switch later with `setModel()`).
+	 * CUA refs are resolved before pi sees the model.
+	 */
 	model: CuaRuntimeInput;
-	/** pi `Models` collection requests stream through. Defaults to {@link cuaModels}. */
+	/**
+	 * pi `Models` provider collection requests stream through — providers,
+	 * auth, and stream dispatch, mirroring pi's `AgentHarnessOptions.models`.
+	 * Defaults to {@link cuaModels}. Not the model selection; that is `model`.
+	 */
 	models?: Models;
 	/** Add your own pi tools alongside the built-in browser tools. */
 	extraTools?: AgentTool[];
