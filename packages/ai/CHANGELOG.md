@@ -21,8 +21,10 @@ global api-registry surface.
 - API keys resolve from the documented env-var convention through provider
   auth when streaming via the collection; explicit `apiKey` stream options
   still take precedence.
-- Removed the `claude-sonnet-5` and `gpt-5.5` model overrides; pi-ai 0.80's
-  registry carries both. `getCuaModel()` behavior is unchanged.
+- Removed the `claude-sonnet-5` and `gpt-5.5` model overrides (pi-ai 0.80's
+  registry carries both) and the `gpt-5.5-2026-04-23` dated-snapshot
+  override. Dated snapshot refs no longer resolve — use the family id
+  (`openai:gpt-5.5`).
 - Updated `@earendil-works/pi-ai` to 0.80.3.
 
 ## 0.3.4 - 2026-06-30

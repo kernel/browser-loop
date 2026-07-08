@@ -97,9 +97,7 @@ export const CUA_MODEL_ANNOTATIONS: Record<CuaProvider, readonly CuaModelAnnotat
 // ships a new model before pi-ai picks it up — and add a matching annotation
 // in CUA_MODEL_ANNOTATIONS above so the support filter recognizes it.
 const CUA_MODEL_OVERRIDES: Record<CuaProvider, readonly Model<Api>[]> = {
-	openai: [
-		cuaModel("openai", "gpt-5.5-2026-04-23", "GPT-5.5 (2026-04-23)"),
-	],
+	openai: [],
 	anthropic: [],
 	google: [],
 	tzafon: [
