@@ -135,6 +135,7 @@ export type CuaAgentHarnessOptions<
 class CuaRuntimeController {
 	private runtimeSpec: CuaRuntimeSpec;
 	private translator: InternalComputerTranslator;
+	private currentMode?: CuaMode;
 
 	constructor(
 		private readonly options: {
@@ -150,13 +151,14 @@ class CuaRuntimeController {
 			onPayload?: SimpleStreamOptions["onPayload"];
 		},
 	) {
+		this.currentMode = options.mode;
 		this.runtimeSpec = this.resolveSpec(options.model);
 		this.translator = this.createTranslator();
 	}
 
-	private resolveSpec(model: CuaRuntimeInput): CuaRuntimeSpec {
+	private resolveSpec(model: CuaRuntimeInput, mode: CuaMode | undefined = this.currentMode): CuaRuntimeSpec {
 		return resolveCuaRuntimeSpec(model, {
-			mode: this.options.mode,
+			mode,
 			nativeTool: this.options.nativeTool,
 			javascriptExec: this.options.javascriptExec,
 		});
@@ -164,6 +166,16 @@ class CuaRuntimeController {
 
 	get model(): Model<Api> {
 		return this.runtimeSpec.model;
+	}
+
+	get mode(): CuaMode {
+		return this.runtimeSpec.mode;
+	}
+
+	setMode(mode: CuaMode): void {
+		this.runtimeSpec = this.resolveSpec(this.runtimeSpec.model, mode);
+		this.currentMode = mode;
+		this.translator = this.createTranslator();
 	}
 
 	get systemPrompt(): string {
@@ -345,6 +357,22 @@ export class CuaAgent extends Agent {
 		return this.stateProxy;
 	}
 
+	/** Switch the action plane(s) exposed to the model; takes effect next turn. */
+	setMode(mode: CuaMode): void {
+		this.runtime.setMode(mode);
+		this.runtimeDirty = true;
+		const state = super.state;
+		state.tools = this.runtime.tools();
+		if (this.ownsSystemPrompt) {
+			state.systemPrompt = this.runtime.systemPrompt;
+		}
+	}
+
+	/** The action plane(s) currently exposed to the model. */
+	getMode(): CuaMode {
+		return this.runtime.mode;
+	}
+
 	private applyRuntime(model: CuaRuntimeInput): void {
 		this.runtime.setModel(model);
 		this.runtimeDirty = true;
@@ -438,6 +466,22 @@ export class CuaAgentHarness<
 	override async setActiveTools(toolNames: string[]): Promise<void> {
 		await super.setActiveTools(toolNames);
 		this.requestedActiveToolNames = [...toolNames];
+	}
+
+	/**
+	 * Switch the action plane(s) exposed to the model and refresh CUA-owned
+	 * tools. Throws when the harness was configured with a `nativeTool` whose
+	 * plane conflicts with the requested mode.
+	 */
+	async setMode(mode: CuaMode): Promise<void> {
+		this.runtime.setMode(mode);
+		const tools = this.runtime.tools();
+		await super.setTools(tools, tools.map((tool) => tool.name));
+	}
+
+	/** The action plane(s) currently exposed to the model. */
+	getMode(): CuaMode {
+		return this.runtime.mode;
 	}
 }
 

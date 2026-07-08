@@ -178,6 +178,40 @@ describe("CuaAgent", () => {
 		expect(agent.state.tools).toHaveLength(runtime.toolExecutors.length);
 	});
 
+	it("switches action planes through setMode", () => {
+		const agent = new CuaAgent({
+			browser,
+			client,
+			initialState: {
+				model: "anthropic:claude-opus-4-5",
+			},
+		});
+		expect(agent.getMode()).toBe("os");
+		expect(agent.state.tools.map((tool) => tool.name)).toContain("click");
+
+		agent.setMode("dom");
+
+		expect(agent.getMode()).toBe("dom");
+		const names = agent.state.tools.map((tool) => tool.name);
+		expect(names).toContain("snapshot");
+		expect(names).not.toContain("move");
+		expect(agent.state.systemPrompt).toBe(resolveCuaRuntimeSpec("anthropic:claude-opus-4-5", { mode: "dom" }).defaultSystemPrompt);
+	});
+
+	it("rejects setMode conflicting with a configured native tool", () => {
+		const agent = new CuaAgent({
+			browser,
+			client,
+			nativeTool: { type: "browser_20260701" },
+			initialState: {
+				model: "anthropic:claude-opus-4-5",
+			},
+		});
+		expect(agent.getMode()).toBe("dom");
+		expect(() => agent.setMode("os")).toThrow(/requires mode "dom"/);
+		expect(agent.getMode()).toBe("dom");
+	});
+
 	it("keeps extra tools and caller-owned system prompt when state.model changes", () => {
 		const tool = createCustomTool();
 		const agent = new CuaAgent({
@@ -390,6 +424,23 @@ describe("CuaAgentHarness", () => {
 
 		expect(harness.getModel().id).toBe(runtime.model.id);
 		expect(harness.getTools()).toHaveLength(runtime.toolExecutors.length);
+	});
+
+	it("switches action planes through setMode", async () => {
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "anthropic:claude-opus-4-5",
+		});
+		expect(harness.getMode()).toBe("os");
+
+		await harness.setMode("hybrid");
+
+		expect(harness.getMode()).toBe("hybrid");
+		const names = harness.getTools().map((tool) => tool.name);
+		expect(names).toContain("computer_click");
+		expect(names).toContain("page_snapshot");
 	});
 
 	it("appends extraTools in harness construction", async () => {

@@ -303,6 +303,10 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 				await applyModelCommand(opts, footer, status, messages, parsed.argument);
 				return;
 			}
+			if (parsed?.command === "mode") {
+				await applyModeCommand(opts, messages, parsed.argument);
+				return;
+			}
 			if (parsed?.command === "thinking") {
 				await applyThinkingCommand(opts, footer, messages, parsed.argument);
 				return;
@@ -482,6 +486,20 @@ async function applyModelCommand(
 		});
 		status.update({ model: modelLabel(model) });
 		messages.addNotice(`model → ${resolved}`);
+	} catch (err) {
+		messages.addError((err as Error).message);
+	}
+}
+
+async function applyModeCommand(opts: InteractiveOptions, messages: MessageList, argument: string): Promise<void> {
+	const value = argument.trim().toLowerCase();
+	if (value !== "os" && value !== "dom" && value !== "hybrid") {
+		messages.addError("usage: /mode <os|dom|hybrid>");
+		return;
+	}
+	try {
+		await opts.harness.setMode(value);
+		messages.addNotice(`mode → ${value}`);
 	} catch (err) {
 		messages.addError((err as Error).message);
 	}

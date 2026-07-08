@@ -63,7 +63,10 @@ export function buildCuaHarness(opts: BuildCuaHarnessOptions): CuaAgentHarness {
 	const model: CuaModelRef | Model<Api> = opts.modelBaseUrl
 		? { ...getCuaModel(opts.model), baseUrl: opts.modelBaseUrl }
 		: opts.model;
-	return new CuaAgentHarness({
+	// The system-prompt callback re-resolves per turn and must see the live
+	// mode after /mode switches, so it reads it from the harness (late-bound).
+	let harness: CuaAgentHarness | undefined;
+	harness = new CuaAgentHarness({
 		env: new NodeExecutionEnv({ cwd: opts.cwd }),
 		session: opts.session,
 		model,
@@ -78,7 +81,7 @@ export function buildCuaHarness(opts: BuildCuaHarnessOptions): CuaAgentHarness {
 		thinkingLevel: opts.thinkingLevel,
 		systemPrompt: ({ model: activeModel, resources }) => {
 			const runtime = resolveCuaRuntimeSpec(activeModel, {
-				mode: opts.mode,
+				mode: harness?.getMode() ?? opts.mode,
 				nativeTool: opts.nativeTool,
 				javascriptExec: opts.javascriptExec,
 			});
@@ -86,6 +89,7 @@ export function buildCuaHarness(opts: BuildCuaHarnessOptions): CuaAgentHarness {
 		},
 		models: opts.models,
 	});
+	return harness;
 }
 
 function composeSystemPrompt(base: string, skills: Skill[], contextFiles: ContextFile[]): string {

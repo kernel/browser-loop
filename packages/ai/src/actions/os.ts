@@ -1,4 +1,4 @@
-import { Type, type Static, type TSchema } from "@earendil-works/pi-ai";
+import { Type, type TSchema } from "@earendil-works/pi-ai";
 
 /**
  * OS-plane canonical actions.
@@ -275,7 +275,11 @@ export const CUA_OS_ACTION_SCHEMA_BY_TYPE = {
 	zoom: Type.Object(
 		{
 			type: Type.Literal("zoom"),
-			region: Type.Tuple([Type.Number(), Type.Number(), Type.Number(), Type.Number()], {
+			// Not Type.Tuple: tuples emit draft-07 `items: [...]`, which Anthropic's
+			// draft 2020-12 schema validation rejects.
+			region: Type.Array(Type.Number(), {
+				minItems: 4,
+				maxItems: 4,
 				description: "[x0, y0, x1, y1] crop region in OS screenshot pixels.",
 			}),
 		},
@@ -294,4 +298,4 @@ export const CUA_OS_ACTION_SCHEMA_BY_TYPE = {
 	cursor_position: Type.Object({ type: Type.Literal("cursor_position") }, { additionalProperties: false }),
 } satisfies Record<CuaOsActionType, TSchema>;
 
-export type CuaZoomRegion = Static<(typeof CUA_OS_ACTION_SCHEMA_BY_TYPE)["zoom"]>["region"];
+export type CuaZoomRegion = CuaActionZoom["region"];

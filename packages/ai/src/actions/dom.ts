@@ -310,8 +310,12 @@ export function createCuaDomActionSchemaByType(options: CuaDomSchemaOptions): Re
 		page_screenshot: Type.Object(
 			{
 				type: Type.Literal("page_screenshot"),
+				// Not Type.Tuple: tuples emit draft-07 `items: [...]`, which Anthropic's
+				// draft 2020-12 schema validation rejects.
 				region: Type.Optional(
-					Type.Tuple([Type.Number(), Type.Number(), Type.Number(), Type.Number()], {
+					Type.Array(Type.Number(), {
+						minItems: 4,
+						maxItems: 4,
 						description: "Optional crop region, [x0, y0, x1, y1] in viewport pixels.",
 					}),
 				),
