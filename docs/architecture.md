@@ -104,7 +104,7 @@ under `packages/ai/src/actions/`:
 - **Browser plane** (`actions/browser.ts`, ids prefixed `browser_`) — CDP-driven page
   tools: accessibility snapshots with element refs, element-targeted
   interaction, navigation, tabs, viewport screenshots. Executed by
-  `packages/agent/src/translator/page.ts` over a raw CDP websocket
+  `packages/agent/src/translator/browser.ts` (`BrowserExecutor`) over a raw CDP websocket
   (`translator/cdp.ts`) to the browser's `cdp_ws_url` — no Playwright.
   Coordinates, where used, are viewport pixels.
 
@@ -117,10 +117,15 @@ A `CuaMode` selects which plane(s) the model sees:
 | `hybrid` | both planes, one tool per capability: computer actions as `computer_*`, browser reads/element-writes as `browser_*` (ref-only) | OS screenshot pixels — the single live frame |
 
 Hybrid deduplicates capabilities: navigation and tabs live on the browser plane,
-pointer/keyboard input and the (only) screenshot live on the OS plane, and
-page tools take element refs only so exactly one coordinate frame exists.
+pointer/keyboard input and the (only) screenshot live on the computer plane, and
+hybrid browser tools take element refs only so exactly one coordinate frame exists.
 Element refs are snapshot-scoped (`e12`); a stale ref resolves to an error
 string that tells the model to re-snapshot.
+
+The mode is set at construction (`mode` on `CuaAgent`/`CuaAgentHarness`,
+`--mode` in the CLI) and can be switched at runtime with `setMode()` (the
+TUI's `/mode` command), which refreshes CUA-owned tools and the default
+system prompt.
 
 **Native tools.** `resolveCuaRuntimeSpec(model, { nativeTool })` drives an
 Anthropic model through its provider-defined tool schema instead of the
