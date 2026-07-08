@@ -12,7 +12,6 @@ let host: HarnessExtensionHost | undefined;
 afterEach(async () => {
 	await host?.dispose();
 	host = undefined;
-	await fx?.dispose();
 	fx = undefined;
 });
 
