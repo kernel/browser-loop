@@ -618,6 +618,13 @@ export class BrowserExecutor {
 		return `Navigated to ${url}.\n${await this.tabContext(targetId)}`;
 	}
 
+	/** URL of the active tab. */
+	async currentUrl(): Promise<string> {
+		const targetId = await this.resolveTarget();
+		const targets = await this.cdp.pageTargets();
+		return targets.find((target) => target.targetId === targetId)?.url ?? "";
+	}
+
 	private async listTabs(): Promise<string> {
 		const targets = await this.cdp.pageTargets();
 		if (targets.length === 0) return "No open tabs.";

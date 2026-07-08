@@ -699,22 +699,39 @@ describe("BrowserExecutor iframe stitching", () => {
 
 describe("navigation tool grounding frame", () => {
 	const navTool = (mode: "computer" | "browser") => {
-		const { client } = createClient();
-		const { executor } = createFakeBrowserExecutor();
+		const { client, batches } = createClient();
+		const { executor, executed } = createFakeBrowserExecutor();
 		const translator = new InternalComputerTranslator({ browser, client, mode, createBrowserExecutor: () => executor });
-		return buildCuaComputerTools({ toolExecutors: [], mode }, translator).find((tool) => tool.name === "computer_use_extra")!;
+		const tool = buildCuaComputerTools({ toolExecutors: [], mode }, translator).find((tool) => tool.name === "computer_use_extra")!;
+		return { tool, batches, executed };
 	};
 
 	it("captures the viewport in browser mode and the OS display otherwise", async () => {
 		const viewportData = Buffer.from("png").toString("base64");
 
-		const browserResult = await navTool("browser").execute("call_1", { action: "back" });
+		const browserResult = await navTool("browser").tool.execute("call_1", { action: "back" });
 		const viewportImage = browserResult.content.find((block) => block.type === "image");
 		expect(viewportImage).toMatchObject({ type: "image", data: viewportData });
 
-		const computerResult = await navTool("computer").execute("call_2", { action: "back" });
+		const computerResult = await navTool("computer").tool.execute("call_2", { action: "back" });
 		const osImage = computerResult.content.find((block) => block.type === "image");
 		expect(osImage?.type).toBe("image");
 		expect((osImage as { data: string }).data).not.toBe(viewportData);
+	});
+
+	it("navigates on the browser plane in browser mode and the OS plane otherwise", async () => {
+		const inBrowser = navTool("browser");
+		await inBrowser.tool.execute("call_1", { action: "goto", url: "https://example.com" });
+		await inBrowser.tool.execute("call_2", { action: "back" });
+		expect(inBrowser.executed).toEqual([
+			{ type: "browser_navigate", url: "https://example.com" },
+			{ type: "browser_navigate", url: "back" },
+		]);
+		expect(inBrowser.batches).toEqual([]);
+
+		const inComputer = navTool("computer");
+		await inComputer.tool.execute("call_3", { action: "back" });
+		expect(inComputer.executed).toEqual([]);
+		expect(inComputer.batches).toHaveLength(1);
 	});
 });

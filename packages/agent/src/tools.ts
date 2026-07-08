@@ -199,9 +199,14 @@ async function executeNavigationTool(
 	try {
 		let statusText = `${action} executed successfully.`;
 		let url: string | undefined;
+		// In browser mode navigation stays on the browser plane (CDP) so it
+		// invalidates refs and matches the viewport grounding frame; the OS
+		// keyboard-shortcut path would navigate outside the plane the model sees.
 		if (action === "url") {
-			url = await translator.currentUrl();
+			url = mode === "browser" ? await translator.browser().currentUrl() : await translator.currentUrl();
 			statusText = `Current URL: ${url}`;
+		} else if (mode === "browser") {
+			await translator.executeBatch([{ type: "browser_navigate", url: action === "goto" ? (params.url ?? "") : action }]);
 		} else if (action === "goto") {
 			await translator.executeBatch([{ type: "goto", url: params.url ?? "" }]);
 		} else {

@@ -485,6 +485,21 @@ describe("CuaAgentHarness", () => {
 		expect(active).not.toContain("custom");
 	});
 
+	it("treats a repeated setMode as a no-op", async () => {
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "anthropic:claude-opus-4-5",
+		});
+		const before = harness.getTools();
+
+		await harness.setMode("computer");
+
+		// Same tool instances: the translator and its CDP state were not replaced.
+		expect(harness.getTools()[0]).toBe(before[0]);
+	});
+
 	it("appends extraTools in harness construction", async () => {
 		const runtime = resolveCuaRuntimeSpec("openai:gpt-5.5");
 		const tool = createCustomTool();

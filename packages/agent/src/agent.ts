@@ -167,6 +167,9 @@ class CuaRuntimeController {
 	}
 
 	setMode(mode: CuaMode): void {
+		// A repeated selection must not replace the translator: disposing it
+		// would drop snapshot refs, tab context, and the CDP connection.
+		if (mode === this.runtimeSpec.mode) return;
 		this.runtimeSpec = this.resolveSpec(this.runtimeSpec.model, mode);
 		this.currentMode = mode;
 		this.replaceTranslator();
@@ -357,6 +360,7 @@ export class CuaAgent extends Agent {
 
 	/** Switch the action plane(s) exposed to the model; takes effect next turn. */
 	setMode(mode: CuaMode): void {
+		if (mode === this.runtime.mode) return;
 		this.runtime.setMode(mode);
 		this.runtimeDirty = true;
 		const state = super.state;
@@ -470,6 +474,7 @@ export class CuaAgentHarness<
 	 * plane conflicts with the requested mode.
 	 */
 	async setMode(mode: CuaMode): Promise<void> {
+		if (mode === this.runtime.mode) return;
 		const previousMode = this.runtime.mode;
 		const previousNames = new Set(this.getTools().map((tool) => tool.name));
 		this.runtime.setMode(mode);
