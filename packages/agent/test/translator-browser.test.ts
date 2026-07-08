@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { CuaBrowserAction } from "@onkernel/cua-ai";
 import { BrowserExecutor, type BrowserExecutorOptions } from "../src/translator/browser";
 import type { CdpConnection } from "../src/translator/cdp";
+import { buildCuaComputerTools } from "../src/tools";
 import { InternalComputerTranslator, type KernelBrowser } from "../src/translator/translator";
 import type { BatchReadResult } from "../src/translator/types";
 
@@ -670,5 +671,27 @@ describe("BrowserExecutor iframe stitching", () => {
 
 		const text = await snapshotText(executor);
 		expect(text).toContain('button "Pay" [e');
+	});
+});
+
+describe("navigation tool grounding frame", () => {
+	const navTool = (mode: "computer" | "browser") => {
+		const { client } = createClient();
+		const { executor } = createFakeBrowserExecutor();
+		const translator = new InternalComputerTranslator({ browser, client, mode, createBrowserExecutor: () => executor });
+		return buildCuaComputerTools({ toolExecutors: [], mode }, translator).find((tool) => tool.name === "computer_use_extra")!;
+	};
+
+	it("captures the viewport in browser mode and the OS display otherwise", async () => {
+		const viewportData = Buffer.from("png").toString("base64");
+
+		const browserResult = await navTool("browser").execute("call_1", { action: "back" });
+		const viewportImage = browserResult.content.find((block) => block.type === "image");
+		expect(viewportImage).toMatchObject({ type: "image", data: viewportData });
+
+		const computerResult = await navTool("computer").execute("call_2", { action: "back" });
+		const osImage = computerResult.content.find((block) => block.type === "image");
+		expect(osImage?.type).toBe("image");
+		expect((osImage as { data: string }).data).not.toBe(viewportData);
 	});
 });

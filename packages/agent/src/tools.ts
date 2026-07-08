@@ -114,7 +114,7 @@ function createExecutorTool(executor: ComputerExecutorSpec, translator: Internal
 			description: definition.description,
 			parameters: definition.parameters,
 			async execute(_toolCallId: string, params: unknown): Promise<AgentToolResult<NavigationDetails>> {
-				return executeNavigationTool(translator, asNavigationInput(params));
+				return executeNavigationTool(translator, asNavigationInput(params), mode);
 			},
 		};
 		return tool;
@@ -190,7 +190,11 @@ async function executeBatchTool(
 	return { content, details: { statusText: "Actions executed successfully.", readResults } };
 }
 
-async function executeNavigationTool(translator: InternalComputerTranslator, params: CuaNavigationInput): Promise<AgentToolResult<NavigationDetails>> {
+async function executeNavigationTool(
+	translator: InternalComputerTranslator,
+	params: CuaNavigationInput,
+	mode: CuaMode,
+): Promise<AgentToolResult<NavigationDetails>> {
 	const action = params.action;
 	try {
 		let statusText = `${action} executed successfully.`;
@@ -203,7 +207,9 @@ async function executeNavigationTool(translator: InternalComputerTranslator, par
 		} else {
 			await translator.executeBatch([{ type: action }]);
 		}
-		const screenshot = await translator.screenshot();
+		// Same grounding frame as post-action captures: the browser viewport in
+		// browser mode, the OS display otherwise.
+		const screenshot = mode === "browser" ? await translator.browser().screenshot() : await translator.screenshot();
 		return {
 			content: [
 				{ type: "text", text: statusText },

@@ -480,6 +480,9 @@ export class CuaAgentHarness<
 			? tools.map((tool) => tool.name).filter((name) => !previousNames.has(name) || requested.includes(name))
 			: tools.map((tool) => tool.name);
 		await super.setTools(tools, active);
+		// The requested subset now reflects this mode's toolset; without this a
+		// later setModel would restore the pre-switch names.
+		if (requested) this.requestedActiveToolNames = active;
 	}
 
 	/** The action plane(s) currently exposed to the model. */
