@@ -698,7 +698,7 @@ describe("BrowserExecutor iframe stitching", () => {
 });
 
 describe("navigation tool grounding frame", () => {
-	const navTool = (mode: "computer" | "browser") => {
+	const navTool = (mode: "computer" | "browser" | "hybrid") => {
 		const { client, batches } = createClient();
 		const { executor, executed } = createFakeBrowserExecutor();
 		const translator = new InternalComputerTranslator({ browser, client, mode, createBrowserExecutor: () => executor });
@@ -719,7 +719,7 @@ describe("navigation tool grounding frame", () => {
 		expect((osImage as { data: string }).data).not.toBe(viewportData);
 	});
 
-	it("navigates on the browser plane in browser mode and the OS plane otherwise", async () => {
+	it("navigates on the browser plane in browser and hybrid modes and the OS plane in computer mode", async () => {
 		const inBrowser = navTool("browser");
 		await inBrowser.tool.execute("call_1", { action: "goto", url: "https://example.com" });
 		await inBrowser.tool.execute("call_2", { action: "back" });
@@ -729,8 +729,13 @@ describe("navigation tool grounding frame", () => {
 		]);
 		expect(inBrowser.batches).toEqual([]);
 
+		const inHybrid = navTool("hybrid");
+		await inHybrid.tool.execute("call_3", { action: "forward" });
+		expect(inHybrid.executed).toEqual([{ type: "browser_navigate", url: "forward" }]);
+		expect(inHybrid.batches).toEqual([]);
+
 		const inComputer = navTool("computer");
-		await inComputer.tool.execute("call_3", { action: "back" });
+		await inComputer.tool.execute("call_4", { action: "back" });
 		expect(inComputer.executed).toEqual([]);
 		expect(inComputer.batches).toHaveLength(1);
 	});

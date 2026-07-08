@@ -457,9 +457,16 @@ export class CuaAgentHarness<
 	 * concrete model selected by `@onkernel/cua-ai`.
 	 */
 	override async setModel(model: CuaRuntimeInput): Promise<void> {
+		const previousModel = this.runtime.model;
 		this.runtime.setModel(model);
 		const tools = this.runtime.tools();
-		await super.setTools(tools, this.requestedActiveToolNames ?? tools.map((tool) => tool.name));
+		try {
+			await super.setTools(tools, this.requestedActiveToolNames ?? tools.map((tool) => tool.name));
+		} catch (err) {
+			// Keep the runtime in step with the exposed tools when the switch fails.
+			this.runtime.setModel(previousModel);
+			throw err;
+		}
 		await super.setModel(this.runtime.model);
 	}
 
