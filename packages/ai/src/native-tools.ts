@@ -99,7 +99,7 @@ export function resolveNativeTool(spec: CuaNativeToolSpec, model: Model<Api>, mo
 	const info = NATIVE_TOOL_INFO[spec.type];
 	if (!info) throw new Error(`unknown native tool type "${(spec as { type: string }).type}"`);
 	if (model.provider !== info.provider) {
-		throw new Error(`native tool "${spec.type}" requires an ${info.provider} model; got provider "${model.provider}"`);
+		throw new Error(`native tool "${spec.type}" requires an ${info.provider} model paired with mode "${info.mode}"; got provider "${model.provider}"`);
 	}
 	if (mode !== info.mode) {
 		throw new Error(`native tool "${spec.type}" requires mode "${info.mode}"; got "${mode}"`);

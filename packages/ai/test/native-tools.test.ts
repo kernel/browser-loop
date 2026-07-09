@@ -35,7 +35,7 @@ describe("native tool validation", () => {
 
 	it("rejects native tools on non-anthropic models", () => {
 		expect(() => resolveCuaRuntimeSpec("openai:gpt-5.5", { nativeTool: { type: "computer_20260701" } })).toThrow(
-			/requires an anthropic model/,
+			/requires an anthropic model paired with mode "computer"/,
 		);
 	});
 });
