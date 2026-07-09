@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.5.0 - 2026-07-09
+
+Breaking: adds the browser action plane and runtime mode switching; removes
+the `javascriptExec` and `computerUseExtra` options.
+
+- New `BrowserExecutor`: drives the browser plane over CDP. Accessibility
+  snapshots with element refs (`[e12]`) and node states
+  (checked/expanded/disabled/value/…), iframe and OOPIF stitching with
+  per-frame session-aware refs, StaticText dedupe and wrapper collapsing, an
+  unchanged-snapshot short-circuit, lexical `find`, `fill`, CDP navigation
+  and tab management, and a JavaScript dialog guard. Refs invalidate on real
+  navigations (`Page.frameNavigated`), self-heal via (role, name, nth) when
+  the page changes but the element is still unambiguous, and the ref table is
+  bounded (per-target cap, generation sweeps). `exportRefState()` /
+  `importRefState()` persist refs across processes against the same browser.
+- `CuaAgent` and `CuaAgentHarness` accept `mode` (`"computer"` | `"browser"`
+  | `"hybrid"`) and `nativeTool`, and support runtime plane switching via
+  `setMode()` / `getMode()`; mode switches preserve the requested activation
+  state of surviving tools, dispose the previous translator's CDP
+  connection, and roll back cleanly on failure (as does `setModel()`).
+- Post-action grounding captures and the navigation helper are mode-aware:
+  browser mode grounds on the viewport and routes navigation through CDP
+  (browser and hybrid modes both route `computer_use_extra` navigation over
+  the browser plane so refs invalidate correctly).
+- New `cursorHints` option marks cursor:pointer elements as clickable hints
+  in browser-mode snapshots (default off).
+- Breaking: `computerUseExtra` is removed — the `computer_use_extra`
+  navigation helper is always registered (deduped by name against caller
+  executors). `javascriptExec` is removed — see `@onkernel/cua-ai` 0.5.0.
+- Breaking: `BrowserExecutor` is constructed from a CDP WebSocket URL and
+  owns its connection; `createBrowserExecutor` remains the injection seam on
+  the translator options.
+- Updated `@onkernel/cua-ai` to 0.5.0.
+
 ## 0.4.0 - 2026-07-07
 
 Breaking: follows pi-agent-core 0.80's `Models`-based harness.
