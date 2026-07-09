@@ -29,6 +29,8 @@ import {
 	formatRelativeAge,
 	listNamedSessions,
 	type NamedSessionMetadata,
+	readNamedSession,
+	recordSessionModel,
 	recordTranscriptPath,
 	shortKernelId,
 	startNamedSession,
@@ -362,10 +364,24 @@ export interface SetupHarnessRuntimeOptions {
 	skipDiskSession?: boolean;
 }
 
+/** Default -m/--mode/--native-tool from a named session's stored values when not passed explicitly. */
+export function applyNamedSessionDefaults(flags: HarnessCliFlags, meta: NamedSessionMetadata): HarnessCliFlags {
+	return {
+		...flags,
+		model: flags.model ?? meta.model,
+		mode: flags.mode ?? meta.mode,
+		nativeTool: flags.nativeTool ?? meta.native_tool,
+	};
+}
+
 async function setupHarnessRuntime(
 	flags: HarnessCliFlags,
 	opts: SetupHarnessRuntimeOptions = {},
 ): Promise<HarnessRuntime> {
+	if (flags.namedSession) {
+		const named = await readNamedSession(flags.namedSession);
+		if (named) flags = applyNamedSessionDefaults(flags, named);
+	}
 	const auth = resolveAuth(flags);
 	const cwd = process.cwd();
 	const env = new NodeExecutionEnv({ cwd });
@@ -429,6 +445,11 @@ async function finishHarnessRuntime(
 		});
 		if (provisioned.named) {
 			await recordTranscriptPath(provisioned.named.name, resolved.transcriptPath);
+			await recordSessionModel(provisioned.named.name, {
+				model: auth.modelRef,
+				mode: flags.mode,
+				native_tool: flags.nativeTool,
+			});
 		}
 		if (flags.verbose) {
 			stderr.write(`[cua] session=${resolved.transcriptPath}\n`);
@@ -653,6 +674,7 @@ export async function runSessionSubcommand(args: string[], flags: HarnessCliFlag
 				browserTimeoutSeconds: flags.browserTimeout,
 				profileSelector: flags.browserProfile,
 				saveProfileChanges: flags.profileSaveChanges,
+				model: flags.model ? resolveCuaModelRef(flags.model) : undefined,
 			});
 			stdout.write(`name=${meta.name}\n`);
 			stdout.write(`kernel_session_id=${browser.session_id}\n`);

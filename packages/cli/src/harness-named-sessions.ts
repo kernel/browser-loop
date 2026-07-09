@@ -19,6 +19,10 @@ export interface NamedSessionMetadata {
 	live_url?: string;
 	profile_id?: string;
 	transcript_path?: string;
+	/** Model ref last used with this session; chained invocations without -m default to it. */
+	model?: string;
+	mode?: string;
+	native_tool?: string;
 	created_at: number;
 }
 
@@ -99,6 +103,8 @@ export interface StartNamedSessionOptions {
 	/** Profile id or name (created if missing). Same semantics as `--profile`. */
 	profileSelector?: string;
 	saveProfileChanges?: boolean;
+	/** Canonical model ref to seed the session with (same semantics as `-m`). */
+	model?: string;
 }
 
 export interface StartNamedSessionResult {
@@ -138,6 +144,7 @@ export async function startNamedSession(opts: StartNamedSessionOptions): Promise
 		kernel_session_id: browser.session_id,
 		live_url: browser.browser_live_view_url,
 		profile_id: profileId,
+		model: opts.model,
 		created_at: Date.now(),
 	};
 	const metadataPath = await writeNamedSession(meta);
@@ -229,6 +236,20 @@ export async function recordTranscriptPath(name: string, transcriptPath: string)
 	if (!meta) return;
 	if (meta.transcript_path === transcriptPath) return;
 	meta.transcript_path = transcriptPath;
+	await writeNamedSession(meta);
+}
+
+/** Persist the model/mode/native-tool used with a named session so chained invocations reuse them. */
+export async function recordSessionModel(
+	name: string,
+	runtime: { model: string; mode?: string; native_tool?: string },
+): Promise<void> {
+	const meta = await readNamedSession(name);
+	if (!meta) return;
+	if (meta.model === runtime.model && meta.mode === runtime.mode && meta.native_tool === runtime.native_tool) return;
+	meta.model = runtime.model;
+	meta.mode = runtime.mode;
+	meta.native_tool = runtime.native_tool;
 	await writeNamedSession(meta);
 }
 
