@@ -598,8 +598,8 @@ describe("BrowserExecutor cursor-pointer hints", () => {
 		expect(sent.some((cmd) => cmd.method === "Runtime.releaseObjectGroup")).toBe(true);
 	});
 
-	it("only enables cursor hints on the executor in browser mode", () => {
-		const recordedFor = (mode?: "computer" | "browser" | "hybrid") => {
+	it("enables cursor hints by default in browser mode only, with an explicit opt-out", () => {
+		const recordedFor = (mode?: "computer" | "browser" | "hybrid", cursorHints?: boolean) => {
 			const recorded: BrowserExecutorOptions[] = [];
 			const { executor } = createFakeBrowserExecutor();
 			const { client } = createClient();
@@ -607,7 +607,7 @@ describe("BrowserExecutor cursor-pointer hints", () => {
 				browser,
 				client,
 				mode,
-				cursorHints: true,
+				cursorHints,
 				createBrowserExecutor: (_cdpWsUrl, options) => {
 					recorded.push(options);
 					return executor;
@@ -617,8 +617,10 @@ describe("BrowserExecutor cursor-pointer hints", () => {
 			return recorded[0]!;
 		};
 		expect(recordedFor("browser").cursorHints).toBe(true);
-		expect(recordedFor("hybrid").cursorHints).toBe(false);
-		expect(recordedFor("computer").cursorHints).toBe(false);
+		expect(recordedFor("browser", true).cursorHints).toBe(true);
+		expect(recordedFor("browser", false).cursorHints).toBe(false);
+		expect(recordedFor("hybrid", true).cursorHints).toBe(false);
+		expect(recordedFor("computer", true).cursorHints).toBe(false);
 		expect(recordedFor(undefined).cursorHints).toBe(false);
 	});
 });

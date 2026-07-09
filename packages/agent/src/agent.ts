@@ -76,7 +76,7 @@ export type CuaAgentOptions = Omit<AgentOptions, "initialState"> & {
 	mode?: CuaMode;
 	/** Drive the model through a provider-native tool declaration (validated against `mode`). */
 	nativeTool?: CuaNativeToolSpec;
-	/** Mark cursor:pointer elements as clickable hints in browser snapshots. Browser mode only; default false. */
+	/** Mark cursor:pointer elements as clickable hints in browser snapshots. Browser mode only, on by default there; pass false to opt out. */
 	cursorHints?: boolean;
 	/** Expose a tool that runs Playwright code against the browser session. */
 	playwright?: boolean;
@@ -114,7 +114,7 @@ export type CuaAgentHarnessOptions<
 	mode?: CuaMode;
 	/** Drive the model through a provider-native tool declaration (validated against `mode`). */
 	nativeTool?: CuaNativeToolSpec;
-	/** Mark cursor:pointer elements as clickable hints in browser snapshots. Browser mode only; default false. */
+	/** Mark cursor:pointer elements as clickable hints in browser snapshots. Browser mode only, on by default there; pass false to opt out. */
 	cursorHints?: boolean;
 	/** Expose a tool that runs Playwright code against the browser session. */
 	playwright?: boolean;

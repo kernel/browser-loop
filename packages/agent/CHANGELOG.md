@@ -24,8 +24,9 @@ the `javascriptExec` and `computerUseExtra` options.
   browser mode grounds on the viewport and routes navigation through CDP
   (browser and hybrid modes both route `computer_use_extra` navigation over
   the browser plane so refs invalidate correctly).
-- New `cursorHints` option marks cursor:pointer elements as clickable hints
-  in browser-mode snapshots (default off).
+- Browser-mode snapshots mark cursor:pointer elements as clickable hints by
+  default (surfacing clickable div-soup with no ARIA role); pass
+  `cursorHints: false` to opt out. Never runs in hybrid/computer mode.
 - Breaking: `computerUseExtra` is removed — the `computer_use_extra`
   navigation helper is always registered (deduped by name against caller
   executors). `javascriptExec` is removed — see `@onkernel/cua-ai` 0.5.0.

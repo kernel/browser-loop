@@ -35,7 +35,7 @@ export interface InternalComputerTranslatorOptions {
 	screenshot?: CuaScreenshotSpec;
 	/** Action plane(s) in play; browser-executor extras like cursor hints are gated to "browser". */
 	mode?: CuaMode;
-	/** Mark cursor:pointer elements as clickable hints in browser snapshots. Only honored in "browser" mode. Default false. */
+	/** Mark cursor:pointer elements as clickable hints in browser snapshots. Only honored in "browser" mode, where it is on by default; pass false to opt out. */
 	cursorHints?: boolean;
 	/** Browser executor factory, overridable for tests. Defaults to a raw-CDP executor on the browser's cdp_ws_url. */
 	createBrowserExecutor?: (cdpWsUrl: string, options: BrowserExecutorOptions) => BrowserExecutor;
@@ -59,7 +59,11 @@ export class InternalComputerTranslator {
 		this.screenshotSpec = opts.screenshot;
 		this.viewport = opts.browser.viewport ?? { width: 1920, height: 1080 };
 		this.cdpWsUrl = opts.browser.cdp_ws_url;
-		this.browserExecutorOptions = { cursorHints: opts.cursorHints === true && opts.mode === "browser" };
+		// On by default in browser mode: snapshots are the model's only eyes
+		// there, and cursor hints surface clickable div-soup that has no ARIA
+		// role. Never in hybrid/computer mode, where the OS screenshot grounds
+		// clickability and the browser plane stays scan-free.
+		this.browserExecutorOptions = { cursorHints: opts.cursorHints !== false && opts.mode === "browser" };
 		this.browserExecutorFactory = opts.createBrowserExecutor ?? ((cdpWsUrl, options) => new BrowserExecutor(cdpWsUrl, options));
 	}
 
