@@ -2,8 +2,7 @@
 
 ## 0.5.0 - 2026-07-09
 
-Breaking: introduces action planes (modes) and Anthropic native tools;
-removes the `javascriptExec` option and `CUA_DEFAULT_BROWSER_ACTION_TYPES`.
+Introduces action planes (modes) and Anthropic native computer-use tools.
 
 - New `mode` option (`"computer"` | `"browser"` | `"hybrid"`, exported as
   `CuaMode`) on `resolveCuaRuntimeSpec`, `computerTools`, and the executor
@@ -22,13 +21,11 @@ removes the `javascriptExec` option and `CUA_DEFAULT_BROWSER_ACTION_TYPES`.
   computer-use declarations: `computer_20260701` (computer mode, with
   `enable_zoom`) and `browser_20260701` (browser mode) behind
   `anthropic-beta: computer-use-2026-07-01`.
-- Breaking: the `javascriptExec` option is gone. `browser_evaluate` is part
-  of the default browser/hybrid action sets, and native `browser_20260701`
+- JavaScript execution is on by default: `browser_evaluate` is part of the
+  default browser/hybrid action sets, and native `browser_20260701`
   declarations default `enable_javascript_exec` to true (an explicit value on
   the spec wins). Opt out by passing an explicit `actions` list or native
   tool spec.
-- Breaking: `CUA_DEFAULT_BROWSER_ACTION_TYPES` is removed; the default
-  browser set is `CUA_BROWSER_ACTION_TYPES`.
 - New `zoom` computer action (cropped display inspection).
 
 ## 0.4.0 - 2026-07-07

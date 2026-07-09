@@ -22,7 +22,7 @@ import {
 	type CuaScreenshotSpec,
 } from "@onkernel/cua-ai";
 import sharp from "sharp";
-import { BrowserExecutor, type BrowserExecutorOptions } from "./browser";
+import { BrowserExecutor } from "./browser";
 import { isKernelModifierKey, normalizeKernelKey, normalizeKernelKeyCombo } from "./keys";
 import type { BatchExecutionResult } from "./types";
 
@@ -35,10 +35,8 @@ export interface InternalComputerTranslatorOptions {
 	screenshot?: CuaScreenshotSpec;
 	/** Action plane(s) in play; browser-executor extras like cursor hints are gated to "browser". */
 	mode?: CuaMode;
-	/** Mark cursor:pointer elements as clickable hints in browser snapshots. Only honored in "browser" mode, where it is on by default; pass false to opt out. */
-	cursorHints?: boolean;
 	/** Browser executor factory, overridable for tests. Defaults to a raw-CDP executor on the browser's cdp_ws_url. */
-	createBrowserExecutor?: (cdpWsUrl: string, options: BrowserExecutorOptions) => BrowserExecutor;
+	createBrowserExecutor?: (cdpWsUrl: string) => BrowserExecutor;
 }
 
 export class InternalComputerTranslator {
@@ -48,8 +46,7 @@ export class InternalComputerTranslator {
 	private readonly screenshotSpec?: CuaScreenshotSpec;
 	private readonly viewport: { width: number; height: number };
 	private readonly cdpWsUrl?: string;
-	private readonly browserExecutorOptions: BrowserExecutorOptions;
-	private readonly browserExecutorFactory: (cdpWsUrl: string, options: BrowserExecutorOptions) => BrowserExecutor;
+	private readonly browserExecutorFactory: (cdpWsUrl: string) => BrowserExecutor;
 	private browserExecutor?: BrowserExecutor;
 
 	constructor(opts: InternalComputerTranslatorOptions) {
@@ -59,12 +56,7 @@ export class InternalComputerTranslator {
 		this.screenshotSpec = opts.screenshot;
 		this.viewport = opts.browser.viewport ?? { width: 1920, height: 1080 };
 		this.cdpWsUrl = opts.browser.cdp_ws_url;
-		// On by default in browser mode: snapshots are the model's only eyes
-		// there, and cursor hints surface clickable div-soup that has no ARIA
-		// role. Never in hybrid/computer mode, where the OS screenshot grounds
-		// clickability and the browser plane stays scan-free.
-		this.browserExecutorOptions = { cursorHints: opts.cursorHints !== false && opts.mode === "browser" };
-		this.browserExecutorFactory = opts.createBrowserExecutor ?? ((cdpWsUrl, options) => new BrowserExecutor(cdpWsUrl, options));
+		this.browserExecutorFactory = opts.createBrowserExecutor ?? ((cdpWsUrl) => new BrowserExecutor(cdpWsUrl));
 	}
 
 	/** Release held resources: closes the browser executor's CDP connection if one was opened. */
@@ -77,7 +69,7 @@ export class InternalComputerTranslator {
 	browser(): BrowserExecutor {
 		if (!this.browserExecutor) {
 			if (!this.cdpWsUrl) throw new Error("browser has no cdp_ws_url; browser actions are unavailable");
-			this.browserExecutor = this.browserExecutorFactory(this.cdpWsUrl, this.browserExecutorOptions);
+			this.browserExecutor = this.browserExecutorFactory(this.cdpWsUrl);
 		}
 		return this.browserExecutor;
 	}

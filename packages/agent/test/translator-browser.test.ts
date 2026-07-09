@@ -2,7 +2,7 @@ import type Kernel from "@onkernel/sdk";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import type { CuaBrowserAction } from "@onkernel/cua-ai";
-import { BrowserExecutor, type BrowserExecutorOptions } from "../src/translator/browser";
+import { BrowserExecutor } from "../src/translator/browser";
 import type { CdpConnection } from "../src/translator/cdp";
 import { buildCuaComputerTools } from "../src/tools";
 import { InternalComputerTranslator, type KernelBrowser } from "../src/translator/translator";
@@ -578,50 +578,14 @@ describe("BrowserExecutor cursor-pointer hints", () => {
 		ax({ nodeId: "2", role: "generic", name: "Buy now", backendDOMNodeId: 77, parentId: "1" }),
 	];
 
-	it("does not run the cursor scan by default", async () => {
+	it("marks cursor:pointer elements as clickable hints in every snapshot", async () => {
 		const { cdp, sent, setCursorBackendIds } = createFakeCdp(POINTER_TREE);
 		setCursorBackendIds([77]);
 		const executor = new BrowserExecutor(cdp);
 		const text = await snapshotText(executor);
-		expect(text).toContain('generic "Buy now"');
-		expect(text).not.toContain("cursor:pointer");
-		expect(sent.some((cmd) => cmd.method === "Runtime.evaluate")).toBe(false);
-	});
-
-	it("marks cursor:pointer elements as clickable hints when enabled", async () => {
-		const { cdp, sent, setCursorBackendIds } = createFakeCdp(POINTER_TREE);
-		setCursorBackendIds([77]);
-		const executor = new BrowserExecutor(cdp, { cursorHints: true });
-		const text = await snapshotText(executor);
 		expect(text).toContain('generic "Buy now" [e1] [cursor:pointer]');
 		expect(sent.some((cmd) => cmd.method === "DOM.describeNode")).toBe(true);
 		expect(sent.some((cmd) => cmd.method === "Runtime.releaseObjectGroup")).toBe(true);
-	});
-
-	it("enables cursor hints by default in browser mode only, with an explicit opt-out", () => {
-		const recordedFor = (mode?: "computer" | "browser" | "hybrid", cursorHints?: boolean) => {
-			const recorded: BrowserExecutorOptions[] = [];
-			const { executor } = createFakeBrowserExecutor();
-			const { client } = createClient();
-			const translator = new InternalComputerTranslator({
-				browser,
-				client,
-				mode,
-				cursorHints,
-				createBrowserExecutor: (_cdpWsUrl, options) => {
-					recorded.push(options);
-					return executor;
-				},
-			});
-			translator.browser();
-			return recorded[0]!;
-		};
-		expect(recordedFor("browser").cursorHints).toBe(true);
-		expect(recordedFor("browser", true).cursorHints).toBe(true);
-		expect(recordedFor("browser", false).cursorHints).toBe(false);
-		expect(recordedFor("hybrid", true).cursorHints).toBe(false);
-		expect(recordedFor("computer", true).cursorHints).toBe(false);
-		expect(recordedFor(undefined).cursorHints).toBe(false);
 	});
 });
 

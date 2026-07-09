@@ -86,11 +86,6 @@ export interface BrowserFindCandidate {
 	score: number;
 }
 
-export interface BrowserExecutorOptions {
-	/** Mark elements whose computed cursor is "pointer" as clickable hints in snapshots. Default false. */
-	cursorHints?: boolean;
-}
-
 /**
  * Serializable ref state, so refs minted in one process (e.g. a `cua
  * snapshot` invocation) can be resolved in a later one against the same
@@ -145,12 +140,9 @@ export class BrowserExecutor {
 	private readonly dialogNotes: string[] = [];
 	private refCounter = 0;
 	private activeTargetId?: string;
-	private readonly cursorHints: boolean;
-
 	private readonly cdp: CdpConnection;
 
-	constructor(cdp: string | CdpConnection, options: BrowserExecutorOptions = {}) {
-		this.cursorHints = options.cursorHints ?? false;
+	constructor(cdp: string | CdpConnection) {
 		this.cdp = typeof cdp === "string" ? new CdpConnection(cdp) : cdp;
 		this.cdp.onEvent((event) => this.handleCdpEvent(event));
 	}
@@ -335,7 +327,7 @@ export class BrowserExecutor {
 			generation: this.generation(frameKey),
 			interactiveOnly,
 			nthIndex: buildNthIndex(nodes),
-			cursorIds: this.cursorHints && frameKey === targetId ? await this.cursorPointerIds(pageSession) : undefined,
+			cursorIds: frameKey === targetId ? await this.cursorPointerIds(pageSession) : undefined,
 		};
 		const stitches = frameKey === targetId ? await this.stitchFrames(nodes, targetId, pageSession, interactiveOnly) : new Map<number, FrameStitch>();
 		const lines: RenderedLine[] = [];
