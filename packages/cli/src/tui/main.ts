@@ -484,7 +484,6 @@ async function applyModelCommand(
 	try {
 		const resolved = resolveCuaModelRef(ref);
 		await opts.harness.setModel(resolved);
-		if (opts.namedSession) await updateNamedSessionRuntime(opts.namedSession, { model: resolved });
 		const model = opts.harness.getModel();
 		footer.update({
 			provider: model.provider,
@@ -493,6 +492,7 @@ async function applyModelCommand(
 		});
 		status.update({ model: modelLabel(model) });
 		messages.addNotice(`model → ${resolved}`);
+		await persistNamedSessionRuntime(opts, messages, { model: resolved });
 	} catch (err) {
 		messages.addError((err as Error).message);
 	}
@@ -506,10 +506,29 @@ async function applyModeCommand(opts: InteractiveOptions, messages: MessageList,
 	}
 	try {
 		await opts.harness.setMode(value);
-		if (opts.namedSession) await updateNamedSessionRuntime(opts.namedSession, { mode: value });
-		messages.addNotice(`mode → ${value}`);
 	} catch (err) {
 		messages.addError((err as Error).message);
+		return;
+	}
+	messages.addNotice(`mode → ${value}`);
+	await persistNamedSessionRuntime(opts, messages, { mode: value });
+}
+
+// Persistence is best-effort: the live switch already happened, so a failed
+// metadata write must not masquerade as a failed switch — warn that resume
+// will restore the previous value instead.
+async function persistNamedSessionRuntime(
+	opts: InteractiveOptions,
+	messages: MessageList,
+	patch: { model?: string; mode?: string },
+): Promise<void> {
+	if (!opts.namedSession) return;
+	try {
+		await updateNamedSessionRuntime(opts.namedSession, patch);
+	} catch (err) {
+		messages.addError(
+			`switched, but failed to persist to session "${opts.namedSession}" (resume will restore the previous value): ${(err as Error).message}`,
+		);
 	}
 }
 

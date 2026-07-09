@@ -547,18 +547,23 @@ export class BrowserExecutor {
 		const point = await this.resolvePoint(action, targetId, session);
 		const modifiers = modifierBits(action.modifiers);
 		const button = action.button ?? "left";
-		const clickCount = action.num_clicks ?? 1;
+		const clicks = action.num_clicks ?? 1;
 		await this.cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y, modifiers }, point.session);
-		await this.cdp.send(
-			"Input.dispatchMouseEvent",
-			{ type: "mousePressed", x: point.x, y: point.y, button, clickCount, modifiers },
-			point.session,
-		);
-		await this.cdp.send(
-			"Input.dispatchMouseEvent",
-			{ type: "mouseReleased", x: point.x, y: point.y, button, clickCount, modifiers },
-			point.session,
-		);
+		// Native multi-clicks are separate press/release cycles with an
+		// incrementing clickCount; a single pair with the final count is not how
+		// real input arrives and can register as one click.
+		for (let clickCount = 1; clickCount <= clicks; clickCount++) {
+			await this.cdp.send(
+				"Input.dispatchMouseEvent",
+				{ type: "mousePressed", x: point.x, y: point.y, button, clickCount, modifiers },
+				point.session,
+			);
+			await this.cdp.send(
+				"Input.dispatchMouseEvent",
+				{ type: "mouseReleased", x: point.x, y: point.y, button, clickCount, modifiers },
+				point.session,
+			);
+		}
 	}
 
 	private async hover(action: CuaActionBrowserHover): Promise<void> {

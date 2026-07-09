@@ -165,14 +165,9 @@ class CuaRuntimeController {
 		// A repeated selection must not replace the translator: disposing it
 		// would drop snapshot refs, tab context, and the CDP connection.
 		if (mode === this.runtimeSpec.mode) return;
-		this.runtimeSpec = this.resolveSpec(this.runtimeSpec.model, mode);
+		const spec = this.resolveSpec(this.runtimeSpec.model, mode);
+		this.beginSwitch(spec);
 		this.currentMode = mode;
-		this.replaceTranslator();
-	}
-
-	private replaceTranslator(): void {
-		this.translator.dispose();
-		this.translator = this.createTranslator();
 	}
 
 	get systemPrompt(): string {
@@ -180,8 +175,34 @@ class CuaRuntimeController {
 	}
 
 	setModel(model: CuaRuntimeInput): void {
-		this.runtimeSpec = this.resolveSpec(model);
-		this.replaceTranslator();
+		this.beginSwitch(this.resolveSpec(model));
+	}
+
+	// A mode/model switch is two-phase: the outgoing translator must stay
+	// alive until the new toolset is actually installed, because on failure
+	// the still-exposed pre-switch tools keep executing against it.
+	private previousRuntime?: { spec: CuaRuntimeSpec; translator: InternalComputerTranslator; mode?: CuaMode };
+
+	private beginSwitch(spec: CuaRuntimeSpec): void {
+		this.previousRuntime = { spec: this.runtimeSpec, translator: this.translator, mode: this.currentMode };
+		this.runtimeSpec = spec;
+		this.translator = this.createTranslator();
+	}
+
+	/** Dispose the pre-switch translator once the new toolset is installed. */
+	commitSwitch(): void {
+		this.previousRuntime?.translator.dispose();
+		this.previousRuntime = undefined;
+	}
+
+	/** Restore the pre-switch runtime; the translator the exposed tools wrap stays live. */
+	rollbackSwitch(): void {
+		if (!this.previousRuntime) return;
+		this.translator.dispose();
+		this.runtimeSpec = this.previousRuntime.spec;
+		this.translator = this.previousRuntime.translator;
+		this.currentMode = this.previousRuntime.mode;
+		this.previousRuntime = undefined;
 	}
 
 	tools(): AgentTool[] {
@@ -360,6 +381,7 @@ export class CuaAgent extends Agent {
 		if (this.ownsSystemPrompt) {
 			state.systemPrompt = this.runtime.systemPrompt;
 		}
+		this.runtime.commitSwitch();
 	}
 
 	/** The action plane(s) currently exposed to the model. */
@@ -376,6 +398,7 @@ export class CuaAgent extends Agent {
 		if (this.ownsSystemPrompt) {
 			state.systemPrompt = this.runtime.systemPrompt;
 		}
+		this.runtime.commitSwitch();
 	}
 }
 
@@ -447,16 +470,17 @@ export class CuaAgentHarness<
 	 * concrete model selected by `@onkernel/cua-ai`.
 	 */
 	override async setModel(model: CuaRuntimeInput): Promise<void> {
-		const previousModel = this.runtime.model;
 		this.runtime.setModel(model);
 		const tools = this.runtime.tools();
 		try {
 			await super.setTools(tools, this.requestedActiveToolNames ?? tools.map((tool) => tool.name));
 		} catch (err) {
-			// Keep the runtime in step with the exposed tools when the switch fails.
-			this.runtime.setModel(previousModel);
+			// The pre-switch tools stay exposed, so restore the runtime they are
+			// bound to — including its still-live translator.
+			this.runtime.rollbackSwitch();
 			throw err;
 		}
+		this.runtime.commitSwitch();
 		await super.setModel(this.runtime.model);
 	}
 
@@ -472,7 +496,6 @@ export class CuaAgentHarness<
 	 */
 	async setMode(mode: CuaMode): Promise<void> {
 		if (mode === this.runtime.mode) return;
-		const previousMode = this.runtime.mode;
 		const previousNames = new Set(this.getTools().map((tool) => tool.name));
 		this.runtime.setMode(mode);
 		const tools = this.runtime.tools();
@@ -485,10 +508,12 @@ export class CuaAgentHarness<
 		try {
 			await super.setTools(tools, active);
 		} catch (err) {
-			// Keep the runtime in step with the exposed tools when the switch fails.
-			this.runtime.setMode(previousMode);
+			// The pre-switch tools stay exposed, so restore the runtime they are
+			// bound to — including its still-live translator.
+			this.runtime.rollbackSwitch();
 			throw err;
 		}
+		this.runtime.commitSwitch();
 		// The requested subset now reflects this mode's toolset; without this a
 		// later setModel would restore the pre-switch names.
 		if (requested) this.requestedActiveToolNames = active;

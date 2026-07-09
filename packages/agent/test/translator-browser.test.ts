@@ -782,6 +782,24 @@ describe("navigation tool grounding frame", () => {
 	});
 });
 
+describe("BrowserExecutor multi-click", () => {
+	it("dispatches one press/release cycle per click with incrementing clickCount", async () => {
+		const { cdp, sent } = createFakeCdp(BUTTON_TREE);
+		const executor = new BrowserExecutor(cdp);
+		await snapshotText(executor);
+		await executor.execute({ type: "browser_click", ref: "e1", num_clicks: 2 } as CuaBrowserAction);
+
+		const mouse = sent.filter((cmd) => cmd.method === "Input.dispatchMouseEvent").map((cmd) => cmd.params);
+		expect(mouse.map((params) => [params.type, params.clickCount])).toEqual([
+			["mouseMoved", undefined],
+			["mousePressed", 1],
+			["mouseReleased", 1],
+			["mousePressed", 2],
+			["mouseReleased", 2],
+		]);
+	});
+});
+
 describe("BrowserExecutor ref state export/import", () => {
 	it("resolves refs imported from a previous executor against the same browser", async () => {
 		const first = new BrowserExecutor(createFakeCdp(BUTTON_TREE).cdp);

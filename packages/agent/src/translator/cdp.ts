@@ -48,7 +48,19 @@ export class CdpConnection {
 		const message = JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) });
 		return new Promise<T>((resolve, reject) => {
 			this.pending.set(id, { resolve: resolve as (result: unknown) => void, reject });
-			socket.send(message);
+			// A non-OPEN socket silently discards send() per the WebSocket spec,
+			// which would leave this command pending forever.
+			if (socket.readyState !== WebSocket.OPEN) {
+				this.pending.delete(id);
+				reject(new Error(`CDP connection closed before ${method} could be sent`));
+				return;
+			}
+			try {
+				socket.send(message);
+			} catch (err) {
+				this.pending.delete(id);
+				reject(err instanceof Error ? err : new Error(String(err)));
+			}
 		});
 	}
 

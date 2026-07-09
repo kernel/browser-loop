@@ -485,6 +485,41 @@ describe("CuaAgentHarness", () => {
 		expect(active).not.toContain("custom");
 	});
 
+	it("a failed mode switch keeps the pre-switch runtime and its live translator", async () => {
+		const { env, session } = await createHarnessServices();
+		let failWrites = false;
+		const flakySession = new Proxy(session, {
+			get(target, prop, receiver) {
+				if (prop === "appendActiveToolsChange" && failWrites) {
+					return () => Promise.reject(new Error("session write failed"));
+				}
+				return Reflect.get(target, prop, receiver);
+			},
+		});
+		const harness = new CuaAgentHarness({
+			env,
+			session: flakySession,
+			browser,
+			client,
+			model: "anthropic:claude-opus-4-5",
+		});
+		const runtime = (harness as unknown as { runtime: { translator: unknown } }).runtime;
+		const translatorBefore = runtime.translator;
+
+		failWrites = true;
+		await expect(harness.setMode("browser")).rejects.toThrow("session write failed");
+
+		// The exposed tools wrap this translator; rollback must not have
+		// disposed or replaced it.
+		expect(runtime.translator).toBe(translatorBefore);
+		expect(harness.getMode()).toBe("computer");
+
+		failWrites = false;
+		await harness.setMode("browser");
+		expect(harness.getMode()).toBe("browser");
+		expect(harness.getTools().map((tool) => tool.name)).toContain("snapshot");
+	});
+
 	it("treats a repeated setMode as a no-op", async () => {
 		const harness = new CuaAgentHarness({
 			...(await createHarnessServices()),
