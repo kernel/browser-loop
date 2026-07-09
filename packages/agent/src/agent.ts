@@ -2,6 +2,7 @@ import {
 	Agent,
 	AgentHarness,
 	type AgentHarnessOptions,
+	type AgentMessage,
 	type AgentOptions,
 	type AgentState,
 	type AgentTool,
@@ -35,6 +36,45 @@ import { InternalComputerTranslator, type KernelBrowser } from "./translator/tra
  * authenticate is the `models` collection's concern.
  */
 type CuaRuntimeInput = CuaModelRef | Model<Api>;
+
+const TOOL_RESULT_IMAGE_LIMIT = 4;
+const OMITTED_TOOL_RESULT_IMAGES = "[stale tool-result images omitted]";
+
+function projectToolResultImages(messages: AgentMessage[]): AgentMessage[] {
+	let imageCount = 0;
+	for (const message of messages) {
+		if (message.role === "toolResult") {
+			imageCount += message.content.filter((block) => block.type === "image").length;
+		}
+	}
+	if (imageCount <= TOOL_RESULT_IMAGE_LIMIT) return messages;
+
+	const firstRetainedImage = Math.floor((imageCount - 1) / TOOL_RESULT_IMAGE_LIMIT) * TOOL_RESULT_IMAGE_LIMIT;
+	let imageOrdinal = 0;
+	return messages.map((message) => {
+		if (message.role !== "toolResult") return message;
+
+		let changed = false;
+		let markerInserted = false;
+		const content: typeof message.content = [];
+		for (const block of message.content) {
+			if (block.type !== "image") {
+				content.push(block);
+				continue;
+			}
+			if (imageOrdinal++ >= firstRetainedImage) {
+				content.push(block);
+				continue;
+			}
+			changed = true;
+			if (!markerInserted) {
+				content.push({ type: "text", text: OMITTED_TOOL_RESULT_IMAGES });
+				markerInserted = true;
+			}
+		}
+		return changed ? { ...message, content } : message;
+	});
+}
 
 /**
  * Agent state exposed by {@link CuaAgent}.
@@ -292,6 +332,7 @@ export class CuaAgent extends Agent {
 			onPayload,
 			streamFn,
 			prepareNextTurn,
+			transformContext,
 			extraTools,
 			mode,
 			nativeTool,
@@ -321,6 +362,8 @@ export class CuaAgent extends Agent {
 			...agentOptions,
 			getApiKey: agentOptions.getApiKey ?? getCuaEnvApiKey,
 			streamFn: wrappedStreamFn,
+			transformContext: async (messages, signal) =>
+				projectToolResultImages(transformContext ? await transformContext(messages, signal) : messages),
 			initialState: {
 				...initialState,
 				model: runtime.model,
@@ -471,6 +514,7 @@ export class CuaAgentHarness<
 
 		this.runtime = runtime;
 		this.requestedActiveToolNames = activeToolNames;
+		this.on("context", ({ messages }) => ({ messages: projectToolResultImages(messages) }));
 		this.on("before_provider_payload", async ({ model, payload }: { model: Model<Api>; payload: unknown }) => {
 			const onPayload = this.runtime.onPayload();
 			if (!onPayload) return { payload };
