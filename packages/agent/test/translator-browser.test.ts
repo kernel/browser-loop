@@ -110,6 +110,7 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 	const frameTrees = new Map<string, Array<{ backendDOMNodeId?: number }>>();
 	const iframeFrameIds = new Map<number, string>();
 	const autoAttachFrames: Array<{ targetId: string; sessionId: string }> = [];
+	const failMethods = new Set<string>();
 	const emit = (event: FakeCdpEvent) => {
 		for (const listener of listeners) listener(event);
 	};
@@ -128,6 +129,7 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 		},
 		send: async (method: string, params: Record<string, unknown> = {}, sessionId?: string) => {
 			sent.push({ method, params, sessionId });
+			if (failMethods.has(method)) throw new Error(`${method} rejected`);
 			switch (method) {
 				case "Accessibility.getFullAXTree":
 					return { nodes: treeFor(sessionId, params.frameId) };
@@ -191,6 +193,9 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 	const addAutoAttachFrame = (frame: { targetId: string; sessionId: string }) => {
 		autoAttachFrames.push(frame);
 	};
+	const failOn = (method: string) => {
+		failMethods.add(method);
+	};
 	return {
 		sent,
 		emit,
@@ -200,6 +205,7 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 		setFrameTree,
 		setIframeFrame,
 		addAutoAttachFrame,
+		failOn,
 		cdp: fake as unknown as CdpConnection,
 	};
 }
@@ -251,6 +257,20 @@ describe("BrowserExecutor ref lifecycle", () => {
 		await snapshotText(executor);
 		expect(refsOf(executor).size).toBe(1);
 		await executor.execute({ type: "browser_navigate", url: "https://b.test" } as CuaBrowserAction);
+		expect(refsOf(executor).size).toBe(0);
+	});
+
+	it("does not let a rejected navigate suppress the next real navigation's invalidation", async () => {
+		const { cdp, emit, failOn } = createFakeCdp(BUTTON_TREE);
+		const executor = new BrowserExecutor(cdp);
+		await snapshotText(executor);
+		expect(refsOf(executor).size).toBe(1);
+
+		failOn("Page.navigate");
+		await expect(executor.execute({ type: "browser_navigate", url: "https://b.test" } as CuaBrowserAction)).rejects.toThrow(/rejected/);
+
+		// A page-initiated navigation right after the failed command must still invalidate.
+		emit({ method: "Page.frameNavigated", params: { frame: { id: "F0" } }, sessionId: "session-1" });
 		expect(refsOf(executor).size).toBe(0);
 	});
 

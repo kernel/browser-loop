@@ -651,21 +651,37 @@ export class BrowserExecutor {
 			);
 			const entry = history.entries[history.currentIndex + (direction === "back" ? -1 : 1)];
 			if (!entry) throw new Error(`cannot go ${direction}: no history entry`);
-			this.selfNavigations.add(targetId);
-			await this.cdp.send("Page.navigateToHistoryEntry", { entryId: entry.id }, session);
+			await this.selfNavigate(targetId, () => this.cdp.send("Page.navigateToHistoryEntry", { entryId: entry.id }, session));
 			this.invalidateRefs(targetId);
 			return `Navigated ${direction}.\n${await this.tabContext(targetId)}`;
 		}
 		const url = normalizeGotoUrl(action.url);
 		if (!url) throw new Error("invalid url");
-		this.selfNavigations.add(targetId);
-		const { errorText } = await this.cdp.send<{ errorText?: string }>("Page.navigate", { url }, session);
+		const { errorText } = await this.selfNavigate(targetId, () =>
+			this.cdp.send<{ errorText?: string }>("Page.navigate", { url }, session),
+		);
 		if (errorText) {
 			this.selfNavigations.delete(targetId);
 			throw new Error(`navigation to ${url} failed: ${errorText}`);
 		}
 		this.invalidateRefs(targetId);
 		return `Navigated to ${url}.\n${await this.tabContext(targetId)}`;
+	}
+
+	/**
+	 * Run a navigation command with the self-navigation flag armed. The flag
+	 * must be set before the command (frameNavigated can arrive first), and
+	 * must not survive a rejected command — it would swallow the next real
+	 * navigation's invalidation.
+	 */
+	private async selfNavigate<T>(targetId: string, command: () => Promise<T>): Promise<T> {
+		this.selfNavigations.add(targetId);
+		try {
+			return await command();
+		} catch (err) {
+			this.selfNavigations.delete(targetId);
+			throw err;
+		}
 	}
 
 	/** URL of the active tab. */
