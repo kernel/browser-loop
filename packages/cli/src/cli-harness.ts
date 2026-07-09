@@ -507,14 +507,14 @@ function providerBaseUrlOverride(provider: string): string | undefined {
 	return value && value.length > 0 ? value : undefined;
 }
 
-function parseMode(raw: string | undefined): CuaMode | undefined {
+export function parseMode(raw: string | undefined): CuaMode | undefined {
 	if (raw === undefined) return undefined;
 	const value = raw.trim().toLowerCase();
 	if (value === "computer" || value === "browser" || value === "hybrid") return value;
 	throw new Error(`invalid --mode value "${raw}"; expected one of: computer | browser | hybrid`);
 }
 
-function parseNativeTool(raw: string | undefined): CuaNativeToolSpec | undefined {
+export function parseNativeTool(raw: string | undefined): CuaNativeToolSpec | undefined {
 	if (raw === undefined) return undefined;
 	const value = raw.trim().toLowerCase();
 	// enable_zoom follows Anthropic's own recommendation for fine-grained
@@ -599,6 +599,7 @@ export async function runInteractiveCommand(
 			resumed: runtime.resolved?.resumed === true,
 			transcriptPath: runtime.resolved?.transcriptPath,
 			skipInitialScreenshot: runtime.resolved?.resumed === true,
+			namedSession: flags.namedSession,
 		});
 	} finally {
 		try {

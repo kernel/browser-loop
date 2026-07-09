@@ -25,6 +25,7 @@ import { homedir } from "node:os";
 import type { ImageContent, Model } from "@onkernel/cua-ai";
 import { captureScreenshot, type CuaBrowserHandle } from "../harness-browser";
 import { resolveCuaModelRef } from "../harness-models";
+import { updateNamedSessionRuntime } from "../harness-named-sessions";
 import type { ContextFile } from "../harness-skills";
 import { openTuiDebugLog } from "./debug-log";
 import { applyAndSummarizeImageProtocol } from "./diagnostics";
@@ -56,6 +57,8 @@ export interface InteractiveOptions {
 	resumed?: boolean;
 	/** Display path of the on-disk transcript, when one exists. */
 	transcriptPath?: string;
+	/** Named session (-s) backing this TUI; /mode and /model switches persist to it. */
+	namedSession?: string;
 	/** Enable extra TUI render diagnostics for manual repros. */
 	debugTui?: boolean;
 }
@@ -481,6 +484,7 @@ async function applyModelCommand(
 	try {
 		const resolved = resolveCuaModelRef(ref);
 		await opts.harness.setModel(resolved);
+		if (opts.namedSession) await updateNamedSessionRuntime(opts.namedSession, { model: resolved });
 		const model = opts.harness.getModel();
 		footer.update({
 			provider: model.provider,
@@ -502,6 +506,7 @@ async function applyModeCommand(opts: InteractiveOptions, messages: MessageList,
 	}
 	try {
 		await opts.harness.setMode(value);
+		if (opts.namedSession) await updateNamedSessionRuntime(opts.namedSession, { mode: value });
 		messages.addNotice(`mode → ${value}`);
 	} catch (err) {
 		messages.addError((err as Error).message);

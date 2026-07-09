@@ -7,6 +7,7 @@ import {
 	type NamedSessionMetadata,
 	readNamedSession,
 	recordSessionModel,
+	updateNamedSessionRuntime,
 	writeNamedSession,
 } from "../src/harness-named-sessions";
 
@@ -64,6 +65,21 @@ describe("named session model persistence", () => {
 	it("is a no-op for an unknown session", async () => {
 		await recordSessionModel("missing", { model: "openai:gpt-5.5" });
 		expect(await readNamedSession("missing")).toBeUndefined();
+	});
+
+	it("patches individual runtime fields without clobbering the rest", async () => {
+		await writeNamedSession(baseMeta({ model: "openai:gpt-5.5", mode: "computer", native_tool: "computer_20260701" }));
+
+		await updateNamedSessionRuntime("foo", { mode: "browser" });
+		let meta = await readNamedSession("foo");
+		expect(meta?.mode).toBe("browser");
+		expect(meta?.model).toBe("openai:gpt-5.5");
+		expect(meta?.native_tool).toBe("computer_20260701");
+
+		await updateNamedSessionRuntime("foo", { model: "anthropic:claude-opus-4-8" });
+		meta = await readNamedSession("foo");
+		expect(meta?.model).toBe("anthropic:claude-opus-4-8");
+		expect(meta?.mode).toBe("browser");
 	});
 
 	it("defaults flags from the stored session model when -m is omitted", () => {

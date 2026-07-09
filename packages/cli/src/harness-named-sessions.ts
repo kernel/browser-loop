@@ -277,6 +277,18 @@ export async function recordSessionModel(
 	await writeNamedSession(meta);
 }
 
+/** Patch individual runtime fields (e.g. after a TUI /mode or /model switch) without clobbering the rest. */
+export async function updateNamedSessionRuntime(name: string, patch: { model?: string; mode?: string }): Promise<void> {
+	const meta = await readNamedSession(name);
+	if (!meta) return;
+	const model = patch.model ?? meta.model;
+	const mode = patch.mode ?? meta.mode;
+	if (meta.model === model && meta.mode === mode) return;
+	meta.model = model;
+	meta.mode = mode;
+	await writeNamedSession(meta);
+}
+
 export function shortKernelId(id: string): string {
 	return id.length > 10 ? `${id.slice(0, 8)}…` : id;
 }

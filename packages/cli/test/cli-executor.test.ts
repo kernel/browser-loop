@@ -222,6 +222,11 @@ describe("parseDeterministicArgs", () => {
 		});
 	});
 
+	it("runDeterministicCommand rejects invalid --mode and --native-tool values", async () => {
+		await expect(runDeterministicCommand("url", [], baseFlags({ mode: "bogus" }))).rejects.toThrow(/invalid --mode/);
+		await expect(runDeterministicCommand("url", [], baseFlags({ nativeTool: "bogus" }))).rejects.toThrow(/invalid --native-tool/);
+	});
+
 	it("runDeterministicCommand surfaces argv errors before touching the Kernel API", async () => {
 		// KERNEL_API_KEY is unset in this suite: reaching provisioning would
 		// throw "missing Kernel API key" instead of the usage error.
