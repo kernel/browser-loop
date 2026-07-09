@@ -23,9 +23,9 @@ Usage:
   cua snapshot [--filter interactive]
   cua find "<query>"
   cua text
-  cua fill "<query>" "<value>"
+  cua fill <ref|"query"> "<value>"
   cua press <key> [key...]
-  cua click <x> <y>
+  cua click <x> <y> | cua click <ref>
   cua tabs
   cua screenshot [--out file|-]
 
@@ -39,8 +39,10 @@ Usage:
 Subcommands above the blank line are model-free: they run directly against
 the browser (no LLM, no model API key; only KERNEL_API_KEY). \`click <x> <y>\`
 with exactly two integer arguments clicks those viewport coordinates without
-a model; any other \`click\` argument is a natural-language description
-resolved by the model. Exit codes: 0 ok, 1 not_found, 2 error.
+a model, and \`click e12\` / \`fill e12 ...\` target an element ref minted by
+\`snapshot\` or \`find\`; any other \`click\` argument is a natural-language
+description resolved by the model. With \`-s <name>\`, refs span invocations
+(re-snapshot on a stale-ref error). Exit codes: 0 ok, 1 not_found, 2 error.
 
 Options:
   -p, --print                    Run a single prompt and exit

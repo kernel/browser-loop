@@ -740,3 +740,32 @@ describe("navigation tool grounding frame", () => {
 		expect(inComputer.batches).toHaveLength(1);
 	});
 });
+
+describe("BrowserExecutor ref state export/import", () => {
+	it("resolves refs imported from a previous executor against the same browser", async () => {
+		const first = new BrowserExecutor(createFakeCdp(BUTTON_TREE).cdp);
+		await snapshotText(first);
+		const state = first.exportRefState();
+
+		const { cdp, sent } = createFakeCdp(BUTTON_TREE);
+		const second = new BrowserExecutor(cdp);
+		second.importRefState(state);
+		await second.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction);
+		const pressed = sent.find((cmd) => cmd.method === "Input.dispatchMouseEvent" && cmd.params.type === "mousePressed");
+		expect(pressed).toBeDefined();
+	});
+
+	it("keeps minting unique refs after import and invalidates imported refs on navigation", async () => {
+		const first = new BrowserExecutor(createFakeCdp(BUTTON_TREE).cdp);
+		await snapshotText(first);
+		const state = first.exportRefState();
+
+		const { cdp, emit } = createFakeCdp(BUTTON_TREE);
+		const second = new BrowserExecutor(cdp);
+		second.importRefState(state);
+		expect(await snapshotText(second)).toContain('button "Save" [e2]');
+
+		emit({ method: "Page.frameNavigated", params: { frame: { id: "F0" } }, sessionId: "session-1" });
+		await expect(second.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction)).rejects.toThrow(/stale/);
+	});
+});

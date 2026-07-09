@@ -1,4 +1,4 @@
-import type { BrowserExecutor, BrowserFindCandidate, InternalComputerTranslator as Translator } from "@onkernel/cua-agent";
+import type { BrowserExecutor, BrowserFindCandidate, BrowserRefState, InternalComputerTranslator as Translator } from "@onkernel/cua-agent";
 import { InternalComputerTranslator } from "@onkernel/cua-agent";
 import type { CuaBrowserAction } from "@onkernel/cua-ai";
 import { mkdtempSync } from "node:fs";
@@ -46,6 +46,8 @@ function baseFlags(overrides: Partial<HarnessCliFlags> = {}): HarnessCliFlags {
 interface FakeExecutorState {
 	actions: CuaBrowserAction[];
 	closed: number;
+	imported: BrowserRefState[];
+	exported: number;
 }
 
 interface FakeExecutorScript {
@@ -55,8 +57,14 @@ interface FakeExecutorScript {
 	failWith?: Error;
 }
 
+const FAKE_REF_STATE: BrowserRefState = {
+	refCounter: 7,
+	generations: [["F0", 0]],
+	refs: [["e7", { backendNodeId: 42, targetId: "F0", frameId: "F0", generation: 0, role: "button", name: "Save", nth: 0, cohort: 1 }]],
+};
+
 function fakeExecutor(script: FakeExecutorScript = {}): { executor: BrowserExecutor; state: FakeExecutorState } {
-	const state: FakeExecutorState = { actions: [], closed: 0 };
+	const state: FakeExecutorState = { actions: [], closed: 0, imported: [], exported: 0 };
 	const executor = {
 		async execute(action: CuaBrowserAction) {
 			if (script.failWith) throw script.failWith;
@@ -71,6 +79,13 @@ function fakeExecutor(script: FakeExecutorScript = {}): { executor: BrowserExecu
 		},
 		async currentUrl() {
 			return script.url ?? "";
+		},
+		importRefState(refState: BrowserRefState) {
+			state.imported.push(refState);
+		},
+		exportRefState(): BrowserRefState {
+			state.exported += 1;
+			return FAKE_REF_STATE;
 		},
 		close() {
 			state.closed += 1;
@@ -135,11 +150,14 @@ describe("deterministicActionFor", () => {
 		expect(deterministicActionFor("open", ["https://a"])).toBe("open");
 		expect(deterministicActionFor("screenshot", [])).toBe("screenshot");
 		expect(deterministicActionFor("click", ["10", "20"])).toBe("click");
+		expect(deterministicActionFor("click", ["e12"])).toBe("click");
 	});
 
 	it("leaves model-mediated and free-form argv alone", () => {
 		expect(deterministicActionFor("click", ["3", "dots", "menu"])).toBeUndefined();
 		expect(deterministicActionFor("click", ["sign in button"])).toBeUndefined();
+		expect(deterministicActionFor("click", ["e12x"])).toBeUndefined();
+		expect(deterministicActionFor("click", ["e12", "e13"])).toBeUndefined();
 		expect(deterministicActionFor("do", ["open hn"])).toBeUndefined();
 		expect(deterministicActionFor("observe", [])).toBeUndefined();
 		expect(deterministicActionFor("session", ["list"])).toBeUndefined();
@@ -196,6 +214,12 @@ describe("parseDeterministicArgs", () => {
 			value: "a@b.c",
 		});
 		expect(parseDeterministicArgs("click", ["10", "20"], baseFlags())).toEqual({ action: "click", x: 10, y: 20 });
+		expect(parseDeterministicArgs("click", ["e12"], baseFlags())).toEqual({ action: "click", ref: "e12" });
+		expect(parseDeterministicArgs("fill", ["e12", "a@b.c"], baseFlags())).toEqual({
+			action: "fill",
+			ref: "e12",
+			value: "a@b.c",
+		});
 	});
 
 	it("runDeterministicCommand surfaces argv errors before touching the Kernel API", async () => {
@@ -359,6 +383,57 @@ describe("runDeterministicOnHandle", () => {
 		const body = t.kernel.batchCalls[0]!.body as { actions: Array<{ type: string; click_mouse?: { x: number; y: number } }> };
 		expect(body.actions[0]!.type).toBe("click_mouse");
 		expect(body.actions[0]!.click_mouse).toMatchObject({ x: 10, y: 20 });
+	});
+
+	it("click <ref> dispatches a CDP click on the ref", async () => {
+		const t = setup();
+		const code = await runDeterministicOnHandle({ action: "click", ref: "e12" }, t.handle, t.createTranslator);
+		expect(code).toBe(0);
+		expect(stdoutLines.join("")).toBe("ok clicked e12\n");
+		expect(t.state.actions).toEqual([{ type: "browser_click", ref: "e12" }]);
+		expect(t.kernel.batchCalls).toHaveLength(0);
+	});
+
+	it("click <ref> exits 1 when the ref is stale", async () => {
+		const t = setup({ failWith: new Error("ref e12 is stale or not on the current page. Call snapshot to get fresh refs.") });
+		const code = await runDeterministicOnHandle({ action: "click", ref: "e12" }, t.handle, t.createTranslator);
+		expect(code).toBe(1);
+		expect(stdoutLines.join("")).toContain("not_found");
+	});
+
+	it("fill <ref> fills that element, mapping toggle words to booleans", async () => {
+		const t = setup();
+		expect(await runDeterministicOnHandle({ action: "fill", ref: "e7", value: "a@b.c" }, t.handle, t.createTranslator)).toBe(0);
+		expect(await runDeterministicOnHandle({ action: "fill", ref: "e8", value: "on" }, t.handle, t.createTranslator)).toBe(0);
+		expect(t.state.actions).toEqual([
+			{ type: "browser_fill", ref: "e7", value: "a@b.c" },
+			{ type: "browser_fill", ref: "e8", value: true },
+		]);
+		expect(stdoutLines.join("")).toBe("ok filled e7\nok filled e8\n");
+	});
+
+	it("loads persisted ref state before executing and saves it after", async () => {
+		const t = setup();
+		const saved: BrowserRefState[] = [];
+		const store = {
+			async load() {
+				return FAKE_REF_STATE;
+			},
+			async save(state: BrowserRefState) {
+				saved.push(state);
+			},
+		};
+		const code = await runDeterministicOnHandle({ action: "click", ref: "e7" }, t.handle, t.createTranslator, store);
+		expect(code).toBe(0);
+		expect(t.state.imported).toEqual([FAKE_REF_STATE]);
+		expect(saved).toEqual([FAKE_REF_STATE]);
+	});
+
+	it("does not touch ref state without a store", async () => {
+		const t = setup();
+		await runDeterministicOnHandle({ action: "click", ref: "e7" }, t.handle, t.createTranslator);
+		expect(t.state.imported).toEqual([]);
+		expect(t.state.exported).toBe(0);
 	});
 
 	it("screenshot captures via the SDK and writes the file", async () => {

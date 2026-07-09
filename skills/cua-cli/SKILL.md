@@ -22,13 +22,14 @@ These run directly against the browser (CDP or OS input) — no LLM involved, no
 | `cua snapshot [--filter interactive]` | Print the page's accessibility tree with element refs like `[e12]`. `--filter interactive` keeps only interactive elements. | the tree (multi-line) | 0 ok, 2 error |
 | `cua find "<query>"` | Lexically score elements against the query, best first. | one match per line: `role "name" [eN]` (the quoted name is omitted when the element has none; role falls back to `node`) | 0 ok, 1 not_found, 2 error |
 | `cua text` | Print the page's visible text (`innerText`). | the text (multi-line) | 0 ok, 2 error |
-| `cua fill "<query>" "<value>"` | Find the unique best-matching form field (textbox, searchbox, combobox, checkbox, radio, listbox, spinbutton) and set its value. Exit 1 with the tied matches listed if the query is ambiguous — tighten it and retry. For checkbox/radio the value must be `true\|false\|1\|0\|checked\|unchecked\|on\|off` (anything else exits 2). | `ok filled <role> "<name>"` | 0 ok, 1 not_found, 2 error |
+| `cua fill <ref\|"query"> "<value>"` | Set a form field's value. With a ref (`e12` from `snapshot`/`find`) it targets that exact element. With a query it finds the unique best-matching form field (textbox, searchbox, combobox, checkbox, radio, listbox, spinbutton); exit 1 with the tied matches listed if the query is ambiguous — tighten it and retry. For checkbox/radio pass `true\|false\|checked\|unchecked\|on\|off` (query form also accepts `1\|0`). | `ok filled <role> "<name>"` (query) or `ok filled e12` (ref) | 0 ok, 1 not_found, 2 error |
 | `cua press <key> [<key>...]` | Send one key chord (e.g. `cua press ctrl l`, `cua press Return`). | `ok pressed` | 0 ok, 2 error |
-| `cua click <x> <y>` | OS-level click at viewport coordinates. Exactly two integer arguments — anything else routes to the model-mediated `click` below. | `ok clicked (x, y)` | 0 ok, 2 error |
+| `cua click <x> <y>` | OS-level click at viewport coordinates. Exactly two integer arguments. | `ok clicked (x, y)` | 0 ok, 2 error |
+| `cua click <ref>` | CDP click on an element ref from `snapshot`/`find`, e.g. `cua click e12`. Any other single `click` argument routes to the model-mediated `click` below. | `ok clicked e12` | 0 ok, 1 not_found (stale ref — re-snapshot), 2 error |
 | `cua tabs` | List open tabs. | one line per tab: `tab_id XXXX: "title" (url)` | 0 ok, 2 error |
 | `cua screenshot [--out <file\|->]` | Save a PNG (default `screenshot.png`). `--out -` writes the bytes to stdout. | the saved path; with `--out -`, stdout is exactly the PNG bytes (safe to pipe) | 0 ok, 2 error |
 
-**Element refs are not valid across `cua` invocations.** Refs printed by `snapshot`/`find` (`[e12]`) live only for the process that minted them — there is no `fill <ref>` form. Use `fill "<query>"`, `click "<description>"`, or `click <x> <y>` instead; the refs are still useful as unique line handles when reading output.
+**Element refs span invocations within a named session.** Refs printed by `snapshot`/`find` (`[e12]`) are persisted per `-s` session, so `cua -s x snapshot` then `cua -s x click e12` works. If the page changed in between, the ref self-heals when the element is still unambiguous; otherwise the command exits 1 with a stale-ref message — re-run `snapshot` and use a fresh ref. Without `-s` there is no shared browser, so refs from a previous invocation are meaningless.
 
 ### Model-mediated subcommands
 
@@ -77,6 +78,8 @@ Inspecting a page mid-flow, entirely model-free:
 ```bash
 cua -s login snapshot --filter interactive   # what can I interact with?
 cua -s login find "sign in button"           # score elements against a query
+cua -s login click e12                       # click a ref from the snapshot/find output
+cua -s login fill e7 "$EMAIL"                # fill a ref directly
 cua -s login text                            # read the page's visible text
 cua -s login tabs                            # list open tabs
 ```

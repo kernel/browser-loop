@@ -101,6 +101,7 @@ export function formatCompact(r: ActionResult): string {
 	switch (r.action as ActionType) {
 		case "click":
 			if (r.coordinates) return `ok clicked (${r.coordinates[0]}, ${r.coordinates[1]})`;
+			if (r.text) return `ok clicked ${r.text}`;
 			return "ok clicked";
 		case "type":
 			return "ok typed";

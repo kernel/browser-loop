@@ -92,6 +92,21 @@ export interface BrowserExecutorOptions {
 }
 
 /**
+ * Serializable ref state, so refs minted in one process (e.g. a `cua
+ * snapshot` invocation) can be resolved in a later one against the same
+ * browser. Session ids are process-local and deliberately not exported;
+ * imported refs rebind lazily. Backend node ids stay valid for the life of
+ * the document, and the usual generation/self-heal machinery covers pages
+ * that changed in between.
+ */
+export interface BrowserRefState {
+	refCounter: number;
+	activeTargetId?: string;
+	generations: Array<[string, number]>;
+	refs: Array<[string, Omit<RefEntry, "sessionId">]>;
+}
+
+/**
  * Executes browser-plane canonical actions over CDP.
  *
  * Element refs are snapshot-scoped: each snapshot/find mints `e<N>` ids
@@ -207,6 +222,24 @@ export class BrowserExecutor {
 	/** Close the CDP connection. Safe to call when never connected. */
 	close(): void {
 		this.cdp.close();
+	}
+
+	/** Snapshot the ref table for persistence across invocations; see {@link BrowserRefState}. */
+	exportRefState(): BrowserRefState {
+		return {
+			refCounter: this.refCounter,
+			...(this.activeTargetId ? { activeTargetId: this.activeTargetId } : {}),
+			generations: [...this.generations],
+			refs: [...this.refs].map(([ref, { sessionId: _sessionId, ...entry }]) => [ref, entry]),
+		};
+	}
+
+	/** Restore a ref table exported by a previous invocation against the same browser. */
+	importRefState(state: BrowserRefState): void {
+		this.refCounter = Math.max(this.refCounter, state.refCounter);
+		this.activeTargetId = state.activeTargetId ?? this.activeTargetId;
+		for (const [frameId, generation] of state.generations) this.generations.set(frameId, generation);
+		for (const [ref, entry] of state.refs) this.refs.set(ref, { ...entry, sessionId: "" });
 	}
 
 	async execute(action: CuaBrowserAction): Promise<BatchReadResult[]> {
@@ -553,7 +586,7 @@ export class BrowserExecutor {
 	private async fill(action: CuaActionBrowserFill): Promise<void> {
 		const targetId = await this.resolveTarget(action.tab_id);
 		const entry = this.resolveRef(action.ref, targetId);
-		const session = entry.sessionId;
+		const session = await this.refSession(entry);
 		const objectId = await this.resolveObject(entry, action.ref, session);
 		const { exceptionDetails } = await this.cdp.send<{ exceptionDetails?: { exception?: { description?: string } } }>(
 			"Runtime.callFunctionOn",
@@ -572,7 +605,7 @@ export class BrowserExecutor {
 	private async scrollTo(action: CuaActionBrowserScrollTo): Promise<void> {
 		const targetId = await this.resolveTarget(action.tab_id);
 		const entry = this.resolveRef(action.ref, targetId);
-		await this.scrollIntoView(entry, action.ref, entry.sessionId);
+		await this.scrollIntoView(entry, action.ref, await this.refSession(entry));
 	}
 
 	private async scroll(action: CuaActionBrowserScroll): Promise<void> {
@@ -682,11 +715,12 @@ export class BrowserExecutor {
 	): Promise<{ x: number; y: number; session: string }> {
 		if (action.ref !== undefined) {
 			const entry = this.resolveRef(action.ref, targetId);
-			await this.scrollIntoView(entry, action.ref, entry.sessionId);
+			const refSession = await this.refSession(entry);
+			await this.scrollIntoView(entry, action.ref, refSession);
 			const { model } = await this.cdp.send<{ model: { content: number[] } }>(
 				"DOM.getBoxModel",
 				{ backendNodeId: entry.backendNodeId },
-				entry.sessionId,
+				refSession,
 			);
 			const quad = model.content;
 			// Box-model quads are main-viewport coordinates even through an OOPIF's
@@ -726,7 +760,7 @@ export class BrowserExecutor {
 	}
 
 	private async healRef(ref: string, entry: RefEntry, cause: unknown): Promise<void> {
-		const { nodes } = await this.frameAxTree(entry.frameId, entry.targetId, entry.sessionId);
+		const { nodes } = await this.frameAxTree(entry.frameId, entry.targetId, await this.refSession(entry));
 		this.healEntry(ref, entry, nodes, cause);
 	}
 
@@ -769,6 +803,19 @@ export class BrowserExecutor {
 			cohort: ctx.nthIndex.cohorts.get(cohortKey(role, name)) ?? 1,
 		});
 		return ref;
+	}
+
+	/**
+	 * Session for a ref's DOM/Input calls. Imported refs (see
+	 * {@link importRefState}) carry no live session and rebind here: the
+	 * frame's own session for OOPIFs when auto-attach has surfaced it, the
+	 * page session otherwise.
+	 */
+	private async refSession(entry: RefEntry): Promise<string> {
+		if (!entry.sessionId) {
+			entry.sessionId = this.frameSessions.get(entry.frameId) ?? (await this.attach(entry.targetId));
+		}
+		return entry.sessionId;
 	}
 
 	private resolveRef(ref: string, targetId: string): RefEntry {

@@ -1,9 +1,10 @@
-import { InternalComputerTranslator, type BatchReadResult, type BrowserFindCandidate } from "@onkernel/cua-agent";
+import { InternalComputerTranslator, type BatchReadResult, type BrowserFindCandidate, type BrowserRefState } from "@onkernel/cua-agent";
 import { writeFile } from "node:fs/promises";
 import { stderr, stdout } from "node:process";
 import { emitCompact, type RunActionResult } from "./action/harness-runner";
 import { exitCodeFor, type ActionResult, type DeterministicActionType } from "./action/result";
 import { provisionForFlags, requireKernelApiKey, type HarnessCliFlags } from "./cli-harness";
+import { readNamedSessionRefs, writeNamedSessionRefs } from "./harness-named-sessions";
 import { captureScreenshot, type CuaBrowserHandle } from "./harness-browser";
 
 /**
@@ -19,8 +20,10 @@ export type DeterministicRequest =
 	| { action: "text" }
 	| { action: "find"; query: string }
 	| { action: "fill"; query: string; value: string }
+	| { action: "fill"; ref: string; value: string }
 	| { action: "press"; keys: string[] }
 	| { action: "click"; x: number; y: number }
+	| { action: "click"; ref: string }
 	| { action: "tabs" }
 	| { action: "screenshot"; out: string };
 
@@ -39,6 +42,11 @@ export const DETERMINISTIC_SUBCOMMANDS: ReadonlySet<string> = new Set<Determinis
 /** `cua click <x> <y>` is deterministic; any other click argv is a model-mediated description. */
 export function isCoordinatePair(rest: string[]): boolean {
 	return rest.length === 2 && rest.every((token) => /^\d+$/.test(token));
+}
+
+/** An element ref minted by `cua snapshot` / `cua find`, e.g. `e12`. */
+export function isElementRef(token: string | undefined): token is string {
+	return token !== undefined && /^e\d+$/.test(token);
 }
 
 /** Roles `cua fill` will target. Everything else is left to `click`/`type`. */
@@ -62,11 +70,24 @@ function parseToggleValue(raw: string): boolean {
 	throw new Error(`checkbox/radio value must be true|false|1|0|checked|unchecked|on|off, got ${JSON.stringify(raw)}`);
 }
 
+/**
+ * Value for a ref-addressed fill, where the element's role is unknown until
+ * the browser resolves it. Toggle words become booleans — lossless for text
+ * controls (the page-side fill stringifies) and correct for checkboxes.
+ * "1"/"0" stay strings so select options and numeric inputs keep their value.
+ */
+function refFillValue(raw: string): string | boolean {
+	const value = raw.trim().toLowerCase();
+	if (["true", "checked", "on"].includes(value)) return true;
+	if (["false", "unchecked", "off"].includes(value)) return false;
+	return raw;
+}
+
 /** Resolve argv to a deterministic subcommand, or undefined when the model plane should handle it. */
 export function deterministicActionFor(first: string | undefined, rest: string[]): DeterministicActionType | undefined {
 	if (!first) return undefined;
 	if (DETERMINISTIC_SUBCOMMANDS.has(first)) return first as DeterministicActionType;
-	if (first === "click" && isCoordinatePair(rest)) return "click";
+	if (first === "click" && (isCoordinatePair(rest) || (rest.length === 1 && isElementRef(rest[0])))) return "click";
 	return undefined;
 }
 
@@ -105,12 +126,13 @@ export function parseDeterministicArgs(
 			return { action, query };
 		}
 		case "fill": {
-			const query = (rest[0] ?? "").trim();
+			const target = (rest[0] ?? "").trim();
 			const value = rest[1];
-			if (!query || value === undefined || rest.length > 2) {
-				throw new Error('usage: cua fill "<query>" "<value>"');
+			if (!target || value === undefined || rest.length > 2) {
+				throw new Error('usage: cua fill <ref|"query"> "<value>"');
 			}
-			return { action, query, value };
+			if (isElementRef(target)) return { action, ref: target, value };
+			return { action, query: target, value };
 		}
 		case "press": {
 			const keys = rest.map((key) => key.trim()).filter((key) => key.length > 0);
@@ -118,7 +140,8 @@ export function parseDeterministicArgs(
 			return { action, keys };
 		}
 		case "click": {
-			if (!isCoordinatePair(rest)) throw new Error("usage: cua click <x> <y>");
+			if (rest.length === 1 && isElementRef(rest[0])) return { action, ref: rest[0] };
+			if (!isCoordinatePair(rest)) throw new Error("usage: cua click <x> <y> | cua click <ref>");
 			return { action, x: Number(rest[0]), y: Number(rest[1]) };
 		}
 		case "tabs":
@@ -131,6 +154,16 @@ export function parseDeterministicArgs(
 	}
 }
 
+/**
+ * Persistence seam for element refs so they survive across invocations of
+ * the same named session. Absent for fresh (non `-s`) browsers, whose refs
+ * cannot outlive the browser anyway.
+ */
+export interface RefStateStore {
+	load(): Promise<BrowserRefState | undefined>;
+	save(state: BrowserRefState): Promise<void>;
+}
+
 /** Run a deterministic subcommand end to end: parse, provision/attach, execute, print, tear down. */
 export async function runDeterministicCommand(
 	action: DeterministicActionType,
@@ -140,7 +173,14 @@ export async function runDeterministicCommand(
 	const req = parseDeterministicArgs(action, rest, flags);
 	const { apiKey, baseUrl } = requireKernelApiKey();
 	const provisioned = await provisionForFlags(flags, { kernelApiKey: apiKey, kernelBaseUrl: baseUrl });
-	return runDeterministicOnHandle(req, provisioned.handle);
+	const name = flags.namedSession;
+	const refStore: RefStateStore | undefined = name
+		? {
+				load: () => readNamedSessionRefs(name),
+				save: (state) => writeNamedSessionRefs(name, state),
+			}
+		: undefined;
+	return runDeterministicOnHandle(req, provisioned.handle, defaultTranslator, refStore);
 }
 
 /** Execute a parsed request against a browser handle. Split from provisioning for tests. */
@@ -148,12 +188,24 @@ export async function runDeterministicOnHandle(
 	req: DeterministicRequest,
 	handle: CuaBrowserHandle,
 	createTranslator: (handle: CuaBrowserHandle) => InternalComputerTranslator = defaultTranslator,
+	refStore?: RefStateStore,
 ): Promise<number> {
 	const translator = createTranslator(handle);
 	try {
+		if (refStore) {
+			const state = await refStore.load();
+			if (state) translator.browser().importRefState(state);
+		}
 		const res = await executeDeterministic(req, translator, handle);
 		return emitCompact(res);
 	} finally {
+		if (refStore) {
+			try {
+				await refStore.save(translator.browser().exportRefState());
+			} catch (err) {
+				stderr.write(`[cua] cleanup warning: ${(err as Error).message}\n`);
+			}
+		}
 		try {
 			translator.dispose();
 		} catch (err) {
@@ -205,6 +257,10 @@ async function executeDeterministic(
 			}
 			case "fill": {
 				const executor = translator.browser();
+				if ("ref" in req) {
+					await executor.execute({ type: "browser_fill", ref: req.ref, value: refFillValue(req.value) });
+					return finish({ action: req.action, status: "ok", text: req.ref });
+				}
 				const candidates = await executor.findCandidates(req.query, undefined, FILLABLE_ROLES);
 				if (candidates.length === 0) {
 					return finish({ action: req.action, status: "not_found", text: `no fillable element matched ${JSON.stringify(req.query)}` });
@@ -227,6 +283,10 @@ async function executeDeterministic(
 				await translator.executeBatch([{ type: "keypress", keys: req.keys }]);
 				return finish({ action: req.action, status: "ok" });
 			case "click":
+				if ("ref" in req) {
+					await translator.browser().execute({ type: "browser_click", ref: req.ref });
+					return finish({ action: req.action, status: "ok", text: req.ref });
+				}
 				await translator.executeBatch([{ type: "click", x: req.x, y: req.y }]);
 				return finish({ action: req.action, status: "ok", coordinates: [req.x, req.y] });
 			case "tabs": {
@@ -248,7 +308,11 @@ async function executeDeterministic(
 			}
 		}
 	} catch (err) {
-		return finish({ action: req.action, status: "error", text: (err as Error).message });
+		const message = (err as Error).message;
+		// A stale ref is "not found" (exit 1): the caller should re-snapshot,
+		// same as a failed description match — not an infrastructure error.
+		const status = /stale|not on the current page/i.test(message) ? "not_found" : "error";
+		return finish({ action: req.action, status, text: message });
 	}
 }
 

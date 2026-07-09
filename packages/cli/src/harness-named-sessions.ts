@@ -1,4 +1,4 @@
-import type { KernelBrowser } from "@onkernel/cua-agent";
+import type { BrowserRefState, KernelBrowser } from "@onkernel/cua-agent";
 import Kernel from "@onkernel/sdk";
 import { mkdir, readdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -72,9 +72,33 @@ export async function writeNamedSession(meta: NamedSessionMetadata): Promise<str
 
 export async function deleteNamedSession(name: string): Promise<boolean> {
 	const path = sessionFilePath(name);
+	await unlink(refsFilePath(name)).catch(() => {});
 	if (!(await fileExists(path))) return false;
 	await unlink(path);
 	return true;
+}
+
+function refsFilePath(name: string): string {
+	return join(namedSessionsDir(), `${name}.refs.json`);
+}
+
+/**
+ * Element refs minted by one invocation (snapshot/find) survive to the next
+ * via this per-session file, so `cua -s x snapshot` then `cua -s x click e12`
+ * works across processes. Scoped to the named session's browser; stale state
+ * is caught by the executor's generation/self-heal machinery.
+ */
+export async function readNamedSessionRefs(name: string): Promise<BrowserRefState | undefined> {
+	try {
+		return JSON.parse(await readFile(refsFilePath(name), "utf8")) as BrowserRefState;
+	} catch {
+		return undefined;
+	}
+}
+
+export async function writeNamedSessionRefs(name: string, state: BrowserRefState): Promise<void> {
+	await mkdir(namedSessionsDir(), { recursive: true });
+	await writeFile(refsFilePath(name), JSON.stringify(state) + "\n", { mode: 0o600 });
 }
 
 export async function listNamedSessions(): Promise<NamedSessionMetadata[]> {
