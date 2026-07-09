@@ -57,6 +57,14 @@ type CuaAgentInitialState = Omit<NonNullable<AgentOptions["initialState"]>, "mod
 	model: CuaRuntimeInput;
 };
 
+/** Explicit opt-in policy for continuing after a successful exact-empty assistant response. */
+export interface CuaEmptyResponseRecoveryOptions {
+	/** User message appended to request another model turn. */
+	followUp: string;
+	/** Maximum recovery continuations per top-level prompt. */
+	maxAttempts: number;
+}
+
 /**
  * Constructor options for {@link CuaAgent}.
  *
@@ -79,6 +87,8 @@ export type CuaAgentOptions = Omit<AgentOptions, "initialState"> & {
 	nativeTool?: CuaNativeToolSpec;
 	/** Expose a tool that runs Playwright code against the browser session. */
 	playwright?: boolean;
+	/** Explicitly continue successful exact-empty responses with pi's follow-up queue. */
+	emptyResponseRecovery?: CuaEmptyResponseRecoveryOptions;
 };
 
 /**
@@ -117,6 +127,8 @@ export type CuaAgentHarnessOptions<
 	playwright?: boolean;
 	/** Optional payload hook composed after the provider-specific CUA payload hook. */
 	onPayload?: SimpleStreamOptions["onPayload"];
+	/** Explicitly continue successful exact-empty responses with pi's follow-up queue. */
+	emptyResponseRecovery?: CuaEmptyResponseRecoveryOptions;
 };
 
 /**
@@ -270,15 +282,21 @@ class CuaRuntimeController {
 /** Default stream path: the shared CUA `Models` collection. */
 const defaultCuaStream: StreamFn = (model, context, options) => cuaModels().streamSimple(model, context, options);
 
-const EMPTY_RESPONSE_RECOVERY = "Continue working on the task.";
+function resolveEmptyResponseRecovery(
+	options: CuaEmptyResponseRecoveryOptions | undefined,
+): CuaEmptyResponseRecoveryOptions | undefined {
+	if (!options) return undefined;
+	if (options.followUp.trim().length === 0) {
+		throw new Error("emptyResponseRecovery.followUp must not be blank");
+	}
+	if (!Number.isInteger(options.maxAttempts) || options.maxAttempts < 0) {
+		throw new Error("emptyResponseRecovery.maxAttempts must be a non-negative finite integer");
+	}
+	return { followUp: options.followUp, maxAttempts: options.maxAttempts };
+}
 
 function isEmptyAssistantResponse(message: AgentMessage): boolean {
-	return (
-		message.role === "assistant" &&
-		message.stopReason === "stop" &&
-		message.content.length === 0 &&
-		message.usage.output === 0
-	);
+	return message.role === "assistant" && message.stopReason === "stop" && message.content.length === 0;
 }
 
 /**
@@ -293,7 +311,7 @@ export class CuaAgent extends Agent {
 	private readonly runtime: CuaRuntimeController;
 	private readonly ownsSystemPrompt: boolean;
 	private runtimeDirty = false;
-	private emptyResponseRecoveryConsumed = false;
+	private emptyResponseRecoveryAttempts = 0;
 	private stateProxy?: CuaAgentState;
 	private stateProxyTarget?: AgentState;
 
@@ -309,8 +327,10 @@ export class CuaAgent extends Agent {
 			mode,
 			nativeTool,
 			playwright,
+			emptyResponseRecovery,
 			...agentOptions
 		} = options;
+		const recovery = resolveEmptyResponseRecovery(emptyResponseRecovery);
 		const runtime = new CuaRuntimeController({
 			browser,
 			client,
@@ -344,14 +364,16 @@ export class CuaAgent extends Agent {
 
 		this.runtime = runtime;
 		this.ownsSystemPrompt = initialState.systemPrompt === undefined;
-		this.subscribe((event, signal) => {
-			if (event.type === "agent_start") {
-				this.emptyResponseRecoveryConsumed = false;
-				return;
-			}
-			if (event.type !== "turn_end" || !isEmptyAssistantResponse(event.message)) return;
-			this.recoverFromEmptyResponse(signal);
-		});
+		if (recovery && recovery.maxAttempts > 0) {
+			this.subscribe((event, signal) => {
+				if (event.type === "agent_start") {
+					this.emptyResponseRecoveryAttempts = 0;
+					return;
+				}
+				if (event.type !== "turn_end" || !isEmptyAssistantResponse(event.message)) return;
+				this.recoverFromEmptyResponse(recovery, signal);
+			});
+		}
 		/**
 		 * pi's loop only re-reads model/tools/prompt between provider requests
 		 * through `prepareNextTurn`. The wrapper stays pass-through (returning
@@ -426,15 +448,16 @@ export class CuaAgent extends Agent {
 		return this.runtime.mode;
 	}
 
-	private recoverFromEmptyResponse(signal: AbortSignal): void {
-		if (signal.aborted || this.emptyResponseRecoveryConsumed) return;
-		this.emptyResponseRecoveryConsumed = true;
-		if (this.hasQueuedMessages()) return;
+	private recoverFromEmptyResponse(recovery: CuaEmptyResponseRecoveryOptions, signal: AbortSignal): void {
+		if (signal.aborted || this.emptyResponseRecoveryAttempts >= recovery.maxAttempts || this.hasQueuedMessages()) {
+			return;
+		}
 		super.followUp({
 			role: "user",
-			content: [{ type: "text", text: EMPTY_RESPONSE_RECOVERY }],
+			content: [{ type: "text", text: recovery.followUp }],
 			timestamp: Date.now(),
 		});
+		this.emptyResponseRecoveryAttempts += 1;
 	}
 
 	private applyRuntime(model: CuaRuntimeInput): void {
@@ -464,8 +487,8 @@ export class CuaAgentHarness<
 > extends AgentHarness<TSkill, TPromptTemplate, AgentTool> {
 	private readonly runtime: CuaRuntimeController;
 	private requestedActiveToolNames?: string[];
-	private emptyResponseRecoveryConsumed = false;
-	private hasPendingCallerQueue = false;
+	private emptyResponseRecoveryAttempts = 0;
+	private hasPendingActiveQueue = false;
 
 	constructor(options: CuaAgentHarnessOptions<TSkill, TPromptTemplate>) {
 		const {
@@ -480,8 +503,10 @@ export class CuaAgentHarness<
 			systemPrompt,
 			onPayload,
 			activeToolNames,
+			emptyResponseRecovery,
 			...harnessOptions
 		} = options;
+		const recovery = resolveEmptyResponseRecovery(emptyResponseRecovery);
 		const runtime = new CuaRuntimeController({
 			browser,
 			client,
@@ -505,18 +530,20 @@ export class CuaAgentHarness<
 
 		this.runtime = runtime;
 		this.requestedActiveToolNames = activeToolNames;
-		this.on("before_agent_start", () => {
-			this.emptyResponseRecoveryConsumed = false;
-			return undefined;
-		});
-		this.subscribe(async (event, signal) => {
-			if (event.type === "queue_update") {
-				this.hasPendingCallerQueue = event.steer.length > 0 || event.followUp.length > 0;
-				return;
-			}
-			if (event.type !== "turn_end" || !isEmptyAssistantResponse(event.message)) return;
-			await this.recoverFromEmptyResponse(signal);
-		});
+		if (recovery && recovery.maxAttempts > 0) {
+			this.on("before_agent_start", () => {
+				this.emptyResponseRecoveryAttempts = 0;
+				return undefined;
+			});
+			this.subscribe(async (event, signal) => {
+				if (event.type === "queue_update") {
+					this.hasPendingActiveQueue = event.steer.length > 0 || event.followUp.length > 0;
+					return;
+				}
+				if (event.type !== "turn_end" || !isEmptyAssistantResponse(event.message)) return;
+				await this.recoverFromEmptyResponse(recovery, signal);
+			});
+		}
 		this.on("before_provider_payload", async ({ model, payload }: { model: Model<Api>; payload: unknown }) => {
 			const onPayload = this.runtime.onPayload();
 			if (!onPayload) return { payload };
@@ -524,11 +551,15 @@ export class CuaAgentHarness<
 		});
 	}
 
-	private async recoverFromEmptyResponse(signal?: AbortSignal): Promise<void> {
-		if (signal?.aborted || this.emptyResponseRecoveryConsumed) return;
-		this.emptyResponseRecoveryConsumed = true;
-		if (this.hasPendingCallerQueue) return;
-		await super.followUp(EMPTY_RESPONSE_RECOVERY);
+	private async recoverFromEmptyResponse(
+		recovery: CuaEmptyResponseRecoveryOptions,
+		signal?: AbortSignal,
+	): Promise<void> {
+		if (signal?.aborted || this.emptyResponseRecoveryAttempts >= recovery.maxAttempts || this.hasPendingActiveQueue) {
+			return;
+		}
+		await super.followUp(recovery.followUp);
+		this.emptyResponseRecoveryAttempts += 1;
 	}
 
 	/**

@@ -16,4 +16,9 @@ export type {
 	PlaywrightDetails,
 } from "./tools";
 export { CuaAgent, CuaAgentHarness } from "./agent";
-export type { CuaAgentHarnessOptions, CuaAgentOptions, CuaAgentState } from "./agent";
+export type {
+	CuaAgentHarnessOptions,
+	CuaAgentOptions,
+	CuaAgentState,
+	CuaEmptyResponseRecoveryOptions,
+} from "./agent";

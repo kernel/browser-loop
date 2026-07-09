@@ -85,6 +85,32 @@ active tool selection, compaction/tree workflows, and higher-level queue events.
 `CuaAgentHarness` extends pi `AgentHarness`, installs CUA defaults, and refreshes
 provider-specific runtime state when `setModel()` changes models.
 
+## Empty Response Recovery
+
+pi treats an assistant message with empty content and a successful `stop` reason
+as a completed turn. CUA preserves that behavior by default. Applications that
+want another model turn can opt into a bounded continuation:
+
+```ts
+const agent = new CuaAgent({
+  browser,
+  client,
+  initialState: { model: "openai:gpt-5.5" },
+  emptyResponseRecovery: {
+    followUp: "Continue working on the task.",
+    maxAttempts: 1,
+  },
+});
+```
+
+Recovery uses pi's public `followUp()` queue. It preserves the empty assistant
+message, appends the configured user message, and starts another model turn.
+Each attempt therefore adds provider latency and a billed provider call. A
+`maxAttempts` value of `1` is recommended when recovery is needed; omission or
+`0` keeps stock pi completion semantics. Provider history converters and
+response-ID threading may represent the preserved empty turn differently in a
+later wire request.
+
 ## Core Concepts
 
 ### Class-First API
