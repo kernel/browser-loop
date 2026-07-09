@@ -205,6 +205,22 @@ describe("provider retry behavior", () => {
 		expect(calls).toBe(3);
 	});
 
+	it("preserves a replay failure as the terminal result", async () => {
+		const retrying = withProviderRetry((() => textStream("ok")) as StreamFn, enabled);
+		const stream = retrying(model, context);
+		const push = stream.push.bind(stream);
+		let calls = 0;
+		stream.push = (event) => {
+			if (calls++ === 0) throw new Error("replay failed");
+			return push(event);
+		};
+
+		const result = await stream.result();
+
+		expect(result.stopReason).toBe("error");
+		expect(result.errorMessage).toContain("Failed to replay provider response: replay failed");
+	});
+
 	it("aborts before the first request and during backoff", async () => {
 		const alreadyAborted = new AbortController();
 		alreadyAborted.abort();

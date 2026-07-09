@@ -109,6 +109,7 @@ async function runWithRetry(
 		if (settled) return;
 		settled = true;
 		let terminalEmitted = false;
+		let result = message;
 		try {
 			if (events) {
 				for (const event of events) {
@@ -122,17 +123,15 @@ async function runWithRetry(
 			}
 		} catch (error) {
 			if (!terminalEmitted) {
-				const failure = createFailureMessage(model, `Failed to replay provider response: ${errorMessage(error)}`);
+				result = createFailureMessage(model, `Failed to replay provider response: ${errorMessage(error)}`);
 				try {
-					output.push({ type: "error", reason: "error", error: failure });
+					output.push({ type: "error", reason: "error", error: result });
 				} catch {
 					// end(result) still settles result() and any waiting iterator.
 				}
-				output.end(failure);
-				return;
 			}
 		} finally {
-			output.end(message);
+			output.end(result);
 		}
 	};
 
