@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	deterministicActionFor,
 	isCoordinatePair,
 	parseDeterministicArgs,
 	runDeterministicCommand,
@@ -63,9 +64,10 @@ function fakeExecutor(script: FakeExecutorScript = {}): { executor: BrowserExecu
 			const text = script.texts?.[action.type];
 			return text !== undefined ? [{ type: "browser_text", label: action.type, text }] : [];
 		},
-		async findCandidates() {
+		async findCandidates(_query: string, _tabId?: string, roles?: ReadonlySet<string>) {
 			if (script.failWith) throw script.failWith;
-			return script.candidates ?? [];
+			const candidates = script.candidates ?? [];
+			return roles ? candidates.filter((c) => roles.has(c.role)) : candidates;
 		},
 		async currentUrl() {
 			return script.url ?? "";
@@ -127,6 +129,24 @@ afterEach(() => {
 	}
 });
 
+describe("deterministicActionFor", () => {
+	it("routes deterministic subcommands to the executor plane", () => {
+		expect(deterministicActionFor("url", [])).toBe("url");
+		expect(deterministicActionFor("open", ["https://a"])).toBe("open");
+		expect(deterministicActionFor("screenshot", [])).toBe("screenshot");
+		expect(deterministicActionFor("click", ["10", "20"])).toBe("click");
+	});
+
+	it("leaves model-mediated and free-form argv alone", () => {
+		expect(deterministicActionFor("click", ["3", "dots", "menu"])).toBeUndefined();
+		expect(deterministicActionFor("click", ["sign in button"])).toBeUndefined();
+		expect(deterministicActionFor("do", ["open hn"])).toBeUndefined();
+		expect(deterministicActionFor("observe", [])).toBeUndefined();
+		expect(deterministicActionFor("session", ["list"])).toBeUndefined();
+		expect(deterministicActionFor(undefined, [])).toBeUndefined();
+	});
+});
+
 describe("isCoordinatePair", () => {
 	it("accepts exactly two integer tokens", () => {
 		expect(isCoordinatePair(["10", "20"])).toBe(true);
@@ -149,6 +169,18 @@ describe("parseDeterministicArgs", () => {
 		expect(() => parseDeterministicArgs("click", ["a", "b"], baseFlags())).toThrow("usage: cua click");
 		expect(() => parseDeterministicArgs("snapshot", [], baseFlags({ filter: "everything" }))).toThrow(
 			"invalid --filter",
+		);
+	});
+
+	it("rejects extra positionals on url, text, and tabs", () => {
+		expect(() => parseDeterministicArgs("url", ["extra"], baseFlags())).toThrow("usage: cua url");
+		expect(() => parseDeterministicArgs("text", ["extra"], baseFlags())).toThrow("usage: cua text");
+		expect(() => parseDeterministicArgs("tabs", ["extra"], baseFlags())).toThrow("usage: cua tabs");
+	});
+
+	it("rejects --filter on subcommands other than snapshot", () => {
+		expect(() => parseDeterministicArgs("text", [], baseFlags({ filter: "interactive" }))).toThrow(
+			"--filter only applies to cua snapshot",
 		);
 	});
 
@@ -285,6 +317,30 @@ describe("runDeterministicOnHandle", () => {
 		expect(t.state.actions).toEqual([{ type: "browser_fill", ref: "e2", value: "a@b.c" }]);
 	});
 
+	it("fill maps checkbox values to a checked state", async () => {
+		const t = setup({ candidates: [{ ref: "e1", role: "checkbox", name: "Subscribe", score: 2 }] });
+		const code = await runDeterministicOnHandle(
+			{ action: "fill", query: "subscribe", value: "false" },
+			t.handle,
+			t.createTranslator,
+		);
+		expect(code).toBe(0);
+		expect(stdoutLines.join("")).toBe('ok filled checkbox "Subscribe"\n');
+		expect(t.state.actions).toEqual([{ type: "browser_fill", ref: "e1", value: false }]);
+	});
+
+	it("fill exits 2 on an unrecognized checkbox value", async () => {
+		const t = setup({ candidates: [{ ref: "e1", role: "checkbox", name: "Subscribe", score: 2 }] });
+		const code = await runDeterministicOnHandle(
+			{ action: "fill", query: "subscribe", value: "maybe" },
+			t.handle,
+			t.createTranslator,
+		);
+		expect(code).toBe(2);
+		expect(stdoutLines.join("")).toContain("error checkbox/radio value must be");
+		expect(t.state.actions).toEqual([]);
+	});
+
 	it("press dispatches one key chord through the computer batch API", async () => {
 		const t = setup();
 		const code = await runDeterministicOnHandle({ action: "press", keys: ["ctrl", "l"] }, t.handle, t.createTranslator);
@@ -313,6 +369,26 @@ describe("runDeterministicOnHandle", () => {
 		expect(stdoutLines.join("")).toBe(`${out}\n`);
 		expect(t.kernel.screenshots).toBe(1);
 		expect((await readFile(out)).length).toBeGreaterThan(0);
+	});
+
+	it("screenshot --out - writes only the PNG bytes to stdout", async () => {
+		const t = setup();
+		const code = await runDeterministicOnHandle({ action: "screenshot", out: "-" }, t.handle, t.createTranslator);
+		expect(code).toBe(0);
+		expect(stdoutLines).toHaveLength(1);
+		expect(stdoutLines[0]!.startsWith("\x89PNG\r\n\x1a\n")).toBe(true);
+		expect(t.kernel.screenshots).toBe(1);
+	});
+
+	it("screenshot exits 2 when capture fails", async () => {
+		const t = setup();
+		const computer = t.kernel.client.browsers.computer as unknown as { captureScreenshot: () => Promise<Response> };
+		computer.captureScreenshot = async () => {
+			throw new Error("capture unavailable");
+		};
+		const code = await runDeterministicOnHandle({ action: "screenshot", out: "-" }, t.handle, t.createTranslator);
+		expect(code).toBe(2);
+		expect(stdoutLines.join("")).toBe("error failed to capture screenshot\n");
 	});
 
 	it("exits 2 and still closes executor and handle when the executor throws", async () => {

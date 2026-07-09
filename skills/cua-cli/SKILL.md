@@ -20,13 +20,13 @@ These run directly against the browser (CDP or OS input) — no LLM involved, no
 | `cua open <url\|back\|forward>` | Navigate via CDP; `back`/`forward` walk history. | `ok` | 0 ok, 2 error |
 | `cua url` | Print the active tab's URL. | the URL | 0 ok, 2 error |
 | `cua snapshot [--filter interactive]` | Print the page's accessibility tree with element refs like `[e12]`. `--filter interactive` keeps only interactive elements. | the tree (multi-line) | 0 ok, 2 error |
-| `cua find "<query>"` | Lexically score elements against the query, best first. | one match per line: `role "name" [eN]` | 0 ok, 1 not_found, 2 error |
+| `cua find "<query>"` | Lexically score elements against the query, best first. | one match per line: `role "name" [eN]` (the quoted name is omitted when the element has none; role falls back to `node`) | 0 ok, 1 not_found, 2 error |
 | `cua text` | Print the page's visible text (`innerText`). | the text (multi-line) | 0 ok, 2 error |
-| `cua fill "<query>" "<value>"` | Find the unique best-matching form field (textbox, searchbox, combobox, checkbox, radio, listbox, spinbutton) and set its value. Exit 1 with the tied matches listed if the query is ambiguous — tighten it and retry. | `ok filled <role> "<name>"` | 0 ok, 1 not_found, 2 error |
+| `cua fill "<query>" "<value>"` | Find the unique best-matching form field (textbox, searchbox, combobox, checkbox, radio, listbox, spinbutton) and set its value. Exit 1 with the tied matches listed if the query is ambiguous — tighten it and retry. For checkbox/radio the value must be `true\|false\|1\|0\|checked\|unchecked\|on\|off` (anything else exits 2). | `ok filled <role> "<name>"` | 0 ok, 1 not_found, 2 error |
 | `cua press <key> [<key>...]` | Send one key chord (e.g. `cua press ctrl l`, `cua press Return`). | `ok pressed` | 0 ok, 2 error |
 | `cua click <x> <y>` | OS-level click at viewport coordinates. Exactly two integer arguments — anything else routes to the model-mediated `click` below. | `ok clicked (x, y)` | 0 ok, 2 error |
 | `cua tabs` | List open tabs. | one line per tab: `tab_id XXXX: "title" (url)` | 0 ok, 2 error |
-| `cua screenshot [--out <file\|->]` | Save a PNG (default `screenshot.png`). `--out -` writes the bytes to stdout. | the path or `(stdout)` | 0 ok, 2 error |
+| `cua screenshot [--out <file\|->]` | Save a PNG (default `screenshot.png`). `--out -` writes the bytes to stdout. | the saved path; with `--out -`, stdout is exactly the PNG bytes (safe to pipe) | 0 ok, 2 error |
 
 **Element refs are not valid across `cua` invocations.** Refs printed by `snapshot`/`find` (`[e12]`) live only for the process that minted them — there is no `fill <ref>` form. Use `fill "<query>"`, `click "<description>"`, or `click <x> <y>` instead; the refs are still useful as unique line handles when reading output.
 
@@ -91,7 +91,7 @@ cua session show login                    # full JSON metadata
 Pass `--profile` when starting the named session; later `cua -s login ...`
 calls attach to that same browser, so they do not need the profile flag.
 
-Liveness: Kernel browsers can time out from inactivity even between your calls. If `cua -s <name> ...` returns `error session "<name>" is no longer alive on Kernel ...`, run `cua session stop <name> && cua --profile github session start <name>` to provision a fresh one with the same persisted profile.
+Liveness: Kernel browsers can time out from inactivity even between your calls. If `cua -s <name> ...` fails with `error: named session "<name>" is no longer alive on Kernel ...` (printed to stderr, exit 2), run `cua session stop <name> && cua --profile github session start <name>` to provision a fresh one with the same persisted profile.
 
 ## Session transcripts
 
@@ -109,7 +109,7 @@ cua session show login | jq -r .transcript_path
 The default root is `$XDG_DATA_HOME/cua/sessions` or
 `~/.local/share/cua/sessions`. For named sessions, `transcript_path` appears
 after the first model-mediated `-s` call (`click "<desc>"`, `type`, `observe`,
-`do`, `--print`, or a TUI attach) records a transcript.
+`do`, `--print`, or a TUI attach).
 
 Each line is a JSON object with one of these `role` values: `user`, `assistant`, `toolResult`. There's also a custom `cua-browser` entry written once per session with `kernel_session_id` / `live_url` / `profile_id`.
 

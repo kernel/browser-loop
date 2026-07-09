@@ -473,7 +473,7 @@ export class BrowserExecutor {
 	 * Score elements against a natural-language query and mint refs for the
 	 * matches, best first. Structured counterpart of the `browser_find` action.
 	 */
-	async findCandidates(query: string, tabId?: string): Promise<BrowserFindCandidate[]> {
+	async findCandidates(query: string, tabId?: string, roles?: ReadonlySet<string>): Promise<BrowserFindCandidate[]> {
 		const targetId = await this.resolveTarget(tabId);
 		const session = await this.attach(targetId);
 		const { nodes } = await this.cdp.send<{ nodes: AXNode[] }>("Accessibility.getFullAXTree", {}, session);
@@ -503,7 +503,7 @@ export class BrowserExecutor {
 					)
 					.map((node) => ({ node, ctx, score: overlapScore(queryTokens, tokenize(`${node.role?.value ?? ""} ${node.name?.value ?? ""}`)) })),
 			)
-			.filter((entry) => entry.score > 0)
+			.filter((entry) => entry.score > 0 && (!roles || roles.has(entry.node.role?.value ?? "")))
 			.sort((a, b) => b.score - a.score)
 			.slice(0, FIND_MATCH_LIMIT);
 		const candidates = scored.map(({ node, ctx, score }) => ({

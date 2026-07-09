@@ -2,12 +2,7 @@
 import { stderr, stdout } from "node:process";
 import { parseArgs } from "node:util";
 import { type ModelActionType } from "./action/prompts";
-import type { DeterministicActionType } from "./action/result";
-import {
-	DETERMINISTIC_SUBCOMMANDS,
-	isCoordinatePair,
-	runDeterministicCommand,
-} from "./cli-executor";
+import { deterministicActionFor, runDeterministicCommand } from "./cli-executor";
 import {
 	runActionCommand,
 	runInteractiveCommand,
@@ -309,9 +304,10 @@ export async function main(argv: string[]): Promise<number> {
 
 	const rest = positionals.slice(1);
 
-	if (first && (DETERMINISTIC_SUBCOMMANDS.has(first) || (first === "click" && isCoordinatePair(rest)))) {
+	const deterministic = deterministicActionFor(first, rest);
+	if (deterministic) {
 		try {
-			return await runDeterministicCommand(first as DeterministicActionType, rest, toHarnessFlags(flags));
+			return await runDeterministicCommand(deterministic, rest, toHarnessFlags(flags));
 		} catch (err) {
 			stderr.write(`error: ${(err as Error).message}\n`);
 			return 2;

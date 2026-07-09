@@ -52,12 +52,33 @@ const FILLABLE_ROLES: ReadonlySet<string> = new Set([
 	"spinbutton",
 ]);
 
+/** Roles whose fill value is a checked state, not text. */
+const TOGGLE_ROLES: ReadonlySet<string> = new Set(["checkbox", "radio"]);
+
+function parseToggleValue(raw: string): boolean {
+	const value = raw.trim().toLowerCase();
+	if (["true", "1", "checked", "on"].includes(value)) return true;
+	if (["false", "0", "unchecked", "off"].includes(value)) return false;
+	throw new Error(`checkbox/radio value must be true|false|1|0|checked|unchecked|on|off, got ${JSON.stringify(raw)}`);
+}
+
+/** Resolve argv to a deterministic subcommand, or undefined when the model plane should handle it. */
+export function deterministicActionFor(first: string | undefined, rest: string[]): DeterministicActionType | undefined {
+	if (!first) return undefined;
+	if (DETERMINISTIC_SUBCOMMANDS.has(first)) return first as DeterministicActionType;
+	if (first === "click" && isCoordinatePair(rest)) return "click";
+	return undefined;
+}
+
 /** Parse and validate a deterministic subcommand's argv. Throws before any Kernel API call. */
 export function parseDeterministicArgs(
 	action: DeterministicActionType,
 	rest: string[],
 	flags: HarnessCliFlags,
 ): DeterministicRequest {
+	if (flags.filter !== undefined && action !== "snapshot") {
+		throw new Error("--filter only applies to cua snapshot");
+	}
 	switch (action) {
 		case "open": {
 			const url = (rest[0] ?? "").trim();
@@ -65,6 +86,7 @@ export function parseDeterministicArgs(
 			return { action, url };
 		}
 		case "url":
+			if (rest.length > 0) throw new Error("usage: cua url");
 			return { action };
 		case "snapshot": {
 			if (rest.length > 0) throw new Error("usage: cua snapshot [--filter interactive]");
@@ -75,6 +97,7 @@ export function parseDeterministicArgs(
 			return { action, ...(filter === "interactive" ? { filter } : {}) };
 		}
 		case "text":
+			if (rest.length > 0) throw new Error("usage: cua text");
 			return { action };
 		case "find": {
 			const query = rest.join(" ").trim();
@@ -99,6 +122,7 @@ export function parseDeterministicArgs(
 			return { action, x: Number(rest[0]), y: Number(rest[1]) };
 		}
 		case "tabs":
+			if (rest.length > 0) throw new Error("usage: cua tabs");
 			return { action };
 		case "screenshot": {
 			if (rest.length > 0) throw new Error("usage: cua screenshot [--out file|-]");
@@ -130,7 +154,11 @@ export async function runDeterministicOnHandle(
 		const res = await executeDeterministic(req, translator, handle);
 		return emitCompact(res);
 	} finally {
-		translator.dispose();
+		try {
+			translator.dispose();
+		} catch (err) {
+			stderr.write(`[cua] cleanup warning: ${(err as Error).message}\n`);
+		}
 		try {
 			await handle.close();
 		} catch (err) {
@@ -177,7 +205,7 @@ async function executeDeterministic(
 			}
 			case "fill": {
 				const executor = translator.browser();
-				const candidates = (await executor.findCandidates(req.query)).filter((c) => FILLABLE_ROLES.has(c.role));
+				const candidates = await executor.findCandidates(req.query, undefined, FILLABLE_ROLES);
 				if (candidates.length === 0) {
 					return finish({ action: req.action, status: "not_found", text: `no fillable element matched ${JSON.stringify(req.query)}` });
 				}
@@ -191,7 +219,8 @@ async function executeDeterministic(
 					});
 				}
 				const match = candidates[0]!;
-				await executor.execute({ type: "browser_fill", ref: match.ref, value: req.value });
+				const value = TOGGLE_ROLES.has(match.role) ? parseToggleValue(req.value) : req.value;
+				await executor.execute({ type: "browser_fill", ref: match.ref, value });
 				return finish({ action: req.action, status: "ok", text: `${match.role} ${JSON.stringify(match.name)}` });
 			}
 			case "press":
@@ -210,11 +239,12 @@ async function executeDeterministic(
 					return finish({ action: req.action, status: "error", text: "failed to capture screenshot" });
 				}
 				if (req.out === "-") {
+					// stdout is the PNG bytes; the compact status line would corrupt a pipe.
 					stdout.write(png);
-				} else {
-					await writeFile(req.out, png);
+					return finish({ action: req.action, status: "ok", text: "" });
 				}
-				return finish({ action: req.action, status: "ok", text: req.out === "-" ? "(stdout)" : req.out });
+				await writeFile(req.out, png);
+				return finish({ action: req.action, status: "ok", text: req.out });
 			}
 		}
 	} catch (err) {
