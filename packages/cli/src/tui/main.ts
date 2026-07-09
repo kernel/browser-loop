@@ -25,6 +25,7 @@ import { homedir } from "node:os";
 import type { ImageContent, Model } from "@onkernel/cua-ai";
 import { captureScreenshot, type CuaBrowserHandle } from "../harness-browser";
 import { resolveCuaModelRef } from "../harness-models";
+import { updateNamedSessionRuntime } from "../harness-named-sessions";
 import type { ContextFile } from "../harness-skills";
 import { openTuiDebugLog } from "./debug-log";
 import { applyAndSummarizeImageProtocol } from "./diagnostics";
@@ -56,6 +57,8 @@ export interface InteractiveOptions {
 	resumed?: boolean;
 	/** Display path of the on-disk transcript, when one exists. */
 	transcriptPath?: string;
+	/** Named session (-s) backing this TUI; /mode and /model switches persist to it. */
+	namedSession?: string;
 	/** Enable extra TUI render diagnostics for manual repros. */
 	debugTui?: boolean;
 }
@@ -303,6 +306,10 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 				await applyModelCommand(opts, footer, status, messages, parsed.argument);
 				return;
 			}
+			if (parsed?.command === "mode") {
+				await applyModeCommand(opts, messages, parsed.argument);
+				return;
+			}
 			if (parsed?.command === "thinking") {
 				await applyThinkingCommand(opts, footer, messages, parsed.argument);
 				return;
@@ -443,6 +450,9 @@ async function maybeInitialScreenshot(
 ): Promise<ImageContent[] | undefined> {
 	if (firstPromptSent) return undefined;
 	if (opts.skipInitialScreenshot) return undefined;
+	// Browser mode's only frame is the viewport; skip the OS-display capture
+	// rather than mix coordinate frames on the first turn.
+	if (opts.harness.getMode() === "browser") return undefined;
 	if (await sessionHasPriorTurn(opts.session)) return undefined;
 	const png = await captureScreenshot(opts.browserHandle.client, opts.browserHandle.browser.session_id);
 	if (!png) return undefined;
@@ -482,8 +492,43 @@ async function applyModelCommand(
 		});
 		status.update({ model: modelLabel(model) });
 		messages.addNotice(`model → ${resolved}`);
+		await persistNamedSessionRuntime(opts, messages, { model: resolved });
 	} catch (err) {
 		messages.addError((err as Error).message);
+	}
+}
+
+async function applyModeCommand(opts: InteractiveOptions, messages: MessageList, argument: string): Promise<void> {
+	const value = argument.trim().toLowerCase();
+	if (value !== "computer" && value !== "browser" && value !== "hybrid") {
+		messages.addError("usage: /mode <computer|browser|hybrid>");
+		return;
+	}
+	try {
+		await opts.harness.setMode(value);
+	} catch (err) {
+		messages.addError((err as Error).message);
+		return;
+	}
+	messages.addNotice(`mode → ${value}`);
+	await persistNamedSessionRuntime(opts, messages, { mode: value });
+}
+
+// Persistence is best-effort: the live switch already happened, so a failed
+// metadata write must not masquerade as a failed switch — warn that resume
+// will restore the previous value instead.
+async function persistNamedSessionRuntime(
+	opts: InteractiveOptions,
+	messages: MessageList,
+	patch: { model?: string; mode?: string },
+): Promise<void> {
+	if (!opts.namedSession) return;
+	try {
+		await updateNamedSessionRuntime(opts.namedSession, patch);
+	} catch (err) {
+		messages.addError(
+			`switched, but failed to persist to session "${opts.namedSession}" (resume will restore the previous value): ${(err as Error).message}`,
+		);
 	}
 }
 

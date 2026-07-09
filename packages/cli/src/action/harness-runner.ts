@@ -1,6 +1,5 @@
 import type { AgentHarnessEvent, CuaAgentHarness, Session } from "@onkernel/cua-agent";
 import type { AssistantMessage, ImageContent } from "@onkernel/cua-ai";
-import { writeFile } from "node:fs/promises";
 import { stderr, stdout } from "node:process";
 import { captureScreenshot, type CuaBrowserHandle } from "../harness-browser";
 import { type ActionRequest, buildPrompt, DEFAULT_MAX_TURNS } from "./prompts";
@@ -15,52 +14,21 @@ export interface HarnessRunOptions {
 	maxTurns?: number;
 }
 
-export interface ScreenshotOutput {
-	out: string; // path or "-" for stdout
-}
-
 export interface RunActionResult {
 	result: ActionResult;
 	exitCode: number;
 }
 
 /**
- * Run a single action subcommand against an existing harness + browser and
- * return the parsed result plus exit code. The `screenshot` action is
- * model-free — it captures directly through the SDK. All other actions
- * drive the harness for at most `maxTurns` turns.
+ * Run a single model-mediated action subcommand against an existing
+ * harness + browser and return the parsed result plus exit code. Drives
+ * the harness for at most `maxTurns` turns.
  */
 export async function runAction(
 	req: ActionRequest,
 	opts: HarnessRunOptions,
-	screenshot?: ScreenshotOutput,
 ): Promise<RunActionResult> {
 	const startedAt = Date.now();
-
-	if (req.action === "screenshot") {
-		const out = screenshot ?? { out: "screenshot.png" };
-		const png = await captureScreenshot(opts.browserHandle.client, opts.browserHandle.browser.session_id);
-		if (!png) {
-			const elapsed = Date.now() - startedAt;
-			const result: ActionResult = {
-				action: "screenshot",
-				status: "error",
-				text: "failed to capture screenshot",
-				elapsedMs: elapsed,
-				timestamp: Date.now(),
-			};
-			return { result, exitCode: exitCodeFor(result) };
-		}
-		if (out.out === "-") {
-			stdout.write(png);
-		} else {
-			await writeFile(out.out, png);
-		}
-		const elapsed = Date.now() - startedAt;
-		const result = parseResult("screenshot", "", [], elapsed);
-		result.text = out.out === "-" ? "(stdout)" : out.out;
-		return { result, exitCode: 0 };
-	}
 
 	const prompt = buildPrompt(req);
 	const maxTurns = req.maxTurns ?? opts.maxTurns ?? DEFAULT_MAX_TURNS;

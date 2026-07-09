@@ -97,7 +97,6 @@ Both classes mirror pi constructor shapes and behavior, with minimal additions:
 - `client` (Kernel SDK client)
 - CUA model refs (`"provider:model"`) accepted where pi expects a concrete model
 - `extraTools` to add your own pi tools alongside the built-in browser tools
-- `computerUseExtra: true` to let the model use a small navigation helper
 - `playwright: true` to let the model run Playwright/TypeScript against the
   live browser session
 
@@ -122,7 +121,7 @@ or handing off to another service while it also controls the browser.
 
 Not every provider's native computer-use vocabulary includes browser
 navigation — some models can click and type but have no direct way to open a
-URL or go back. `computerUseExtra: true` adds `computer_use_extra`, a
+URL or go back. The classes therefore always add `computer_use_extra`, a
 provider-neutral escape hatch exposing `goto`, `back`, `forward`, and `url`
 so navigation works uniformly regardless of which model is driving.
 

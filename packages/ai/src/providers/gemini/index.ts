@@ -1,5 +1,5 @@
-import { computerToolExecutors, computerTools } from "../common";
-import type { ComputerToolCoordinateSystem, CuaProviderModule } from "../common";
+import { assertComputerModeOnly, computerToolExecutors, computerTools } from "../common";
+import type { ComputerToolCoordinateSystem, ComputerToolsOptions, CuaProviderModule } from "../common";
 
 export {
 	CUA_ACTION_TYPES as GEMINI_CUA_ACTION_TYPES,
@@ -30,8 +30,17 @@ export function buildGeminiSystemPrompt(opts: { suffix?: string } = {}): string 
 }
 
 export const providerModule = {
-	toolDefinitions: computerTools,
-	toolExecutors: computerToolExecutors,
+	// Gemini's computer-use coordinate convention is normalized 0-999, which
+	// only maps onto the computer plane today; browser-plane viewport coordinates are
+	// unvalidated for it.
+	toolDefinitions: (options?: ComputerToolsOptions) => {
+		assertComputerModeOnly("google", options);
+		return computerTools(options);
+	},
+	toolExecutors: (options?: ComputerToolsOptions) => {
+		assertComputerModeOnly("google", options);
+		return computerToolExecutors(options);
+	},
 	coordinateSystem,
 	buildSystemPrompt: buildGeminiSystemPrompt,
 } satisfies CuaProviderModule;

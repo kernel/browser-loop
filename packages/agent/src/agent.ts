@@ -14,7 +14,9 @@ import {
 	CUA_NAVIGATION_TOOL_NAME,
 	CUA_PLAYWRIGHT_TOOL_NAME,
 	cuaModels,
+	type CuaMode,
 	type CuaModelRef,
+	type CuaNativeToolSpec,
 	type CuaRuntimeSpec,
 	type CuaSimpleStreamOptions,
 	getCuaEnvApiKey,
@@ -70,8 +72,10 @@ export type CuaAgentOptions = Omit<AgentOptions, "initialState"> & {
 	initialState: CuaAgentInitialState;
 	/** Add your own pi tools alongside the built-in browser tools. */
 	extraTools?: AgentTool[];
-	/** Expose a helper for browser navigation and URL reads. */
-	computerUseExtra?: boolean;
+	/** Which canonical action plane(s) to expose: "computer" (default), "browser", or "hybrid". */
+	mode?: CuaMode;
+	/** Drive the model through a provider-native tool declaration (validated against `mode`). */
+	nativeTool?: CuaNativeToolSpec;
 	/** Expose a tool that runs Playwright code against the browser session. */
 	playwright?: boolean;
 };
@@ -104,8 +108,10 @@ export type CuaAgentHarnessOptions<
 	models?: Models;
 	/** Add your own pi tools alongside the built-in browser tools. */
 	extraTools?: AgentTool[];
-	/** Expose a helper for browser navigation and URL reads. */
-	computerUseExtra?: boolean;
+	/** Which canonical action plane(s) to expose: "computer" (default), "browser", or "hybrid". */
+	mode?: CuaMode;
+	/** Drive the model through a provider-native tool declaration (validated against `mode`). */
+	nativeTool?: CuaNativeToolSpec;
 	/** Expose a tool that runs Playwright code against the browser session. */
 	playwright?: boolean;
 	/** Optional payload hook composed after the provider-specific CUA payload hook. */
@@ -121,6 +127,7 @@ export type CuaAgentHarnessOptions<
 class CuaRuntimeController {
 	private runtimeSpec: CuaRuntimeSpec;
 	private translator: InternalComputerTranslator;
+	private currentMode?: CuaMode;
 
 	constructor(
 		private readonly options: {
@@ -128,17 +135,36 @@ class CuaRuntimeController {
 			client: Kernel;
 			model: CuaRuntimeInput;
 			extraTools?: AgentTool[];
-			computerUseExtra?: boolean;
+			mode?: CuaMode;
+			nativeTool?: CuaNativeToolSpec;
 			playwright?: boolean;
 			onPayload?: SimpleStreamOptions["onPayload"];
 		},
 	) {
-		this.runtimeSpec = resolveCuaRuntimeSpec(options.model);
+		this.currentMode = options.mode;
+		this.runtimeSpec = this.resolveSpec(options.model);
 		this.translator = this.createTranslator();
+	}
+
+	private resolveSpec(model: CuaRuntimeInput, mode: CuaMode | undefined = this.currentMode): CuaRuntimeSpec {
+		return resolveCuaRuntimeSpec(model, {
+			mode,
+			nativeTool: this.options.nativeTool,
+		});
 	}
 
 	get model(): Model<Api> {
 		return this.runtimeSpec.model;
+	}
+
+	get mode(): CuaMode {
+		return this.runtimeSpec.mode;
+	}
+
+	setMode(mode: CuaMode): void {
+		if (mode === this.runtimeSpec.mode) return;
+		this.beginSwitch(this.resolveSpec(this.runtimeSpec.model, mode));
+		this.currentMode = mode;
 	}
 
 	get systemPrompt(): string {
@@ -146,8 +172,54 @@ class CuaRuntimeController {
 	}
 
 	setModel(model: CuaRuntimeInput): void {
-		this.runtimeSpec = resolveCuaRuntimeSpec(model);
+		this.beginSwitch(this.resolveSpec(model));
+	}
+
+	// A mode/model switch is two-phase: when the new spec needs a different
+	// translator configuration, the outgoing translator must stay alive until
+	// the new toolset is actually installed, because on failure the
+	// still-exposed pre-switch tools keep executing against it.
+	private previousRuntime?: { spec: CuaRuntimeSpec; translator?: InternalComputerTranslator; mode?: CuaMode };
+
+	private beginSwitch(spec: CuaRuntimeSpec): void {
+		// The translator only cares about the provider's coordinate system and
+		// screenshot transform. Keep it — and its CDP connection, tabs, and
+		// refs — whenever those are unchanged (always true for mode switches).
+		const replaceTranslator =
+			JSON.stringify([spec.coordinateSystem, spec.screenshot]) !==
+			JSON.stringify([this.runtimeSpec.coordinateSystem, this.runtimeSpec.screenshot]);
+		if (!this.previousRuntime) {
+			this.previousRuntime = { spec: this.runtimeSpec, mode: this.currentMode };
+		}
+		this.runtimeSpec = spec;
+		if (!replaceTranslator) return;
+		if (this.previousRuntime.translator) {
+			// An earlier pending switch already replaced the translator; its
+			// replacement was never installed into the exposed tools, so
+			// dispose it rather than orphaning it.
+			this.translator.dispose();
+		} else {
+			this.previousRuntime.translator = this.translator;
+		}
 		this.translator = this.createTranslator();
+	}
+
+	/** Dispose the pre-switch translator (when one was replaced) once the new toolset is installed. */
+	commitSwitch(): void {
+		this.previousRuntime?.translator?.dispose();
+		this.previousRuntime = undefined;
+	}
+
+	/** Restore the pre-switch runtime; the translator the exposed tools wrap stays live. */
+	rollbackSwitch(): void {
+		if (!this.previousRuntime) return;
+		if (this.previousRuntime.translator) {
+			this.translator.dispose();
+			this.translator = this.previousRuntime.translator;
+		}
+		this.runtimeSpec = this.previousRuntime.spec;
+		this.currentMode = this.previousRuntime.mode;
+		this.previousRuntime = undefined;
 	}
 
 	tools(): AgentTool[] {
@@ -155,7 +227,7 @@ class CuaRuntimeController {
 			...buildCuaComputerTools(
 				{
 					toolExecutors: this.runtimeSpec.toolExecutors,
-					computerUseExtra: this.options.computerUseExtra,
+					mode: this.runtimeSpec.mode,
 					playwright: this.options.playwright,
 				},
 				this.translator,
@@ -179,7 +251,7 @@ class CuaRuntimeController {
 	keepToolNames(): string[] {
 		return [
 			...(this.options.extraTools ?? []).map((tool) => tool.name),
-			...(this.options.computerUseExtra ? [CUA_NAVIGATION_TOOL_NAME] : []),
+			CUA_NAVIGATION_TOOL_NAME,
 			...(this.options.playwright ? [CUA_PLAYWRIGHT_TOOL_NAME] : []),
 		];
 	}
@@ -221,7 +293,8 @@ export class CuaAgent extends Agent {
 			streamFn,
 			prepareNextTurn,
 			extraTools,
-			computerUseExtra,
+			mode,
+			nativeTool,
 			playwright,
 			...agentOptions
 		} = options;
@@ -230,7 +303,8 @@ export class CuaAgent extends Agent {
 			client,
 			model: initialState.model,
 			extraTools,
-			computerUseExtra,
+			mode,
+			nativeTool,
 			playwright,
 			onPayload,
 		});
@@ -313,6 +387,24 @@ export class CuaAgent extends Agent {
 		return this.stateProxy;
 	}
 
+	/** Switch the action plane(s) exposed to the model; takes effect next turn. */
+	setMode(mode: CuaMode): void {
+		if (mode === this.runtime.mode) return;
+		this.runtime.setMode(mode);
+		this.runtimeDirty = true;
+		const state = super.state;
+		state.tools = this.runtime.tools();
+		if (this.ownsSystemPrompt) {
+			state.systemPrompt = this.runtime.systemPrompt;
+		}
+		this.runtime.commitSwitch();
+	}
+
+	/** The action plane(s) currently exposed to the model. */
+	getMode(): CuaMode {
+		return this.runtime.mode;
+	}
+
 	private applyRuntime(model: CuaRuntimeInput): void {
 		this.runtime.setModel(model);
 		this.runtimeDirty = true;
@@ -322,6 +414,7 @@ export class CuaAgent extends Agent {
 		if (this.ownsSystemPrompt) {
 			state.systemPrompt = this.runtime.systemPrompt;
 		}
+		this.runtime.commitSwitch();
 	}
 }
 
@@ -347,7 +440,8 @@ export class CuaAgentHarness<
 			model,
 			models,
 			extraTools,
-			computerUseExtra,
+			mode,
+			nativeTool,
 			playwright,
 			systemPrompt,
 			onPayload,
@@ -359,7 +453,8 @@ export class CuaAgentHarness<
 			client,
 			model,
 			extraTools,
-			computerUseExtra,
+			mode,
+			nativeTool,
 			playwright,
 			onPayload,
 		});
@@ -393,13 +488,56 @@ export class CuaAgentHarness<
 	override async setModel(model: CuaRuntimeInput): Promise<void> {
 		this.runtime.setModel(model);
 		const tools = this.runtime.tools();
-		await super.setTools(tools, this.requestedActiveToolNames ?? tools.map((tool) => tool.name));
+		try {
+			await super.setTools(tools, this.requestedActiveToolNames ?? tools.map((tool) => tool.name));
+		} catch (err) {
+			// The pre-switch tools stay exposed, so restore the runtime they are
+			// bound to — including its still-live translator.
+			this.runtime.rollbackSwitch();
+			throw err;
+		}
+		this.runtime.commitSwitch();
 		await super.setModel(this.runtime.model);
 	}
 
 	override async setActiveTools(toolNames: string[]): Promise<void> {
 		await super.setActiveTools(toolNames);
 		this.requestedActiveToolNames = [...toolNames];
+	}
+
+	/**
+	 * Switch the action plane(s) exposed to the model and refresh CUA-owned
+	 * tools. Throws when the harness was configured with a `nativeTool` whose
+	 * plane conflicts with the requested mode.
+	 */
+	async setMode(mode: CuaMode): Promise<void> {
+		if (mode === this.runtime.mode) return;
+		const previousNames = new Set(this.getTools().map((tool) => tool.name));
+		this.runtime.setMode(mode);
+		const tools = this.runtime.tools();
+		// Tools that survive the mode switch (extraTools, shared names) keep
+		// their requested activation state; names new in this mode activate.
+		const requested = this.requestedActiveToolNames;
+		const active = requested
+			? tools.map((tool) => tool.name).filter((name) => !previousNames.has(name) || requested.includes(name))
+			: tools.map((tool) => tool.name);
+		try {
+			await super.setTools(tools, active);
+		} catch (err) {
+			// The pre-switch tools stay exposed, so restore the runtime they are
+			// bound to — including its still-live translator.
+			this.runtime.rollbackSwitch();
+			throw err;
+		}
+		this.runtime.commitSwitch();
+		// The requested subset now reflects this mode's toolset; without this a
+		// later setModel would restore the pre-switch names.
+		if (requested) this.requestedActiveToolNames = active;
+	}
+
+	/** The action plane(s) currently exposed to the model. */
+	getMode(): CuaMode {
+		return this.runtime.mode;
 	}
 }
 

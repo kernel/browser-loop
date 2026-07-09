@@ -24,7 +24,7 @@ describe("Cua tool executor coverage", () => {
 	it("instantiates one executor per provider execution adapter", () => {
 		const toolExecutors = resolveCuaRuntimeSpec("openai:gpt-5.5").toolExecutors;
 		const tools = createCuaComputerTools({ browser, client, toolExecutors });
-		expect(tools.map((tool) => tool.name).sort()).toEqual(toolExecutors.map((tool) => tool.definition.name).sort());
+		expect(tools.map((tool) => tool.name).sort()).toEqual([...toolExecutors.map((tool) => tool.definition.name), "computer_use_extra"].sort());
 	});
 
 	it("executes Yutori local canonical action tools", async () => {

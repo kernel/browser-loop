@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.5.0 - 2026-07-09
+
+Adds the browser action plane and runtime mode switching. Breaking: the
+`computerUseExtra` option is removed — the `computer_use_extra` navigation
+helper is always registered.
+
+- New `BrowserExecutor`: drives the browser plane over CDP. Accessibility
+  snapshots with element refs (`[e12]`), node states
+  (checked/expanded/disabled/value/…), and cursor:pointer clickable hints
+  for elements with no interactive ARIA role; iframe and OOPIF stitching
+  with per-frame session-aware refs; StaticText dedupe and wrapper
+  collapsing; an unchanged-snapshot short-circuit; lexical `find`, `fill`,
+  CDP navigation and tab management; and a JavaScript dialog guard. Refs invalidate on real
+  navigations (`Page.frameNavigated`), self-heal via (role, name, nth) when
+  the page changes but the element is still unambiguous, and the ref table is
+  bounded (per-target cap, generation sweeps). `exportRefState()` /
+  `importRefState()` persist refs across processes against the same browser.
+- `CuaAgent` and `CuaAgentHarness` accept `mode` (`"computer"` | `"browser"`
+  | `"hybrid"`) and `nativeTool`, and support runtime plane switching via
+  `setMode()` / `getMode()`. Mode switches preserve the requested activation
+  state of surviving tools and keep the translator — CDP connection, tabs,
+  and element refs — alive; the translator is only rebuilt when a model
+  switch changes the provider's coordinate system or screenshot transform.
+  Both switches roll back cleanly on failure.
+- Post-action grounding captures and the navigation helper are mode-aware:
+  browser mode grounds on the viewport and routes navigation through CDP
+  (browser and hybrid modes both route `computer_use_extra` navigation over
+  the browser plane so refs invalidate correctly).
+- Updated `@onkernel/cua-ai` to 0.5.0.
+
 ## 0.4.0 - 2026-07-07
 
 Breaking: follows pi-agent-core 0.80's `Models`-based harness.

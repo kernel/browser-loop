@@ -1,4 +1,19 @@
-import type { ActionType } from "./prompts";
+import type { ModelActionType } from "./prompts";
+
+/** Subcommands that execute directly against the browser/OS planes, no model involved. */
+export type DeterministicActionType =
+	| "open"
+	| "url"
+	| "snapshot"
+	| "text"
+	| "find"
+	| "fill"
+	| "press"
+	| "click"
+	| "tabs"
+	| "screenshot";
+
+export type ActionType = ModelActionType | DeterministicActionType;
 
 export type Status = "ok" | "not_found" | "error" | "timeout";
 
@@ -23,7 +38,7 @@ export interface ActionResult {
  * and any action events captured during the run.
  */
 export function parseResult(
-	action: ActionType,
+	action: ModelActionType,
 	textOutput: string,
 	actionEvents: ActionEventInfo[],
 	elapsedMs: number,
@@ -68,33 +83,9 @@ export function parseResult(
 		}
 	}
 
-	switch (action) {
-		case "observe":
-			result.text = trimmed;
-			break;
-		case "url": {
-			const url = extractFirstUrl(trimmed);
-			if (url) {
-				result.url = url;
-			} else if (trimmed) {
-				result.status = "error";
-				result.text = trimmed;
-			}
-			break;
-		}
-		default:
-			break;
-	}
+	if (action === "observe") result.text = trimmed;
 
 	return result;
-}
-
-function extractFirstUrl(text: string): string | undefined {
-	const matches = text.match(
-		/(?:https?:\/\/\S+|about:blank|file:\/\/\S+|chrome:\/\/\S+|chrome-extension:\/\/\S+|edge:\/\/\S+|brave:\/\/\S+)/gi,
-	);
-	if (!matches || matches.length === 0) return undefined;
-	return matches[matches.length - 1]!.replace(/[),.;!?]+$/, "");
 }
 
 export function formatCompact(r: ActionResult): string {
@@ -110,6 +101,7 @@ export function formatCompact(r: ActionResult): string {
 	switch (r.action as ActionType) {
 		case "click":
 			if (r.coordinates) return `ok clicked (${r.coordinates[0]}, ${r.coordinates[1]})`;
+			if (r.text) return `ok clicked ${r.text}`;
 			return "ok clicked";
 		case "type":
 			return "ok typed";
@@ -117,12 +109,18 @@ export function formatCompact(r: ActionResult): string {
 			return "ok";
 		case "press":
 			return "ok pressed";
+		case "fill":
+			return r.text ? `ok filled ${r.text}` : "ok filled";
 		case "observe":
+		case "snapshot":
+		case "text":
+		case "find":
+		case "tabs":
 			return r.text ?? "";
 		case "url":
 			return r.url ?? r.text ?? "";
 		case "screenshot":
-			return "ok";
+			return r.text ?? "ok";
 		case "do":
 			return r.text ?? "ok";
 		default:

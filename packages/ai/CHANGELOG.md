@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.5.0 - 2026-07-09
+
+Introduces action planes (modes) and Anthropic native computer-use tools.
+
+- New `mode` option (`"computer"` | `"browser"` | `"hybrid"`, exported as
+  `CuaMode`) on `resolveCuaRuntimeSpec`, `computerTools`, and the executor
+  builders selects which action plane(s) the model sees. `computer` is the
+  pre-modes default and stays byte-compatible. `browser` exposes the new
+  browser-plane canonical actions; `hybrid` exposes both planes deduplicated
+  to one tool per capability, with browser actions restricted to element refs
+  so the OS screenshot is the single coordinate frame.
+- New browser-plane canonical actions (`CUA_BROWSER_ACTION_TYPES`):
+  `browser_snapshot`, `browser_find`, `browser_text`, `browser_click`,
+  `browser_fill`, `browser_scroll_to`, `browser_navigate`,
+  `browser_list_tabs`, `browser_new_tab`, `browser_screenshot`,
+  `browser_evaluate`, and friends, with per-mode tool naming
+  (`cuaToolNameForAction`), descriptions, schemas, and system prompts.
+- New `nativeTool` option drives Anthropic models through their native
+  computer-use declarations: `computer_20260701` (computer mode, with
+  `enable_zoom`) and `browser_20260701` (browser mode) behind
+  `anthropic-beta: computer-use-2026-07-01`.
+- JavaScript execution is on by default: `browser_evaluate` is part of the
+  default browser/hybrid action sets, and native `browser_20260701`
+  declarations default `enable_javascript_exec` to true (an explicit value on
+  the spec wins). Opt out by passing an explicit `actions` list or native
+  tool spec.
+- New `zoom` computer action (cropped display inspection).
+
 ## 0.4.0 - 2026-07-07
 
 Breaking: adopts pi-ai 0.80's instance-based `Models` API and drops the

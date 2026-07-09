@@ -13,6 +13,7 @@ import {
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { cuaApiKeyEnvVarsForProvider } from "./api-keys";
 import { cuaOverrideModels } from "./models";
+import { ANTHROPIC_NATIVE_API_BETA_HEADERS, withAnthropicBetaHeader } from "./providers/anthropic/native";
 import { OPENAI_CUA_RESPONSES_API, streamOpenAIResponses, streamSimpleOpenAIResponses } from "./providers/openai/provider";
 import { streamSimpleTzafonResponses, streamTzafonResponses, TZAFON_RESPONSES_API } from "./providers/tzafon/provider";
 import { streamSimpleYutori, streamYutori, YUTORI_CHAT_COMPLETIONS_API } from "./providers/yutori/provider";
@@ -25,6 +26,10 @@ import { streamSimpleYutori, streamYutori, YUTORI_CHAT_COMPLETIONS_API } from ".
  *   {@link getCuaModel} routes OpenAI models to, threading
  *   `previous_response_id`; every other api falls through to pi's builtin
  *   provider.
+ * - `anthropic` intercepts the native computer/browser tool apis that
+ *   `resolveCuaRuntimeSpec` routes models with a `nativeTool` to, dispatching
+ *   them to pi's builtin `anthropic-messages` transport with the tool's
+ *   `anthropic-beta` header merged in.
  * - `google` resolves its API key from `GOOGLE_API_KEY` or `GEMINI_API_KEY`
  *   (pi's builtin only reads `GEMINI_API_KEY`).
  * - `tzafon` and `yutori` are CUA-only providers pi does not ship.
@@ -36,6 +41,8 @@ export function createCuaModels(options?: CreateModelsOptions): MutableModels {
 	const models = builtinModels(options);
 	const openai = models.getProvider("openai");
 	if (openai) models.setProvider(withOpenAICuaResponses(openai));
+	const anthropic = models.getProvider("anthropic");
+	if (anthropic) models.setProvider(withAnthropicNativeTools(anthropic));
 	const google = models.getProvider("google");
 	if (google) models.setProvider(withGoogleEnvKeys(google));
 	models.setProvider(tzafonProvider());
@@ -71,6 +78,27 @@ function withOpenAICuaResponses(base: Provider): Provider {
 			model.api === OPENAI_CUA_RESPONSES_API
 				? streamSimpleOpenAIResponses(model as never, context, options)
 				: base.streamSimple(model, context, options),
+	};
+}
+
+// Native-tool runs route Anthropic models to a CUA-owned api id (see
+// resolveCuaRuntimeSpec) so the required `anthropic-beta` header can be
+// injected here; the request otherwise flows through pi's builtin
+// anthropic-messages transport.
+function withAnthropicNativeTools(base: Provider): Provider {
+	const toBuiltin = (model: Model<Api>): Model<Api> => ({ ...model, api: "anthropic-messages" as Model<Api>["api"] });
+	return {
+		...base,
+		stream: (model: Model<Api>, context: Context, options?: StreamOptions) => {
+			const beta = ANTHROPIC_NATIVE_API_BETA_HEADERS[model.api];
+			return beta ? base.stream(toBuiltin(model), context, withAnthropicBetaHeader(options, beta)) : base.stream(model, context, options);
+		},
+		streamSimple: (model: Model<Api>, context: Context, options?: SimpleStreamOptions) => {
+			const beta = ANTHROPIC_NATIVE_API_BETA_HEADERS[model.api];
+			return beta
+				? base.streamSimple(toBuiltin(model), context, withAnthropicBetaHeader(options, beta))
+				: base.streamSimple(model, context, options);
+		},
 	};
 }
 

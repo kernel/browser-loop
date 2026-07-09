@@ -10,7 +10,9 @@ import {
 } from "@onkernel/cua-agent";
 import {
 	type Api,
+	type CuaMode,
 	type CuaModelRef,
+	type CuaNativeToolSpec,
 	type Model,
 	type Models,
 	getCuaModel,
@@ -31,6 +33,10 @@ export interface BuildCuaHarnessOptions {
 	/** Context files (AGENTS.md, CLAUDE.md, …) appended to the system prompt. */
 	contextFiles?: ContextFile[];
 	thinkingLevel?: ThinkingLevel;
+	/** Which canonical action plane(s) to expose: "computer" (default), "browser", or "hybrid". */
+	mode?: CuaMode;
+	/** Drive the model through a provider-native tool declaration (validated against `mode`). */
+	nativeTool?: CuaNativeToolSpec;
 	/** Expose the playwright_execute tool that runs Playwright code against the browser session. */
 	playwright?: boolean;
 	/** Override the default coding-tools extraTools (bash/read/edit/write/grep/find/ls). */
@@ -55,22 +61,31 @@ export function buildCuaHarness(opts: BuildCuaHarnessOptions): CuaAgentHarness {
 	const model: CuaModelRef | Model<Api> = opts.modelBaseUrl
 		? { ...getCuaModel(opts.model), baseUrl: opts.modelBaseUrl }
 		: opts.model;
-	return new CuaAgentHarness({
+	// The system-prompt callback re-resolves per turn and must see the live
+	// mode after /mode switches, so it reads it from the harness (late-bound).
+	let harness: CuaAgentHarness | undefined;
+	harness = new CuaAgentHarness({
 		env: new NodeExecutionEnv({ cwd: opts.cwd }),
 		session: opts.session,
 		model,
 		browser: opts.browser,
 		client: opts.client,
 		extraTools,
+		mode: opts.mode,
+		nativeTool: opts.nativeTool,
 		playwright: opts.playwright,
 		resources: { skills },
 		thinkingLevel: opts.thinkingLevel,
 		systemPrompt: ({ model: activeModel, resources }) => {
-			const runtime = resolveCuaRuntimeSpec(activeModel);
+			const runtime = resolveCuaRuntimeSpec(activeModel, {
+				mode: harness?.getMode() ?? opts.mode,
+				nativeTool: opts.nativeTool,
+			});
 			return composeSystemPrompt(runtime.defaultSystemPrompt, resources.skills ?? [], contextFiles);
 		},
 		models: opts.models,
 	});
+	return harness;
 }
 
 function composeSystemPrompt(base: string, skills: Skill[], contextFiles: ContextFile[]): string {

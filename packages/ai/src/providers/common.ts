@@ -9,291 +9,50 @@ import {
 	type TSchema,
 	type Tool,
 } from "@earendil-works/pi-ai";
+import { CUA_DEFAULT_COMPUTER_ACTION_TYPES, cuaActionSchemaByType, type CuaAction, type CuaActionType } from "../actions/index";
+import { cuaToolDescriptionForAction, cuaToolNameForAction, defaultActionsForMode, schemaOptionsForMode, type CuaMode } from "../modes";
+import type { ResolvedCuaNativeTool } from "../native-tools";
 import type { CuaModelRef, CuaProvider } from "../models";
 
-export const CUA_ACTION_TYPES = [
-	"click",
-	"double_click",
-	"mouse_down",
-	"mouse_up",
-	"type",
-	"keypress",
-	"scroll",
-	"move",
-	"drag",
-	"wait",
-	"screenshot",
-	"goto",
-	"back",
-	"forward",
-	"url",
-	"cursor_position",
-] as const;
-
-export type CuaActionType = (typeof CUA_ACTION_TYPES)[number];
+export * from "../actions/index";
+export * from "../modes";
+export * from "../native-tools";
 
 /**
- * Mouse buttons accepted by click, mouse_down, and mouse_up actions. The
- * executor coerces anything outside this set to "left".
+ * The default computer-mode action set: every computer-plane action except `zoom`.
+ * The full canonical vocabulary is split by plane into
+ * {@link CUA_COMPUTER_ACTION_TYPES} and {@link CUA_BROWSER_ACTION_TYPES}.
  */
-export type CuaMouseButton = "left" | "right" | "middle" | "back" | "forward";
-
-/**
- * Mouse buttons accepted by drag actions. The executor coerces anything
- * outside this set to "left".
- */
-export type CuaDragMouseButton = "left" | "right" | "middle";
-
-export interface CuaActionClick {
-	type: "click";
-	x: number;
-	y: number;
-	button?: CuaMouseButton;
-	hold_keys?: string[];
-}
-
-export interface CuaActionDoubleClick {
-	type: "double_click";
-	x: number;
-	y: number;
-	hold_keys?: string[];
-}
-
-export interface CuaActionMouseDown {
-	type: "mouse_down";
-	x: number;
-	y: number;
-	button?: CuaMouseButton;
-	hold_keys?: string[];
-}
-
-export interface CuaActionMouseUp {
-	type: "mouse_up";
-	x: number;
-	y: number;
-	button?: CuaMouseButton;
-	hold_keys?: string[];
-}
-
-export interface CuaActionTypeText {
-	type: "type";
-	text: string;
-}
-
-export interface CuaActionKeypress {
-	type: "keypress";
-	keys: string[];
-	duration?: number;
-}
-
-export interface CuaActionScroll {
-	type: "scroll";
-	x?: number;
-	y?: number;
-	scroll_x?: number;
-	scroll_y?: number;
-	hold_keys?: string[];
-}
-
-export interface CuaActionMove {
-	type: "move";
-	x: number;
-	y: number;
-}
-
-export interface CuaActionDrag {
-	type: "drag";
-	path: Array<{ x: number; y: number }>;
-	button?: CuaDragMouseButton;
-	hold_keys?: string[];
-}
-
-export interface CuaActionWait {
-	type: "wait";
-	ms?: number;
-}
-
-export interface CuaActionScreenshot {
-	type: "screenshot";
-}
-
-export interface CuaActionGoto {
-	type: "goto";
-	url: string;
-}
-
-export interface CuaActionBack {
-	type: "back";
-}
-
-export interface CuaActionForward {
-	type: "forward";
-}
-
-export interface CuaActionUrl {
-	type: "url";
-}
-
-export interface CuaActionCursorPosition {
-	type: "cursor_position";
-}
-
-export type CuaAction =
-	| CuaActionClick
-	| CuaActionDoubleClick
-	| CuaActionMouseDown
-	| CuaActionMouseUp
-	| CuaActionTypeText
-	| CuaActionKeypress
-	| CuaActionScroll
-	| CuaActionMove
-	| CuaActionDrag
-	| CuaActionWait
-	| CuaActionScreenshot
-	| CuaActionGoto
-	| CuaActionBack
-	| CuaActionForward
-	| CuaActionUrl
-	| CuaActionCursorPosition;
-
-const PointSchema = Type.Object(
-	{
-		x: Type.Number(),
-		y: Type.Number(),
-	},
-	{ additionalProperties: false },
-);
-
-const CUA_ACTION_SCHEMA_BY_TYPE = {
-	click: Type.Object(
-		{
-			type: Type.Literal("click"),
-			x: Type.Number(),
-			y: Type.Number(),
-			button: Type.Optional(Type.String()),
-			hold_keys: Type.Optional(Type.Array(Type.String())),
-		},
-		{ additionalProperties: false },
-	),
-	double_click: Type.Object(
-		{
-			type: Type.Literal("double_click"),
-			x: Type.Number(),
-			y: Type.Number(),
-			hold_keys: Type.Optional(Type.Array(Type.String())),
-		},
-		{ additionalProperties: false },
-	),
-	mouse_down: Type.Object(
-		{
-			type: Type.Literal("mouse_down"),
-			x: Type.Number(),
-			y: Type.Number(),
-			button: Type.Optional(Type.String()),
-			hold_keys: Type.Optional(Type.Array(Type.String())),
-		},
-		{ additionalProperties: false },
-	),
-	mouse_up: Type.Object(
-		{
-			type: Type.Literal("mouse_up"),
-			x: Type.Number(),
-			y: Type.Number(),
-			button: Type.Optional(Type.String()),
-			hold_keys: Type.Optional(Type.Array(Type.String())),
-		},
-		{ additionalProperties: false },
-	),
-	type: Type.Object(
-		{
-			type: Type.Literal("type"),
-			text: Type.String(),
-		},
-		{ additionalProperties: false },
-	),
-	keypress: Type.Object(
-		{
-			type: Type.Literal("keypress"),
-			keys: Type.Array(Type.String()),
-			duration: Type.Optional(Type.Number()),
-		},
-		{ additionalProperties: false },
-	),
-	scroll: Type.Object(
-		{
-			type: Type.Literal("scroll"),
-			x: Type.Optional(Type.Number()),
-			y: Type.Optional(Type.Number()),
-			scroll_x: Type.Optional(Type.Number()),
-			scroll_y: Type.Optional(Type.Number()),
-			hold_keys: Type.Optional(Type.Array(Type.String())),
-		},
-		{ additionalProperties: false },
-	),
-	move: Type.Object(
-		{
-			type: Type.Literal("move"),
-			x: Type.Number(),
-			y: Type.Number(),
-		},
-		{ additionalProperties: false },
-	),
-	drag: Type.Object(
-		{
-			type: Type.Literal("drag"),
-			path: Type.Array(PointSchema, { minItems: 2 }),
-			button: Type.Optional(Type.String()),
-			hold_keys: Type.Optional(Type.Array(Type.String())),
-		},
-		{ additionalProperties: false },
-	),
-	wait: Type.Object(
-		{
-			type: Type.Literal("wait"),
-			ms: Type.Optional(Type.Number()),
-		},
-		{ additionalProperties: false },
-	),
-	screenshot: Type.Object({ type: Type.Literal("screenshot") }, { additionalProperties: false }),
-	goto: Type.Object(
-		{
-			type: Type.Literal("goto"),
-			url: Type.String(),
-		},
-		{ additionalProperties: false },
-	),
-	back: Type.Object({ type: Type.Literal("back") }, { additionalProperties: false }),
-	forward: Type.Object({ type: Type.Literal("forward") }, { additionalProperties: false }),
-	url: Type.Object({ type: Type.Literal("url") }, { additionalProperties: false }),
-	cursor_position: Type.Object({ type: Type.Literal("cursor_position") }, { additionalProperties: false }),
-} satisfies Record<CuaActionType, TSchema>;
+export const CUA_ACTION_TYPES = CUA_DEFAULT_COMPUTER_ACTION_TYPES;
 
 type ObjectSchemaWithProperties = TSchema & { properties: Record<string, TSchema> };
 
-function createCuaActionArgumentSchema(action: CuaActionType): TSchema {
-	const { type: _type, ...properties } = (CUA_ACTION_SCHEMA_BY_TYPE[action] as ObjectSchemaWithProperties).properties;
+function createCuaActionArgumentSchema(action: CuaActionType, mode: CuaMode): TSchema {
+	const schemaByType = cuaActionSchemaByType(schemaOptionsForMode(mode));
+	const { type: _type, ...properties } = (schemaByType[action] as ObjectSchemaWithProperties).properties;
 	return Type.Object(properties, { additionalProperties: false });
 }
 
-export function createCuaActionSchema(actions: readonly CuaActionType[] = CUA_ACTION_TYPES): TSchema {
+export function createCuaActionSchema(actions: readonly CuaActionType[] = CUA_ACTION_TYPES, mode: CuaMode = "computer"): TSchema {
 	if (actions.length === 0) throw new Error("actions must include at least one CUA action type");
-	if (actions.length === 1) return CUA_ACTION_SCHEMA_BY_TYPE[actions[0]!];
-	return Type.Union(actions.map((action) => CUA_ACTION_SCHEMA_BY_TYPE[action]));
+	const schemaByType = cuaActionSchemaByType(schemaOptionsForMode(mode));
+	if (actions.length === 1) return schemaByType[actions[0]!];
+	return Type.Union(actions.map((action) => schemaByType[action]));
 }
 
-export function createCuaActionToolDefinitions(actions: readonly CuaActionType[] = CUA_ACTION_TYPES): Tool[] {
+export function createCuaActionToolDefinitions(actions: readonly CuaActionType[] = CUA_ACTION_TYPES, mode: CuaMode = "computer"): Tool[] {
 	return actions.map((action) => ({
-		name: action,
-		description: `Execute one ${action} computer action.`,
-		parameters: createCuaActionArgumentSchema(action),
+		name: cuaToolNameForAction(action, mode),
+		description: cuaToolDescriptionForAction(action, mode),
+		parameters: createCuaActionArgumentSchema(action, mode),
 	}));
 }
 
 export const CuaActionSchema = createCuaActionSchema();
 
-export function createCuaBatchSchema(actions?: readonly CuaActionType[]): TSchema {
+export function createCuaBatchSchema(actions?: readonly CuaActionType[], mode: CuaMode = "computer"): TSchema {
 	return Type.Object({
-		actions: Type.Array(createCuaActionSchema(actions), { description: "Ordered computer actions to execute." }),
+		actions: Type.Array(createCuaActionSchema(actions, mode), { description: "Ordered computer actions to execute." }),
 	});
 }
 
@@ -358,6 +117,8 @@ export const CUA_PLAYWRIGHT_TOOL_DESCRIPTION = [
 
 export interface ComputerToolsOptions {
 	actions?: readonly CuaActionType[];
+	/** Which action plane(s) to expose. Default "computer". */
+	mode?: CuaMode;
 }
 
 export type ComputerToolCoordinateSystem =
@@ -377,13 +138,25 @@ export type ComputerToolCoordinateSystem =
  * smaller set, such as `["click"]`.
  */
 export function computerTools(options: ComputerToolsOptions = {}): Tool[] {
-	return createCuaActionToolDefinitions(options.actions);
+	return createCuaActionToolDefinitions(resolveModeActions(options), options.mode ?? "computer");
+}
+
+/** Resolve the action list for a tools-options object: explicit list, or the mode's default set. */
+export function resolveModeActions(options: ComputerToolsOptions = {}): readonly CuaActionType[] {
+	return options.actions ?? defaultActionsForMode(options.mode ?? "computer");
+}
+
+/** Guard for providers whose computer-use vocabulary only covers the computer plane. */
+export function assertComputerModeOnly(provider: CuaProvider, options: ComputerToolsOptions = {}): void {
+	const mode = options.mode ?? "computer";
+	if (mode !== "computer") throw new Error(`provider "${provider}" does not support mode "${mode}" (computer only)`);
 }
 
 /** Build execution adapters for individual canonical CUA action tools. */
-export function createCuaActionToolExecutors(actions: readonly CuaActionType[] = CUA_ACTION_TYPES): CuaToolExecutorSpec[] {
-	return createCuaActionToolDefinitions(actions).map((definition) => {
-		const actionType = definition.name as CuaActionType;
+export function createCuaActionToolExecutors(actions: readonly CuaActionType[] = CUA_ACTION_TYPES, mode: CuaMode = "computer"): CuaToolExecutorSpec[] {
+	const definitions = createCuaActionToolDefinitions(actions, mode);
+	return definitions.map((definition, index) => {
+		const actionType = actions[index]!;
 		return {
 			definition,
 			toActions(args: unknown): CuaAction[] {
@@ -414,19 +187,19 @@ export function normalizeGotoUrl(value: unknown): string | undefined {
 
 export function createCuaBatchToolDefinition(
 	actions?: readonly CuaActionType[],
-	options: { name?: string; description?: string } = {},
+	options: { name?: string; description?: string; mode?: CuaMode } = {},
 ): Tool {
 	return {
 		name: options.name ?? CUA_BATCH_TOOL_NAME,
 		description: options.description ?? CUA_BATCH_TOOL_DESCRIPTION,
-		parameters: createCuaBatchSchema(actions),
+		parameters: createCuaBatchSchema(actions, options.mode ?? "computer"),
 	};
 }
 
 /** Build an execution adapter for a batch tool whose input is `{ actions }`. */
 export function createCuaBatchToolExecutor(
 	actions?: readonly CuaActionType[],
-	options: { name?: string; description?: string } = {},
+	options: { name?: string; description?: string; mode?: CuaMode } = {},
 ): CuaToolExecutorSpec {
 	const definition = createCuaBatchToolDefinition(actions, options);
 	return {
@@ -440,7 +213,7 @@ export function createCuaBatchToolExecutor(
 
 /** Build the provider's default CUA tool execution adapters. */
 export function computerToolExecutors(options: ComputerToolsOptions = {}): CuaToolExecutorSpec[] {
-	return createCuaActionToolExecutors(options.actions);
+	return createCuaActionToolExecutors(resolveModeActions(options), options.mode ?? "computer");
 }
 
 function isBatchInput(value: unknown): value is CuaBatchInput {
@@ -530,17 +303,19 @@ export interface ResponseThreadingDelta {
  * Anchors on the most recent assistant turn: returns its `responseId` and the
  * messages after it (the delta). An errored or aborted turn may carry a
  * `responseId` captured from an incomplete response the server never stored, so
- * its id is ignored. When the anchor has no usable `responseId`, or there is no
- * assistant turn yet, returns every message and no id so the caller replays the
- * full history, rather than chaining to a phantom id and pruning past it.
+ * its id is ignored. A turn produced by a different `api` (e.g. after a
+ * mid-session `-m` provider switch) is ignored too — its id would be foreign to
+ * the current provider. When the anchor has no usable `responseId`, or there is
+ * no assistant turn yet, returns every message and no id so the caller replays
+ * the full history, rather than chaining to a phantom id and pruning past it.
  */
-export function responseThreadingDelta(messages: readonly Message[]): ResponseThreadingDelta {
+export function responseThreadingDelta(messages: readonly Message[], api: Api): ResponseThreadingDelta {
 	for (let index = messages.length - 1; index >= 0; index -= 1) {
 		const message = messages[index]!;
 		if (message.role !== "assistant") continue;
 		const assistant = message as AssistantMessage;
 		const failed = assistant.stopReason === "error" || assistant.stopReason === "aborted";
-		const responseId = failed ? undefined : assistant.responseId;
+		const responseId = failed || assistant.api !== api ? undefined : assistant.responseId;
 		return responseId ? { previousResponseId: responseId, deltaMessages: messages.slice(index + 1) } : { deltaMessages: [...messages] };
 	}
 	return { deltaMessages: [...messages] };
@@ -556,6 +331,10 @@ export function responseThreadingDelta(messages: readonly Message[]): ResponseTh
 export interface CuaRuntimeSpec {
 	model: Model<Api>;
 	provider: CuaProvider;
+	/** Which canonical action plane(s) this runtime exposes. */
+	mode: CuaMode;
+	/** Present when the model is driven through a provider-native tool declaration. */
+	nativeTool?: ResolvedCuaNativeTool;
 	/** Provider-facing CUA tool definitions used for model requests. */
 	toolDefinitions: Tool[];
 	/** Local execution adapters that turn provider tool calls into canonical CUA actions. */
@@ -581,7 +360,7 @@ export interface CuaProviderModule {
 	/** Coordinate convention emitted by this provider's tool calls. */
 	coordinateSystem(): ComputerToolCoordinateSystem;
 	/** Provider-tuned baseline browser-control system prompt. */
-	buildSystemPrompt(opts?: { suffix?: string }): string;
+	buildSystemPrompt(opts?: { suffix?: string; mode?: CuaMode }): string;
 	/** Optional request-payload middleware for provider protocol quirks. */
 	onPayload?: CuaPayloadHook;
 	/** Optional provider screenshot input policy. */

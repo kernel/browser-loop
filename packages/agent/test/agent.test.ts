@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createAssistantMessageEventStream, type AssistantMessage } from "@earendil-works/pi-ai";
 import { resolveCuaRuntimeSpec } from "@onkernel/cua-ai";
 import type Kernel from "@onkernel/sdk";
@@ -92,7 +92,7 @@ describe("CuaAgent", () => {
 			},
 		});
 
-		expect(agent.state.tools.map((item) => item.name)).toEqual([...runtime.toolExecutors.map((item) => item.definition.name), "custom"]);
+		expect(agent.state.tools.map((item) => item.name)).toEqual([...runtime.toolExecutors.map((item) => item.definition.name), "computer_use_extra", "custom"]);
 	});
 
 	it("always keeps provider CUA tools when adding extra tools", () => {
@@ -109,7 +109,7 @@ describe("CuaAgent", () => {
 			},
 		});
 
-		expect(agent.state.tools.map((item) => item.name)).toEqual([...runtime.toolExecutors.map((item) => item.definition.name), "custom"]);
+		expect(agent.state.tools.map((item) => item.name)).toEqual([...runtime.toolExecutors.map((item) => item.definition.name), "computer_use_extra", "custom"]);
 		expect(agent.state.systemPrompt).toBe("Use the browser carefully.");
 	});
 
@@ -124,15 +124,14 @@ describe("CuaAgent", () => {
 		});
 
 		expect(runtime.toolDefinitions.map((tool) => tool.name)).toContain(ANTHROPIC_BATCH_TOOL_NAME);
-		expect(agent.state.tools.map((tool) => tool.name)).toEqual(runtime.toolExecutors.map((tool) => tool.definition.name));
+		expect(agent.state.tools.map((tool) => tool.name)).toEqual([...runtime.toolExecutors.map((tool) => tool.definition.name), "computer_use_extra"]);
 	});
 
-	it("synthesizes navigation tools when requested", () => {
+	it("synthesizes navigation tools by default", () => {
 		const runtime = resolveCuaRuntimeSpec("openai:gpt-5.5");
 		const agent = new CuaAgent({
 			browser,
 			client,
-			computerUseExtra: true,
 			initialState: {
 				model: "openai:gpt-5.5",
 			},
@@ -157,6 +156,7 @@ describe("CuaAgent", () => {
 
 		expect(agent.state.tools.map((tool) => tool.name)).toEqual([
 			...runtime.toolExecutors.map((tool) => tool.definition.name),
+			"computer_use_extra",
 			"playwright_execute",
 		]);
 	});
@@ -175,7 +175,41 @@ describe("CuaAgent", () => {
 
 		expect(agent.state.model.id).toBe(runtime.model.id);
 		expect(agent.state.systemPrompt).toBe(runtime.defaultSystemPrompt);
-		expect(agent.state.tools).toHaveLength(runtime.toolExecutors.length);
+		expect(agent.state.tools).toHaveLength(runtime.toolExecutors.length + 1);
+	});
+
+	it("switches action planes through setMode", () => {
+		const agent = new CuaAgent({
+			browser,
+			client,
+			initialState: {
+				model: "anthropic:claude-opus-4-5",
+			},
+		});
+		expect(agent.getMode()).toBe("computer");
+		expect(agent.state.tools.map((tool) => tool.name)).toContain("click");
+
+		agent.setMode("browser");
+
+		expect(agent.getMode()).toBe("browser");
+		const names = agent.state.tools.map((tool) => tool.name);
+		expect(names).toContain("snapshot");
+		expect(names).not.toContain("move");
+		expect(agent.state.systemPrompt).toBe(resolveCuaRuntimeSpec("anthropic:claude-opus-4-5", { mode: "browser" }).defaultSystemPrompt);
+	});
+
+	it("rejects setMode conflicting with a configured native tool", () => {
+		const agent = new CuaAgent({
+			browser,
+			client,
+			nativeTool: { type: "browser_20260701" },
+			initialState: {
+				model: "anthropic:claude-opus-4-5",
+			},
+		});
+		expect(agent.getMode()).toBe("browser");
+		expect(() => agent.setMode("computer")).toThrow(/requires mode "browser"/);
+		expect(agent.getMode()).toBe("browser");
 	});
 
 	it("keeps extra tools and caller-owned system prompt when state.model changes", () => {
@@ -193,7 +227,7 @@ describe("CuaAgent", () => {
 		agent.state.model = "google:gemini-3-flash-preview";
 
 		const runtime = resolveCuaRuntimeSpec("google:gemini-3-flash-preview");
-		expect(agent.state.tools.map((item) => item.name)).toEqual([...runtime.toolExecutors.map((item) => item.definition.name), "custom"]);
+		expect(agent.state.tools.map((item) => item.name)).toEqual([...runtime.toolExecutors.map((item) => item.definition.name), "computer_use_extra", "custom"]);
 		expect(agent.state.systemPrompt).toBe("custom prompt");
 	});
 
@@ -265,7 +299,6 @@ describe("CuaAgent", () => {
 			client: screenshotClient,
 			streamFn,
 			extraTools: [createCustomTool("custom_tool")],
-			computerUseExtra: true,
 			initialState: {
 				model: "yutori:n1.5-latest",
 			},
@@ -308,7 +341,7 @@ describe("CuaAgent", () => {
 
 		const update = await agent.prepareNextTurn?.(undefined);
 		expect(update?.model?.id).toBe(runtime.model.id);
-		expect(update?.context?.tools).toHaveLength(runtime.toolExecutors.length);
+		expect(update?.context?.tools).toHaveLength(runtime.toolExecutors.length + 1);
 
 		await expect(agent.prepareNextTurn?.(undefined)).resolves.toBeUndefined();
 	});
@@ -389,7 +422,195 @@ describe("CuaAgentHarness", () => {
 		await harness.setModel("google:gemini-3-flash-preview");
 
 		expect(harness.getModel().id).toBe(runtime.model.id);
-		expect(harness.getTools()).toHaveLength(runtime.toolExecutors.length);
+		expect(harness.getTools()).toHaveLength(runtime.toolExecutors.length + 1);
+	});
+
+	it("switches action planes through setMode", async () => {
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "anthropic:claude-opus-4-5",
+		});
+		expect(harness.getMode()).toBe("computer");
+
+		await harness.setMode("hybrid");
+
+		expect(harness.getMode()).toBe("hybrid");
+		const names = harness.getTools().map((tool) => tool.name);
+		expect(names).toContain("computer_click");
+		expect(names).toContain("browser_snapshot");
+	});
+
+	it("setMode keeps the requested activation state of surviving tools", async () => {
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "anthropic:claude-opus-4-5",
+			extraTools: [createCustomTool()],
+		});
+		const withoutCustom = harness
+			.getTools()
+			.map((tool) => tool.name)
+			.filter((name) => name !== "custom");
+		await harness.setActiveTools(withoutCustom);
+
+		await harness.setMode("browser");
+
+		const active = harness.getActiveTools().map((tool) => tool.name);
+		expect(active).toContain("snapshot");
+		expect(active).not.toContain("custom");
+	});
+
+	it("setModel after setMode keeps the mode's active tool subset", async () => {
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "anthropic:claude-opus-4-5",
+			extraTools: [createCustomTool()],
+		});
+		const withoutCustom = harness
+			.getTools()
+			.map((tool) => tool.name)
+			.filter((name) => name !== "custom");
+		await harness.setActiveTools(withoutCustom);
+		await harness.setMode("browser");
+
+		await harness.setModel("anthropic:claude-opus-4-7");
+
+		const active = harness.getActiveTools().map((tool) => tool.name);
+		expect(active).toContain("snapshot");
+		expect(active).not.toContain("custom");
+	});
+
+	it("a failed mode switch keeps the pre-switch runtime and its live translator", async () => {
+		const { env, session } = await createHarnessServices();
+		let failWrites = false;
+		const flakySession = new Proxy(session, {
+			get(target, prop, receiver) {
+				if (prop === "appendActiveToolsChange" && failWrites) {
+					return () => Promise.reject(new Error("session write failed"));
+				}
+				return Reflect.get(target, prop, receiver);
+			},
+		});
+		const harness = new CuaAgentHarness({
+			env,
+			session: flakySession,
+			browser,
+			client,
+			model: "anthropic:claude-opus-4-5",
+		});
+		const runtime = (harness as unknown as { runtime: { translator: unknown } }).runtime;
+		const translatorBefore = runtime.translator;
+
+		failWrites = true;
+		await expect(harness.setMode("browser")).rejects.toThrow("session write failed");
+
+		// The exposed tools wrap this translator; rollback must not have
+		// disposed or replaced it.
+		expect(runtime.translator).toBe(translatorBefore);
+		expect(harness.getMode()).toBe("computer");
+
+		failWrites = false;
+		await harness.setMode("browser");
+		expect(harness.getMode()).toBe("browser");
+		expect(harness.getTools().map((tool) => tool.name)).toContain("snapshot");
+	});
+
+	it("setMode keeps the translator and its CDP-backed state alive", async () => {
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "anthropic:claude-opus-4-5",
+		});
+		const runtime = (harness as unknown as { runtime: { translator: unknown } }).runtime;
+		const translator = runtime.translator;
+
+		await harness.setMode("browser");
+		await harness.setMode("hybrid");
+
+		expect(runtime.translator).toBe(translator);
+	});
+
+	it("setModel keeps the translator when the provider translator config is unchanged", async () => {
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "anthropic:claude-opus-4-5",
+		});
+		const runtime = (harness as unknown as { runtime: { translator: unknown } }).runtime;
+		const translator = runtime.translator;
+
+		await harness.setModel("anthropic:claude-opus-4-7");
+		expect(runtime.translator).toBe(translator);
+
+		// Gemini uses a normalized coordinate system: the translator must be rebuilt.
+		await harness.setModel("google:gemini-3-flash-preview");
+		expect(runtime.translator).not.toBe(translator);
+	});
+
+	it("an overlapping model switch disposes the superseded pending translator", async () => {
+		const { env, session } = await createHarnessServices();
+		let gate: Promise<void> | undefined;
+		const gatedSession = new Proxy(session, {
+			get(target, prop, receiver) {
+				const value = Reflect.get(target, prop, receiver);
+				if (prop === "appendActiveToolsChange" && gate) {
+					const pending = gate;
+					gate = undefined;
+					return async (...args: unknown[]) => {
+						await pending;
+						return (value as (...a: unknown[]) => Promise<void>).apply(target, args);
+					};
+				}
+				return typeof value === "function" ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+			},
+		});
+		const harness = new CuaAgentHarness({
+			env,
+			session: gatedSession,
+			browser,
+			client,
+			model: "anthropic:claude-opus-4-5",
+		});
+		const runtime = (harness as unknown as { runtime: { translator: { dispose(): void } } }).runtime;
+		const original = vi.spyOn(runtime.translator, "dispose");
+
+		let release!: () => void;
+		gate = new Promise((resolve) => {
+			release = resolve;
+		});
+		const first = harness.setModel("google:gemini-3-flash-preview");
+		const superseded = vi.spyOn(runtime.translator, "dispose");
+
+		const second = harness.setModel("openai:gpt-5.5");
+		release();
+		await Promise.all([first, second]);
+
+		// Neither the original nor the superseded pending translator may leak.
+		expect(original).toHaveBeenCalled();
+		expect(superseded).toHaveBeenCalled();
+		expect(harness.getModel().id).toBe("gpt-5.5");
+	});
+
+	it("treats a repeated setMode as a no-op", async () => {
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "anthropic:claude-opus-4-5",
+		});
+		const before = harness.getTools();
+
+		await harness.setMode("computer");
+
+		// Same tool instances: the translator and its CDP state were not replaced.
+		expect(harness.getTools()[0]).toBe(before[0]);
 	});
 
 	it("appends extraTools in harness construction", async () => {
@@ -405,6 +626,7 @@ describe("CuaAgentHarness", () => {
 
 		expect(harness.getTools().map((item) => item.name)).toEqual([
 			...runtime.toolExecutors.map((item) => item.definition.name),
+			"computer_use_extra",
 			"custom",
 		]);
 	});
@@ -437,7 +659,7 @@ describe("CuaAgentHarness", () => {
 		await harness.setModel("google:gemini-3-flash-preview");
 
 		expect(harness.getTools()).toHaveLength(
-			resolveCuaRuntimeSpec("google:gemini-3-flash-preview").toolExecutors.length,
+			resolveCuaRuntimeSpec("google:gemini-3-flash-preview").toolExecutors.length + 1,
 		);
 		expect(harness.getActiveTools().map((tool) => tool.name)).toEqual(["click", "screenshot"]);
 

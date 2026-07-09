@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { stderr, stdout } from "node:process";
 import { parseArgs } from "node:util";
-import { type ActionType } from "./action/prompts";
+import { type ModelActionType } from "./action/prompts";
+import { deterministicActionFor, runDeterministicCommand } from "./cli-executor";
 import {
 	runActionCommand,
 	runInteractiveCommand,
@@ -17,16 +18,31 @@ const HELP = `cua — Kernel-cloud-browser computer-use agent
 Usage:
   cua [options] [prompt...]
   cua --print "go to news.ycombinator.com and summarize"
-  cua open <url>
+  cua open <url|back|forward>
+  cua url
+  cua snapshot [--filter interactive]
+  cua find "<query>"
+  cua text
+  cua fill <ref|"query"> "<value>"
+  cua press <key> [key...]
+  cua click <x> <y> | cua click <ref>
+  cua tabs
+  cua screenshot [--out file|-]
+
   cua click "<description>"
   cua type "<target>" "<text>"
-  cua press <key> [key...]
   cua observe ["<question>"]
-  cua url
-  cua screenshot [--out file|-]
   cua do "<instruction>"
   cua models [-p provider]
   cua session start [name] | stop <name> | list | show <name>
+
+Subcommands above the blank line are model-free: they run directly against
+the browser (no LLM, no model API key; only KERNEL_API_KEY). \`click <x> <y>\`
+with exactly two integer arguments clicks those viewport coordinates without
+a model, and \`click e12\` / \`fill e12 ...\` target an element ref minted by
+\`snapshot\` or \`find\`; any other \`click\` argument is a natural-language
+description resolved by the model. With \`-s <name>\`, refs span invocations
+(re-snapshot on a stale-ref error). Exit codes: 0 ok, 1 not_found, 2 error.
 
 Options:
   -p, --print                    Run a single prompt and exit
@@ -47,7 +63,15 @@ Options:
       --max-steps <n>            Max turns for action subcommands (default 3)
       --playwright               Add the playwright_execute tool so the model can run
                                  Playwright code against the browser session
+      --mode <mode>              Action plane(s) to expose: computer (default) | browser | hybrid
+                                 computer: OS-level input only. browser: CDP page tools
+                                 (snapshot, find, click-by-ref, navigate, tabs).
+                                 hybrid: both, deduplicated (computer_* + browser_* tools).
+      --native-tool <type>       Drive an Anthropic model through its native tool schema:
+                                 computer_20260701 (requires --mode computer) or
+                                 browser_20260701 (requires --mode browser)
       --out <file|->             Output file for screenshot subcommand
+      --filter <interactive>     Restrict \`cua snapshot\` to interactive elements
   -o, --output <fmt>             Output format for --print: text (default) | jsonl
       --jsonl-include-deltas     Include assistant_text_delta events (default off)
       --jsonl-include-images     Include base64 screenshots (default off, only sizes)
@@ -101,6 +125,8 @@ interface CliFlags {
 	jsonlIncludeDeltas: boolean;
 	jsonlIncludeImages: boolean;
 	playwright: boolean;
+	mode?: string;
+	nativeTool?: string;
 	model?: string;
 	thinking?: string;
 	browserProfile?: string;
@@ -108,6 +134,7 @@ interface CliFlags {
 	maxSteps?: number;
 	out?: string;
 	output?: string;
+	filter?: string;
 	imageProtocol?: string;
 	namedSession?: string;
 	sessionRef?: string;
@@ -136,6 +163,7 @@ function parseCliArgs(argv: string[]): CliFlags {
 				"browser-timeout": { type: "string" },
 				"max-steps": { type: "string" },
 				out: { type: "string" },
+				filter: { type: "string" },
 				"image-protocol": { type: "string" },
 				"session-name": { type: "string", short: "s" },
 				continue: { type: "boolean", short: "c", default: false },
@@ -150,6 +178,8 @@ function parseCliArgs(argv: string[]): CliFlags {
 				"jsonl-include-deltas": { type: "boolean", default: false },
 				"jsonl-include-images": { type: "boolean", default: false },
 				playwright: { type: "boolean", default: false },
+				mode: { type: "string" },
+				"native-tool": { type: "string" },
 			},
 			allowPositionals: true,
 			strict: true,
@@ -171,6 +201,14 @@ function parseCliArgs(argv: string[]): CliFlags {
 			);
 		}
 	}
+	const modeRaw = parsed.values.mode as string | undefined;
+	if (modeRaw !== undefined && !["computer", "browser", "hybrid"].includes(modeRaw.trim().toLowerCase())) {
+		throw new Error(`invalid --mode value "${modeRaw}"; expected one of: computer | browser | hybrid`);
+	}
+	const nativeToolRaw = parsed.values["native-tool"] as string | undefined;
+	if (nativeToolRaw !== undefined && !["computer_20260701", "browser_20260701"].includes(nativeToolRaw.trim().toLowerCase())) {
+		throw new Error(`invalid --native-tool value "${nativeToolRaw}"; expected one of: computer_20260701 | browser_20260701`);
+	}
 
 	return {
 		help: !!parsed.values.help,
@@ -188,6 +226,7 @@ function parseCliArgs(argv: string[]): CliFlags {
 		browserTimeout: Number.isFinite(browserTimeout) ? browserTimeout : undefined,
 		maxSteps: Number.isFinite(maxSteps) ? maxSteps : undefined,
 		out: parsed.values.out as string | undefined,
+		filter: parsed.values.filter as string | undefined,
 		imageProtocol: parsed.values["image-protocol"] as string | undefined,
 		namedSession: parsed.values["session-name"] as string | undefined,
 		sessionRef: parsed.values.session as string | undefined,
@@ -197,6 +236,8 @@ function parseCliArgs(argv: string[]): CliFlags {
 		jsonlIncludeDeltas: !!parsed.values["jsonl-include-deltas"],
 		jsonlIncludeImages: !!parsed.values["jsonl-include-images"],
 		playwright: !!parsed.values.playwright,
+		mode: parsed.values.mode as string | undefined,
+		nativeTool: parsed.values["native-tool"] as string | undefined,
 		positionals: parsed.positionals,
 	};
 }
@@ -213,6 +254,8 @@ function toHarnessFlags(flags: CliFlags): HarnessCliFlags {
 		jsonlIncludeDeltas: flags.jsonlIncludeDeltas,
 		jsonlIncludeImages: flags.jsonlIncludeImages,
 		playwright: flags.playwright,
+		mode: flags.mode,
+		nativeTool: flags.nativeTool,
 		model: flags.model,
 		thinking: flags.thinking,
 		browserProfile: flags.browserProfile,
@@ -220,6 +263,7 @@ function toHarnessFlags(flags: CliFlags): HarnessCliFlags {
 		maxSteps: flags.maxSteps,
 		out: flags.out,
 		output: flags.output,
+		filter: flags.filter,
 		imageProtocol: flags.imageProtocol,
 		namedSession: flags.namedSession,
 		sessionRef: flags.sessionRef,
@@ -228,7 +272,7 @@ function toHarnessFlags(flags: CliFlags): HarnessCliFlags {
 	};
 }
 
-const SUBCOMMANDS = new Set(["open", "click", "type", "press", "observe", "url", "screenshot", "do"]);
+const MODEL_SUBCOMMANDS = new Set(["click", "type", "observe", "do"]);
 
 export async function main(argv: string[]): Promise<number> {
 	if (argv[0] === "models") {
@@ -260,9 +304,21 @@ export async function main(argv: string[]): Promise<number> {
 		}
 	}
 
-	if (first && SUBCOMMANDS.has(first)) {
+	const rest = positionals.slice(1);
+
+	const deterministic = deterministicActionFor(first, rest);
+	if (deterministic) {
 		try {
-			return await runActionCommand(first as ActionType, positionals.slice(1), toHarnessFlags(flags));
+			return await runDeterministicCommand(deterministic, rest, toHarnessFlags(flags));
+		} catch (err) {
+			stderr.write(`error: ${(err as Error).message}\n`);
+			return 2;
+		}
+	}
+
+	if (first && MODEL_SUBCOMMANDS.has(first)) {
+		try {
+			return await runActionCommand(first as ModelActionType, rest, toHarnessFlags(flags));
 		} catch (err) {
 			stderr.write(`error: ${(err as Error).message}\n`);
 			return 2;

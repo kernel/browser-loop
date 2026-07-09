@@ -1,4 +1,4 @@
-import type { KernelBrowser } from "@onkernel/cua-agent";
+import type { BrowserRefState, KernelBrowser } from "@onkernel/cua-agent";
 import Kernel from "@onkernel/sdk";
 import { mkdir, readdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -19,6 +19,10 @@ export interface NamedSessionMetadata {
 	live_url?: string;
 	profile_id?: string;
 	transcript_path?: string;
+	/** Model ref last used with this session; chained invocations without -m default to it. */
+	model?: string;
+	mode?: string;
+	native_tool?: string;
 	created_at: number;
 }
 
@@ -68,9 +72,33 @@ export async function writeNamedSession(meta: NamedSessionMetadata): Promise<str
 
 export async function deleteNamedSession(name: string): Promise<boolean> {
 	const path = sessionFilePath(name);
+	await unlink(refsFilePath(name)).catch(() => {});
 	if (!(await fileExists(path))) return false;
 	await unlink(path);
 	return true;
+}
+
+function refsFilePath(name: string): string {
+	return join(namedSessionsDir(), `${name}.refs.json`);
+}
+
+/**
+ * Element refs minted by one invocation (snapshot/find) survive to the next
+ * via this per-session file, so `cua -s x snapshot` then `cua -s x click e12`
+ * works across processes. Scoped to the named session's browser; stale state
+ * is caught by the executor's generation/self-heal machinery.
+ */
+export async function readNamedSessionRefs(name: string): Promise<BrowserRefState | undefined> {
+	try {
+		return JSON.parse(await readFile(refsFilePath(name), "utf8")) as BrowserRefState;
+	} catch {
+		return undefined;
+	}
+}
+
+export async function writeNamedSessionRefs(name: string, state: BrowserRefState): Promise<void> {
+	await mkdir(namedSessionsDir(), { recursive: true });
+	await writeFile(refsFilePath(name), JSON.stringify(state) + "\n", { mode: 0o600 });
 }
 
 export async function listNamedSessions(): Promise<NamedSessionMetadata[]> {
@@ -79,10 +107,12 @@ export async function listNamedSessions(): Promise<NamedSessionMetadata[]> {
 	const entries = await readdir(dir);
 	const out: NamedSessionMetadata[] = [];
 	for (const entry of entries) {
-		if (!entry.endsWith(".json")) continue;
+		if (!entry.endsWith(".json") || entry.endsWith(".refs.json")) continue;
 		try {
 			const raw = await readFile(join(dir, entry), "utf8");
-			out.push(JSON.parse(raw) as NamedSessionMetadata);
+			const meta = JSON.parse(raw) as NamedSessionMetadata;
+			if (typeof meta.name !== "string" || typeof meta.kernel_session_id !== "string" || typeof meta.created_at !== "number") continue;
+			out.push(meta);
 		} catch {
 			// skip unreadable / malformed entries
 		}
@@ -99,6 +129,8 @@ export interface StartNamedSessionOptions {
 	/** Profile id or name (created if missing). Same semantics as `--profile`. */
 	profileSelector?: string;
 	saveProfileChanges?: boolean;
+	/** Canonical model ref to seed the session with (same semantics as `-m`). */
+	model?: string;
 }
 
 export interface StartNamedSessionResult {
@@ -138,6 +170,7 @@ export async function startNamedSession(opts: StartNamedSessionOptions): Promise
 		kernel_session_id: browser.session_id,
 		live_url: browser.browser_live_view_url,
 		profile_id: profileId,
+		model: opts.model,
 		created_at: Date.now(),
 	};
 	const metadataPath = await writeNamedSession(meta);
@@ -229,6 +262,32 @@ export async function recordTranscriptPath(name: string, transcriptPath: string)
 	if (!meta) return;
 	if (meta.transcript_path === transcriptPath) return;
 	meta.transcript_path = transcriptPath;
+	await writeNamedSession(meta);
+}
+
+/** Persist the model/mode/native-tool used with a named session so chained invocations reuse them. */
+export async function recordSessionModel(
+	name: string,
+	runtime: { model: string; mode?: string; native_tool?: string },
+): Promise<void> {
+	const meta = await readNamedSession(name);
+	if (!meta) return;
+	if (meta.model === runtime.model && meta.mode === runtime.mode && meta.native_tool === runtime.native_tool) return;
+	meta.model = runtime.model;
+	meta.mode = runtime.mode;
+	meta.native_tool = runtime.native_tool;
+	await writeNamedSession(meta);
+}
+
+/** Patch individual runtime fields (e.g. after a TUI /mode or /model switch) without clobbering the rest. */
+export async function updateNamedSessionRuntime(name: string, patch: { model?: string; mode?: string }): Promise<void> {
+	const meta = await readNamedSession(name);
+	if (!meta) return;
+	const model = patch.model ?? meta.model;
+	const mode = patch.mode ?? meta.mode;
+	if (meta.model === model && meta.mode === mode) return;
+	meta.model = model;
+	meta.mode = mode;
 	await writeNamedSession(meta);
 }
 

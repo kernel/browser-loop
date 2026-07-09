@@ -29,7 +29,7 @@ export function threadRequest(
 	context: Context,
 	options: (ResponseThreadingOptions & { onPayload?: OnPayload }) | undefined,
 ): { context: Context; onPayload: OnPayload } {
-	const delta = responseThreadingEnabled(options) ? responseThreadingDelta(context.messages) : undefined;
+	const delta = responseThreadingEnabled(options) ? responseThreadingDelta(context.messages, OPENAI_CUA_RESPONSES_API) : undefined;
 	const previousResponseId = delta?.previousResponseId;
 	const messages = previousResponseId && delta ? delta.deltaMessages : context.messages;
 	const onPayload: OnPayload = async (payload, model) => {

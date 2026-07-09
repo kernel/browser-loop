@@ -1,4 +1,11 @@
-import { computerToolExecutors, computerTools, type ComputerToolCoordinateSystem, type CuaProviderModule } from "../common";
+import {
+	assertComputerModeOnly,
+	computerToolExecutors,
+	computerTools,
+	type ComputerToolCoordinateSystem,
+	type ComputerToolsOptions,
+	type CuaProviderModule,
+} from "../common";
 import { tzafonComputerUseOnPayload } from "./provider";
 
 export {
@@ -44,8 +51,14 @@ export function buildTzafonSystemPrompt(opts: { suffix?: string } = {}): string 
 }
 
 export const providerModule = {
-	toolDefinitions: computerTools,
-	toolExecutors: computerToolExecutors,
+	toolDefinitions: (options?: ComputerToolsOptions) => {
+		assertComputerModeOnly("tzafon", options);
+		return computerTools(options);
+	},
+	toolExecutors: (options?: ComputerToolsOptions) => {
+		assertComputerModeOnly("tzafon", options);
+		return computerToolExecutors(options);
+	},
 	coordinateSystem,
 	buildSystemPrompt: buildTzafonSystemPrompt,
 	onPayload: tzafonComputerUseOnPayload,

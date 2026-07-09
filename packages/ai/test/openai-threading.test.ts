@@ -96,6 +96,25 @@ describe("openai threadRequest", () => {
 		expect(((await onPayload({}, model)) as Record<string, unknown>).previous_response_id).toBeUndefined();
 	});
 
+	it("never anchors previous_response_id on an assistant turn from a different api", async () => {
+		const ctx = multiTurnContext();
+		// A mid-session -m provider switch leaves the prior provider's turn (and its foreign id) as the anchor.
+		ctx.messages.push({
+			role: "assistant",
+			content: [{ type: "text", text: "done" }],
+			api: "anthropic-messages",
+			provider: "anthropic",
+			model: "claude-opus-4-8",
+			responseId: "msg_anthropic",
+			usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+			stopReason: "stop",
+			timestamp: 0,
+		});
+		const { context, onPayload } = threadRequest(ctx, undefined);
+		expect(context).toBe(ctx);
+		expect(((await onPayload({}, model)) as Record<string, unknown>).previous_response_id).toBeUndefined();
+	});
+
 	it("composes a caller onPayload on top of the threaded payload", async () => {
 		const { onPayload } = threadRequest(multiTurnContext(), {
 			onPayload: (payload) => ({ wrapped: payload }),

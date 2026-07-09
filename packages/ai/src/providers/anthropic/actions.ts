@@ -2,14 +2,18 @@ import type { Tool, TSchema } from "@earendil-works/pi-ai";
 import {
 	CUA_BATCH_TOOL_DESCRIPTION,
 	CUA_BATCH_TOOL_NAME,
+	CUA_BROWSER_ACTION_TYPES,
 	createCuaActionSchema,
 	createCuaActionToolExecutors,
 	createCuaActionToolDefinitions,
 	createCuaBatchToolExecutor,
 	createCuaBatchToolDefinition,
+	defaultActionsForMode,
+	isCuaBrowserActionType,
 	type ComputerToolsOptions,
 	type CuaAction,
 	type CuaActionType,
+	type CuaMode,
 	type CuaToolExecutorSpec,
 } from "../common";
 
@@ -34,13 +38,14 @@ export const ANTHROPIC_CUA_ACTION_TYPES = [
 	"drag",
 	"wait",
 	"screenshot",
+	"zoom",
 	"goto",
 	"cursor_position",
 ] as const satisfies readonly CuaActionType[];
 
-type AnthropicCanonicalActionType = (typeof ANTHROPIC_CUA_ACTION_TYPES)[number];
+type AnthropicCanonicalActionType = (typeof ANTHROPIC_CUA_ACTION_TYPES)[number] | (typeof CUA_BROWSER_ACTION_TYPES)[number];
 
-const ANTHROPIC_CANONICAL_ACTION_TYPE_SET: ReadonlySet<string> = new Set(ANTHROPIC_CUA_ACTION_TYPES);
+const ANTHROPIC_CANONICAL_ACTION_TYPE_SET: ReadonlySet<string> = new Set([...ANTHROPIC_CUA_ACTION_TYPES, ...CUA_BROWSER_ACTION_TYPES]);
 
 /** Name of the batch tool included by default in Anthropic computer-use tools. */
 export const ANTHROPIC_BATCH_TOOL_NAME = CUA_BATCH_TOOL_NAME;
@@ -59,8 +64,15 @@ export interface AnthropicComputerToolsOptions extends ComputerToolsOptions {
 /** Canonical CUA action shape supported by Anthropic browser computer-use tools. */
 export type AnthropicAction = Extract<CuaAction, { type: AnthropicCanonicalActionType }>;
 
-function resolveAnthropicActions(actions: readonly CuaActionType[] | undefined): readonly AnthropicCanonicalActionType[] {
-	const resolved = actions ?? ANTHROPIC_CUA_ACTION_TYPES;
+function resolveAnthropicActions(options: AnthropicComputerToolsOptions): readonly AnthropicCanonicalActionType[] {
+	const mode = options.mode ?? "computer";
+	const resolved =
+		options.actions ??
+		(mode === "computer"
+			? ANTHROPIC_CUA_ACTION_TYPES.filter((action) => action !== "zoom")
+			: defaultActionsForMode(mode).filter(
+					(action) => isCuaBrowserActionType(action) || isAnthropicCanonicalAction(action),
+				));
 	const supported: AnthropicCanonicalActionType[] = [];
 	const unsupported: CuaActionType[] = [];
 	for (const action of resolved) {
@@ -76,8 +88,8 @@ function isAnthropicCanonicalAction(action: CuaActionType): action is AnthropicC
 }
 
 /** Build the TypeBox schema for Anthropic-supported canonical browser actions. */
-export function createActionSchema(actions?: readonly CuaActionType[]): TSchema {
-	return createCuaActionSchema(resolveAnthropicActions(actions));
+export function createActionSchema(actions?: readonly CuaActionType[], mode: CuaMode = "computer"): TSchema {
+	return createCuaActionSchema(resolveAnthropicActions({ actions, mode }), mode);
 }
 
 /**
@@ -89,12 +101,14 @@ export function createActionSchema(actions?: readonly CuaActionType[]): TSchema 
  * batch tool by default; pass `excludeBatch: true` to omit it.
  */
 export function computerTools(options: AnthropicComputerToolsOptions = {}): Tool[] {
-	const actions = resolveAnthropicActions(options.actions);
-	const tools = createCuaActionToolDefinitions(actions);
+	const mode = options.mode ?? "computer";
+	const actions = resolveAnthropicActions(options);
+	const tools = createCuaActionToolDefinitions(actions, mode);
 	if (!options.excludeBatch) {
 		tools.push(createCuaBatchToolDefinition(actions, {
 			name: ANTHROPIC_BATCH_TOOL_NAME,
 			description: ANTHROPIC_BATCH_TOOL_DESCRIPTION,
+			mode,
 		}));
 	}
 	return tools;
@@ -102,12 +116,14 @@ export function computerTools(options: AnthropicComputerToolsOptions = {}): Tool
 
 /** Build the local execution adapters used by CuaAgent and CuaAgentHarness. */
 export function computerToolExecutors(options: AnthropicComputerToolsOptions = {}): CuaToolExecutorSpec[] {
-	const actions = resolveAnthropicActions(options.actions);
-	const executors = createCuaActionToolExecutors(actions);
+	const mode = options.mode ?? "computer";
+	const actions = resolveAnthropicActions(options);
+	const executors = createCuaActionToolExecutors(actions, mode);
 	if (!options.excludeBatch) {
 		executors.push(createCuaBatchToolExecutor(actions, {
 			name: ANTHROPIC_BATCH_TOOL_NAME,
 			description: ANTHROPIC_BATCH_TOOL_DESCRIPTION,
+			mode,
 		}));
 	}
 	return executors;

@@ -7,6 +7,7 @@ import {
 	createCuaPlaywrightToolDefinition,
 	type ComputerToolCoordinateSystem,
 	type CuaBatchInput,
+	type CuaMode,
 	type CuaNavigationInput,
 	type CuaPlaywrightInput,
 	type CuaScreenshotSpec,
@@ -22,7 +23,8 @@ export interface ComputerToolOptions {
 	toolExecutors: CuaToolExecutorSpec[];
 	coordinateSystem?: ComputerToolCoordinateSystem;
 	screenshot?: CuaScreenshotSpec;
-	computerUseExtra?: boolean;
+	/** Action plane(s) in play; controls whether the post-action fallback capture is the OS display or the viewport. Default "computer". */
+	mode?: CuaMode;
 	playwright?: boolean;
 }
 
@@ -30,7 +32,12 @@ type ToolContent = Array<TextContent | ImageContent>;
 
 export interface BatchDetails {
 	statusText: string;
-	readResults: Array<{ type: "url"; url: string } | { type: "screenshot"; bytes: number } | { type: "cursor_position"; x: number; y: number }>;
+	readResults: Array<
+		| { type: "url"; url: string }
+		| { type: "screenshot"; bytes: number }
+		| { type: "cursor_position"; x: number; y: number }
+		| { type: "browser_text"; label: string; bytes: number }
+	>;
 }
 
 export interface NavigationDetails {
@@ -78,16 +85,16 @@ export function createCuaComputerTools(args: ComputerToolOptions): CuaExecutorTo
 
 /** Build executor tools against an existing translator (internal; not part of the package surface). */
 export function buildCuaComputerTools(
-	args: Pick<ComputerToolOptions, "toolExecutors" | "computerUseExtra" | "playwright">,
+	args: Pick<ComputerToolOptions, "toolExecutors" | "playwright" | "mode">,
 	translator: InternalComputerTranslator,
 ): CuaExecutorTool[] {
-	return withExtraTools(args).map((executor) => createExecutorTool(executor, translator));
+	return withExtraTools(args).map((executor) => createExecutorTool(executor, translator, args.mode ?? "computer"));
 }
 
-function withExtraTools(args: Pick<ComputerToolOptions, "toolExecutors" | "computerUseExtra" | "playwright">): ComputerExecutorSpec[] {
+function withExtraTools(args: Pick<ComputerToolOptions, "toolExecutors" | "playwright">): ComputerExecutorSpec[] {
 	const executors: ComputerExecutorSpec[] = [...args.toolExecutors];
 	const existing = new Set(executors.map((executor) => executor.definition.name));
-	if (args.computerUseExtra && !existing.has(CUA_NAVIGATION_TOOL_NAME)) {
+	if (!existing.has(CUA_NAVIGATION_TOOL_NAME)) {
 		executors.push({ kind: "navigation", definition: createCuaNavigationToolDefinition() });
 	}
 	if (args.playwright && !existing.has(CUA_PLAYWRIGHT_TOOL_NAME)) {
@@ -96,7 +103,7 @@ function withExtraTools(args: Pick<ComputerToolOptions, "toolExecutors" | "compu
 	return executors;
 }
 
-function createExecutorTool(executor: ComputerExecutorSpec, translator: InternalComputerTranslator): CuaExecutorTool {
+function createExecutorTool(executor: ComputerExecutorSpec, translator: InternalComputerTranslator, mode: CuaMode): CuaExecutorTool {
 	const { definition } = executor;
 	if (isNavigationExecutor(executor)) {
 		const tool: NavigationTool = {
@@ -105,7 +112,7 @@ function createExecutorTool(executor: ComputerExecutorSpec, translator: Internal
 			description: definition.description,
 			parameters: definition.parameters,
 			async execute(_toolCallId: string, params: unknown): Promise<AgentToolResult<NavigationDetails>> {
-				return executeNavigationTool(translator, asNavigationInput(params));
+				return executeNavigationTool(translator, asNavigationInput(params), mode);
 			},
 		};
 		return tool;
@@ -130,7 +137,7 @@ function createExecutorTool(executor: ComputerExecutorSpec, translator: Internal
 		parameters: definition.parameters,
 		executionMode: "sequential",
 		async execute(_toolCallId: string, params: unknown): Promise<AgentToolResult<BatchDetails>> {
-			return executeBatchTool(translator, { actions: executor.toActions(params) });
+			return executeBatchTool(translator, { actions: executor.toActions(params) }, mode);
 		},
 	};
 	return tool;
@@ -144,7 +151,11 @@ function isPlaywrightExecutor(executor: ComputerExecutorSpec): executor is Playw
 	return "kind" in executor && executor.kind === "playwright";
 }
 
-async function executeBatchTool(translator: InternalComputerTranslator, params: CuaBatchInput): Promise<AgentToolResult<BatchDetails>> {
+async function executeBatchTool(
+	translator: InternalComputerTranslator,
+	params: CuaBatchInput,
+	mode: CuaMode = "computer",
+): Promise<AgentToolResult<BatchDetails>> {
 	const content: ToolContent = [];
 	const readResults: BatchDetails["readResults"] = [];
 	try {
@@ -156,13 +167,18 @@ async function executeBatchTool(translator: InternalComputerTranslator, params: 
 			} else if (read.type === "cursor_position") {
 				readResults.push({ type: "cursor_position", x: read.x, y: read.y });
 				content.push({ type: "text", text: `cursor_position(): ${read.x},${read.y}` });
+			} else if (read.type === "browser_text") {
+				readResults.push({ type: "browser_text", label: read.label, bytes: read.text.length });
+				content.push({ type: "text", text: read.text });
 			} else {
 				readResults.push({ type: "screenshot", bytes: read.data.length });
 				content.push({ type: "image", data: read.data.toString("base64"), mimeType: read.mimeType });
 			}
 		}
 		if (content.length === 0) {
-			const screenshot = await translator.screenshot();
+			// Post-action grounding capture: the OS display in computer/hybrid mode,
+			// the browser viewport in browser mode (the only frame the model sees).
+			const screenshot = mode === "browser" ? await translator.browser().screenshot() : await translator.screenshot();
 			readResults.push({ type: "screenshot", bytes: screenshot.data.length });
 			content.push({ type: "image", data: screenshot.data.toString("base64"), mimeType: screenshot.mimeType });
 		}
@@ -172,20 +188,31 @@ async function executeBatchTool(translator: InternalComputerTranslator, params: 
 	return { content, details: { statusText: "Actions executed successfully.", readResults } };
 }
 
-async function executeNavigationTool(translator: InternalComputerTranslator, params: CuaNavigationInput): Promise<AgentToolResult<NavigationDetails>> {
+async function executeNavigationTool(
+	translator: InternalComputerTranslator,
+	params: CuaNavigationInput,
+	mode: CuaMode,
+): Promise<AgentToolResult<NavigationDetails>> {
 	const action = params.action;
 	try {
 		let statusText = `${action} executed successfully.`;
 		let url: string | undefined;
+		// When the browser plane is exposed (browser/hybrid), navigation stays
+		// on it (CDP) so it invalidates element refs and reads the tab-aware URL;
+		// the OS keyboard-shortcut path would navigate outside that plane.
 		if (action === "url") {
-			url = await translator.currentUrl();
+			url = mode === "computer" ? await translator.currentUrl() : await translator.browser().currentUrl();
 			statusText = `Current URL: ${url}`;
+		} else if (mode !== "computer") {
+			await translator.executeBatch([{ type: "browser_navigate", url: action === "goto" ? (params.url ?? "") : action }]);
 		} else if (action === "goto") {
 			await translator.executeBatch([{ type: "goto", url: params.url ?? "" }]);
 		} else {
 			await translator.executeBatch([{ type: action }]);
 		}
-		const screenshot = await translator.screenshot();
+		// Same grounding frame as post-action captures: the browser viewport in
+		// browser mode, the OS display otherwise.
+		const screenshot = mode === "browser" ? await translator.browser().screenshot() : await translator.screenshot();
 		return {
 			content: [
 				{ type: "text", text: statusText },

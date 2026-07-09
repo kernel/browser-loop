@@ -7,16 +7,19 @@ import {
 	type Skill,
 } from "@onkernel/cua-agent";
 import {
+	type CuaMode,
 	type CuaModelRef,
+	type CuaNativeToolSpec,
 	parseCuaModelRef,
 	requireCuaEnvApiKey,
+	resolveCuaRuntimeSpec,
 } from "@onkernel/cua-ai";
 import { parseArgs } from "node:util";
 import { stderr, stdout } from "node:process";
 import type { CuaBrowserHandle } from "./harness-browser";
 import {
 	type ActionRequest,
-	type ActionType,
+	type ModelActionType,
 } from "./action/prompts";
 import { runAction, emitCompact } from "./action/harness-runner";
 import { buildCuaHarness } from "./harness";
@@ -27,6 +30,8 @@ import {
 	formatRelativeAge,
 	listNamedSessions,
 	type NamedSessionMetadata,
+	readNamedSession,
+	recordSessionModel,
 	recordTranscriptPath,
 	shortKernelId,
 	startNamedSession,
@@ -177,6 +182,8 @@ export interface HarnessCliFlags {
 	jsonlIncludeDeltas: boolean;
 	jsonlIncludeImages: boolean;
 	playwright: boolean;
+	mode?: string;
+	nativeTool?: string;
 	model?: string;
 	thinking?: string;
 	browserProfile?: string;
@@ -184,6 +191,7 @@ export interface HarnessCliFlags {
 	maxSteps?: number;
 	out?: string;
 	output?: string;
+	filter?: string;
 	imageProtocol?: string;
 	namedSession?: string;
 	sessionRef?: string;
@@ -191,13 +199,16 @@ export interface HarnessCliFlags {
 	skillPaths: string[];
 }
 
-interface ResolvedAuth {
+export interface KernelAuth {
 	kernelApiKey: string;
 	kernelBaseUrl?: string;
+}
+
+interface ResolvedAuth extends KernelAuth {
 	modelRef: CuaModelRef;
 }
 
-function requireKernelApiKey(): { apiKey: string; baseUrl?: string } {
+export function requireKernelApiKey(): { apiKey: string; baseUrl?: string } {
 	const apiKey = process.env.KERNEL_API_KEY?.trim();
 	if (!apiKey) throw new Error("missing Kernel API key (set KERNEL_API_KEY)");
 	const baseUrl = process.env.KERNEL_BASE_URL?.trim() || undefined;
@@ -213,12 +224,12 @@ function resolveAuth(flags: HarnessCliFlags): ResolvedAuth {
 	return { kernelApiKey: apiKey, kernelBaseUrl: baseUrl, modelRef };
 }
 
-interface ProvisionedBrowser {
+export interface ProvisionedBrowser {
 	handle: CuaBrowserHandle;
 	named?: NamedSessionMetadata;
 }
 
-async function provisionForFlags(flags: HarnessCliFlags, auth: ResolvedAuth): Promise<ProvisionedBrowser> {
+export async function provisionForFlags(flags: HarnessCliFlags, auth: KernelAuth): Promise<ProvisionedBrowser> {
 	if (flags.namedSession) {
 		const { client, browser, meta } = await attachNamedSession({
 			name: flags.namedSession,
@@ -358,10 +369,24 @@ export interface SetupHarnessRuntimeOptions {
 	skipDiskSession?: boolean;
 }
 
+/** Default -m/--mode/--native-tool from a named session's stored values when not passed explicitly. */
+export function applyNamedSessionDefaults(flags: HarnessCliFlags, meta: NamedSessionMetadata): HarnessCliFlags {
+	return {
+		...flags,
+		model: flags.model ?? meta.model,
+		mode: flags.mode ?? meta.mode,
+		nativeTool: flags.nativeTool ?? meta.native_tool,
+	};
+}
+
 async function setupHarnessRuntime(
 	flags: HarnessCliFlags,
 	opts: SetupHarnessRuntimeOptions = {},
 ): Promise<HarnessRuntime> {
+	if (flags.namedSession) {
+		const named = await readNamedSession(flags.namedSession);
+		if (named) flags = applyNamedSessionDefaults(flags, named);
+	}
 	const auth = resolveAuth(flags);
 	const cwd = process.cwd();
 	const env = new NodeExecutionEnv({ cwd });
@@ -372,10 +397,40 @@ async function setupHarnessRuntime(
 		disabled: flags.noSkills,
 	});
 
+	// Validate mode/native-tool flags before provisioning so a bad combination
+	// never leaves an orphaned browser behind.
+	const mode = parseMode(flags.mode);
+	const nativeTool = parseNativeTool(flags.nativeTool);
+	resolveCuaRuntimeSpec(auth.modelRef, { mode, nativeTool });
+
 	const provisioned = await provisionForFlags(flags, auth);
+	try {
+		return await finishHarnessRuntime(flags, auth, provisioned, { cwd, skills, contextFiles, mode, nativeTool, skipDisk: opts.skipDiskSession === true });
+	} catch (err) {
+		await provisioned.handle.close().catch(() => {});
+		throw err;
+	}
+}
+
+interface FinishHarnessRuntimeContext {
+	cwd: string;
+	skills: Skill[];
+	contextFiles: ContextFile[];
+	mode: CuaMode | undefined;
+	nativeTool: CuaNativeToolSpec | undefined;
+	skipDisk: boolean;
+}
+
+async function finishHarnessRuntime(
+	flags: HarnessCliFlags,
+	auth: ResolvedAuth,
+	provisioned: ProvisionedBrowser,
+	context: FinishHarnessRuntimeContext,
+): Promise<HarnessRuntime> {
+	const { cwd, skills, contextFiles, mode, nativeTool } = context;
 	const repo = createSessionRepo(flags.sessionDir);
 
-	const skipDisk = opts.skipDiskSession === true && !hasExplicitSessionFlag(flags);
+	const skipDisk = context.skipDisk && !hasExplicitSessionFlag(flags);
 	const resolved = skipDisk ? undefined : await resolveSession(repo, cwd, flags, provisioned.named);
 
 	let inMemorySession: Session | undefined;
@@ -396,6 +451,11 @@ async function setupHarnessRuntime(
 		});
 		if (provisioned.named) {
 			await recordTranscriptPath(provisioned.named.name, resolved.transcriptPath);
+			await recordSessionModel(provisioned.named.name, {
+				model: auth.modelRef,
+				mode: flags.mode,
+				native_tool: flags.nativeTool,
+			});
 		}
 		if (flags.verbose) {
 			stderr.write(`[cua] session=${resolved.transcriptPath}\n`);
@@ -414,6 +474,8 @@ async function setupHarnessRuntime(
 		skills,
 		contextFiles,
 		thinkingLevel,
+		mode,
+		nativeTool,
 		playwright: flags.playwright,
 		modelBaseUrl: baseUrlOverride,
 	});
@@ -443,6 +505,23 @@ function providerBaseUrlOverride(provider: string): string | undefined {
 	const envName = `${provider.toUpperCase()}_BASE_URL`;
 	const value = process.env[envName]?.trim();
 	return value && value.length > 0 ? value : undefined;
+}
+
+export function parseMode(raw: string | undefined): CuaMode | undefined {
+	if (raw === undefined) return undefined;
+	const value = raw.trim().toLowerCase();
+	if (value === "computer" || value === "browser" || value === "hybrid") return value;
+	throw new Error(`invalid --mode value "${raw}"; expected one of: computer | browser | hybrid`);
+}
+
+export function parseNativeTool(raw: string | undefined): CuaNativeToolSpec | undefined {
+	if (raw === undefined) return undefined;
+	const value = raw.trim().toLowerCase();
+	// enable_zoom follows Anthropic's own recommendation for fine-grained
+	// visual targeting; the executor implements the zoom crop locally.
+	if (value === "computer_20260701") return { type: "computer_20260701", enable_zoom: true };
+	if (value === "browser_20260701") return { type: "browser_20260701" };
+	throw new Error(`invalid --native-tool value "${raw}"; expected one of: computer_20260701 | browser_20260701`);
 }
 
 function mapThinkingLevel(raw: string | undefined): "off" | "minimal" | "low" | "medium" | "high" | "xhigh" {
@@ -520,6 +599,7 @@ export async function runInteractiveCommand(
 			resumed: runtime.resolved?.resumed === true,
 			transcriptPath: runtime.resolved?.transcriptPath,
 			skipInitialScreenshot: runtime.resolved?.resumed === true,
+			namedSession: flags.namedSession,
 		});
 	} finally {
 		try {
@@ -530,27 +610,22 @@ export async function runInteractiveCommand(
 	}
 }
 
-/** Run a one-shot action subcommand through the new harness wiring. */
+/** Run a one-shot model-mediated action subcommand through the harness wiring. */
 export async function runActionCommand(
-	action: ActionType,
+	action: ModelActionType,
 	rest: string[],
 	flags: HarnessCliFlags,
 ): Promise<number> {
 	const runtime = await setupHarnessRuntime(flags, { skipDiskSession: true });
 	const req: ActionRequest = buildActionRequest(action, rest);
 	if (flags.maxSteps !== undefined) req.maxTurns = flags.maxSteps;
-	const screenshotOut = flags.out
-		? { out: flags.out }
-		: action === "screenshot"
-			? { out: "screenshot.png" }
-			: undefined;
 	try {
 		const res = await runAction(req, {
 			harness: runtime.harness,
 			browserHandle: runtime.handle,
 			session: runtime.session,
 			skipInitialScreenshot: runtime.resolved?.resumed === true,
-		}, screenshotOut);
+		});
 		return emitCompact(res);
 	} finally {
 		try {
@@ -561,22 +636,14 @@ export async function runActionCommand(
 	}
 }
 
-function buildActionRequest(action: ActionType, rest: string[]): ActionRequest {
+function buildActionRequest(action: ModelActionType, rest: string[]): ActionRequest {
 	switch (action) {
-		case "open":
-			return { action, text: rest[0] };
 		case "click":
 			return { action, target: rest.join(" ") };
 		case "type":
 			return { action, target: rest[0], text: rest[1] };
-		case "press":
-			return { action, keys: rest };
 		case "observe":
 			return { action, text: rest.join(" ") };
-		case "url":
-			return { action };
-		case "screenshot":
-			return { action };
 		case "do":
 			return { action, text: rest.join(" ") };
 	}
@@ -601,6 +668,7 @@ export async function runSessionSubcommand(args: string[], flags: HarnessCliFlag
 				browserTimeoutSeconds: flags.browserTimeout,
 				profileSelector: flags.browserProfile,
 				saveProfileChanges: flags.profileSaveChanges,
+				model: flags.model ? resolveCuaModelRef(flags.model) : undefined,
 			});
 			stdout.write(`name=${meta.name}\n`);
 			stdout.write(`kernel_session_id=${browser.session_id}\n`);
