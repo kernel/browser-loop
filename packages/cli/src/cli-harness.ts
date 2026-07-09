@@ -12,6 +12,7 @@ import {
 	type CuaNativeToolSpec,
 	parseCuaModelRef,
 	requireCuaEnvApiKey,
+	resolveCuaRuntimeSpec,
 } from "@onkernel/cua-ai";
 import { parseArgs } from "node:util";
 import { stderr, stdout } from "node:process";
@@ -396,6 +397,7 @@ async function setupHarnessRuntime(
 	// never leaves an orphaned browser behind.
 	const mode = parseMode(flags.mode);
 	const nativeTool = parseNativeTool(flags.nativeTool);
+	resolveCuaRuntimeSpec(auth.modelRef, { mode, nativeTool });
 
 	const provisioned = await provisionForFlags(flags, auth);
 	try {
