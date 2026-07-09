@@ -66,32 +66,34 @@ describe("action harness-runner", () => {
 		try {
 			fixture = await buildTestHarness({
 				turns: [
+					{ steps: [{ type: "tool_call", toolName: "click", args: { x: 9, y: 9 } }] },
 					{
 						steps: [
 							{ type: "text", text: "discarded" },
-							{ type: "tool_call", toolName: "click", args: { x: 9, y: 9 } },
 							{ type: "error", message: "HTTP 429: Please retry in 10.367614288s" },
 						],
 					},
 					{ steps: [{ type: "text", text: "done" }] },
 				],
+				retry: { enabled: true },
 			});
 			const resultPromise = runAction(
 				{ action: "do", text: "recover" },
 				{ harness: fixture.harness, browserHandle: handleFor(fixture), session: fixture.session, maxTurns: 3 },
 			);
 
-			await vi.advanceTimersByTimeAsync(10_366);
-			expect(fixture.provider.callCount()).toBe(1);
+			await vi.advanceTimersByTimeAsync(1_999);
+			expect(fixture.provider.callCount()).toBe(2);
 			await vi.advanceTimersByTimeAsync(1);
 			const res = await resultPromise;
 
-			expect(fixture.provider.callCount()).toBe(2);
+			expect(fixture.provider.callCount()).toBe(3);
 			expect(res.exitCode).toBe(0);
 			expect(res.result.status).toBe("ok");
-			expect(fixture.kernel.batchCalls).toHaveLength(0);
+			expect(fixture.kernel.batchCalls).toHaveLength(1);
+			expect(JSON.stringify(fixture.provider.lastContext())).toContain("toolResult");
 			const messages = (await fixture.session.getBranch()).filter((entry) => entry.type === "message");
-			expect(messages).toHaveLength(2);
+			expect(messages).toHaveLength(4);
 			expect(JSON.stringify(messages)).toContain("done");
 			expect(JSON.stringify(messages)).not.toContain("discarded");
 		} finally {

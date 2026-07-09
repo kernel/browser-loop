@@ -26,7 +26,12 @@ import {
 	type SimpleStreamOptions,
 } from "@onkernel/cua-ai";
 import type Kernel from "@onkernel/sdk";
-import { withProviderRetry, withProviderRetryModels } from "./provider-retry";
+import {
+	type CuaRetryOptions,
+	resolveProviderRetryPolicy,
+	withProviderRetry,
+	withProviderRetryModels,
+} from "./provider-retry";
 import { buildCuaComputerTools } from "./tools";
 import { InternalComputerTranslator, type KernelBrowser } from "./translator/translator";
 
@@ -79,6 +84,8 @@ export type CuaAgentOptions = Omit<AgentOptions, "initialState"> & {
 	nativeTool?: CuaNativeToolSpec;
 	/** Expose a tool that runs Playwright code against the browser session. */
 	playwright?: boolean;
+	/** Optional CUA-level retries around each provider request. Disabled by default. */
+	retry?: CuaRetryOptions;
 };
 
 /**
@@ -117,6 +124,8 @@ export type CuaAgentHarnessOptions<
 	playwright?: boolean;
 	/** Optional payload hook composed after the provider-specific CUA payload hook. */
 	onPayload?: SimpleStreamOptions["onPayload"];
+	/** Optional CUA-level retries around each provider request. Disabled by default. */
+	retry?: CuaRetryOptions;
 };
 
 /**
@@ -297,6 +306,7 @@ export class CuaAgent extends Agent {
 			mode,
 			nativeTool,
 			playwright,
+			retry,
 			...agentOptions
 		} = options;
 		const runtime = new CuaRuntimeController({
@@ -309,7 +319,10 @@ export class CuaAgent extends Agent {
 			playwright,
 			onPayload,
 		});
-		const retryingStream = withProviderRetry(streamFn ?? defaultCuaStream);
+		const retryingStream = withProviderRetry(
+			streamFn ?? defaultCuaStream,
+			resolveProviderRetryPolicy(retry),
+		);
 		const wrappedStreamFn: StreamFn = (model, context, streamOptions) => {
 			const optionsWithCuaRuntime: CuaSimpleStreamOptions = {
 				...streamOptions,
@@ -448,6 +461,7 @@ export class CuaAgentHarness<
 			systemPrompt,
 			onPayload,
 			activeToolNames,
+			retry,
 			...harnessOptions
 		} = options;
 		const runtime = new CuaRuntimeController({
@@ -461,7 +475,10 @@ export class CuaAgentHarness<
 			onPayload,
 		});
 		const resolvedTools = runtime.tools();
-		const retryingModels = withProviderRetryModels(models ?? cuaModels());
+		const retryingModels = withProviderRetryModels(
+			models ?? cuaModels(),
+			resolveProviderRetryPolicy(retry),
+		);
 
 		super({
 			...harnessOptions,

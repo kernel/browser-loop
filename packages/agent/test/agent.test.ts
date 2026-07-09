@@ -231,6 +231,27 @@ describe("CuaAgent", () => {
 		expect(agent.state.systemPrompt).toBe("custom prompt");
 	});
 
+	it("does not retry transient errors by default", async () => {
+		let calls = 0;
+		const agent = new CuaAgent({
+			browser,
+			client,
+			streamFn: (model) => {
+				calls += 1;
+				const stream = createAssistantMessageEventStream();
+				const message = createAssistantMessage(model);
+				message.stopReason = "error";
+				message.errorMessage = "HTTP 429: rate limited";
+				stream.push({ type: "error", reason: "error", error: message });
+				return stream;
+			},
+			initialState: { model: "openai:gpt-5.5" },
+		});
+
+		await agent.prompt("hello");
+		expect(calls).toBe(1);
+	});
+
 	it("retries transient errors from a custom stream function", async () => {
 		vi.useFakeTimers();
 		try {
@@ -255,6 +276,7 @@ describe("CuaAgent", () => {
 				browser,
 				client,
 				streamFn,
+				retry: { enabled: true },
 				initialState: { model: "openai:gpt-5.5" },
 			});
 			const prompt = agent.prompt("hello");

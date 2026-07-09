@@ -5,177 +5,264 @@ import {
 	type AssistantMessageEvent,
 	type Model,
 	type Models,
+	type SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
+import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { withProviderRetry, withProviderRetryModels } from "../src/provider-retry";
+import {
+	resolveProviderRetryPolicy,
+	withProviderRetry,
+	withProviderRetryModels,
+} from "../src/provider-retry";
 
 const model = {
 	id: "test",
 	provider: "google",
 	api: "google-generative-ai",
+	contextWindow: 128_000,
 } as Model<Api>;
 const context = { messages: [] };
 
+const enabled = resolveProviderRetryPolicy({ enabled: true });
+
 afterEach(() => vi.useRealTimers());
 
-describe("provider retry", () => {
-	it("discards a retryable attempt and returns the successful retry", async () => {
-		vi.useFakeTimers();
-		let calls = 0;
-		const retrying = withProviderRetry(() => {
-			calls += 1;
-			return calls === 1 ? errorStream("HTTP 429: rate limited") : textStream("done");
-		});
-
-		const eventsPromise = collect(retrying(model, context));
-		await vi.advanceTimersByTimeAsync(1_999);
-		expect(calls).toBe(1);
-		await vi.advanceTimersByTimeAsync(1);
-		const events = await eventsPromise;
-
-		expect(calls).toBe(2);
-		expect(events.some((event) => event.type === "error")).toBe(false);
-		expect(events.filter((event) => event.type === "text_delta").map((event) => event.delta)).toEqual(["done"]);
+describe("provider retry policy", () => {
+	it("is disabled by default and preserves stream and Models identity", () => {
+		const streamFn = (() => textStream("ok")) as StreamFn;
+		const models = {} as Models;
+		expect(withProviderRetry(streamFn, resolveProviderRetryPolicy())).toBe(streamFn);
+		expect(withProviderRetry(streamFn, resolveProviderRetryPolicy({ enabled: false }))).toBe(streamFn);
+		expect(withProviderRetry(streamFn, resolveProviderRetryPolicy({ enabled: true, maxRetries: 0 }))).toBe(streamFn);
+		expect(withProviderRetryModels(models, resolveProviderRetryPolicy())).toBe(models);
+		expect(withProviderRetryModels(models, resolveProviderRetryPolicy({ enabled: true, maxRetries: 0 }))).toBe(models);
 	});
 
-	it("uses exponential backoff and exposes the fourth error", async () => {
+	it("validates public policy values and the largest timer delay", () => {
+		for (const retry of [
+			{ enabled: "yes" },
+			{ maxRetries: -1 },
+			{ maxRetries: 1.5 },
+			{ maxRetries: Number.MAX_SAFE_INTEGER + 1 },
+			{ baseDelayMs: -1 },
+			{ baseDelayMs: Number.NaN },
+			{ baseDelayMs: Number.POSITIVE_INFINITY },
+			{ enabled: true, maxRetries: 2, baseDelayMs: 2_147_483_647 },
+		]) {
+			expect(() => resolveProviderRetryPolicy(retry as never)).toThrow();
+		}
+		expect(() => resolveProviderRetryPolicy({ enabled: true, maxRetries: 0, baseDelayMs: Infinity })).toThrow();
+		expect(resolveProviderRetryPolicy({ enabled: true, maxRetries: 100, baseDelayMs: 0 })).toMatchObject({
+			enabled: true,
+			maxRetries: 100,
+			baseDelayMs: 0,
+		});
+	});
+
+	it("uses three retries with 2s/4s/8s defaults", async () => {
 		vi.useFakeTimers();
 		let calls = 0;
-		const retrying = withProviderRetry(() => {
+		const retrying = withProviderRetry((() => {
 			calls += 1;
 			return errorStream("HTTP 429: rate limited");
-		});
+		}) as StreamFn, enabled);
 		const result = retrying(model, context).result();
 
-		await vi.advanceTimersByTimeAsync(2_000);
-		expect(calls).toBe(2);
-		await vi.advanceTimersByTimeAsync(4_000);
-		expect(calls).toBe(3);
-		await vi.advanceTimersByTimeAsync(8_000);
-		expect(calls).toBe(4);
+		for (const [delay, expectedCalls] of [[2_000, 2], [4_000, 3], [8_000, 4]] as const) {
+			await vi.advanceTimersByTimeAsync(delay - 1);
+			expect(calls).toBe(expectedCalls - 1);
+			await vi.advanceTimersByTimeAsync(1);
+			expect(calls).toBe(expectedCalls);
+		}
 		expect((await result).stopReason).toBe("error");
 	});
 
-	it.each([
-		["Please retry in 10.5s", 10_500],
-		["retry delay of 2500 ms", 2_500],
-		["Retry Delay: 3 s", 3_000],
-	])("honors provider delay %s", async (message, delay) => {
+	it("uses custom retry count and delay without interpreting provider options", async () => {
 		vi.useFakeTimers();
 		let calls = 0;
-		const retrying = withProviderRetry(() => (++calls === 1 ? errorStream(`HTTP 429: ${message}`) : textStream("ok")));
-		const result = retrying(model, context).result();
-		await vi.advanceTimersByTimeAsync(delay - 1);
+		const options = { maxRetries: 9, maxRetryDelayMs: 1 } satisfies SimpleStreamOptions;
+		const retrying = withProviderRetry(((_model, _context, received) => {
+			expect(received).toBe(options);
+			calls += 1;
+			return errorStream("HTTP 429: retry in 30s");
+		}) as StreamFn, resolveProviderRetryPolicy({ enabled: true, maxRetries: 1, baseDelayMs: 25 }));
+		const result = retrying(model, context, options).result();
+		await vi.advanceTimersByTimeAsync(24);
 		expect(calls).toBe(1);
 		await vi.advanceTimersByTimeAsync(1);
-		expect((await result).stopReason).toBe("stop");
+		expect((await result).stopReason).toBe("error");
 		expect(calls).toBe(2);
+	});
+});
+
+describe("provider retry behavior", () => {
+	it("discards a failed attempt and replays one accepted snapshot sequence", async () => {
+		vi.useFakeTimers();
+		let calls = 0;
+		const retrying = withProviderRetry((() => {
+			calls += 1;
+			return calls === 1 ? errorStream("HTTP 429", "discarded") : mutableTextStream();
+		}) as StreamFn, enabled);
+		const eventsPromise = collect(retrying(model, context));
+		await vi.advanceTimersByTimeAsync(2_000);
+		await vi.runAllTimersAsync();
+		const events = await eventsPromise;
+
+		expect(JSON.stringify(events)).not.toContain("discarded");
+		expect(events.filter((event) => event.type === "text_delta").map((event) => event.partial.content)).toEqual([
+			[{ type: "text", text: "a" }],
+			[{ type: "text", text: "ab" }],
+		]);
+		expect(events.filter((event) => event.type === "done")).toHaveLength(1);
 	});
 
 	it.each([
-		["HTTP 429: retry in 61s", undefined],
-		["HTTP 429: retry in 10s", 5_000],
-	])("does not retry a provider delay above the cap", async (message, maxRetryDelayMs) => {
+		"invalid API key",
+		"insufficient_quota: quota exceeded",
+		"billing limit reached",
+		"ordinary model error",
+	])("does not retry non-transient failure %s", async (error) => {
 		let calls = 0;
-		const retrying = withProviderRetry(() => {
+		const retrying = withProviderRetry((() => {
 			calls += 1;
-			return errorStream(message);
-		});
-		expect((await retrying(model, context, { maxRetryDelayMs }).result()).stopReason).toBe("error");
+			return errorStream(error);
+		}) as StreamFn, enabled);
+		expect((await retrying(model, context).result()).stopReason).toBe("error");
 		expect(calls).toBe(1);
 	});
 
-	it.each(["retry in -3s", "retry delay: Infinity ms", "retry soon"])(
-		"falls back to exponential delay for malformed hint %s",
-		async (hint) => {
+	it("excludes context overflow before transient classification", async () => {
+		let calls = 0;
+		const retrying = withProviderRetry((() => {
+			calls += 1;
+			return errorStream("500: input exceeds the context window");
+		}) as StreamFn, enabled);
+		await retrying(model, context).result();
+		expect(calls).toBe(1);
+	});
+
+	it.each(["HTTP 429", "503 service unavailable", "network error", "request timed out"])(
+		"retries classifier-accepted failure %s",
+		async (error) => {
 			vi.useFakeTimers();
 			let calls = 0;
-			const retrying = withProviderRetry(() => (++calls === 1 ? errorStream(`HTTP 429: ${hint}`) : textStream("ok")));
+			const retrying = withProviderRetry((() => (++calls === 1 ? errorStream(error) : textStream("ok"))) as StreamFn, enabled);
 			const result = retrying(model, context).result();
-			await vi.advanceTimersByTimeAsync(1_999);
-			expect(calls).toBe(1);
-			await vi.advanceTimersByTimeAsync(1);
+			await vi.advanceTimersByTimeAsync(2_000);
 			expect((await result).stopReason).toBe("stop");
+			expect(calls).toBe(2);
 		},
 	);
 
-	it("allows an uncapped provider delay when maxRetryDelayMs is zero", async () => {
+	it("normalizes retryable stream invocation and iteration failures", async () => {
 		vi.useFakeTimers();
+		let invocationCalls = 0;
+		const invocation = withProviderRetry((() => {
+			if (++invocationCalls === 1) throw new Error("network error");
+			return textStream("ok");
+		}) as StreamFn, enabled);
+		const invocationResult = invocation(model, context).result();
+		await vi.advanceTimersByTimeAsync(2_000);
+		expect((await invocationResult).stopReason).toBe("stop");
+
+		let rejectionCalls = 0;
+		const rejection = withProviderRetry((async () => {
+			if (++rejectionCalls === 1) throw new Error("fetch failed");
+			return textStream("ok");
+		}) as StreamFn, enabled);
+		const rejectionResult = rejection(model, context).result();
+		await vi.advanceTimersByTimeAsync(2_000);
+		expect((await rejectionResult).stopReason).toBe("stop");
+
+		let iterationCalls = 0;
+		const iteration = withProviderRetry((() => {
+			iterationCalls += 1;
+			return iterationCalls === 1 ? throwingStream("socket hang up") : textStream("ok");
+		}) as StreamFn, enabled);
+		const iterationResult = iteration(model, context).result();
+		await vi.advanceTimersByTimeAsync(2_000);
+		expect((await iterationResult).stopReason).toBe("stop");
+	});
+
+	it("settles malformed and unsnapshotable streams without retrying", async () => {
 		let calls = 0;
-		const retrying = withProviderRetry(() => (++calls === 1 ? errorStream("HTTP 429: retry in 61s") : textStream("ok")));
-		const result = retrying(model, context, { maxRetryDelayMs: 0 }).result();
-		await vi.advanceTimersByTimeAsync(61_000);
-		expect((await result).stopReason).toBe("stop");
-		expect(calls).toBe(2);
+		const malformed = withProviderRetry((() => {
+			calls += 1;
+			return emptyStream();
+		}) as StreamFn, enabled);
+		const malformedEvents = await collect(malformed(model, context));
+		expect(malformedEvents.at(-1)?.type).toBe("error");
+		expect((await malformed(model, context).result()).errorMessage).toContain("without a terminal event");
+
+		const unsnapshotable = withProviderRetry((() => {
+			calls += 1;
+			return uncloneableStream();
+		}) as StreamFn, enabled);
+		const stream = unsnapshotable(model, context);
+		const [events, result] = await Promise.all([collect(stream), stream.result()]);
+		expect(events.at(-1)?.type).toBe("error");
+		expect(result.stopReason).toBe("error");
+		expect(calls).toBe(3);
 	});
 
-	it("waits the full uncapped delay when it exceeds the runtime timer limit", async () => {
-		vi.useFakeTimers();
+	it("aborts before the first request and during backoff", async () => {
+		const alreadyAborted = new AbortController();
+		alreadyAborted.abort();
 		let calls = 0;
-		const delay = 3_000_000_000;
-		const retrying = withProviderRetry(() =>
-			++calls === 1 ? errorStream(`HTTP 429: retry in ${delay}ms`) : textStream("ok"),
-		);
-		const result = retrying(model, context, { maxRetryDelayMs: 0 }).result();
+		const retrying = withProviderRetry((() => {
+			calls += 1;
+			return errorStream("HTTP 429");
+		}) as StreamFn, enabled);
+		const first = retrying(model, context, { signal: alreadyAborted.signal });
+		const [firstEvents, firstResult] = await Promise.all([collect(first), first.result()]);
+		expect(firstEvents.filter((event) => event.type === "error")).toHaveLength(1);
+		expect(firstResult.stopReason).toBe("aborted");
+		expect(calls).toBe(0);
 
-		await vi.advanceTimersByTimeAsync(delay - 1);
-		expect(calls).toBe(1);
-		await vi.advanceTimersByTimeAsync(1);
-		expect((await result).stopReason).toBe("stop");
-		expect(calls).toBe(2);
-	});
-
-	it("does not retry non-retryable errors or aborted responses", async () => {
-		for (const message of [errorMessage("invalid API key"), errorMessage("aborted", "aborted")]) {
-			let calls = 0;
-			const retrying = withProviderRetry(() => {
-				calls += 1;
-				return message;
-			});
-			await retrying(model, context).result();
-			expect(calls).toBe(1);
-		}
-	});
-
-	it("emits only an aborted logical attempt when aborted during backoff", async () => {
 		vi.useFakeTimers();
 		const controller = new AbortController();
-		let calls = 0;
-		const retrying = withProviderRetry(() => {
-			calls += 1;
-			return errorStream("HTTP 429: retry in 10s", "discarded");
-		});
-		const eventsPromise = collect(retrying(model, context, { signal: controller.signal }));
+		const second = retrying(model, context, { signal: controller.signal });
 		await vi.advanceTimersByTimeAsync(1);
 		controller.abort();
-		const events = await eventsPromise;
-
+		const [secondEvents, secondResult] = await Promise.all([collect(second), second.result()]);
+		expect(secondEvents.filter((event) => event.type === "error")).toHaveLength(1);
+		expect(secondResult.stopReason).toBe("aborted");
 		expect(calls).toBe(1);
-		expect(events.map((event) => event.type)).toEqual(["start", "error"]);
-		expect(events.at(-1)?.type === "error" && events.at(-1).error.stopReason).toBe("aborted");
-		expect(JSON.stringify(events)).not.toContain("discarded");
 	});
 
-	it("supports promise-returning streams and snapshots mutable partials", async () => {
-		const retrying = withProviderRetry(async () => mutableTextStream());
-		const events = await collect(retrying(model, context));
-		const deltas = events.filter((event) => event.type === "text_delta");
-		expect(deltas[0].partial.content).toEqual([{ type: "text", text: "a" }]);
-		expect(deltas[1].partial.content).toEqual([{ type: "text", text: "ab" }]);
+	it("stops reading after the first terminal event", async () => {
+		let nextCalls = 0;
+		const retrying = withProviderRetry((() => terminalThenThrowStream(() => nextCalls++)) as StreamFn, enabled);
+		const stream = retrying(model, context);
+		const [events, result] = await Promise.all([collect(stream), stream.result()]);
+		expect(result.stopReason).toBe("stop");
+		expect(events.filter((event) => event.type === "done")).toHaveLength(1);
+		expect(nextCalls).toBe(1);
 	});
 
-	it("applies retries to Models.completeSimple", async () => {
-		vi.useFakeTimers();
-		let calls = 0;
+	it("wraps only Models simple paths and preserves generic delegates", async () => {
+		let simpleCalls = 0;
+		let genericCalls = 0;
 		const models = {
-			streamSimple: () => (++calls === 1 ? errorStream("HTTP 429: rate limited") : textStream("done")),
+			streamSimple: () => (++simpleCalls === 1 ? errorStream("HTTP 429") : textStream("simple")),
+			stream: () => {
+				genericCalls += 1;
+				return textStream("generic");
+			},
+			complete: async () => {
+				genericCalls += 1;
+				return assistant("stop");
+			},
 		} as Models;
-		const retryingModels = withProviderRetryModels(models);
-		const completion = retryingModels.completeSimple(model, context);
+		vi.useFakeTimers();
+		const wrapped = withProviderRetryModels(models, enabled);
+		const simpleResult = wrapped.completeSimple(model, context);
 		await vi.advanceTimersByTimeAsync(2_000);
-
-		expect((await completion).content).toEqual([{ type: "text", text: "done" }]);
-		expect(calls).toBe(2);
+		expect((await simpleResult).content).toEqual([{ type: "text", text: "simple" }]);
+		await wrapped.stream(model, context).result();
+		await wrapped.complete(model, context);
+		expect(simpleCalls).toBe(2);
+		expect(genericCalls).toBe(2);
 	});
 });
 
@@ -212,14 +299,6 @@ function errorStream(message: string, text?: string) {
 	return stream;
 }
 
-function errorMessage(message: string, reason: "error" | "aborted" = "error") {
-	const stream = createAssistantMessageEventStream();
-	const value = assistant(reason, message);
-	stream.push({ type: "start", partial: value });
-	stream.push({ type: "error", reason, error: value });
-	return stream;
-}
-
 function textStream(text: string) {
 	const stream = createAssistantMessageEventStream();
 	const value = assistant("stop");
@@ -243,6 +322,44 @@ function mutableTextStream() {
 		stream.push({ type: "done", reason: "stop", message: value });
 	})();
 	return stream;
+}
+
+function emptyStream() {
+	return {
+		async *[Symbol.asyncIterator]() {},
+	} as ReturnType<typeof createAssistantMessageEventStream>;
+}
+
+function throwingStream(message: string) {
+	return {
+		async *[Symbol.asyncIterator]() {
+			throw new Error(message);
+		},
+	} as ReturnType<typeof createAssistantMessageEventStream>;
+}
+
+function uncloneableStream() {
+	return {
+		async *[Symbol.asyncIterator]() {
+			yield { type: "start", partial: { ...assistant("stop"), uncloneable: () => {} } } as never;
+		},
+	} as ReturnType<typeof createAssistantMessageEventStream>;
+}
+
+function terminalThenThrowStream(onNext: () => void) {
+	const value = assistant("stop");
+	let index = 0;
+	return {
+		[Symbol.asyncIterator]() {
+			return {
+				async next() {
+					onNext();
+					if (index++ === 0) return { done: false as const, value: { type: "done", reason: "stop", message: value } as const };
+					throw new Error("must not read after terminal");
+				},
+			};
+		},
+	} as ReturnType<typeof createAssistantMessageEventStream>;
 }
 
 async function collect(stream: AsyncIterable<AssistantMessageEvent>): Promise<AssistantMessageEvent[]> {
