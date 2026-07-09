@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createAssistantMessageEventStream, type AssistantMessage } from "@earendil-works/pi-ai";
-import { resolveCuaRuntimeSpec } from "@onkernel/cua-ai";
+import { createCuaModels, resolveCuaRuntimeSpec } from "@onkernel/cua-ai";
 import type Kernel from "@onkernel/sdk";
 import {
 	Agent,
@@ -60,6 +60,40 @@ function createCustomTool(name = "custom"): AgentTool {
 			return { content: [{ type: "text", text: "ok" }], details: {} };
 		},
 	};
+}
+
+function finishMessage(message: AssistantMessage, text?: string): AssistantMessage {
+	if (text !== undefined) message.content = [{ type: "text", text }];
+	return message;
+}
+
+function createScriptedStream(texts: Array<string | undefined>, contexts?: Array<{ messages: Array<{ role: string }> }>) {
+	let providerCalls = 0;
+	const streamFn: StreamFn = (model, context) => {
+		contexts?.push(context as never);
+		const stream = createAssistantMessageEventStream();
+		const message = finishMessage(createAssistantMessage(model), texts[providerCalls]);
+		providerCalls += 1;
+		stream.push({ type: "start", partial: message });
+		stream.push({ type: "done", reason: "stop", message });
+		stream.end(message);
+		return stream;
+	};
+	return { streamFn, calls: () => providerCalls };
+}
+
+function createScriptedModels(texts: Array<string | undefined>, contexts?: Array<{ messages: Array<{ role: string }> }>) {
+	const scripted = createScriptedStream(texts, contexts);
+	const models = createCuaModels();
+	models.setProvider({
+		id: "openai",
+		name: "scripted openai",
+		auth: { apiKey: { name: "test key", resolve: async () => ({ auth: { apiKey: "test-key" } }) } },
+		getModels: () => [],
+		stream: scripted.streamFn,
+		streamSimple: scripted.streamFn,
+	} as never);
+	return { models, calls: scripted.calls };
 }
 
 describe("CuaAgent", () => {
@@ -237,7 +271,7 @@ describe("CuaAgent", () => {
 			const stream = createAssistantMessageEventStream();
 			void (async () => {
 				payloads.push(await options?.onPayload?.({ provider: model.provider }, model));
-				const message = createAssistantMessage(model);
+				const message = finishMessage(createAssistantMessage(model), "done");
 				stream.push({ type: "start", partial: message });
 				stream.push({ type: "done", reason: "stop", message });
 				stream.end(message);
@@ -286,7 +320,7 @@ describe("CuaAgent", () => {
 						model,
 					),
 				);
-				const message = createAssistantMessage(model);
+				const message = finishMessage(createAssistantMessage(model), "done");
 				stream.push({ type: "start", partial: message });
 				stream.push({ type: "done", reason: "stop", message });
 				stream.end(message);
@@ -394,9 +428,324 @@ describe("CuaAgent", () => {
 		expect(fedBack, "second provider request should carry the tool result").toBeDefined();
 		expect(fedBack!.content.some((block) => block.type === "image" && block.mimeType === "image/png")).toBe(true);
 	});
+
+	it("re-prompts once after an exact-empty response", async () => {
+		const contexts: Array<{ messages: Array<{ role: string }> }> = [];
+		const scripted = createScriptedStream([undefined, "finished"], contexts);
+		const agent = new CuaAgent({
+			browser,
+			client,
+			streamFn: scripted.streamFn,
+			initialState: { model: "openai:gpt-5.5" },
+		});
+
+		await agent.prompt("finish the task");
+
+		expect(scripted.calls()).toBe(2);
+		expect(contexts[1]?.messages.some((message) => message.role === "user")).toBe(true);
+		expect(agent.state.messages.at(-1)?.content).toEqual([{ type: "text", text: "finished" }]);
+	});
+
+	it("caps exact-empty recovery at one attempt", async () => {
+		const scripted = createScriptedStream([undefined, undefined]);
+		const agent = new CuaAgent({
+			browser,
+			client,
+			streamFn: scripted.streamFn,
+			initialState: { model: "openai:gpt-5.5" },
+		});
+
+		await agent.prompt("finish the task");
+
+		expect(scripted.calls()).toBe(2);
+		expect(agent.state.messages.at(-1)?.content).toEqual([]);
+	});
+
+	it("resets exact-empty recovery for each prompt", async () => {
+		const scripted = createScriptedStream([undefined, "first", undefined, "second"]);
+		const agent = new CuaAgent({
+			browser,
+			client,
+			streamFn: scripted.streamFn,
+			initialState: { model: "openai:gpt-5.5" },
+		});
+
+		await agent.prompt("first task");
+		await agent.prompt("second task");
+
+		expect(scripted.calls()).toBe(4);
+		expect(agent.state.messages.at(-1)?.content).toEqual([{ type: "text", text: "second" }]);
+	});
+
+	it.each(["one-at-a-time", "all"] as const)("preserves queued caller follow-ups in %s mode", async (mode) => {
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const contexts: Array<{ messages: Array<{ role: string; content: Array<{ type: string; text?: string }> }> }> = [];
+		let calls = 0;
+		const streamFn: StreamFn = (model, context) => {
+			contexts.push(context as never);
+			const stream = createAssistantMessageEventStream();
+			const message = finishMessage(createAssistantMessage(model), calls === 0 ? undefined : "finished");
+			calls += 1;
+			void (async () => {
+				if (calls === 1) await gate;
+				stream.push({ type: "start", partial: message });
+				stream.push({ type: "done", reason: "stop", message });
+				stream.end(message);
+			})();
+			return stream;
+		};
+		const agent = new CuaAgent({
+			browser,
+			client,
+			streamFn,
+			followUpMode: mode,
+			initialState: { model: "openai:gpt-5.5" },
+		});
+		const prompt = agent.prompt("task");
+		await vi.waitFor(() => expect(calls).toBe(1));
+		agent.followUp({ role: "user", content: [{ type: "text", text: "caller one" }], timestamp: Date.now() });
+		agent.followUp({ role: "user", content: [{ type: "text", text: "caller two" }], timestamp: Date.now() });
+		release();
+		await prompt;
+
+		expect(calls).toBe(mode === "all" ? 2 : 3);
+		const callerCounts = contexts.slice(1).map((context) =>
+			context.messages.filter(
+				(message) =>
+					message.role === "user" &&
+					message.content.some((block) => block.type === "text" && block.text?.startsWith("caller")),
+			).length,
+		);
+		expect(callerCounts).toEqual(mode === "all" ? [2] : [1, 2]);
+	});
+
+	it("does not recover an exact-empty response after abort", async () => {
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		let calls = 0;
+		const streamFn: StreamFn = (model) => {
+			calls += 1;
+			const stream = createAssistantMessageEventStream();
+			const message = createAssistantMessage(model);
+			void gate.then(() => {
+				stream.push({ type: "start", partial: message });
+				stream.push({ type: "done", reason: "stop", message });
+				stream.end(message);
+			});
+			return stream;
+		};
+		const agent = new CuaAgent({ browser, client, streamFn, initialState: { model: "openai:gpt-5.5" } });
+		const prompt = agent.prompt("task");
+		await vi.waitFor(() => expect(calls).toBe(1));
+		agent.abort();
+		release();
+		await prompt;
+
+		expect(calls).toBe(1);
+		expect(agent.hasQueuedMessages()).toBe(false);
+	});
 });
 
 describe("CuaAgentHarness", () => {
+	it("re-prompts after a successful empty response", async () => {
+		let providerCalls = 0;
+		const contexts: Array<{ messages: Array<{ role: string }> }> = [];
+		const models = createCuaModels();
+		models.setProvider({
+			id: "openai",
+			name: "scripted openai",
+			auth: { apiKey: { name: "test key", resolve: async () => ({ auth: { apiKey: "test-key" } }) } },
+			getModels: () => [],
+			stream: (_model, context) => {
+				contexts.push(context as never);
+				return stream();
+			},
+			streamSimple: (_model, context) => {
+				contexts.push(context as never);
+				return stream();
+			},
+		} as never);
+
+		function stream() {
+			const response = createAssistantMessageEventStream();
+			const message = createAssistantMessage(resolveCuaRuntimeSpec("openai:gpt-5.5").model);
+			if (providerCalls++ > 0) message.content = [{ type: "text", text: "finished" }];
+			response.push({ type: "start", partial: message });
+			response.push({ type: "done", reason: "stop", message });
+			response.end(message);
+			return response;
+		}
+
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "openai:gpt-5.5",
+			models,
+		});
+
+		const response = await harness.prompt("Use the browser to finish the task.");
+
+		expect(providerCalls).toBe(2);
+		expect(contexts[1]?.messages.some((message) => message.role === "user")).toBe(true);
+		expect(response.content).toEqual([{ type: "text", text: "finished" }]);
+	});
+
+	it("caps exact-empty recovery at one attempt", async () => {
+		const scripted = createScriptedModels([undefined, undefined]);
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "openai:gpt-5.5",
+			models: scripted.models,
+		});
+
+		const response = await harness.prompt("finish the task");
+
+		expect(scripted.calls()).toBe(2);
+		expect(response.content).toEqual([]);
+	});
+
+	it("resets exact-empty recovery for each prompt", async () => {
+		const scripted = createScriptedModels([undefined, "first", undefined, "second"]);
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "openai:gpt-5.5",
+			models: scripted.models,
+		});
+
+		await expect(harness.prompt("first task")).resolves.toMatchObject({ content: [{ text: "first" }] });
+		await expect(harness.prompt("second task")).resolves.toMatchObject({ content: [{ text: "second" }] });
+		expect(scripted.calls()).toBe(4);
+	});
+
+	it("does not retry a content-bearing whitespace response", async () => {
+		const scripted = createScriptedModels(["   "]);
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "openai:gpt-5.5",
+			models: scripted.models,
+		});
+
+		const response = await harness.prompt("finish the task");
+
+		expect(scripted.calls()).toBe(1);
+		expect(response.content).toEqual([{ type: "text", text: "   " }]);
+	});
+
+	it.each(["one-at-a-time", "all"] as const)("preserves queued caller follow-ups in %s mode", async (mode) => {
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const contexts: Array<{ messages: Array<{ role: string; content: Array<{ type: string; text?: string }> }> }> = [];
+		let calls = 0;
+		const models = createCuaModels();
+		const streamFn: StreamFn = (model, context) => {
+			contexts.push(context as never);
+			const stream = createAssistantMessageEventStream();
+			const message = finishMessage(createAssistantMessage(model), calls === 0 ? undefined : "finished");
+			calls += 1;
+			void (async () => {
+				if (calls === 1) await gate;
+				stream.push({ type: "start", partial: message });
+				stream.push({ type: "done", reason: "stop", message });
+				stream.end(message);
+			})();
+			return stream;
+		};
+		models.setProvider({
+			id: "openai",
+			name: "scripted openai",
+			auth: { apiKey: { name: "test key", resolve: async () => ({ auth: { apiKey: "test-key" } }) } },
+			getModels: () => [],
+			stream: streamFn,
+			streamSimple: streamFn,
+		} as never);
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "openai:gpt-5.5",
+			models,
+		});
+		await harness.setFollowUpMode(mode);
+		const prompt = harness.prompt("task");
+		await vi.waitFor(() => expect(calls).toBe(1));
+		await harness.followUp("caller one");
+		await harness.followUp("caller two");
+		release();
+		await prompt;
+
+		expect(calls).toBe(mode === "all" ? 2 : 3);
+		const callerCounts = contexts.slice(1).map((context) =>
+			context.messages.filter(
+				(message) =>
+					message.role === "user" &&
+					message.content.some((block) => block.type === "text" && block.text?.startsWith("caller")),
+			).length,
+		);
+		expect(callerCounts).toEqual(mode === "all" ? [2] : [1, 2]);
+	});
+
+	it("does not recover an exact-empty response after abort", async () => {
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		let calls = 0;
+		const models = createCuaModels();
+		const streamFn: StreamFn = (model) => {
+			calls += 1;
+			const stream = createAssistantMessageEventStream();
+			const message = createAssistantMessage(model);
+			void gate.then(() => {
+				stream.push({ type: "start", partial: message });
+				stream.push({ type: "done", reason: "stop", message });
+				stream.end(message);
+			});
+			return stream;
+		};
+		models.setProvider({
+			id: "openai",
+			name: "scripted openai",
+			auth: { apiKey: { name: "test key", resolve: async () => ({ auth: { apiKey: "test-key" } }) } },
+			getModels: () => [],
+			stream: streamFn,
+			streamSimple: streamFn,
+		} as never);
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "openai:gpt-5.5",
+			models,
+		});
+		let queued = false;
+		harness.subscribe((event) => {
+			if (event.type === "queue_update" && (event.steer.length > 0 || event.followUp.length > 0)) queued = true;
+		});
+		const prompt = harness.prompt("task");
+		await vi.waitFor(() => expect(calls).toBe(1));
+		const abort = harness.abort();
+		release();
+		await abort;
+		await prompt;
+
+		expect(calls).toBe(1);
+		expect(queued).toBe(false);
+	});
+
 	it("extends pi AgentHarness and resolves model refs", async () => {
 		const harness = new CuaAgentHarness({
 			...(await createHarnessServices()),
