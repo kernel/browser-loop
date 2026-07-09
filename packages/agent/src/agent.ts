@@ -162,11 +162,8 @@ class CuaRuntimeController {
 	}
 
 	setMode(mode: CuaMode): void {
-		// A repeated selection must not replace the translator: disposing it
-		// would drop snapshot refs, tab context, and the CDP connection.
 		if (mode === this.runtimeSpec.mode) return;
-		const spec = this.resolveSpec(this.runtimeSpec.model, mode);
-		this.beginSwitch(spec);
+		this.beginSwitch(this.resolveSpec(this.runtimeSpec.model, mode));
 		this.currentMode = mode;
 	}
 
@@ -178,36 +175,49 @@ class CuaRuntimeController {
 		this.beginSwitch(this.resolveSpec(model));
 	}
 
-	// A mode/model switch is two-phase: the outgoing translator must stay
-	// alive until the new toolset is actually installed, because on failure
-	// the still-exposed pre-switch tools keep executing against it.
-	private previousRuntime?: { spec: CuaRuntimeSpec; translator: InternalComputerTranslator; mode?: CuaMode };
+	// A mode/model switch is two-phase: when the new spec needs a different
+	// translator configuration, the outgoing translator must stay alive until
+	// the new toolset is actually installed, because on failure the
+	// still-exposed pre-switch tools keep executing against it.
+	private previousRuntime?: { spec: CuaRuntimeSpec; translator?: InternalComputerTranslator; mode?: CuaMode };
 
 	private beginSwitch(spec: CuaRuntimeSpec): void {
-		if (this.previousRuntime) {
-			// A switch is already pending: its translator was never installed
-			// into the exposed tools, so dispose it rather than orphaning it.
-			// previousRuntime keeps pointing at the runtime the tools still wrap.
-			this.translator.dispose();
-		} else {
-			this.previousRuntime = { spec: this.runtimeSpec, translator: this.translator, mode: this.currentMode };
+		// The translator only cares about the provider's coordinate system and
+		// screenshot transform. Keep it — and its CDP connection, tabs, and
+		// refs — whenever those are unchanged (always true for mode switches).
+		const replaceTranslator =
+			JSON.stringify([spec.coordinateSystem, spec.screenshot]) !==
+			JSON.stringify([this.runtimeSpec.coordinateSystem, this.runtimeSpec.screenshot]);
+		if (!this.previousRuntime) {
+			this.previousRuntime = { spec: this.runtimeSpec, mode: this.currentMode };
 		}
 		this.runtimeSpec = spec;
+		if (!replaceTranslator) return;
+		if (this.previousRuntime.translator) {
+			// An earlier pending switch already replaced the translator; its
+			// replacement was never installed into the exposed tools, so
+			// dispose it rather than orphaning it.
+			this.translator.dispose();
+		} else {
+			this.previousRuntime.translator = this.translator;
+		}
 		this.translator = this.createTranslator();
 	}
 
-	/** Dispose the pre-switch translator once the new toolset is installed. */
+	/** Dispose the pre-switch translator (when one was replaced) once the new toolset is installed. */
 	commitSwitch(): void {
-		this.previousRuntime?.translator.dispose();
+		this.previousRuntime?.translator?.dispose();
 		this.previousRuntime = undefined;
 	}
 
 	/** Restore the pre-switch runtime; the translator the exposed tools wrap stays live. */
 	rollbackSwitch(): void {
 		if (!this.previousRuntime) return;
-		this.translator.dispose();
+		if (this.previousRuntime.translator) {
+			this.translator.dispose();
+			this.translator = this.previousRuntime.translator;
+		}
 		this.runtimeSpec = this.previousRuntime.spec;
-		this.translator = this.previousRuntime.translator;
 		this.currentMode = this.previousRuntime.mode;
 		this.previousRuntime = undefined;
 	}
@@ -252,7 +262,6 @@ class CuaRuntimeController {
 			client: this.options.client,
 			coordinateSystem: this.runtimeSpec.coordinateSystem,
 			screenshot: this.runtimeSpec.screenshot,
-			mode: this.runtimeSpec.mode,
 		});
 	}
 }

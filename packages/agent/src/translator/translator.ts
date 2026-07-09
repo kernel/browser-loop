@@ -17,7 +17,6 @@ import {
 	type CuaActionZoom,
 	type CuaBrowserAction,
 	type CuaDragMouseButton,
-	type CuaMode,
 	type CuaMouseButton,
 	type CuaScreenshotSpec,
 } from "@onkernel/cua-ai";
@@ -33,8 +32,6 @@ export interface InternalComputerTranslatorOptions {
 	client: Kernel;
 	coordinateSystem?: ComputerToolCoordinateSystem;
 	screenshot?: CuaScreenshotSpec;
-	/** Action plane(s) in play; browser-executor extras like cursor hints are gated to "browser". */
-	mode?: CuaMode;
 	/** Browser executor factory, overridable for tests. Defaults to a raw-CDP executor on the browser's cdp_ws_url. */
 	createBrowserExecutor?: (cdpWsUrl: string) => BrowserExecutor;
 }

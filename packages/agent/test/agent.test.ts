@@ -520,7 +520,41 @@ describe("CuaAgentHarness", () => {
 		expect(harness.getTools().map((tool) => tool.name)).toContain("snapshot");
 	});
 
-	it("an overlapping mode switch disposes the superseded pending translator", async () => {
+	it("setMode keeps the translator and its CDP-backed state alive", async () => {
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "anthropic:claude-opus-4-5",
+		});
+		const runtime = (harness as unknown as { runtime: { translator: unknown } }).runtime;
+		const translator = runtime.translator;
+
+		await harness.setMode("browser");
+		await harness.setMode("hybrid");
+
+		expect(runtime.translator).toBe(translator);
+	});
+
+	it("setModel keeps the translator when the provider translator config is unchanged", async () => {
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "anthropic:claude-opus-4-5",
+		});
+		const runtime = (harness as unknown as { runtime: { translator: unknown } }).runtime;
+		const translator = runtime.translator;
+
+		await harness.setModel("anthropic:claude-opus-4-7");
+		expect(runtime.translator).toBe(translator);
+
+		// Gemini uses a normalized coordinate system: the translator must be rebuilt.
+		await harness.setModel("google:gemini-3-flash-preview");
+		expect(runtime.translator).not.toBe(translator);
+	});
+
+	it("an overlapping model switch disposes the superseded pending translator", async () => {
 		const { env, session } = await createHarnessServices();
 		let gate: Promise<void> | undefined;
 		const gatedSession = new Proxy(session, {
@@ -551,17 +585,17 @@ describe("CuaAgentHarness", () => {
 		gate = new Promise((resolve) => {
 			release = resolve;
 		});
-		const first = harness.setMode("browser");
+		const first = harness.setModel("google:gemini-3-flash-preview");
 		const superseded = vi.spyOn(runtime.translator, "dispose");
 
-		const second = harness.setMode("hybrid");
+		const second = harness.setModel("openai:gpt-5.5");
 		release();
 		await Promise.all([first, second]);
 
 		// Neither the original nor the superseded pending translator may leak.
 		expect(original).toHaveBeenCalled();
 		expect(superseded).toHaveBeenCalled();
-		expect(harness.getMode()).toBe("hybrid");
+		expect(harness.getModel().id).toBe("gpt-5.5");
 	});
 
 	it("treats a repeated setMode as a no-op", async () => {

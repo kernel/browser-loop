@@ -19,9 +19,11 @@ helper is always registered.
   `importRefState()` persist refs across processes against the same browser.
 - `CuaAgent` and `CuaAgentHarness` accept `mode` (`"computer"` | `"browser"`
   | `"hybrid"`) and `nativeTool`, and support runtime plane switching via
-  `setMode()` / `getMode()`; mode switches preserve the requested activation
-  state of surviving tools, dispose the previous translator's CDP
-  connection, and roll back cleanly on failure (as does `setModel()`).
+  `setMode()` / `getMode()`. Mode switches preserve the requested activation
+  state of surviving tools and keep the translator — CDP connection, tabs,
+  and element refs — alive; the translator is only rebuilt when a model
+  switch changes the provider's coordinate system or screenshot transform.
+  Both switches roll back cleanly on failure.
 - Post-action grounding captures and the navigation helper are mode-aware:
   browser mode grounds on the viewport and routes navigation through CDP
   (browser and hybrid modes both route `computer_use_extra` navigation over
