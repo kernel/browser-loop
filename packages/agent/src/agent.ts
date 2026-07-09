@@ -26,6 +26,7 @@ import {
 	type SimpleStreamOptions,
 } from "@onkernel/cua-ai";
 import type Kernel from "@onkernel/sdk";
+import { withProviderRetry, withProviderRetryModels } from "./provider-retry";
 import { buildCuaComputerTools } from "./tools";
 import { InternalComputerTranslator, type KernelBrowser } from "./translator/translator";
 
@@ -308,13 +309,14 @@ export class CuaAgent extends Agent {
 			playwright,
 			onPayload,
 		});
+		const retryingStream = withProviderRetry(streamFn ?? defaultCuaStream);
 		const wrappedStreamFn: StreamFn = (model, context, streamOptions) => {
 			const optionsWithCuaRuntime: CuaSimpleStreamOptions = {
 				...streamOptions,
 				onPayload: runtime.onPayload(),
 				keepToolNames: runtime.keepToolNames(),
 			};
-			return (streamFn ?? defaultCuaStream)(model, context, optionsWithCuaRuntime);
+			return retryingStream(model, context, optionsWithCuaRuntime);
 		};
 
 		super({
@@ -459,11 +461,12 @@ export class CuaAgentHarness<
 			onPayload,
 		});
 		const resolvedTools = runtime.tools();
+		const retryingModels = withProviderRetryModels(models ?? cuaModels());
 
 		super({
 			...harnessOptions,
 			model: runtime.model,
-			models: models ?? cuaModels(),
+			models: retryingModels,
 			tools: resolvedTools,
 			systemPrompt: systemPrompt ?? (() => runtime.systemPrompt),
 			activeToolNames: activeToolNames ?? resolvedTools.map((tool) => tool.name),
