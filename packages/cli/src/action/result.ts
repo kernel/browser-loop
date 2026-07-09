@@ -94,7 +94,7 @@ function extractFirstUrl(text: string): string | undefined {
 		/(?:https?:\/\/\S+|about:blank|file:\/\/\S+|chrome:\/\/\S+|chrome-extension:\/\/\S+|edge:\/\/\S+|brave:\/\/\S+)/gi,
 	);
 	if (!matches || matches.length === 0) return undefined;
-	return matches[matches.length - 1]!.replace(/[),.;!?]+$/, "");
+	return matches[matches.length - 1]!.replace(/[)*_`,.;!?]+$/, "");
 }
 
 export function formatCompact(r: ActionResult): string {

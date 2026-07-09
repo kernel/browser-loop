@@ -90,5 +90,5 @@ Be concise and factual. Do NOT perform any actions. Only observe and respond.`;
 }
 
 function urlPrompt(): string {
-	return `Report the current page URL. Use the url action to read it. Do not perform any other actions.`;
+	return `Report the current page URL. Use the url action to read it. Do not perform any other actions. Respond with only the bare URL, no markdown or other formatting.`;
 }
