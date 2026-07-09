@@ -533,6 +533,7 @@ export class CuaAgentHarness<
 		if (recovery && recovery.maxAttempts > 0) {
 			this.on("before_agent_start", () => {
 				this.emptyResponseRecoveryAttempts = 0;
+				this.hasPendingActiveQueue = false;
 				return undefined;
 			});
 			this.subscribe(async (event, signal) => {

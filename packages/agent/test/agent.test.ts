@@ -767,6 +767,24 @@ describe("CuaAgentHarness", () => {
 		expect(scripted.calls()).toBe(4);
 	});
 
+	it("clears stale queue snapshots before a new prompt starts", async () => {
+		const scripted = createScriptedModels([undefined, "finished"]);
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "openai:gpt-5.5",
+			models: scripted.models,
+			emptyResponseRecovery: recovery,
+		});
+
+		(harness as unknown as { hasPendingActiveQueue: boolean }).hasPendingActiveQueue = true;
+		const response = await harness.prompt("finish the task");
+
+		expect(scripted.calls()).toBe(2);
+		expect(response.content).toEqual([{ type: "text", text: "finished" }]);
+	});
+
 	it("makes exactly one additional call per configured attempt", async () => {
 		const scripted = createScriptedModels([undefined, undefined, undefined]);
 		const harness = new CuaAgentHarness({
