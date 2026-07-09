@@ -51,7 +51,7 @@ describe("mode/native-tool validation before provisioning", () => {
 				model: "openai:gpt-5.5",
 				nativeTool: "computer_20260701",
 			})),
-		).rejects.toThrow('native tool "computer_20260701" requires an anthropic model; got provider "openai"');
+		).rejects.toThrow('native tool "computer_20260701" requires an anthropic model paired with mode "computer"; got provider "openai"');
 		expect(provisionBrowser).not.toHaveBeenCalled();
 	});
 
