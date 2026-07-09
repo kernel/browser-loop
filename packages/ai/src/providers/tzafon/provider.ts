@@ -76,7 +76,7 @@ export function buildTzafonRequestInput(model: Model<Api>, context: Context, opt
 		max_output_tokens: options?.maxTokens ?? model.maxTokens,
 	};
 	if (!responseThreadingEnabled(options)) return body;
-	const { previousResponseId, deltaMessages } = responseThreadingDelta(context.messages);
+	const { previousResponseId, deltaMessages } = responseThreadingDelta(context.messages, TZAFON_RESPONSES_API);
 	if (!previousResponseId) return body;
 	return { ...body, input: convertMessages(deltaMessages), previous_response_id: previousResponseId, store: true };
 }

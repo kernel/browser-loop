@@ -115,6 +115,25 @@ describe("buildTzafonRequestInput response threading", () => {
 		expect(screenshotImageUrls(body.input)).toHaveLength(TURNS);
 	});
 
+	it("replays full history when the latest assistant turn is from a different api", () => {
+		const context = multiTurnContext();
+		context.messages.push({
+			role: "assistant",
+			content: [{ type: "text", text: "done" }],
+			api: "anthropic-messages",
+			provider: "anthropic",
+			model: "claude-opus-4-8",
+			responseId: "msg_anthropic",
+			usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+			stopReason: "stop",
+			timestamp: 0,
+		});
+
+		const body = tzafon.buildTzafonRequestInput(model, context);
+		expect(body.previous_response_id).toBeUndefined();
+		expect(screenshotImageUrls(body.input)).toHaveLength(TURNS);
+	});
+
 	// Off-path screenshot count scales with turn count; on-path stays constant at one.
 	it("grows the payload per turn when off but stays flat when on", () => {
 		const counts = (turns: number, disable: boolean) => {
