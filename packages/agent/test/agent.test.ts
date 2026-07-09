@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createAssistantMessageEventStream, type AssistantMessage } from "@earendil-works/pi-ai";
 import { resolveCuaRuntimeSpec } from "@onkernel/cua-ai";
 import type Kernel from "@onkernel/sdk";
@@ -518,6 +518,50 @@ describe("CuaAgentHarness", () => {
 		await harness.setMode("browser");
 		expect(harness.getMode()).toBe("browser");
 		expect(harness.getTools().map((tool) => tool.name)).toContain("snapshot");
+	});
+
+	it("an overlapping mode switch disposes the superseded pending translator", async () => {
+		const { env, session } = await createHarnessServices();
+		let gate: Promise<void> | undefined;
+		const gatedSession = new Proxy(session, {
+			get(target, prop, receiver) {
+				const value = Reflect.get(target, prop, receiver);
+				if (prop === "appendActiveToolsChange" && gate) {
+					const pending = gate;
+					gate = undefined;
+					return async (...args: unknown[]) => {
+						await pending;
+						return (value as (...a: unknown[]) => Promise<void>).apply(target, args);
+					};
+				}
+				return typeof value === "function" ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+			},
+		});
+		const harness = new CuaAgentHarness({
+			env,
+			session: gatedSession,
+			browser,
+			client,
+			model: "anthropic:claude-opus-4-5",
+		});
+		const runtime = (harness as unknown as { runtime: { translator: { dispose(): void } } }).runtime;
+		const original = vi.spyOn(runtime.translator, "dispose");
+
+		let release!: () => void;
+		gate = new Promise((resolve) => {
+			release = resolve;
+		});
+		const first = harness.setMode("browser");
+		const superseded = vi.spyOn(runtime.translator, "dispose");
+
+		const second = harness.setMode("hybrid");
+		release();
+		await Promise.all([first, second]);
+
+		// Neither the original nor the superseded pending translator may leak.
+		expect(original).toHaveBeenCalled();
+		expect(superseded).toHaveBeenCalled();
+		expect(harness.getMode()).toBe("hybrid");
 	});
 
 	it("treats a repeated setMode as a no-op", async () => {

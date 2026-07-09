@@ -184,7 +184,14 @@ class CuaRuntimeController {
 	private previousRuntime?: { spec: CuaRuntimeSpec; translator: InternalComputerTranslator; mode?: CuaMode };
 
 	private beginSwitch(spec: CuaRuntimeSpec): void {
-		this.previousRuntime = { spec: this.runtimeSpec, translator: this.translator, mode: this.currentMode };
+		if (this.previousRuntime) {
+			// A switch is already pending: its translator was never installed
+			// into the exposed tools, so dispose it rather than orphaning it.
+			// previousRuntime keeps pointing at the runtime the tools still wrap.
+			this.translator.dispose();
+		} else {
+			this.previousRuntime = { spec: this.runtimeSpec, translator: this.translator, mode: this.currentMode };
+		}
 		this.runtimeSpec = spec;
 		this.translator = this.createTranslator();
 	}

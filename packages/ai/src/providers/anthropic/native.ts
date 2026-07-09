@@ -120,7 +120,8 @@ export function mapNativeComputerInput(input: NativeInput): CuaAction[] {
 			return Array.from({ length: repeat }, () => ({ type: "keypress" as const, keys: [text(input)] }));
 		}
 		case "hold_key":
-			return [{ type: "keypress", keys: [text(input)], duration: durationSeconds(input) }];
+			// Canonical keypress duration is milliseconds; the native tool speaks seconds.
+			return [{ type: "keypress", keys: [text(input)], duration: durationSeconds(input) * 1000 }];
 		case "wait":
 			return [{ type: "wait", ms: durationSeconds(input) * 1000 }];
 		case "cursor_position":

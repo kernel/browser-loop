@@ -96,6 +96,12 @@ describe("computer_20260701 action mapping", () => {
 		expect(mapNativeComputerInput({ action: "left_click" })).toEqual([{ type: "click", button: "left" }]);
 	});
 
+	it("maps hold_key seconds to keypress duration in milliseconds", () => {
+		expect(mapNativeComputerInput({ action: "hold_key", text: "a", duration: 2 })).toEqual([
+			{ type: "keypress", keys: ["a"], duration: 2000 },
+		]);
+	});
+
 	it("expands key repeat into repeated keypresses", () => {
 		expect(mapNativeComputerInput({ action: "key", text: "Down", repeat: 3 })).toEqual([
 			{ type: "keypress", keys: ["Down"] },
