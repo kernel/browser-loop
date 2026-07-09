@@ -79,6 +79,13 @@ interface FrameStitch {
 	ctx: RenderContext;
 }
 
+export interface BrowserFindCandidate {
+	ref: string;
+	role: string;
+	name: string;
+	score: number;
+}
+
 export interface BrowserExecutorOptions {
 	/** Mark elements whose computed cursor is "pointer" as clickable hints in snapshots. Default false. */
 	cursorHints?: boolean;
@@ -455,7 +462,19 @@ export class BrowserExecutor {
 	}
 
 	private async find(action: CuaActionBrowserFind): Promise<string> {
-		const targetId = await this.resolveTarget(action.tab_id);
+		const candidates = await this.findCandidates(action.query, action.tab_id);
+		if (candidates.length === 0) return `No elements matched ${JSON.stringify(action.query)}. Try snapshot for the full tree.`;
+		return candidates
+			.map(({ ref, role, name }) => `${role || "node"}${name ? ` ${JSON.stringify(name)}` : ""} [${ref}]`)
+			.join("\n");
+	}
+
+	/**
+	 * Score elements against a natural-language query and mint refs for the
+	 * matches, best first. Structured counterpart of the `browser_find` action.
+	 */
+	async findCandidates(query: string, tabId?: string): Promise<BrowserFindCandidate[]> {
+		const targetId = await this.resolveTarget(tabId);
 		const session = await this.attach(targetId);
 		const { nodes } = await this.cdp.send<{ nodes: AXNode[] }>("Accessibility.getFullAXTree", {}, session);
 		const pools: Array<{ nodes: AXNode[]; ctx: RenderContext }> = [
@@ -475,7 +494,7 @@ export class BrowserExecutor {
 		for (const stitch of (await this.stitchFrames(nodes, targetId, session, false)).values()) {
 			pools.push({ nodes: [...stitch.byId.values()], ctx: stitch.ctx });
 		}
-		const queryTokens = tokenize(action.query);
+		const queryTokens = tokenize(query);
 		const scored = pools
 			.flatMap(({ nodes: poolNodes, ctx }) =>
 				poolNodes
@@ -487,16 +506,14 @@ export class BrowserExecutor {
 			.filter((entry) => entry.score > 0)
 			.sort((a, b) => b.score - a.score)
 			.slice(0, FIND_MATCH_LIMIT);
-		if (scored.length === 0) return `No elements matched ${JSON.stringify(action.query)}. Try snapshot for the full tree.`;
-		const text = scored
-			.map(({ node, ctx }) => {
-				const role = node.role?.value ?? "node";
-				const name = node.name?.value ? ` ${JSON.stringify(node.name.value)}` : "";
-				return `${role}${name} [${this.mintRef(node, ctx)}]`;
-			})
-			.join("\n");
+		const candidates = scored.map(({ node, ctx, score }) => ({
+			ref: this.mintRef(node, ctx),
+			role: node.role?.value ?? "",
+			name: node.name?.value ?? "",
+			score,
+		}));
 		this.pruneRefs(targetId);
-		return text;
+		return candidates;
 	}
 
 	private async click(action: CuaActionBrowserClick): Promise<void> {

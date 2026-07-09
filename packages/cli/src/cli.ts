@@ -1,7 +1,13 @@
 #!/usr/bin/env node
 import { stderr, stdout } from "node:process";
 import { parseArgs } from "node:util";
-import { type ActionType } from "./action/prompts";
+import { type ModelActionType } from "./action/prompts";
+import type { DeterministicActionType } from "./action/result";
+import {
+	DETERMINISTIC_SUBCOMMANDS,
+	isCoordinatePair,
+	runDeterministicCommand,
+} from "./cli-executor";
 import {
 	runActionCommand,
 	runInteractiveCommand,
@@ -17,16 +23,29 @@ const HELP = `cua — Kernel-cloud-browser computer-use agent
 Usage:
   cua [options] [prompt...]
   cua --print "go to news.ycombinator.com and summarize"
-  cua open <url>
+  cua open <url|back|forward>
+  cua url
+  cua snapshot [--filter interactive]
+  cua find "<query>"
+  cua text
+  cua fill "<query>" "<value>"
+  cua press <key> [key...]
+  cua click <x> <y>
+  cua tabs
+  cua screenshot [--out file|-]
+
   cua click "<description>"
   cua type "<target>" "<text>"
-  cua press <key> [key...]
   cua observe ["<question>"]
-  cua url
-  cua screenshot [--out file|-]
   cua do "<instruction>"
   cua models [-p provider]
   cua session start [name] | stop <name> | list | show <name>
+
+Subcommands above the blank line are model-free: they run directly against
+the browser (no LLM, no model API key; only KERNEL_API_KEY). \`click <x> <y>\`
+with exactly two integer arguments clicks those viewport coordinates without
+a model; any other \`click\` argument is a natural-language description
+resolved by the model. Exit codes: 0 ok, 1 not_found, 2 error.
 
 Options:
   -p, --print                    Run a single prompt and exit
@@ -55,6 +74,7 @@ Options:
                                  computer_20260701 (requires --mode computer) or
                                  browser_20260701 (requires --mode browser)
       --out <file|->             Output file for screenshot subcommand
+      --filter <interactive>     Restrict \`cua snapshot\` to interactive elements
   -o, --output <fmt>             Output format for --print: text (default) | jsonl
       --jsonl-include-deltas     Include assistant_text_delta events (default off)
       --jsonl-include-images     Include base64 screenshots (default off, only sizes)
@@ -117,6 +137,7 @@ interface CliFlags {
 	maxSteps?: number;
 	out?: string;
 	output?: string;
+	filter?: string;
 	imageProtocol?: string;
 	namedSession?: string;
 	sessionRef?: string;
@@ -145,6 +166,7 @@ function parseCliArgs(argv: string[]): CliFlags {
 				"browser-timeout": { type: "string" },
 				"max-steps": { type: "string" },
 				out: { type: "string" },
+				filter: { type: "string" },
 				"image-protocol": { type: "string" },
 				"session-name": { type: "string", short: "s" },
 				continue: { type: "boolean", short: "c", default: false },
@@ -207,6 +229,7 @@ function parseCliArgs(argv: string[]): CliFlags {
 		browserTimeout: Number.isFinite(browserTimeout) ? browserTimeout : undefined,
 		maxSteps: Number.isFinite(maxSteps) ? maxSteps : undefined,
 		out: parsed.values.out as string | undefined,
+		filter: parsed.values.filter as string | undefined,
 		imageProtocol: parsed.values["image-protocol"] as string | undefined,
 		namedSession: parsed.values["session-name"] as string | undefined,
 		sessionRef: parsed.values.session as string | undefined,
@@ -243,6 +266,7 @@ function toHarnessFlags(flags: CliFlags): HarnessCliFlags {
 		maxSteps: flags.maxSteps,
 		out: flags.out,
 		output: flags.output,
+		filter: flags.filter,
 		imageProtocol: flags.imageProtocol,
 		namedSession: flags.namedSession,
 		sessionRef: flags.sessionRef,
@@ -251,7 +275,7 @@ function toHarnessFlags(flags: CliFlags): HarnessCliFlags {
 	};
 }
 
-const SUBCOMMANDS = new Set(["open", "click", "type", "press", "observe", "url", "screenshot", "do"]);
+const MODEL_SUBCOMMANDS = new Set(["click", "type", "observe", "do"]);
 
 export async function main(argv: string[]): Promise<number> {
 	if (argv[0] === "models") {
@@ -283,9 +307,20 @@ export async function main(argv: string[]): Promise<number> {
 		}
 	}
 
-	if (first && SUBCOMMANDS.has(first)) {
+	const rest = positionals.slice(1);
+
+	if (first && (DETERMINISTIC_SUBCOMMANDS.has(first) || (first === "click" && isCoordinatePair(rest)))) {
 		try {
-			return await runActionCommand(first as ActionType, positionals.slice(1), toHarnessFlags(flags));
+			return await runDeterministicCommand(first as DeterministicActionType, rest, toHarnessFlags(flags));
+		} catch (err) {
+			stderr.write(`error: ${(err as Error).message}\n`);
+			return 2;
+		}
+	}
+
+	if (first && MODEL_SUBCOMMANDS.has(first)) {
+		try {
+			return await runActionCommand(first as ModelActionType, rest, toHarnessFlags(flags));
 		} catch (err) {
 			stderr.write(`error: ${(err as Error).message}\n`);
 			return 2;

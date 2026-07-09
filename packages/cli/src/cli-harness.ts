@@ -18,7 +18,7 @@ import { stderr, stdout } from "node:process";
 import type { CuaBrowserHandle } from "./harness-browser";
 import {
 	type ActionRequest,
-	type ActionType,
+	type ModelActionType,
 } from "./action/prompts";
 import { runAction, emitCompact } from "./action/harness-runner";
 import { buildCuaHarness } from "./harness";
@@ -188,6 +188,7 @@ export interface HarnessCliFlags {
 	maxSteps?: number;
 	out?: string;
 	output?: string;
+	filter?: string;
 	imageProtocol?: string;
 	namedSession?: string;
 	sessionRef?: string;
@@ -195,13 +196,16 @@ export interface HarnessCliFlags {
 	skillPaths: string[];
 }
 
-interface ResolvedAuth {
+export interface KernelAuth {
 	kernelApiKey: string;
 	kernelBaseUrl?: string;
+}
+
+interface ResolvedAuth extends KernelAuth {
 	modelRef: CuaModelRef;
 }
 
-function requireKernelApiKey(): { apiKey: string; baseUrl?: string } {
+export function requireKernelApiKey(): { apiKey: string; baseUrl?: string } {
 	const apiKey = process.env.KERNEL_API_KEY?.trim();
 	if (!apiKey) throw new Error("missing Kernel API key (set KERNEL_API_KEY)");
 	const baseUrl = process.env.KERNEL_BASE_URL?.trim() || undefined;
@@ -217,12 +221,12 @@ function resolveAuth(flags: HarnessCliFlags): ResolvedAuth {
 	return { kernelApiKey: apiKey, kernelBaseUrl: baseUrl, modelRef };
 }
 
-interface ProvisionedBrowser {
+export interface ProvisionedBrowser {
 	handle: CuaBrowserHandle;
 	named?: NamedSessionMetadata;
 }
 
-async function provisionForFlags(flags: HarnessCliFlags, auth: ResolvedAuth): Promise<ProvisionedBrowser> {
+export async function provisionForFlags(flags: HarnessCliFlags, auth: KernelAuth): Promise<ProvisionedBrowser> {
 	if (flags.namedSession) {
 		const { client, browser, meta } = await attachNamedSession({
 			name: flags.namedSession,
@@ -582,27 +586,22 @@ export async function runInteractiveCommand(
 	}
 }
 
-/** Run a one-shot action subcommand through the new harness wiring. */
+/** Run a one-shot model-mediated action subcommand through the harness wiring. */
 export async function runActionCommand(
-	action: ActionType,
+	action: ModelActionType,
 	rest: string[],
 	flags: HarnessCliFlags,
 ): Promise<number> {
 	const runtime = await setupHarnessRuntime(flags, { skipDiskSession: true });
 	const req: ActionRequest = buildActionRequest(action, rest);
 	if (flags.maxSteps !== undefined) req.maxTurns = flags.maxSteps;
-	const screenshotOut = flags.out
-		? { out: flags.out }
-		: action === "screenshot"
-			? { out: "screenshot.png" }
-			: undefined;
 	try {
 		const res = await runAction(req, {
 			harness: runtime.harness,
 			browserHandle: runtime.handle,
 			session: runtime.session,
 			skipInitialScreenshot: runtime.resolved?.resumed === true,
-		}, screenshotOut);
+		});
 		return emitCompact(res);
 	} finally {
 		try {
@@ -613,22 +612,14 @@ export async function runActionCommand(
 	}
 }
 
-function buildActionRequest(action: ActionType, rest: string[]): ActionRequest {
+function buildActionRequest(action: ModelActionType, rest: string[]): ActionRequest {
 	switch (action) {
-		case "open":
-			return { action, text: rest[0] };
 		case "click":
 			return { action, target: rest.join(" ") };
 		case "type":
 			return { action, target: rest[0], text: rest[1] };
-		case "press":
-			return { action, keys: rest };
 		case "observe":
 			return { action, text: rest.join(" ") };
-		case "url":
-			return { action };
-		case "screenshot":
-			return { action };
 		case "do":
 			return { action, text: rest.join(" ") };
 	}

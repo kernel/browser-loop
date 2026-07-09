@@ -48,24 +48,6 @@ describe("action harness-runner", () => {
 		expect(res.result.text).toBe("no match");
 	});
 
-	it("captures a screenshot via the SDK without invoking the harness", async () => {
-		fixture = await buildTestHarness({ turns: [] });
-		const originalWrite = process.stdout.write.bind(process.stdout);
-		process.stdout.write = ((_chunk: string | Uint8Array): boolean => true) as typeof process.stdout.write;
-		try {
-			const res = await runAction(
-				{ action: "screenshot" },
-				{ harness: fixture.harness, browserHandle: handleFor(fixture), session: fixture.session },
-				{ out: "-" },
-			);
-			expect(res.exitCode).toBe(0);
-			expect(fixture.provider.callCount()).toBe(0);
-			expect(fixture.kernel.screenshots).toBe(1);
-		} finally {
-			process.stdout.write = originalWrite;
-		}
-	});
-
 	it("exits 2 when the provider returns an error", async () => {
 		fixture = await buildTestHarness({
 			turns: [{ steps: [{ type: "error", message: "boom" }] }],

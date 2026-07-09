@@ -2,8 +2,10 @@ export * from "@earendil-works/pi-agent-core";
 export { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
 
 export type { KernelBrowser } from "./translator/translator";
+export { InternalComputerTranslator } from "./translator/translator";
 export { CdpConnection } from "./translator/cdp";
 export { BrowserExecutor } from "./translator/browser";
+export type { BrowserFindCandidate } from "./translator/browser";
 export type { BatchExecutionResult, BatchReadResult } from "./translator/types";
 export { createCuaComputerTools } from "./tools";
 export type {
