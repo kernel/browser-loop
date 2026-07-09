@@ -37,19 +37,31 @@ import { InternalComputerTranslator, type KernelBrowser } from "./translator/tra
  */
 type CuaRuntimeInput = CuaModelRef | Model<Api>;
 
-const TOOL_RESULT_IMAGE_LIMIT = 4;
+const DEFAULT_TOOL_RESULT_IMAGE_REPLAY_LIMIT = 4;
 const OMITTED_TOOL_RESULT_IMAGES = "[stale tool-result images omitted]";
 
-function projectToolResultImages(messages: AgentMessage[]): AgentMessage[] {
+export type ToolResultImageReplayLimit = number | false;
+
+function resolveToolResultImageReplayLimit(limit: ToolResultImageReplayLimit | undefined): ToolResultImageReplayLimit {
+	if (limit === undefined) return DEFAULT_TOOL_RESULT_IMAGE_REPLAY_LIMIT;
+	if (limit !== false && (!Number.isFinite(limit) || !Number.isInteger(limit) || limit < 0)) {
+		throw new TypeError("toolResultImageReplayLimit must be a finite non-negative integer or false");
+	}
+	return limit;
+}
+
+function projectToolResultImages(messages: AgentMessage[], limit: ToolResultImageReplayLimit): AgentMessage[] {
+	if (limit === false) return messages;
+
 	let imageCount = 0;
 	for (const message of messages) {
 		if (message.role === "toolResult") {
 			imageCount += message.content.filter((block) => block.type === "image").length;
 		}
 	}
-	if (imageCount <= TOOL_RESULT_IMAGE_LIMIT) return messages;
+	if (imageCount <= limit) return messages;
 
-	const firstRetainedImage = Math.floor((imageCount - 1) / TOOL_RESULT_IMAGE_LIMIT) * TOOL_RESULT_IMAGE_LIMIT;
+	const firstRetainedImage = Math.max(0, imageCount - limit);
 	let imageOrdinal = 0;
 	return messages.map((message) => {
 		if (message.role !== "toolResult") return message;
@@ -118,6 +130,8 @@ export type CuaAgentOptions = Omit<AgentOptions, "initialState"> & {
 	nativeTool?: CuaNativeToolSpec;
 	/** Expose a tool that runs Playwright code against the browser session. */
 	playwright?: boolean;
+	/** Maximum tool-result images replayed from local history per provider request. Defaults to 4; false disables projection. */
+	toolResultImageReplayLimit?: ToolResultImageReplayLimit;
 };
 
 /**
@@ -156,6 +170,8 @@ export type CuaAgentHarnessOptions<
 	playwright?: boolean;
 	/** Optional payload hook composed after the provider-specific CUA payload hook. */
 	onPayload?: SimpleStreamOptions["onPayload"];
+	/** Maximum tool-result images replayed from local history per provider request. Defaults to 4; false disables projection. */
+	toolResultImageReplayLimit?: ToolResultImageReplayLimit;
 };
 
 /**
@@ -337,8 +353,10 @@ export class CuaAgent extends Agent {
 			mode,
 			nativeTool,
 			playwright,
+			toolResultImageReplayLimit,
 			...agentOptions
 		} = options;
+		const imageReplayLimit = resolveToolResultImageReplayLimit(toolResultImageReplayLimit);
 		const runtime = new CuaRuntimeController({
 			browser,
 			client,
@@ -363,7 +381,10 @@ export class CuaAgent extends Agent {
 			getApiKey: agentOptions.getApiKey ?? getCuaEnvApiKey,
 			streamFn: wrappedStreamFn,
 			transformContext: async (messages, signal) =>
-				projectToolResultImages(transformContext ? await transformContext(messages, signal) : messages),
+				projectToolResultImages(
+					transformContext ? await transformContext(messages, signal) : messages,
+					imageReplayLimit,
+				),
 			initialState: {
 				...initialState,
 				model: runtime.model,
@@ -489,8 +510,10 @@ export class CuaAgentHarness<
 			systemPrompt,
 			onPayload,
 			activeToolNames,
+			toolResultImageReplayLimit,
 			...harnessOptions
 		} = options;
+		const imageReplayLimit = resolveToolResultImageReplayLimit(toolResultImageReplayLimit);
 		const runtime = new CuaRuntimeController({
 			browser,
 			client,
@@ -514,7 +537,7 @@ export class CuaAgentHarness<
 
 		this.runtime = runtime;
 		this.requestedActiveToolNames = activeToolNames;
-		this.on("context", ({ messages }) => ({ messages: projectToolResultImages(messages) }));
+		this.on("context", ({ messages }) => ({ messages: projectToolResultImages(messages, imageReplayLimit) }));
 		this.on("before_provider_payload", async ({ model, payload }: { model: Model<Api>; payload: unknown }) => {
 			const onPayload = this.runtime.onPayload();
 			if (!onPayload) return { payload };

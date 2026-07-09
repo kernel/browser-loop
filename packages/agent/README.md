@@ -99,6 +99,30 @@ Both classes mirror pi constructor shapes and behavior, with minimal additions:
 - `extraTools` to add your own pi tools alongside the built-in browser tools
 - `playwright: true` to let the model run Playwright/TypeScript against the
   live browser session
+- `toolResultImageReplayLimit` to control how many recent tool-result images
+  are replayed from local history on each provider request
+
+### Tool-result image replay
+
+Both constructors default `toolResultImageReplayLimit` to `4`. Set a different
+non-negative integer to retain that many recent image blocks, `0` to omit every
+tool-result image from local replay, or `false` to disable this projection.
+The limit is global across built-in tools, custom tools, and multi-image tool
+results. Each changed tool result retains its text, metadata, and ordering and
+gets one `[stale tool-result images omitted]` marker at its first removed image.
+
+This only projects the request context. `CuaAgent.state.messages`, harness
+session entries, and `session.buildContext()` retain the original images.
+Harness `context` handlers are not a transform pipeline: every handler receives
+the original event and the last non-`undefined` result wins. A later handler
+that returns `{ messages }` can therefore replace this built-in projection.
+
+OpenAI and Tzafon normally chain requests with `previous_response_id`, so older
+images may remain in provider-side response state after they leave local
+replay. `CUA_DISABLE_RESPONSE_THREADING=1` disables that chaining process-wide,
+so each request uses locally replayed history instead of prior provider response
+state. It is independent of `toolResultImageReplayLimit` and is not a
+constructor option.
 
 If auth callbacks are omitted, both classes default to CUA env var conventions:
 - OpenAI: `OPENAI_API_KEY`
