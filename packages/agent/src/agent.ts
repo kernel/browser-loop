@@ -40,6 +40,10 @@ type CuaRuntimeInput = CuaModelRef | Model<Api>;
 const DEFAULT_TOOL_RESULT_IMAGE_REPLAY_LIMIT = 4;
 const OMITTED_TOOL_RESULT_IMAGES = "[stale tool-result images omitted]";
 
+/**
+ * Maximum number of tool-result images replayed from local history, or `false`
+ * to keep the original message history unchanged.
+ */
 export type ToolResultImageReplayLimit = number | false;
 
 function resolveToolResultImageReplayLimit(limit: ToolResultImageReplayLimit | undefined): ToolResultImageReplayLimit {
