@@ -1,14 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyNamedSessionDefaults, type HarnessCliFlags } from "../src/cli-harness";
 import {
+	listNamedSessions,
 	type NamedSessionMetadata,
 	readNamedSession,
 	recordSessionModel,
 	updateNamedSessionRuntime,
 	writeNamedSession,
+	writeNamedSessionRefs,
 } from "../src/harness-named-sessions";
 
 const originalXdg = process.env.XDG_DATA_HOME;
@@ -95,5 +97,23 @@ describe("named session model persistence", () => {
 		const flags = applyNamedSessionDefaults(baseFlags({ model: "openai:gpt-5.5", mode: "browser" }), meta);
 		expect(flags.model).toBe("openai:gpt-5.5");
 		expect(flags.mode).toBe("browser");
+	});
+
+	it("excludes refs sidecar files from listNamedSessions", async () => {
+		await writeNamedSession(baseMeta());
+		await writeNamedSessionRefs("foo", { refCounter: 3, generations: [], refs: [] });
+		const sessions = await listNamedSessions();
+		expect(sessions).toHaveLength(1);
+		expect(sessions[0]?.name).toBe("foo");
+	});
+
+	it("skips metadata entries missing required fields", async () => {
+		await writeNamedSession(baseMeta());
+		const dir = join(process.env.XDG_DATA_HOME!, "cua", "named-sessions");
+		writeFileSync(join(dir, "bogus.json"), JSON.stringify({ unrelated: true }));
+		writeFileSync(join(dir, "no-age.json"), JSON.stringify({ name: "no-age", kernel_session_id: "k1" }));
+		const sessions = await listNamedSessions();
+		expect(sessions).toHaveLength(1);
+		expect(sessions[0]?.name).toBe("foo");
 	});
 });

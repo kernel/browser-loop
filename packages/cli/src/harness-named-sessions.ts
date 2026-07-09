@@ -107,10 +107,12 @@ export async function listNamedSessions(): Promise<NamedSessionMetadata[]> {
 	const entries = await readdir(dir);
 	const out: NamedSessionMetadata[] = [];
 	for (const entry of entries) {
-		if (!entry.endsWith(".json")) continue;
+		if (!entry.endsWith(".json") || entry.endsWith(".refs.json")) continue;
 		try {
 			const raw = await readFile(join(dir, entry), "utf8");
-			out.push(JSON.parse(raw) as NamedSessionMetadata);
+			const meta = JSON.parse(raw) as NamedSessionMetadata;
+			if (typeof meta.name !== "string" || typeof meta.kernel_session_id !== "string" || typeof meta.created_at !== "number") continue;
+			out.push(meta);
 		} catch {
 			// skip unreadable / malformed entries
 		}

@@ -517,6 +517,61 @@ describe("BrowserExecutor stale-ref self-healing", () => {
 	});
 });
 
+describe("BrowserExecutor fill", () => {
+	const FILL_TREE = [
+		ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),
+		ax({ nodeId: "2", role: "textbox", name: "Email", backendDOMNodeId: 42, parentId: "1" }),
+	];
+
+	it("focuses the element it fills before dispatching input events", async () => {
+		const { cdp, sent } = createFakeCdp(FILL_TREE);
+		const executor = new BrowserExecutor(cdp);
+		await snapshotText(executor);
+		await executor.execute({ type: "browser_fill", ref: "e1", value: "a@b.c" } as CuaBrowserAction);
+		const call = sent.find((cmd) => cmd.method === "Runtime.callFunctionOn");
+		const declaration = call?.params.functionDeclaration as string;
+		const fillFn = new Function(`return (${declaration})`)() as (value: unknown) => void;
+		const events: string[] = [];
+		const el = {
+			tagName: "INPUT",
+			type: "text",
+			value: "",
+			isContentEditable: false,
+			focus: () => events.push("focus"),
+			dispatchEvent: (event: Event) => events.push(event.type),
+		};
+		fillFn.call(el, "hello");
+		expect(el.value).toBe("hello");
+		expect(events).toEqual(["focus", "input", "change"]);
+	});
+
+	it.each([
+		["Error: element is not a form control"],
+		["TypeError: element is not a form control"],
+	])("trims fill exception %j to a single line without the prefix or stack", async (firstLine) => {
+		const { cdp } = createFakeCdp(FILL_TREE);
+		const inner = cdp as unknown as { send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown> };
+		const wrapped = {
+			...cdp,
+			send: async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
+				if (method === "Runtime.callFunctionOn") {
+					return {
+						exceptionDetails: {
+							exception: { description: `${firstLine}\n    at HTMLAnchorElement.<anonymous> (<anonymous>:20:9)` },
+						},
+					};
+				}
+				return inner.send(method, params, sessionId);
+			},
+		} as unknown as CdpConnection;
+		const executor = new BrowserExecutor(wrapped);
+		await snapshotText(executor);
+		await expect(executor.execute({ type: "browser_fill", ref: "e1", value: "x" } as CuaBrowserAction)).rejects.toThrow(
+			/^browser_fill failed: element is not a form control$/,
+		);
+	});
+});
+
 describe("BrowserExecutor cursor-pointer hints", () => {
 	const POINTER_TREE = [
 		ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),

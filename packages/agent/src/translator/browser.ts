@@ -598,7 +598,9 @@ export class BrowserExecutor {
 			session,
 		);
 		if (exceptionDetails) {
-			throw new Error(`browser_fill failed: ${exceptionDetails.exception?.description ?? "element rejected the value"}`);
+			const description = exceptionDetails.exception?.description ?? "element rejected the value";
+			const message = description.split("\n", 1)[0]?.replace(/^[A-Za-z]*(?:Error|Exception): /, "") || "element rejected the value";
+			throw new Error(`browser_fill failed: ${message}`);
 		}
 	}
 
@@ -1109,6 +1111,7 @@ const FILL_FUNCTION = `function(value) {
 	} else {
 		throw new Error("element is not a form control");
 	}
+	el.focus();
 	el.dispatchEvent(new Event("input", { bubbles: true }));
 	el.dispatchEvent(new Event("change", { bubbles: true }));
 }`;

@@ -22,14 +22,14 @@ These run directly against the browser (CDP or OS input) — no LLM involved, no
 | `cua snapshot [--filter interactive]` | Print the page's accessibility tree with element refs like `[e12]`. `--filter interactive` keeps only interactive elements. | the tree (multi-line) | 0 ok, 2 error |
 | `cua find "<query>"` | Lexically score elements against the query, best first. | one match per line: `role "name" [eN]` (the quoted name is omitted when the element has none; role falls back to `node`) | 0 ok, 1 not_found, 2 error |
 | `cua text` | Print the page's visible text (`innerText`). | the text (multi-line) | 0 ok, 2 error |
-| `cua fill <ref\|"query"> "<value>"` | Set a form field's value. With a ref (`e12` from `snapshot`/`find`) it targets that exact element. With a query it finds the unique best-matching form field (textbox, searchbox, combobox, checkbox, radio, listbox, spinbutton); exit 1 with the tied matches listed if the query is ambiguous — tighten it and retry. For checkbox/radio pass `true\|false\|checked\|unchecked\|on\|off` (query form also accepts `1\|0`). | `ok filled <role> "<name>"` (query) or `ok filled e12` (ref) | 0 ok, 1 not_found, 2 error |
+| `cua fill <ref\|"query"> "<value>"` | Set a form field's value. With a ref (`e12` from `snapshot`/`find`) it targets that exact element. With a query it finds the unique best-matching form field (textbox, searchbox, combobox, checkbox, radio, listbox, spinbutton); exit 1 with the tied matches listed if the query is ambiguous — tighten it and retry. For checkbox/radio pass `true\|false\|checked\|unchecked\|on\|off` (query form also accepts `1\|0`). `fill` leaves the field focused, so a following `cua press Return` submits the form. | `ok filled <role> "<name>"` (query) or `ok filled e12` (ref) | 0 ok, 1 not_found, 2 error |
 | `cua press <key> [<key>...]` | Send one key chord (e.g. `cua press ctrl l`, `cua press Return`). | `ok pressed` | 0 ok, 2 error |
 | `cua click <x> <y>` | OS-level click at viewport coordinates. Exactly two integer arguments. | `ok clicked (x, y)` | 0 ok, 2 error |
 | `cua click <ref>` | CDP click on an element ref from `snapshot`/`find`, e.g. `cua click e12`. Any other single `click` argument routes to the model-mediated `click` below. | `ok clicked e12` | 0 ok, 1 not_found (stale ref — re-snapshot), 2 error |
 | `cua tabs` | List open tabs. | one line per tab: `tab_id XXXX: "title" (url)` | 0 ok, 2 error |
 | `cua screenshot [--out <file\|->]` | Save a PNG (default `screenshot.png`). `--out -` writes the bytes to stdout. | the saved path; with `--out -`, stdout is exactly the PNG bytes (safe to pipe) | 0 ok, 2 error |
 
-**Element refs span invocations within a named session.** Refs printed by `snapshot`/`find` (`[e12]`) are persisted per `-s` session, so `cua -s x snapshot` then `cua -s x click e12` works. If the page changed in between, the ref self-heals when the element is still unambiguous; otherwise the command exits 1 with a stale-ref message — re-run `snapshot` and use a fresh ref. Without `-s` there is no shared browser, so refs from a previous invocation are meaningless.
+**Element refs span invocations within a named session.** Refs printed by `snapshot`/`find` (`[e12]`) are persisted per `-s` session, so `cua -s x snapshot` then `cua -s x click e12` works. Refs self-heal across in-page DOM changes when the element is still unambiguous, but any navigation — including reloading the same URL — invalidates them; the command then exits 1 with a stale-ref message — re-run `snapshot` and use a fresh ref. Without `-s` there is no shared browser, so refs from a previous invocation are meaningless.
 
 ### Model-mediated subcommands
 
@@ -47,7 +47,10 @@ Useful flags:
 - `-m <model>` — pick the LLM for model-mediated subcommands (default `gpt-5.5`).
   Other good picks: `claude-opus-4-7`, `gemini-3-flash-preview`, `n1.5-latest`.
 - `cua models` — list supported `-m` values and their providers; filter
-  with `cua models -p openai|anthropic|gemini|yutori`.
+  with `cua models -p openai|anthropic|google|yutori|tzafon` (`gemini` is
+  accepted as an alias for `google`). Model refs print as `provider:model`
+  (e.g. `google:gemini-3-flash-preview`); `-m` accepts either the full ref or
+  a bare model id that matches exactly one entry.
 - `--max-steps <n>` — bound the agent loop on `cua do` (default 3).
 - `--filter interactive` — restrict `cua snapshot` to interactive elements.
 - `--profile <profile-id-or-name>` — load a Kernel browser profile for cookies /
@@ -91,6 +94,10 @@ cua session list                          # tab-formatted: NAME, KERNEL_ID, AGE,
 cua session show login                    # full JSON metadata
 ```
 
+`cua session show <name>` and `cua session stop <name>` exit 1 when the named
+session does not exist (`no named session "<name>"`); other session failures
+exit 2.
+
 Pass `--profile` when starting the named session; later `cua -s login ...`
 calls attach to that same browser, so they do not need the profile flag.
 
@@ -114,7 +121,7 @@ The default root is `$XDG_DATA_HOME/cua/sessions` or
 after the first model-mediated `-s` call (`click "<desc>"`, `type`, `observe`,
 `do`, `--print`, or a TUI attach).
 
-Each line is a JSON object with one of these `role` values: `user`, `assistant`, `toolResult`. There's also a custom `cua-browser` entry written once per session with `kernel_session_id` / `live_url` / `profile_id`.
+Each line is a pi `SessionManager` record with a top-level `type` of `session`, `message`, or `custom`. Conversation entries have `type: "message"` with the role nested at `.message.role` (`user`, `assistant`, or `toolResult`). There's also a `type: "custom"` entry with `customType: "cua-browser"` written once per session whose `data` carries `sessionId` / `liveUrl` (and `profileId` when a profile is loaded).
 
 Use `cua --print -o jsonl "..."` only when you need live stdout events while a
 run is happening. That stream is a compact event feed (`tool_call`,
