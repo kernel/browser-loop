@@ -187,6 +187,7 @@ export interface HarnessCliFlags {
 	model?: string;
 	thinking?: string;
 	browserProfile?: string;
+	browserProxy?: string;
 	browserTimeout?: number;
 	maxSteps?: number;
 	out?: string;
@@ -257,6 +258,7 @@ export async function provisionForFlags(flags: HarnessCliFlags, auth: KernelAuth
 		timeoutSeconds: flags.browserTimeout,
 		profileSelector: flags.browserProfile,
 		saveChanges: flags.profileSaveChanges,
+		proxySelector: flags.browserProxy,
 	});
 	if (flags.verbose) {
 		stderr.write(`[cua] browser session=${handle.browser.session_id}\n`);
@@ -668,6 +670,7 @@ export async function runSessionSubcommand(args: string[], flags: HarnessCliFlag
 				browserTimeoutSeconds: flags.browserTimeout,
 				profileSelector: flags.browserProfile,
 				saveProfileChanges: flags.profileSaveChanges,
+				proxySelector: flags.browserProxy,
 				model: flags.model ? resolveCuaModelRef(flags.model) : undefined,
 			});
 			stdout.write(`name=${meta.name}\n`);

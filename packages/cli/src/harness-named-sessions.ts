@@ -3,7 +3,7 @@ import Kernel from "@onkernel/sdk";
 import { mkdir, readdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { createKernelClient, resolveProfileId } from "./harness-browser";
+import { createKernelClient, resolveProfileId, resolveProxyId } from "./harness-browser";
 
 /**
  * Named sessions: durable, slug-keyed pointers to a Kernel cloud browser
@@ -18,6 +18,7 @@ export interface NamedSessionMetadata {
 	kernel_session_id: string;
 	live_url?: string;
 	profile_id?: string;
+	proxy_id?: string;
 	transcript_path?: string;
 	/** Model ref last used with this session; chained invocations without -m default to it. */
 	model?: string;
@@ -129,6 +130,8 @@ export interface StartNamedSessionOptions {
 	/** Profile id or name (created if missing). Same semantics as `--profile`. */
 	profileSelector?: string;
 	saveProfileChanges?: boolean;
+	/** Proxy id or name (must already exist). Same semantics as `--proxy`. */
+	proxySelector?: string;
 	/** Canonical model ref to seed the session with (same semantics as `-m`). */
 	model?: string;
 }
@@ -163,6 +166,11 @@ export async function startNamedSession(opts: StartNamedSessionOptions): Promise
 	if (profileId) {
 		params.profile = { id: profileId, save_changes: opts.saveProfileChanges ?? false };
 	}
+	let proxyId: string | undefined;
+	if (opts.proxySelector && opts.proxySelector.trim()) {
+		proxyId = await resolveProxyId(client, opts.proxySelector);
+		params.proxy_id = proxyId;
+	}
 	const browser = await client.browsers.create(params);
 
 	const meta: NamedSessionMetadata = {
@@ -170,6 +178,7 @@ export async function startNamedSession(opts: StartNamedSessionOptions): Promise
 		kernel_session_id: browser.session_id,
 		live_url: browser.browser_live_view_url,
 		profile_id: profileId,
+		proxy_id: proxyId,
 		model: opts.model,
 		created_at: Date.now(),
 	};
