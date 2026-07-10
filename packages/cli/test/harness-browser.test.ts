@@ -22,6 +22,19 @@ describe("resolveProxyId", () => {
 		await expect(resolveProxyId(client, "proxy_abc")).resolves.toBe("proxy_abc");
 	});
 
+	it("does not fall back to name matching when retrieve succeeds without an id", async () => {
+		let listCalled = false;
+		const client = fakeClient({
+			retrieve: async () => ({}),
+			list: async () => {
+				listCalled = true;
+				return [{ id: "proxy_1", name: "proxy_abc" }];
+			},
+		});
+		await expect(resolveProxyId(client, "proxy_abc")).rejects.toThrow(/looking up proxy/);
+		expect(listCalled).toBe(false);
+	});
+
 	it("falls back to a unique name match from the proxy list", async () => {
 		const client = fakeClient({ list: async () => [{ id: "proxy_1", name: "residential-us" }, { id: "proxy_2", name: "other" }] });
 		await expect(resolveProxyId(client, "residential-us")).resolves.toBe("proxy_1");

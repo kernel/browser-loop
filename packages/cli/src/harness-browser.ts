@@ -65,7 +65,10 @@ export async function resolveProxyId(client: Kernel, selector: string): Promise<
 	if (!trimmed) throw new Error("proxy selector is empty");
 	try {
 		const existing = await client.proxies.retrieve(trimmed);
-		if (existing.id) return existing.id;
+		if (!existing.id) {
+			throw new Error(`proxy "${trimmed}" lookup returned no id`);
+		}
+		return existing.id;
 	} catch (err) {
 		if (!(err instanceof NotFoundError)) {
 			throw new Error(`looking up proxy "${trimmed}": ${(err as Error).message}`, { cause: err });
