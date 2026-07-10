@@ -1,6 +1,6 @@
 {
   "name": "@onkernel/cua-cli",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Kernel-cloud-browser computer-use TUI built on @onkernel/cua-agent and pi-tui",
   "license": "MIT",
   "type": "module",
@@ -36,8 +36,8 @@
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.80.3",
     "@earendil-works/pi-tui": "0.80.3",
-    "@onkernel/cua-agent": "0.5.0",
-    "@onkernel/cua-ai": "0.5.0",
+    "@onkernel/cua-agent": "0.6.0",
+    "@onkernel/cua-ai": "0.6.0",
     "@onkernel/sdk": "0.49.0"
   },
   "devDependencies": {

@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.6.0 - 2026-07-10
+
+Adds explicit request-recovery and context-management policies while keeping
+provider retries and exact-empty recovery disabled by default.
+
+- `retry` adds opt-in transient provider-request retries to `CuaAgent` and
+  `CuaAgentHarness`, with configurable attempt and backoff limits. Failed
+  partial streams are buffered and discarded before a clean retry is exposed.
+- `toolResultImageReplayLimit` limits each model request to the newest four
+  tool-result images by default. It operates on a request-time projection and
+  leaves agent state and persisted sessions unchanged. Harness context hooks
+  settle before this limit is applied at the `Models` boundary.
+- `responseThreading` replaces the process-wide environment switch with a
+  constructor option for OpenAI and Tzafon `previous_response_id` chaining.
+- `emptyResponseRecovery` optionally follows a successful exact-empty response
+  with a bounded, caller-supplied pi `followUp()` message. Omitting it preserves
+  pi's normal completion behavior.
+- Updated `@onkernel/cua-ai` to 0.6.0.
+
 ## 0.5.0 - 2026-07-09
 
 Adds the browser action plane and runtime mode switching. Breaking: the

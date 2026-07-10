@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.0 - 2026-07-10
+
+Breaking: response threading is now configured per request instead of through
+`CUA_DISABLE_RESPONSE_THREADING`.
+
+- `CuaSimpleStreamOptions` now includes `disableResponseThreading`, allowing
+  OpenAI and Tzafon Responses API calls to send the complete current context
+  instead of continuing through `previous_response_id`.
+- Removed the process-wide `CUA_DISABLE_RESPONSE_THREADING` environment
+  variable. `@onkernel/cua-agent` users can set `responseThreading: false` on
+  `CuaAgent` or `CuaAgentHarness`; lower-level callers can pass
+  `disableResponseThreading: true` in stream options.
+
 ## 0.5.0 - 2026-07-09
 
 Introduces action planes (modes) and Anthropic native computer-use tools.
