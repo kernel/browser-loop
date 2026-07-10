@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { runAction } from "../src/action/harness-runner";
 import { buildTestHarness, type TestHarnessFixture } from "./fixtures/harness";
 
@@ -59,6 +59,46 @@ describe("action harness-runner", () => {
 		expect(res.exitCode).toBe(2);
 		expect(res.result.status).toBe("error");
 		expect(res.result.text).toContain("boom");
+	});
+
+	it("retries a transient provider error before completing the action", async () => {
+		vi.useFakeTimers();
+		try {
+			fixture = await buildTestHarness({
+				turns: [
+					{ steps: [{ type: "tool_call", toolName: "click", args: { x: 9, y: 9 } }] },
+					{
+						steps: [
+							{ type: "text", text: "discarded" },
+							{ type: "error", message: "HTTP 429: Please retry in 10.367614288s" },
+						],
+					},
+					{ steps: [{ type: "text", text: "done" }] },
+				],
+				retry: { enabled: true },
+			});
+			const resultPromise = runAction(
+				{ action: "do", text: "recover" },
+				{ harness: fixture.harness, browserHandle: handleFor(fixture), session: fixture.session, maxTurns: 3 },
+			);
+
+			await vi.advanceTimersByTimeAsync(1_999);
+			expect(fixture.provider.callCount()).toBe(2);
+			await vi.advanceTimersByTimeAsync(1);
+			const res = await resultPromise;
+
+			expect(fixture.provider.callCount()).toBe(3);
+			expect(res.exitCode).toBe(0);
+			expect(res.result.status).toBe("ok");
+			expect(fixture.kernel.batchCalls).toHaveLength(1);
+			expect(JSON.stringify(fixture.provider.lastContext())).toContain("toolResult");
+			const messages = (await fixture.session.getBranch()).filter((entry) => entry.type === "message");
+			expect(messages).toHaveLength(4);
+			expect(JSON.stringify(messages)).toContain("done");
+			expect(JSON.stringify(messages)).not.toContain("discarded");
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("invokes harness.abort once the turn cap is reached", async () => {
