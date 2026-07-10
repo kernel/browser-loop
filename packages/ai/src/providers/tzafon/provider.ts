@@ -6,7 +6,6 @@ import {
 	type ImageContent,
 	type Message,
 	type Model,
-	type SimpleStreamOptions,
 	type StreamFunction,
 	type StreamOptions,
 	type TextContent,
@@ -17,6 +16,7 @@ import Lightcone from "@tzafon/lightcone";
 import {
 	canonicalToolCallArguments,
 	canonicalToolCallName,
+	type CuaSimpleStreamOptions,
 	CUA_ACTION_TYPES,
 	responseThreadingDelta,
 	responseThreadingEnabled,
@@ -81,7 +81,7 @@ export function buildTzafonRequestInput(model: Model<Api>, context: Context, opt
 	return { ...body, input: convertMessages(deltaMessages), previous_response_id: previousResponseId, store: true };
 }
 
-export const streamSimpleTzafonResponses: StreamFunction<typeof TZAFON_RESPONSES_API, SimpleStreamOptions> = (model, context, options) => {
+export const streamSimpleTzafonResponses: StreamFunction<typeof TZAFON_RESPONSES_API, CuaSimpleStreamOptions> = (model, context, options) => {
 	return streamTzafonResponses(model, context, options);
 };
 

@@ -21,5 +21,6 @@ export type {
 	CuaAgentOptions,
 	CuaAgentState,
 	CuaEmptyResponseRecoveryOptions,
+	ToolResultImageReplayLimit,
 } from "./agent";
 export type { CuaRetryOptions } from "./provider-retry";

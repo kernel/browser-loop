@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { createAssistantMessageEventStream, type AssistantMessage } from "@earendil-works/pi-ai";
-import { createCuaModels, resolveCuaRuntimeSpec } from "@onkernel/cua-ai";
+import {
+	type Context,
+	createCuaModels,
+	type CuaSimpleStreamOptions,
+	resolveCuaRuntimeSpec,
+} from "@onkernel/cua-ai";
 import type Kernel from "@onkernel/sdk";
 import {
 	Agent,
@@ -9,6 +14,7 @@ import {
 	CuaAgentHarness,
 	InMemorySessionRepo,
 	NodeExecutionEnv,
+	type AgentMessage,
 	type AgentTool,
 	type KernelBrowser,
 	type StreamFn,
@@ -503,6 +509,209 @@ describe("CuaAgent", () => {
 		const fedBack = contexts[1]!.messages.find((message) => message.role === "toolResult");
 		expect(fedBack, "second provider request should carry the tool result").toBeDefined();
 		expect(fedBack!.content.some((block) => block.type === "image" && block.mimeType === "image/png")).toBe(true);
+	});
+
+	it("applies screenshot projection after a caller context transform", async () => {
+		const history: AgentMessage[] = [];
+		for (let index = 1; index <= 5; index += 1) {
+			const assistant = createAssistantMessage({ api: "anthropic-messages", provider: "anthropic", id: "test" });
+			assistant.content = [{ type: "toolCall", id: `call-${index}`, name: "custom_image", arguments: {} }];
+			assistant.stopReason = "toolUse";
+			const images = index < 5 ? [index] : [5, 6, 7, 8, 9];
+			history.push(assistant, {
+				role: "toolResult",
+				toolCallId: `call-${index}`,
+				toolName: "custom_image",
+				content: [
+					{ type: "text", text: `result-${index}` },
+					...images.map((image) => ({
+						type: "image" as const,
+						data: Buffer.from(`image-${image}`).toString("base64"),
+						mimeType: "image/png",
+					})),
+				],
+				details: { index },
+				isError: false,
+				timestamp: index,
+			});
+		}
+
+		let providerContext: Parameters<StreamFn>[1] | undefined;
+		const streamFn: StreamFn = (model, context) => {
+			providerContext = context;
+			const stream = createAssistantMessageEventStream();
+			const message = createAssistantMessage(model);
+			message.content = [{ type: "text", text: "done" }];
+			stream.push({ type: "start", partial: message });
+			stream.push({ type: "done", reason: "stop", message });
+			stream.end(message);
+			return stream;
+		};
+		const agent = new CuaAgent({
+			browser,
+			client,
+			streamFn,
+			transformContext: async (messages) =>
+				messages.map((message) =>
+					message.role === "user" && Array.isArray(message.content)
+						? {
+								...message,
+								content: message.content.map((block) =>
+									block.type === "text" ? { ...block, text: `caller:${block.text}` } : block,
+								),
+							}
+						: message,
+				),
+			initialState: { model: "anthropic:claude-haiku-4-5", messages: history },
+		});
+
+		await agent.prompt("next");
+
+		const projected = providerContext!.messages;
+		const projectedImages = projected.flatMap((message) => message.content).filter((block) => block.type === "image");
+		expect(projectedImages.map((block) => Buffer.from(block.data, "base64").toString())).toEqual([
+			"image-6",
+			"image-7",
+			"image-8",
+			"image-9",
+		]);
+		const finalResult = projected.find(
+			(message) => message.role === "toolResult" && message.toolCallId === "call-5",
+		);
+		expect(finalResult?.content).toContainEqual({ type: "text", text: "result-5" });
+		expect(
+			finalResult?.content.filter(
+				(block) => block.type === "text" && block.text === "[stale tool-result images omitted]",
+			),
+		).toHaveLength(1);
+		expect(
+			projected.flatMap((message) => message.content).some((block) => block.type === "text" && block.text === "caller:next"),
+		).toBe(true);
+		expect(
+			projected.filter((message) => message.role === "toolResult").map(({ toolCallId, toolName, details, isError, timestamp }) => ({
+				toolCallId,
+				toolName,
+				details,
+				isError,
+				timestamp,
+			})),
+		).toEqual(
+			Array.from({ length: 5 }, (_, index) => ({
+				toolCallId: `call-${index + 1}`,
+				toolName: "custom_image",
+				details: { index: index + 1 },
+				isError: false,
+				timestamp: index + 1,
+			})),
+		);
+		expect(agent.state.messages.flatMap((message) => message.content).filter((block) => block.type === "image")).toHaveLength(9);
+	});
+
+	it.each([
+		{ limit: 2 as const, expected: ["image-4", "image-5"] },
+		{ limit: 0 as const, expected: [] },
+		{ limit: false as const, expected: ["image-1", "image-2", "image-3", "image-4", "image-5"] },
+	])("supports toolResultImageReplayLimit=$limit", async ({ limit, expected }) => {
+		const history: AgentMessage[] = Array.from({ length: 5 }, (_, index) => ({
+			role: "toolResult" as const,
+			toolCallId: `call-${index + 1}`,
+			toolName: "custom_image",
+			content: [{
+				type: "image" as const,
+				data: Buffer.from(`image-${index + 1}`).toString("base64"),
+				mimeType: "image/png",
+			}],
+			details: {},
+			isError: false,
+			timestamp: index + 1,
+		}));
+		let providerContext: Parameters<StreamFn>[1] | undefined;
+		const streamFn: StreamFn = (model, context) => {
+			providerContext = context;
+			const stream = createAssistantMessageEventStream();
+			const message = createAssistantMessage(model);
+			stream.push({ type: "start", partial: message });
+			stream.push({ type: "done", reason: "stop", message });
+			stream.end(message);
+			return stream;
+		};
+		const agent = new CuaAgent({
+			browser,
+			client,
+			streamFn,
+			toolResultImageReplayLimit: limit,
+			initialState: { model: "anthropic:claude-haiku-4-5", messages: history },
+		});
+
+		await agent.prompt("next");
+
+		expect(
+			providerContext!.messages
+				.flatMap((message) => message.content)
+				.filter((block) => block.type === "image")
+				.map((block) => Buffer.from(block.data, "base64").toString()),
+		).toEqual(expected);
+		expect(agent.state.messages.flatMap((message) => message.content).filter((block) => block.type === "image")).toHaveLength(5);
+	});
+
+	it.each([true, false])("passes responseThreading=$enabled to provider streams", async (enabled) => {
+		let streamOptions: CuaSimpleStreamOptions | undefined;
+		const streamFn: StreamFn = (model, _context, options) => {
+			streamOptions = options as CuaSimpleStreamOptions;
+			const stream = createAssistantMessageEventStream();
+			const message = createAssistantMessage(model);
+			stream.push({ type: "start", partial: message });
+			stream.push({ type: "done", reason: "stop", message });
+			stream.end(message);
+			return stream;
+		};
+		const agent = new CuaAgent({
+			browser,
+			client,
+			streamFn,
+			responseThreading: enabled,
+			initialState: { model: "openai:gpt-5.5" },
+		});
+
+		await agent.prompt("next");
+
+		expect(streamOptions?.disableResponseThreading).toBe(!enabled);
+	});
+
+	it("rejects invalid context-management options", async () => {
+		expect(() => new CuaAgent({
+			browser,
+			client,
+			responseThreading: "false" as never,
+			initialState: { model: "openai:gpt-5.5" },
+		})).toThrow(new TypeError("responseThreading must be a boolean"));
+
+		const services = await createHarnessServices();
+		expect(() => new CuaAgentHarness({
+			...services,
+			browser,
+			client,
+			model: "openai:gpt-5.5",
+			responseThreading: "false" as never,
+		})).toThrow(new TypeError("responseThreading must be a boolean"));
+
+		for (const limit of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+			expect(() => new CuaAgent({
+				browser,
+				client,
+				toolResultImageReplayLimit: limit,
+				initialState: { model: "openai:gpt-5.5" },
+			})).toThrow(new TypeError("toolResultImageReplayLimit must be a finite non-negative integer or false"));
+
+			const services = await createHarnessServices();
+			expect(() => new CuaAgentHarness({
+				...services,
+				browser,
+				client,
+				model: "openai:gpt-5.5",
+				toolResultImageReplayLimit: limit,
+			})).toThrow(new TypeError("toolResultImageReplayLimit must be a finite non-negative integer or false"));
+		}
 	});
 
 	const recovery = { followUp: "  Please continue exactly.  ", maxAttempts: 1 };
@@ -1133,6 +1342,437 @@ describe("CuaAgentHarness", () => {
 		await abort;
 		await prompt;
 		expect(calls).toBe(1);
+	});
+	it.each([
+		{ limit: 2 as const, expected: ["image-4", "image-5"] },
+		{ limit: 0 as const, expected: [] },
+		{ limit: false as const, expected: ["image-1", "image-2", "image-3", "image-4", "image-5"] },
+	])("supports toolResultImageReplayLimit=$limit", async ({ limit, expected }) => {
+		const services = await createHarnessServices();
+		for (let index = 1; index <= 5; index += 1) {
+			await services.session.appendMessage({
+				role: "toolResult",
+				toolCallId: `call-${index}`,
+				toolName: "custom_image",
+				content: [{ type: "image", data: Buffer.from(`image-${index}`).toString("base64"), mimeType: "image/png" }],
+				details: {},
+				isError: false,
+				timestamp: index,
+			});
+		}
+		let providerContext: Parameters<StreamFn>[1] | undefined;
+		const streamFn: StreamFn = (model, context) => {
+			providerContext = context;
+			const stream = createAssistantMessageEventStream();
+			const message = createAssistantMessage(model);
+			stream.push({ type: "start", partial: message });
+			stream.push({ type: "done", reason: "stop", message });
+			stream.end(message);
+			return stream;
+		};
+		const models = createCuaModels();
+		models.setProvider({
+			id: "anthropic",
+			name: "stateless test provider",
+			auth: { apiKey: { name: "test key", resolve: async () => ({ auth: { apiKey: "test-key" } }) } },
+			getModels: () => [],
+			stream: streamFn,
+			streamSimple: streamFn,
+		});
+		const harness = new CuaAgentHarness({
+			...services,
+			browser,
+			client,
+			model: "anthropic:claude-haiku-4-5",
+			models,
+			toolResultImageReplayLimit: limit,
+		});
+
+		await harness.prompt("next");
+
+		expect(
+			providerContext!.messages
+				.flatMap((message) => message.content)
+				.filter((block) => block.type === "image")
+				.map((block) => Buffer.from(block.data, "base64").toString()),
+		).toEqual(expected);
+		const stored = await services.session.buildContext();
+		expect(stored.messages.flatMap((message) => message.content).filter((block) => block.type === "image")).toHaveLength(5);
+	});
+
+	it.each([true, false])("applies context management through all harness model methods", async (enabled) => {
+		const services = await createHarnessServices();
+		let streamOptions: CuaSimpleStreamOptions | undefined;
+		let providerImageCount = -1;
+		const streamFn: StreamFn = (model, context, options) => {
+			streamOptions = options as CuaSimpleStreamOptions;
+			providerImageCount = context.messages.flatMap((message) => message.content).filter((block) => block.type === "image").length;
+			const stream = createAssistantMessageEventStream();
+			const message = createAssistantMessage(model);
+			stream.push({ type: "start", partial: message });
+			stream.push({ type: "done", reason: "stop", message });
+			stream.end(message);
+			return stream;
+		};
+		const models = createCuaModels();
+		models.setProvider({
+			id: "openai",
+			name: "threading test provider",
+			auth: { apiKey: { name: "test key", resolve: async () => ({ auth: { apiKey: "test-key" } }) } },
+			getModels: () => [],
+			stream: streamFn,
+			streamSimple: streamFn,
+		});
+		const harness = new CuaAgentHarness({
+			...services,
+			browser,
+			client,
+			model: "openai:gpt-5.5",
+			models,
+			responseThreading: enabled,
+			retry: { enabled: true, maxRetries: 1, baseDelayMs: 0 },
+		});
+
+		const expected = enabled ? undefined : true;
+		const context: Context = {
+			messages: Array.from({ length: 5 }, (_, index) => ({
+				role: "toolResult" as const,
+				toolCallId: `call-${index}`,
+				toolName: "screenshot",
+				content: [{ type: "image" as const, data: `${index}`, mimeType: "image/png" }],
+				isError: false,
+				timestamp: index,
+			})),
+		};
+		const model = harness.getModel();
+
+		await harness.models.stream(model, context).result();
+		expect(streamOptions?.disableResponseThreading).toBe(expected);
+		expect(providerImageCount).toBe(4);
+		streamOptions = undefined;
+
+		await harness.models.complete(model, context);
+		expect(streamOptions?.disableResponseThreading).toBe(expected);
+		expect(providerImageCount).toBe(4);
+		streamOptions = undefined;
+
+		await harness.models.streamSimple(model, context).result();
+		expect(streamOptions?.disableResponseThreading).toBe(expected);
+		expect(providerImageCount).toBe(4);
+		streamOptions = undefined;
+
+		await harness.models.completeSimple(model, context);
+		expect(streamOptions?.disableResponseThreading).toBe(expected);
+		expect(providerImageCount).toBe(4);
+	});
+
+	it("applies image projection after user context hooks", async () => {
+		const run = async (replace: boolean) => {
+			const services = await createHarnessServices();
+			for (let index = 1; index <= 5; index += 1) {
+				await services.session.appendMessage({
+					role: "toolResult",
+					toolCallId: `call-${index}`,
+					toolName: "custom_image",
+					content: [{ type: "image", data: `${index}`, mimeType: "image/png" }],
+					details: {},
+					isError: false,
+					timestamp: index,
+				});
+			}
+			let providerImageCount = -1;
+			let providerOmissionCount = -1;
+			let observedImageCount = -1;
+			const streamFn: StreamFn = (model, context) => {
+				providerImageCount = context.messages.flatMap((message) => message.content).filter((block) => block.type === "image").length;
+				providerOmissionCount = context.messages
+					.flatMap((message) => message.content)
+					.filter((block) => block.type === "text" && block.text === "[stale tool-result images omitted]").length;
+				const stream = createAssistantMessageEventStream();
+				const message = createAssistantMessage(model);
+				stream.push({ type: "start", partial: message });
+				stream.push({ type: "done", reason: "stop", message });
+				stream.end(message);
+				return stream;
+			};
+			const models = createCuaModels();
+			models.setProvider({
+				id: "anthropic",
+				name: "stateless test provider",
+				auth: { apiKey: { name: "test key", resolve: async () => ({ auth: { apiKey: "test-key" } }) } },
+				getModels: () => [],
+				stream: streamFn,
+				streamSimple: streamFn,
+			});
+			const harness = new CuaAgentHarness({ ...services, browser, client, model: "anthropic:claude-haiku-4-5", models });
+			harness.on("context", ({ messages }) => {
+				observedImageCount = messages.flatMap((message) => message.content).filter((block) => block.type === "image").length;
+				return replace ? { messages } : undefined;
+			});
+
+			await harness.prompt("next");
+			return { observedImageCount, providerImageCount, providerOmissionCount };
+		};
+
+		await expect(run(false)).resolves.toEqual({ observedImageCount: 5, providerImageCount: 4, providerOmissionCount: 1 });
+		await expect(run(true)).resolves.toEqual({ observedImageCount: 5, providerImageCount: 4, providerOmissionCount: 1 });
+	});
+
+	it("bounds screenshots retained across long stateless CUA trajectories", async () => {
+		const contexts: Parameters<StreamFn>[1][] = [];
+		let providerCalls = 0;
+		const models = createCuaModels();
+		const streamFn: StreamFn = (model, context) => {
+			contexts.push({ ...context, messages: structuredClone(context.messages) });
+			const stream = createAssistantMessageEventStream();
+			const message = createAssistantMessage(model);
+			if (providerCalls++ % 2 === 0) {
+				message.content = [{ type: "toolCall", id: `screenshot-${providerCalls}`, name: "screenshot", arguments: {} }];
+				message.stopReason = "toolUse";
+				stream.push({ type: "start", partial: message });
+				stream.push({ type: "done", reason: "toolUse", message });
+			} else {
+				message.content = [{ type: "text", text: "continue" }];
+				stream.push({ type: "start", partial: message });
+				stream.push({ type: "done", reason: "stop", message });
+			}
+			stream.end(message);
+			return stream;
+		};
+		models.setProvider({
+			id: "anthropic",
+			name: "stateless test provider",
+			auth: { apiKey: { name: "test key", resolve: async () => ({ auth: { apiKey: "test-key" } }) } },
+			getModels: () => [],
+			stream: streamFn,
+			streamSimple: streamFn,
+		});
+
+		let screenshots = 0;
+		const screenshotClient = {
+			browsers: {
+				computer: { captureScreenshot: async () => new Response(Buffer.from(`screenshot-${++screenshots}`)) },
+			},
+		} as unknown as Kernel;
+		const services = await createHarnessServices();
+		const harness = new CuaAgentHarness({
+			...services,
+			browser,
+			client: screenshotClient,
+			model: "anthropic:claude-haiku-4-5",
+			models,
+		});
+
+		for (let turn = 0; turn < 9; turn += 1) await harness.prompt(`turn ${turn}`);
+
+		const providerImages = contexts.map((context) =>
+			context.messages
+				.flatMap((message) => message.content)
+				.filter((block) => block.type === "image")
+				.map((block) => Buffer.from(block.data, "base64").toString()),
+		);
+		expect(providerImages).toEqual([
+			[],
+			["screenshot-1"],
+			["screenshot-1"],
+			["screenshot-1", "screenshot-2"],
+			["screenshot-1", "screenshot-2"],
+			["screenshot-1", "screenshot-2", "screenshot-3"],
+			["screenshot-1", "screenshot-2", "screenshot-3"],
+			["screenshot-1", "screenshot-2", "screenshot-3", "screenshot-4"],
+			["screenshot-1", "screenshot-2", "screenshot-3", "screenshot-4"],
+			["screenshot-2", "screenshot-3", "screenshot-4", "screenshot-5"],
+			["screenshot-2", "screenshot-3", "screenshot-4", "screenshot-5"],
+			["screenshot-3", "screenshot-4", "screenshot-5", "screenshot-6"],
+			["screenshot-3", "screenshot-4", "screenshot-5", "screenshot-6"],
+			["screenshot-4", "screenshot-5", "screenshot-6", "screenshot-7"],
+			["screenshot-4", "screenshot-5", "screenshot-6", "screenshot-7"],
+			["screenshot-5", "screenshot-6", "screenshot-7", "screenshot-8"],
+			["screenshot-5", "screenshot-6", "screenshot-7", "screenshot-8"],
+			["screenshot-6", "screenshot-7", "screenshot-8", "screenshot-9"],
+		]);
+		expect(Math.max(...providerImages.map((images) => images.length))).toBeLessThanOrEqual(4);
+
+		const omissionCounts = contexts.map((context) =>
+			context.messages
+				.flatMap((message) => message.content)
+				.filter((block) => block.type === "text" && block.text === "[stale tool-result images omitted]").length,
+		);
+		expect(omissionCounts[9]).toBe(1);
+		expect(omissionCounts[17]).toBe(5);
+
+		const stored = await services.session.buildContext();
+		expect(
+			stored.messages.flatMap((message) => message.content).filter((block) => block.type === "image"),
+		).toHaveLength(9);
+	});
+
+	it("projects stale images returned by extra tools without removing their result shell", async () => {
+		const contexts: Parameters<StreamFn>[1][] = [];
+		const tools = ["image_extra", "screenshot", "screenshot", "screenshot", "screenshot"];
+		let providerCalls = 0;
+		const models = createCuaModels();
+		const streamFn: StreamFn = (model, context) => {
+			contexts.push({ ...context, messages: structuredClone(context.messages) });
+			const stream = createAssistantMessageEventStream();
+			const message = createAssistantMessage(model);
+			if (providerCalls % 2 === 0) {
+				const turn = providerCalls / 2;
+				message.content = [{ type: "toolCall", id: `call-${turn}`, name: tools[turn]!, arguments: {} }];
+				message.stopReason = "toolUse";
+			} else {
+				message.content = [{ type: "text", text: "continue" }];
+			}
+			providerCalls += 1;
+			stream.push({ type: "start", partial: message });
+			stream.push({ type: "done", reason: message.stopReason, message });
+			stream.end(message);
+			return stream;
+		};
+		models.setProvider({
+			id: "anthropic",
+			name: "stateless test provider",
+			auth: { apiKey: { name: "test key", resolve: async () => ({ auth: { apiKey: "test-key" } }) } },
+			getModels: () => [],
+			stream: streamFn,
+			streamSimple: streamFn,
+		});
+		let screenshots = 0;
+		const services = await createHarnessServices();
+		const harness = new CuaAgentHarness({
+			...services,
+			browser,
+			client: {
+				browsers: { computer: { captureScreenshot: async () => new Response(Buffer.from(`builtin-${++screenshots}`)) } },
+			} as unknown as Kernel,
+			model: "anthropic:claude-haiku-4-5",
+			models,
+			extraTools: [{
+				...createCustomTool("image_extra"),
+				async execute() {
+					return {
+						content: [
+							{ type: "text" as const, text: "extra text" },
+							{ type: "image" as const, data: Buffer.from("extra-image").toString("base64"), mimeType: "image/png" },
+						],
+						details: { source: "extra" },
+					};
+				},
+			}],
+		});
+
+		for (let turn = 0; turn < tools.length; turn += 1) await harness.prompt(`turn ${turn}`);
+
+		const finalContext = contexts.at(-1)!;
+		const extraResult = finalContext.messages.find(
+			(message) => message.role === "toolResult" && message.toolCallId === "call-0",
+		);
+		expect(extraResult).toMatchObject({
+			role: "toolResult",
+			toolCallId: "call-0",
+			toolName: "image_extra",
+			details: { source: "extra" },
+			isError: false,
+		});
+		expect(extraResult?.content).toEqual([
+			{ type: "text", text: "extra text" },
+			{ type: "text", text: "[stale tool-result images omitted]" },
+		]);
+		expect(finalContext.messages.some((message) =>
+			message.role === "assistant" && message.content.some((block) => block.type === "toolCall" && block.id === "call-0"),
+		)).toBe(true);
+		expect(
+			finalContext.messages.flatMap((message) => message.content).filter((block) => block.type === "image").map((block) => Buffer.from(block.data, "base64").toString()),
+		).toEqual(["builtin-1", "builtin-2", "builtin-3", "builtin-4"]);
+		const stored = await services.session.buildContext();
+		expect(stored.messages.flatMap((message) => message.content).filter((block) => block.type === "image")).toHaveLength(5);
+	});
+
+	it("caps a multi-screenshot computer_batch result by image ordinal", async () => {
+		const contexts: Parameters<StreamFn>[1][] = [];
+		let providerCalls = 0;
+		const models = createCuaModels();
+		const streamFn: StreamFn = (model, context) => {
+			contexts.push({ ...context, messages: structuredClone(context.messages) });
+			const stream = createAssistantMessageEventStream();
+			const message = createAssistantMessage(model);
+			if (providerCalls++ === 0) {
+				message.content = [{
+					type: "toolCall",
+					id: "batch-1",
+					name: ANTHROPIC_BATCH_TOOL_NAME,
+					arguments: { actions: [
+						{ type: "screenshot" }, { type: "screenshot" }, { type: "screenshot" },
+						{ type: "screenshot" }, { type: "cursor_position" },
+						{ type: "screenshot" }, { type: "screenshot" },
+					] },
+				}];
+				message.stopReason = "toolUse";
+			} else {
+				message.content = [{ type: "text", text: "done" }];
+			}
+			stream.push({ type: "start", partial: message });
+			stream.push({ type: "done", reason: message.stopReason, message });
+			stream.end(message);
+			return stream;
+		};
+		models.setProvider({
+			id: "anthropic",
+			name: "stateless test provider",
+			auth: { apiKey: { name: "test key", resolve: async () => ({ auth: { apiKey: "test-key" } }) } },
+			getModels: () => [],
+			stream: streamFn,
+			streamSimple: streamFn,
+		});
+		let screenshots = 0;
+		const services = await createHarnessServices();
+		const harness = new CuaAgentHarness({
+			...services,
+			browser,
+			client: { browsers: { computer: {
+				captureScreenshot: async () => new Response(Buffer.from(`batch-${++screenshots}`)),
+				getMousePosition: async () => ({ x: 17, y: 23 }),
+			} } } as unknown as Kernel,
+			model: "anthropic:claude-haiku-4-5",
+			models,
+		});
+
+		await harness.prompt("inspect several frames");
+
+		const followUp = contexts[1]!;
+		const result = followUp.messages.find(
+			(message) => message.role === "toolResult" && message.toolCallId === "batch-1",
+		);
+		expect(result).toMatchObject({
+			role: "toolResult",
+			toolCallId: "batch-1",
+			toolName: ANTHROPIC_BATCH_TOOL_NAME,
+			isError: false,
+			details: {
+				statusText: "Actions executed successfully.",
+				readResults: [
+					{ type: "screenshot", bytes: 7 }, { type: "screenshot", bytes: 7 },
+					{ type: "screenshot", bytes: 7 }, { type: "screenshot", bytes: 7 },
+					{ type: "cursor_position", x: 17, y: 23 },
+					{ type: "screenshot", bytes: 7 }, { type: "screenshot", bytes: 7 },
+				],
+			},
+		});
+		expect(result?.content).toEqual([
+			{ type: "text", text: "[stale tool-result images omitted]" },
+			{ type: "image", data: Buffer.from("batch-3").toString("base64"), mimeType: "image/png" },
+			{ type: "image", data: Buffer.from("batch-4").toString("base64"), mimeType: "image/png" },
+			{ type: "text", text: "cursor_position(): 17,23" },
+			{ type: "image", data: Buffer.from("batch-5").toString("base64"), mimeType: "image/png" },
+			{ type: "image", data: Buffer.from("batch-6").toString("base64"), mimeType: "image/png" },
+		]);
+		expect(result?.content.filter((block) => block.type === "text" && block.text === "[stale tool-result images omitted]")).toHaveLength(1);
+		expect(followUp.messages.some((message) =>
+			message.role === "assistant" && message.content.some((block) => block.type === "toolCall" && block.id === "batch-1"),
+		)).toBe(true);
+		expect(followUp.messages.flatMap((message) => message.content).filter((block) => block.type === "image")).toHaveLength(4);
+		const stored = await services.session.buildContext();
+		expect(stored.messages.flatMap((message) => message.content).filter((block) => block.type === "image")).toHaveLength(6);
 	});
 
 	it("extends pi AgentHarness and resolves model refs", async () => {

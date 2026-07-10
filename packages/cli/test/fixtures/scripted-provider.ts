@@ -4,6 +4,7 @@ import {
 	type Context,
 	createAssistantMessageEventStream,
 	createCuaModels,
+	type CuaSimpleStreamOptions,
 	type Model,
 	type MutableModels,
 } from "@onkernel/cua-ai";
@@ -33,6 +34,8 @@ export interface ScriptedProviderHandle {
 	callCount(): number;
 	/** Latest context the provider was called with (assistant-side mock). */
 	lastContext(): Context | undefined;
+	/** Latest stream options the provider was called with. */
+	lastStreamOptions(): CuaSimpleStreamOptions | undefined;
 }
 
 /**
@@ -45,12 +48,14 @@ export function createScriptedCuaModels(providerId: string, turns: ScriptedTurn[
 	const state = {
 		index: 0,
 		lastContext: undefined as Context | undefined,
+		lastStreamOptions: undefined as CuaSimpleStreamOptions | undefined,
 	};
-	const dispatch = (model: Model<Api>, context: Context, signal?: AbortSignal) => {
+	const dispatch = (model: Model<Api>, context: Context, options?: CuaSimpleStreamOptions) => {
 		state.lastContext = context;
+		state.lastStreamOptions = options;
 		const turn = turns[state.index];
 		state.index += 1;
-		return buildStream(model, turn, signal);
+		return buildStream(model, turn, options?.signal);
 	};
 	const models = createCuaModels();
 	models.setProvider({
@@ -58,19 +63,24 @@ export function createScriptedCuaModels(providerId: string, turns: ScriptedTurn[
 		name: `Scripted ${providerId}`,
 		auth: { apiKey: { name: "scripted test key", resolve: async () => ({ auth: { apiKey: "test-key" } }) } },
 		getModels: () => [],
-		stream: (model, context, options) => dispatch(model, context, options?.signal),
-		streamSimple: (model, context, options) => dispatch(model, context, options?.signal),
+		stream: (model, context, options) => dispatch(model, context, options),
+		streamSimple: (model, context, options) => dispatch(model, context, options),
 	});
 	return {
 		models,
 		reset(): void {
 			state.index = 0;
+			state.lastContext = undefined;
+			state.lastStreamOptions = undefined;
 		},
 		callCount(): number {
 			return state.index;
 		},
 		lastContext(): Context | undefined {
 			return state.lastContext;
+		},
+		lastStreamOptions(): CuaSimpleStreamOptions | undefined {
+			return state.lastStreamOptions;
 		},
 	};
 }
