@@ -718,7 +718,7 @@ describe("CuaAgentHarness", () => {
 		expect(stored.messages.flatMap((message) => message.content).filter((block) => block.type === "image")).toHaveLength(5);
 	});
 
-	it.each([true, false])("passes responseThreading=$enabled through harness models", async (enabled) => {
+	it.each([true, false])("passes responseThreading=$enabled through all harness model methods", async (enabled) => {
 		const services = await createHarnessServices();
 		let streamOptions: CuaSimpleStreamOptions | undefined;
 		const streamFn: StreamFn = (model, _context, options) => {
@@ -748,9 +748,24 @@ describe("CuaAgentHarness", () => {
 			responseThreading: enabled,
 		});
 
-		await harness.prompt("next");
+		const expected = enabled ? undefined : true;
+		const context = { messages: [] };
+		const model = harness.getModel();
 
-		expect(streamOptions?.disableResponseThreading).toBe(enabled ? undefined : true);
+		await harness.models.stream(model, context).result();
+		expect(streamOptions?.disableResponseThreading).toBe(expected);
+		streamOptions = undefined;
+
+		await harness.models.complete(model, context);
+		expect(streamOptions?.disableResponseThreading).toBe(expected);
+		streamOptions = undefined;
+
+		await harness.models.streamSimple(model, context).result();
+		expect(streamOptions?.disableResponseThreading).toBe(expected);
+		streamOptions = undefined;
+
+		await harness.models.completeSimple(model, context);
+		expect(streamOptions?.disableResponseThreading).toBe(expected);
 	});
 
 	it("uses last-result-wins context hook semantics", async () => {

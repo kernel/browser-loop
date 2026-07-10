@@ -350,9 +350,19 @@ function resolveResponseThreading(responseThreading: boolean | undefined): boole
 	return responseThreading ?? true;
 }
 
+function disableResponseThreading<TOptions extends object | undefined>(
+	options: TOptions,
+): TOptions & { disableResponseThreading: true } {
+	return { ...options, disableResponseThreading: true };
+}
+
 function withoutResponseThreading(models: Models): Models {
+	const stream: Models["stream"] = (model, context, options) =>
+		models.stream(model, context, disableResponseThreading(options));
+	const complete: Models["complete"] = (model, context, options) =>
+		models.complete(model, context, disableResponseThreading(options));
 	const streamSimple: Models["streamSimple"] = (model, context, options) =>
-		models.streamSimple(model, context, { ...options, disableResponseThreading: true } as CuaSimpleStreamOptions);
+		models.streamSimple(model, context, disableResponseThreading(options));
 	return {
 		getProviders: () => models.getProviders(),
 		getProvider: (id) => models.getProvider(id),
@@ -360,8 +370,8 @@ function withoutResponseThreading(models: Models): Models {
 		getModel: (provider, id) => models.getModel(provider, id),
 		refresh: (provider) => models.refresh(provider),
 		getAuth: (model) => models.getAuth(model),
-		stream: (model, context, options) => models.stream(model, context, options),
-		complete: (model, context, options) => models.complete(model, context, options),
+		stream,
+		complete,
 		streamSimple,
 		completeSimple: (model, context, options) => streamSimple(model, context, options).result(),
 	};
