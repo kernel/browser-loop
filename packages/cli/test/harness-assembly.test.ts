@@ -94,6 +94,29 @@ describe("buildCuaHarness", () => {
 		expect(capturedSystemPrompt).toContain(join(cwd, "AGENTS.md"));
 	});
 
+	it("forwards response-threading configuration to the provider", async () => {
+		const provider = createScriptedCuaModels("openai", [
+			{ steps: [{ type: "text", text: "ok" }] },
+		]);
+		const cwd = mkdtempSync(join(tmpdir(), "cua-cli-harness-"));
+		const kernel = createFakeKernelEnvironment();
+		const session = await new InMemorySessionRepo().create();
+		const harness = buildCuaHarness({
+			cwd,
+			client: kernel.client,
+			browser: kernel.browser,
+			session,
+			model: "openai:gpt-5.5",
+			extraTools: [],
+			models: provider.models,
+			responseThreading: false,
+		});
+
+		await harness.prompt("hi");
+
+		expect(provider.lastStreamOptions()?.disableResponseThreading).toBe(true);
+	});
+
 	it("delivers the first prompt with an image attached via harness.prompt({ images })", async () => {
 		const provider = createScriptedCuaModels("openai", [
 			{ steps: [{ type: "text", text: "done" }] },

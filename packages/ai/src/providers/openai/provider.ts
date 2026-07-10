@@ -1,7 +1,6 @@
 import {
 	type Context,
 	type OpenAIResponsesOptions as PiOpenAIResponsesOptions,
-	type SimpleStreamOptions,
 	type StreamFunction,
 	type StreamOptions,
 } from "@earendil-works/pi-ai";
@@ -9,7 +8,12 @@ import {
 	stream as piStreamOpenAIResponses,
 	streamSimple as piStreamSimpleOpenAIResponses,
 } from "@earendil-works/pi-ai/api/openai-responses";
-import { responseThreadingDelta, responseThreadingEnabled, type ResponseThreadingOptions } from "../common";
+import {
+	type CuaSimpleStreamOptions,
+	responseThreadingDelta,
+	responseThreadingEnabled,
+	type ResponseThreadingOptions,
+} from "../common";
 
 export const OPENAI_CUA_RESPONSES_API = "openai-cua-responses";
 
@@ -49,7 +53,7 @@ export const streamOpenAIResponses: StreamFunction<typeof OPENAI_CUA_RESPONSES_A
 	return piStreamOpenAIResponses(model as never, threaded.context, { ...options, onPayload: threaded.onPayload });
 };
 
-export const streamSimpleOpenAIResponses: StreamFunction<typeof OPENAI_CUA_RESPONSES_API, SimpleStreamOptions> = (model, context, options) => {
+export const streamSimpleOpenAIResponses: StreamFunction<typeof OPENAI_CUA_RESPONSES_API, CuaSimpleStreamOptions> = (model, context, options) => {
 	const threaded = threadRequest(context, options);
 	return piStreamSimpleOpenAIResponses(model as never, threaded.context, { ...options, onPayload: threaded.onPayload });
 };

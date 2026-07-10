@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { Context, Message, Model } from "@earendil-works/pi-ai";
 import { OPENAI_CUA_RESPONSES_API, threadRequest } from "../src/providers/openai/provider";
 
@@ -33,10 +33,6 @@ function multiTurnContext(): Context {
 }
 
 describe("openai threadRequest", () => {
-	afterEach(() => {
-		delete process.env.CUA_DISABLE_RESPONSE_THREADING;
-	});
-
 	it("prunes to the delta and injects store + previous_response_id when threading (default)", async () => {
 		const { context, onPayload } = threadRequest(multiTurnContext(), undefined);
 		// Only the latest tool result (after the last assistant turn) is sent; the rest lives server-side.
@@ -45,19 +41,11 @@ describe("openai threadRequest", () => {
 		expect(await onPayload({ input: [] }, model)).toEqual({ input: [], store: true, previous_response_id: `resp_${TURNS - 1}` });
 	});
 
-	it("replays full history with store but no previous_response_id when disabled by option", async () => {
+	it("sends full history with store but no previous_response_id when disabled by option", async () => {
 		const ctx = multiTurnContext();
 		const { context, onPayload } = threadRequest(ctx, { disableResponseThreading: true });
 		expect(context).toBe(ctx);
 		expect(await onPayload({}, model)).toEqual({ store: true });
-	});
-
-	it("replays full history when CUA_DISABLE_RESPONSE_THREADING is set", async () => {
-		process.env.CUA_DISABLE_RESPONSE_THREADING = "1";
-		const ctx = multiTurnContext();
-		const { context, onPayload } = threadRequest(ctx, undefined);
-		expect(context).toBe(ctx);
-		expect(((await onPayload({}, model)) as Record<string, unknown>).previous_response_id).toBeUndefined();
 	});
 
 	it("falls back to full history when the latest assistant turn lacks a responseId", async () => {

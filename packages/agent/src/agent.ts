@@ -2,6 +2,7 @@ import {
 	Agent,
 	AgentHarness,
 	type AgentHarnessOptions,
+	type AgentMessage,
 	type AgentOptions,
 	type AgentState,
 	type AgentTool,
@@ -11,6 +12,7 @@ import {
 } from "@earendil-works/pi-agent-core";
 import {
 	type Api,
+	type Context,
 	CUA_NAVIGATION_TOOL_NAME,
 	CUA_PLAYWRIGHT_TOOL_NAME,
 	cuaModels,
@@ -41,6 +43,64 @@ import { InternalComputerTranslator, type KernelBrowser } from "./translator/tra
  * authenticate is the `models` collection's concern.
  */
 type CuaRuntimeInput = CuaModelRef | Model<Api>;
+
+const DEFAULT_TOOL_RESULT_IMAGE_REPLAY_LIMIT = 4;
+const OMITTED_TOOL_RESULT_IMAGES = "[stale tool-result images omitted]";
+
+/**
+ * Maximum number of tool-result images included in the request-time message
+ * projection, or `false` to leave image blocks unchanged.
+ */
+export type ToolResultImageReplayLimit = number | false;
+
+function resolveToolResultImageReplayLimit(limit: ToolResultImageReplayLimit | undefined): ToolResultImageReplayLimit {
+	if (limit === undefined) return DEFAULT_TOOL_RESULT_IMAGE_REPLAY_LIMIT;
+	if (limit !== false && (!Number.isFinite(limit) || !Number.isInteger(limit) || limit < 0)) {
+		throw new TypeError("toolResultImageReplayLimit must be a finite non-negative integer or false");
+	}
+	return limit;
+}
+
+function projectToolResultImages<TMessage extends AgentMessage>(
+	messages: TMessage[],
+	limit: ToolResultImageReplayLimit,
+): TMessage[] {
+	if (limit === false) return messages;
+
+	let imageCount = 0;
+	for (const message of messages) {
+		if (message.role === "toolResult") {
+			imageCount += message.content.filter((block) => block.type === "image").length;
+		}
+	}
+	if (imageCount <= limit) return messages;
+
+	const firstRetainedImage = Math.max(0, imageCount - limit);
+	let imageOrdinal = 0;
+	return messages.map((message) => {
+		if (message.role !== "toolResult") return message;
+
+		let changed = false;
+		let markerInserted = false;
+		const content: typeof message.content = [];
+		for (const block of message.content) {
+			if (block.type !== "image") {
+				content.push(block);
+				continue;
+			}
+			if (imageOrdinal++ >= firstRetainedImage) {
+				content.push(block);
+				continue;
+			}
+			changed = true;
+			if (!markerInserted) {
+				content.push({ type: "text", text: OMITTED_TOOL_RESULT_IMAGES });
+				markerInserted = true;
+			}
+		}
+		return changed ? ({ ...message, content } as TMessage) : message;
+	});
+}
 
 /**
  * Agent state exposed by {@link CuaAgent}.
@@ -84,6 +144,10 @@ export type CuaAgentOptions = Omit<AgentOptions, "initialState"> & {
 	nativeTool?: CuaNativeToolSpec;
 	/** Expose a tool that runs Playwright code against the browser session. */
 	playwright?: boolean;
+	/** Maximum tool-result images included from message history per provider request. Defaults to 4; false disables projection. */
+	toolResultImageReplayLimit?: ToolResultImageReplayLimit;
+	/** Chain OpenAI and Tzafon requests through provider-stored response state. Defaults to true. */
+	responseThreading?: boolean;
 	/** Optional CUA-level retries around each provider request. Disabled by default. */
 	retry?: CuaRetryOptions;
 };
@@ -124,6 +188,10 @@ export type CuaAgentHarnessOptions<
 	playwright?: boolean;
 	/** Optional payload hook composed after the provider-specific CUA payload hook. */
 	onPayload?: SimpleStreamOptions["onPayload"];
+	/** Maximum tool-result images included from message history per provider request. Defaults to 4; false disables projection. */
+	toolResultImageReplayLimit?: ToolResultImageReplayLimit;
+	/** Chain OpenAI and Tzafon requests through provider-stored response state. Defaults to true. */
+	responseThreading?: boolean;
 	/** Optional CUA-level retries around each provider request. Disabled by default. */
 	retry?: CuaRetryOptions;
 };
@@ -279,6 +347,70 @@ class CuaRuntimeController {
 /** Default stream path: the shared CUA `Models` collection. */
 const defaultCuaStream: StreamFn = (model, context, options) => cuaModels().streamSimple(model, context, options);
 
+function resolveResponseThreading(responseThreading: boolean | undefined): boolean {
+	if (responseThreading !== undefined && typeof responseThreading !== "boolean") {
+		throw new TypeError("responseThreading must be a boolean");
+	}
+	return responseThreading ?? true;
+}
+
+function withResponseThreading<TOptions extends object | undefined>(
+	options: TOptions,
+	enabled: boolean,
+): TOptions {
+	return enabled ? options : { ...options, disableResponseThreading: true };
+}
+
+function projectModelContext(context: Context, imageReplayLimit: ToolResultImageReplayLimit): Context {
+	const messages = projectToolResultImages(context.messages, imageReplayLimit);
+	return messages === context.messages ? context : { ...context, messages };
+}
+
+function withContextManagement(
+	models: Models,
+	imageReplayLimit: ToolResultImageReplayLimit,
+	responseThreading: boolean,
+): Models {
+	if (imageReplayLimit === false && responseThreading) return models;
+
+	const stream: Models["stream"] = (model, context, options) =>
+		models.stream(
+			model,
+			projectModelContext(context, imageReplayLimit),
+			withResponseThreading(options, responseThreading),
+		);
+	const complete: Models["complete"] = (model, context, options) =>
+		models.complete(
+			model,
+			projectModelContext(context, imageReplayLimit),
+			withResponseThreading(options, responseThreading),
+		);
+	const streamSimple: Models["streamSimple"] = (model, context, options) =>
+		models.streamSimple(
+			model,
+			projectModelContext(context, imageReplayLimit),
+			withResponseThreading(options, responseThreading),
+		);
+	const completeSimple: Models["completeSimple"] = (model, context, options) =>
+		models.completeSimple(
+			model,
+			projectModelContext(context, imageReplayLimit),
+			withResponseThreading(options, responseThreading),
+		);
+	return {
+		getProviders: () => models.getProviders(),
+		getProvider: (id) => models.getProvider(id),
+		getModels: (provider) => models.getModels(provider),
+		getModel: (provider, id) => models.getModel(provider, id),
+		refresh: (provider) => models.refresh(provider),
+		getAuth: (model) => models.getAuth(model),
+		stream,
+		complete,
+		streamSimple,
+		completeSimple,
+	};
+}
+
 /**
  * Pi `Agent` configured for Kernel browser computer use.
  *
@@ -302,13 +434,18 @@ export class CuaAgent extends Agent {
 			onPayload,
 			streamFn,
 			prepareNextTurn,
+			transformContext,
 			extraTools,
 			mode,
 			nativeTool,
 			playwright,
+			toolResultImageReplayLimit,
+			responseThreading,
 			retry,
 			...agentOptions
 		} = options;
+		const imageReplayLimit = resolveToolResultImageReplayLimit(toolResultImageReplayLimit);
+		const useResponseThreading = resolveResponseThreading(responseThreading);
 		const runtime = new CuaRuntimeController({
 			browser,
 			client,
@@ -328,6 +465,7 @@ export class CuaAgent extends Agent {
 				...streamOptions,
 				onPayload: runtime.onPayload(),
 				keepToolNames: runtime.keepToolNames(),
+				disableResponseThreading: !useResponseThreading,
 			};
 			return retryingStream(model, context, optionsWithCuaRuntime);
 		};
@@ -336,6 +474,11 @@ export class CuaAgent extends Agent {
 			...agentOptions,
 			getApiKey: agentOptions.getApiKey ?? getCuaEnvApiKey,
 			streamFn: wrappedStreamFn,
+			transformContext: async (messages, signal) =>
+				projectToolResultImages(
+					transformContext ? await transformContext(messages, signal) : messages,
+					imageReplayLimit,
+				),
 			initialState: {
 				...initialState,
 				model: runtime.model,
@@ -461,9 +604,13 @@ export class CuaAgentHarness<
 			systemPrompt,
 			onPayload,
 			activeToolNames,
+			toolResultImageReplayLimit,
+			responseThreading,
 			retry,
 			...harnessOptions
 		} = options;
+		const imageReplayLimit = resolveToolResultImageReplayLimit(toolResultImageReplayLimit);
+		const useResponseThreading = resolveResponseThreading(responseThreading);
 		const runtime = new CuaRuntimeController({
 			browser,
 			client,
@@ -479,11 +626,12 @@ export class CuaAgentHarness<
 			models ?? cuaModels(),
 			resolveProviderRetryPolicy(retry),
 		);
+		const contextModels = withContextManagement(retryingModels, imageReplayLimit, useResponseThreading);
 
 		super({
 			...harnessOptions,
 			model: runtime.model,
-			models: retryingModels,
+			models: contextModels,
 			tools: resolvedTools,
 			systemPrompt: systemPrompt ?? (() => runtime.systemPrompt),
 			activeToolNames: activeToolNames ?? resolvedTools.map((tool) => tool.name),

@@ -16,5 +16,10 @@ export type {
 	PlaywrightDetails,
 } from "./tools";
 export { CuaAgent, CuaAgentHarness } from "./agent";
-export type { CuaAgentHarnessOptions, CuaAgentOptions, CuaAgentState } from "./agent";
+export type {
+	CuaAgentHarnessOptions,
+	CuaAgentOptions,
+	CuaAgentState,
+	ToolResultImageReplayLimit,
+} from "./agent";
 export type { CuaRetryOptions } from "./provider-retry";

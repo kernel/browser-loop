@@ -260,33 +260,28 @@ export interface CuaPayloadContext {
 export type CuaPayloadHook = (payload: unknown, model: Model<Api>, context?: CuaPayloadContext) => unknown | Promise<unknown>;
 
 /**
- * pi-ai `SimpleStreamOptions` plus the CUA extension consumed by the
- * Yutori/Tzafon stream adapters. Pass `keepToolNames` for caller tools that
- * must survive provider-native tool-set substitution.
+ * pi-ai `SimpleStreamOptions` plus CUA request controls consumed by provider
+ * adapters. Pass `keepToolNames` for caller tools that must survive native
+ * tool-set substitution; use `disableResponseThreading` for a full-context
+ * OpenAI or Tzafon request.
  */
-export interface CuaSimpleStreamOptions extends SimpleStreamOptions {
+export interface CuaSimpleStreamOptions extends SimpleStreamOptions, ResponseThreadingOptions {
 	keepToolNames?: readonly string[];
 }
 
-/** Environment variable that disables server-side `previous_response_id` threading when truthy. */
-export const CUA_DISABLE_RESPONSE_THREADING_ENV_VAR = "CUA_DISABLE_RESPONSE_THREADING";
-
 /** Per-call control over `previous_response_id` threading for Responses API providers. */
 export interface ResponseThreadingOptions {
-	/** Force full-history replay for this request, overriding the environment default. */
+	/** Force this request to send its full message context instead of chaining to a stored provider response. */
 	disableResponseThreading?: boolean;
 }
 
 /**
  * Whether a Responses API provider should thread requests with
- * `previous_response_id` + delta input instead of replaying the full message
- * history. Threading is on by default and disabled by an explicit option or a
- * truthy {@link CUA_DISABLE_RESPONSE_THREADING_ENV_VAR}.
+ * `previous_response_id` + delta input instead of sending the full message
+ * context. Threading is on by default and disabled per request.
  */
 export function responseThreadingEnabled(options?: ResponseThreadingOptions): boolean {
-	if (options?.disableResponseThreading) return false;
-	const flag = process.env[CUA_DISABLE_RESPONSE_THREADING_ENV_VAR];
-	return !(flag && flag !== "0" && flag.toLowerCase() !== "false");
+	return options?.disableResponseThreading !== true;
 }
 
 /** Result of {@link responseThreadingDelta}: the chaining id and the messages to send this turn. */

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { Context, Message, Model } from "@earendil-works/pi-ai";
 import { tzafon } from "../src/index";
 
@@ -48,12 +48,8 @@ function screenshotImageUrls(input: Array<Record<string, unknown>>): string[] {
 }
 
 describe("buildTzafonRequestInput response threading", () => {
-	afterEach(() => {
-		delete process.env.CUA_DISABLE_RESPONSE_THREADING;
-	});
-
 	// Threading ON is the fix: chain via previous_response_id and send only the
-	// latest screenshot. OFF replays every screenshot — the per-turn growth that
+	// latest screenshot. OFF sends every screenshot — the per-turn growth that
 	// overflows Tzafon's real 64K window after a few turns.
 	it("threads the latest delta when enabled (default)", () => {
 		const body = tzafon.buildTzafonRequestInput(model, multiTurnContext());
@@ -65,7 +61,7 @@ describe("buildTzafonRequestInput response threading", () => {
 		expect(body.store).toBe(true);
 	});
 
-	it("replays the full screenshot history when threading is disabled by option (locks the failure mode)", () => {
+	it("sends the full screenshot history when threading is disabled by option (locks the failure mode)", () => {
 		const body = tzafon.buildTzafonRequestInput(model, multiTurnContext(), { disableResponseThreading: true });
 		const screenshots = screenshotImageUrls(body.input);
 
@@ -73,14 +69,6 @@ describe("buildTzafonRequestInput response threading", () => {
 		expect(screenshots).toEqual(Array.from({ length: TURNS }, (_, turn) => `data:image/png;base64,screenshot-${turn}`));
 		expect(body.previous_response_id).toBeUndefined();
 		expect(body.store).toBeUndefined();
-	});
-
-	it("replays the full screenshot history when CUA_DISABLE_RESPONSE_THREADING is set", () => {
-		process.env.CUA_DISABLE_RESPONSE_THREADING = "1";
-		const body = tzafon.buildTzafonRequestInput(model, multiTurnContext());
-
-		expect(screenshotImageUrls(body.input)).toHaveLength(TURNS);
-		expect(body.previous_response_id).toBeUndefined();
 	});
 
 	it("falls back to full history when no prior turn carries a responseId", () => {

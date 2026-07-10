@@ -99,6 +99,68 @@ Both classes mirror pi constructor shapes and behavior, with minimal additions:
 - `extraTools` to add your own pi tools alongside the built-in browser tools
 - `playwright: true` to let the model run Playwright/TypeScript against the
   live browser session
+- `toolResultImageReplayLimit` to control how many recent tool-result images
+  are included in each model request
+- `responseThreading` to choose whether OpenAI and Tzafon continue from
+  provider-stored response state or receive the full request context each time
+
+### Context management
+
+Both constructors accept the same request-context options:
+
+```ts
+const agent = new CuaAgent({
+  // ...browser, client, and initialState
+  toolResultImageReplayLimit: 4,
+  responseThreading: true,
+});
+```
+
+`toolResultImageReplayLimit` defaults to `4`. A non-negative integer keeps that
+many of the newest image blocks from tool results in each model request. `0`
+removes all tool-result images from the request, while `false` disables this
+filter and includes every tool-result image. Text, metadata, and message order
+are preserved; a changed tool result gets one
+`[stale tool-result images omitted]` marker where its first removed image was.
+The limit applies across built-in tools, custom tools, and multi-image results.
+
+This is a request-time view of the transcript, not a history mutation.
+`CuaAgent.state.messages`, harness session entries, and
+`session.buildContext()` retain the original images.
+
+#### How this uses pi context primitives
+
+pi provides several context-management layers with different lifetimes:
+
+- `Agent.transformContext` changes the messages passed to one model request.
+  `CuaAgent` uses this hook for the image limit. If you provide your own
+  `transformContext`, it runs first and the image limit is applied to its
+  result.
+- `AgentHarness` exposes the same request-time stage through its `context`
+  hook. pi selects their final result first, then `CuaAgentHarness` applies
+  the image limit at the `Models` boundary before the provider call.
+  User handlers therefore compose with the built-in limit instead of replacing
+  it. Set `toolResultImageReplayLimit: false` if a handler should own image
+  filtering completely.
+- A harness `Session` can use `entryTransforms` and `entryProjectors` while
+  building model context from stored session entries. These run before the
+  request-time `context` hooks; the image limit runs afterward. None of these
+  projections rewrite stored entries.
+- `harness.compact()` is the persistent, model-generated option for reducing a
+  long transcript. It writes a summary entry that future session contexts use.
+  It is broader than the image limit and is not called automatically by this
+  package.
+
+`responseThreading` defaults to `true`. For OpenAI and Tzafon Responses APIs,
+that means each request can continue from `previous_response_id`; the provider
+keeps earlier response state and CUA sends only messages added since that
+response. Because the provider retains that state, removing an older image from
+the current request view does not remove it from an existing provider thread.
+
+Set `responseThreading: false` when every request should be built entirely from
+the current pi context instead. In that mode no `previous_response_id` is sent,
+and `toolResultImageReplayLimit` determines which tool-result images are
+included in the full request. Other providers do not use this option.
 
 If auth callbacks are omitted, both classes default to CUA env var conventions:
 - OpenAI: `OPENAI_API_KEY`
