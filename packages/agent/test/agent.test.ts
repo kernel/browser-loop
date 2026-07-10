@@ -68,6 +68,55 @@ function createCustomTool(name = "custom"): AgentTool {
 	};
 }
 
+function finishMessage(message: AssistantMessage, text?: string): AssistantMessage {
+	if (text !== undefined) message.content = [{ type: "text", text }];
+	return message;
+}
+
+function createScriptedStream(texts: Array<string | undefined>, contexts?: Array<{ messages: Array<{ role: string }> }>) {
+	let providerCalls = 0;
+	const streamFn: StreamFn = (model, context) => {
+		contexts?.push(context as never);
+		const stream = createAssistantMessageEventStream();
+		const message = finishMessage(createAssistantMessage(model), texts[providerCalls]);
+		providerCalls += 1;
+		stream.push({ type: "start", partial: message });
+		stream.push({ type: "done", reason: "stop", message });
+		stream.end(message);
+		return stream;
+	};
+	return { streamFn, calls: () => providerCalls };
+}
+
+function createModelsFromStream(streamFn: StreamFn) {
+	const models = createCuaModels();
+	models.setProvider({
+		id: "openai",
+		name: "scripted openai",
+		auth: {
+			apiKey: {
+				name: "test key",
+				resolve: async () => ({ auth: { apiKey: "test-key" } }),
+			},
+		},
+		getModels: () => [],
+		stream: streamFn,
+		streamSimple: streamFn,
+	} as never);
+	return models;
+}
+
+function createScriptedModels(
+	texts: Array<string | undefined>,
+	contexts?: Array<{ messages: Array<{ role: string }> }>,
+) {
+	const scripted = createScriptedStream(texts, contexts);
+	return {
+		models: createModelsFromStream(scripted.streamFn),
+		calls: scripted.calls,
+	};
+}
+
 describe("CuaAgent", () => {
 	it("extends pi Agent and resolves model refs in initialState", () => {
 		const runtime = resolveCuaRuntimeSpec("openai:gpt-5.5");
@@ -449,6 +498,7 @@ describe("CuaAgent", () => {
 			browser,
 			client: screenshotClient,
 			streamFn,
+			emptyResponseRecovery: { followUp: "continue", maxAttempts: 1 },
 			initialState: { model: "openai:gpt-5.5" },
 		});
 
@@ -663,9 +713,636 @@ describe("CuaAgent", () => {
 			})).toThrow(new TypeError("toolResultImageReplayLimit must be a finite non-negative integer or false"));
 		}
 	});
+
+	const recovery = { followUp: "  Please continue exactly.  ", maxAttempts: 1 };
+
+	it("preserves pi completion semantics when recovery is omitted", async () => {
+		const scripted = createScriptedStream([undefined]);
+		const agent = new CuaAgent({
+			browser,
+			client,
+			streamFn: scripted.streamFn,
+			initialState: { model: "openai:gpt-5.5" },
+		});
+
+		await agent.prompt("finish the task");
+
+		expect(scripted.calls()).toBe(1);
+		expect(agent.state.messages.at(-1)?.content).toEqual([]);
+		expect(agent.state.messages.filter((message) => message.role === "user")).toHaveLength(1);
+	});
+
+	it("uses pi followUp for explicit empty-response recovery", async () => {
+		const contexts: Array<{
+			messages: Array<{
+				role: string;
+				content: Array<{ type: string; text?: string }>;
+			}>;
+		}> = [];
+		const scripted = createScriptedStream([undefined, "finished"], contexts);
+		const agent = new CuaAgent({
+			browser,
+			client,
+			streamFn: scripted.streamFn,
+			emptyResponseRecovery: recovery,
+			initialState: { model: "openai:gpt-5.5" },
+		});
+
+		await agent.prompt("finish the task");
+
+		expect(scripted.calls()).toBe(2);
+		const messages = contexts[1]!.messages;
+		expect(messages.at(-2)).toMatchObject({ role: "assistant", content: [] });
+		expect(messages.at(-1)).toMatchObject({
+			role: "user",
+			content: [{ type: "text", text: recovery.followUp }],
+		});
+	});
+
+	it("enforces and resets the configured recovery budget", async () => {
+		const scripted = createScriptedStream([undefined, undefined, undefined, "done"]);
+		const agent = new CuaAgent({
+			browser,
+			client,
+			streamFn: scripted.streamFn,
+			emptyResponseRecovery: recovery,
+			initialState: { model: "openai:gpt-5.5" },
+		});
+
+		await agent.prompt("first");
+		expect(scripted.calls()).toBe(2);
+		await agent.prompt("second");
+		expect(scripted.calls()).toBe(4);
+	});
+
+	it("makes exactly one additional call per configured attempt", async () => {
+		const scripted = createScriptedStream([undefined, undefined, undefined]);
+		const agent = new CuaAgent({
+			browser,
+			client,
+			streamFn: scripted.streamFn,
+			emptyResponseRecovery: { followUp: "continue", maxAttempts: 2 },
+			initialState: { model: "openai:gpt-5.5" },
+		});
+
+		await agent.prompt("task");
+		expect(scripted.calls()).toBe(3);
+	});
+
+	it("recovers exact-empty content regardless of usage accounting", async () => {
+		let calls = 0;
+		const streamFn: StreamFn = (model) => {
+			const stream = createAssistantMessageEventStream();
+			const message = finishMessage(createAssistantMessage(model), calls++ === 0 ? undefined : "done");
+			if (message.content.length === 0) {
+				message.usage.output = 7;
+				message.usage.reasoning = 5;
+			}
+			stream.push({ type: "start", partial: message });
+			stream.push({ type: "done", reason: "stop", message });
+			stream.end(message);
+			return stream;
+		};
+		const agent = new CuaAgent({
+			browser,
+			client,
+			streamFn,
+			emptyResponseRecovery: recovery,
+			initialState: { model: "openai:gpt-5.5" },
+		});
+
+		await agent.prompt("task");
+		expect(calls).toBe(2);
+	});
+
+	it.each([
+		["whitespace text", [{ type: "text", text: "   " }], "stop"],
+		["thinking content", [{ type: "thinking", thinking: "working" }], "stop"],
+		["length stop", [], "length"],
+		["error stop", [], "error"],
+		["aborted stop", [], "aborted"],
+	] as const)("does not recover %s", async (_name, content, stopReason) => {
+		let calls = 0;
+		const streamFn: StreamFn = (model) => {
+			calls += 1;
+			const stream = createAssistantMessageEventStream();
+			const message = createAssistantMessage(model);
+			message.content = [...content] as AssistantMessage["content"];
+			message.stopReason = stopReason;
+			stream.push({ type: "start", partial: message });
+			stream.push({ type: "done", reason: stopReason, message });
+			stream.end(message);
+			return stream;
+		};
+		const agent = new CuaAgent({
+			browser,
+			client,
+			streamFn,
+			emptyResponseRecovery: recovery,
+			initialState: { model: "openai:gpt-5.5" },
+		});
+
+		await agent.prompt("task");
+		expect(calls).toBe(1);
+	});
+
+	it.each([[-1], [1.5], [Number.POSITIVE_INFINITY], [Number.NaN]])("rejects invalid maxAttempts %s", (maxAttempts) => {
+		expect(
+			() =>
+				new CuaAgent({
+					browser,
+					client,
+					emptyResponseRecovery: { followUp: "continue", maxAttempts },
+					initialState: { model: "openai:gpt-5.5" },
+				}),
+		).toThrow(/non-negative finite integer/);
+	});
+
+	it("rejects blank follow-up text and accepts zero attempts", async () => {
+		expect(
+			() =>
+				new CuaAgent({
+					browser,
+					client,
+					emptyResponseRecovery: { followUp: "  ", maxAttempts: 1 },
+					initialState: { model: "openai:gpt-5.5" },
+				}),
+		).toThrow(/must not be blank/);
+		const scripted = createScriptedStream([undefined]);
+		const agent = new CuaAgent({
+			browser,
+			client,
+			streamFn: scripted.streamFn,
+			emptyResponseRecovery: { followUp: "continue", maxAttempts: 0 },
+			initialState: { model: "openai:gpt-5.5" },
+		});
+		await agent.prompt("task");
+		expect(scripted.calls()).toBe(1);
+	});
+
+	it.each(["one-at-a-time", "all"] as const)(
+		"lets queued caller work drain before recovery in %s mode",
+		async (mode) => {
+			let release!: () => void;
+			const gate = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			const contexts: Array<{
+				messages: Array<{
+					role: string;
+					content: Array<{ type: string; text?: string }>;
+				}>;
+			}> = [];
+			let calls = 0;
+			const streamFn: StreamFn = (model, context) => {
+				contexts.push(context as never);
+				const stream = createAssistantMessageEventStream();
+				const message = finishMessage(createAssistantMessage(model), calls === 2 ? "recovered" : undefined);
+				calls += 1;
+				void (async () => {
+					if (calls === 1) await gate;
+					stream.push({ type: "start", partial: message });
+					stream.push({ type: "done", reason: "stop", message });
+					stream.end(message);
+				})();
+				return stream;
+			};
+			const agent = new CuaAgent({
+				browser,
+				client,
+				streamFn,
+				followUpMode: mode,
+				emptyResponseRecovery: recovery,
+				initialState: { model: "openai:gpt-5.5" },
+			});
+			const prompt = agent.prompt("task");
+			await vi.waitFor(() => expect(calls).toBe(1));
+			agent.followUp({
+				role: "user",
+				content: [{ type: "text", text: "caller" }],
+				timestamp: Date.now(),
+			});
+			release();
+			await prompt;
+
+			expect(calls).toBe(3);
+			expect(contexts[1]!.messages.at(-1)).toMatchObject({
+				role: "user",
+				content: [{ text: "caller" }],
+			});
+			expect(contexts[2]!.messages.at(-1)).toMatchObject({
+				role: "user",
+				content: [{ text: recovery.followUp }],
+			});
+		},
+	);
+
+	it("does not recover when the active signal is aborted", async () => {
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		let calls = 0;
+		const streamFn: StreamFn = (model) => {
+			calls += 1;
+			const stream = createAssistantMessageEventStream();
+			const message = createAssistantMessage(model);
+			void gate.then(() => {
+				stream.push({ type: "start", partial: message });
+				stream.push({ type: "done", reason: "stop", message });
+				stream.end(message);
+			});
+			return stream;
+		};
+		const agent = new CuaAgent({
+			browser,
+			client,
+			streamFn,
+			emptyResponseRecovery: recovery,
+			initialState: { model: "openai:gpt-5.5" },
+		});
+		const prompt = agent.prompt("task");
+		await vi.waitFor(() => expect(calls).toBe(1));
+		agent.abort();
+		release();
+		await prompt;
+		expect(calls).toBe(1);
+	});
 });
 
 describe("CuaAgentHarness", () => {
+	const recovery = { followUp: "  Please continue exactly.  ", maxAttempts: 1 };
+
+	it("preserves pi completion semantics when recovery is omitted", async () => {
+		const scripted = createScriptedModels([undefined]);
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "openai:gpt-5.5",
+			models: scripted.models,
+		});
+
+		const response = await harness.prompt("finish the task");
+		expect(scripted.calls()).toBe(1);
+		expect(response.content).toEqual([]);
+	});
+
+	it("uses pi followUp for explicit empty-response recovery", async () => {
+		const contexts: Array<{
+			messages: Array<{
+				role: string;
+				content: Array<{ type: string; text?: string }>;
+			}>;
+		}> = [];
+		const scripted = createScriptedModels([undefined, "finished"], contexts);
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "openai:gpt-5.5",
+			models: scripted.models,
+			emptyResponseRecovery: recovery,
+		});
+
+		const response = await harness.prompt("finish the task");
+
+		expect(scripted.calls()).toBe(2);
+		expect(response.content).toEqual([{ type: "text", text: "finished" }]);
+		expect(contexts[1]!.messages.at(-2)).toMatchObject({
+			role: "assistant",
+			content: [],
+		});
+		expect(contexts[1]!.messages.at(-1)).toMatchObject({
+			role: "user",
+			content: [{ type: "text", text: recovery.followUp }],
+		});
+	});
+
+	it("enforces and resets the configured recovery budget", async () => {
+		const scripted = createScriptedModels([undefined, undefined, undefined, "done"]);
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "openai:gpt-5.5",
+			models: scripted.models,
+			emptyResponseRecovery: recovery,
+		});
+
+		await harness.prompt("first");
+		expect(scripted.calls()).toBe(2);
+		await harness.prompt("second");
+		expect(scripted.calls()).toBe(4);
+	});
+
+	it("clears stale queue snapshots before a new prompt starts", async () => {
+		const scripted = createScriptedModels([undefined, "finished"]);
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "openai:gpt-5.5",
+			models: scripted.models,
+			emptyResponseRecovery: recovery,
+		});
+
+		(harness as unknown as { hasPendingActiveQueue: boolean }).hasPendingActiveQueue = true;
+		const response = await harness.prompt("finish the task");
+
+		expect(scripted.calls()).toBe(2);
+		expect(response.content).toEqual([{ type: "text", text: "finished" }]);
+	});
+
+	it("makes exactly one additional call per configured attempt", async () => {
+		const scripted = createScriptedModels([undefined, undefined, undefined]);
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "openai:gpt-5.5",
+			models: scripted.models,
+			emptyResponseRecovery: { followUp: "continue", maxAttempts: 2 },
+		});
+
+		await harness.prompt("task");
+		expect(scripted.calls()).toBe(3);
+	});
+
+	it("recovers exact-empty content with nonzero usage", async () => {
+		let calls = 0;
+		const streamFn: StreamFn = (model) => {
+			const stream = createAssistantMessageEventStream();
+			const message = finishMessage(createAssistantMessage(model), calls++ === 0 ? undefined : "done");
+			if (message.content.length === 0) {
+				message.usage.output = 9;
+				message.usage.reasoning = 6;
+			}
+			stream.push({ type: "start", partial: message });
+			stream.push({ type: "done", reason: "stop", message });
+			stream.end(message);
+			return stream;
+		};
+		const models = createModelsFromStream(streamFn);
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "openai:gpt-5.5",
+			models,
+			emptyResponseRecovery: recovery,
+		});
+
+		await harness.prompt("task");
+		expect(calls).toBe(2);
+	});
+
+	it.each([
+		["whitespace text", [{ type: "text", text: "   " }], "stop"],
+		["thinking content", [{ type: "thinking", thinking: "working" }], "stop"],
+		["length stop", [], "length"],
+		["error stop", [], "error"],
+		["aborted stop", [], "aborted"],
+	] as const)("does not recover %s", async (_name, content, stopReason) => {
+		let calls = 0;
+		const streamFn: StreamFn = (model) => {
+			calls += 1;
+			const stream = createAssistantMessageEventStream();
+			const message = createAssistantMessage(model);
+			message.content = [...content] as AssistantMessage["content"];
+			message.stopReason = stopReason;
+			stream.push({ type: "start", partial: message });
+			stream.push({ type: "done", reason: stopReason, message });
+			stream.end(message);
+			return stream;
+		};
+		const models = createModelsFromStream(streamFn);
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "openai:gpt-5.5",
+			models,
+			emptyResponseRecovery: recovery,
+		});
+
+		await harness.prompt("task");
+		expect(calls).toBe(1);
+	});
+
+	it("does not treat a tool-use turn as an empty response", async () => {
+		let calls = 0;
+		const streamFn: StreamFn = (model) => {
+			const stream = createAssistantMessageEventStream();
+			const message = createAssistantMessage(model);
+			if (calls++ === 0) {
+				message.content = [{ type: "toolCall", id: "tool-1", name: "custom", arguments: {} }];
+				message.stopReason = "toolUse";
+			} else {
+				message.content = [{ type: "text", text: "done" }];
+			}
+			stream.push({ type: "start", partial: message });
+			stream.push({ type: "done", reason: message.stopReason, message });
+			stream.end(message);
+			return stream;
+		};
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "openai:gpt-5.5",
+			models: createModelsFromStream(streamFn),
+			extraTools: [createCustomTool()],
+			emptyResponseRecovery: recovery,
+		});
+
+		await harness.prompt("task");
+		expect(calls).toBe(2);
+	});
+
+	it.each([[-1], [1.5], [Number.POSITIVE_INFINITY], [Number.NaN]])(
+		"rejects invalid maxAttempts %s",
+		async (maxAttempts) => {
+			const services = await createHarnessServices();
+			expect(
+				() =>
+					new CuaAgentHarness({
+						...services,
+						browser,
+						client,
+						model: "openai:gpt-5.5",
+						emptyResponseRecovery: { followUp: "continue", maxAttempts },
+					}),
+			).toThrow(/non-negative finite integer/);
+		},
+	);
+
+	it("rejects blank follow-up text and accepts zero attempts", async () => {
+		const services = await createHarnessServices();
+		expect(
+			() =>
+				new CuaAgentHarness({
+					...services,
+					browser,
+					client,
+					model: "openai:gpt-5.5",
+					emptyResponseRecovery: { followUp: " ", maxAttempts: 1 },
+				}),
+		).toThrow(/must not be blank/);
+		const scripted = createScriptedModels([undefined]);
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "openai:gpt-5.5",
+			models: scripted.models,
+			emptyResponseRecovery: { followUp: "continue", maxAttempts: 0 },
+		});
+		await harness.prompt("task");
+		expect(scripted.calls()).toBe(1);
+	});
+
+	it.each(["one-at-a-time", "all"] as const)(
+		"lets queued caller work drain before recovery in %s mode",
+		async (mode) => {
+			let release!: () => void;
+			const gate = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			const contexts: Array<{
+				messages: Array<{
+					role: string;
+					content: Array<{ type: string; text?: string }>;
+				}>;
+			}> = [];
+			let calls = 0;
+			const streamFn: StreamFn = (model, context) => {
+				contexts.push(context as never);
+				const stream = createAssistantMessageEventStream();
+				const message = finishMessage(createAssistantMessage(model), calls === 2 ? "recovered" : undefined);
+				calls += 1;
+				void (async () => {
+					if (calls === 1) await gate;
+					stream.push({ type: "start", partial: message });
+					stream.push({ type: "done", reason: "stop", message });
+					stream.end(message);
+				})();
+				return stream;
+			};
+			const models = createModelsFromStream(streamFn);
+			const harness = new CuaAgentHarness({
+				...(await createHarnessServices()),
+				browser,
+				client,
+				model: "openai:gpt-5.5",
+				models,
+				emptyResponseRecovery: recovery,
+			});
+			await harness.setFollowUpMode(mode);
+			const prompt = harness.prompt("task");
+			await vi.waitFor(() => expect(calls).toBe(1));
+			await harness.followUp("caller");
+			release();
+			await prompt;
+
+			expect(calls).toBe(3);
+			expect(contexts[1]!.messages.at(-1)).toMatchObject({
+				role: "user",
+				content: [{ text: "caller" }],
+			});
+			expect(contexts[2]!.messages.at(-1)).toMatchObject({
+				role: "user",
+				content: [{ text: recovery.followUp }],
+			});
+		},
+	);
+
+	it("does not let nextTurn suppress active-run recovery", async () => {
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const contexts: Array<{
+			messages: Array<{
+				role: string;
+				content: Array<{ type: string; text?: string }>;
+			}>;
+		}> = [];
+		let calls = 0;
+		const streamFn: StreamFn = (model, context) => {
+			contexts.push(context as never);
+			const stream = createAssistantMessageEventStream();
+			const message = finishMessage(createAssistantMessage(model), calls++ === 0 ? undefined : "done");
+			void (async () => {
+				if (calls === 1) await gate;
+				stream.push({ type: "start", partial: message });
+				stream.push({ type: "done", reason: "stop", message });
+				stream.end(message);
+			})();
+			return stream;
+		};
+		const models = createModelsFromStream(streamFn);
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "openai:gpt-5.5",
+			models,
+			emptyResponseRecovery: recovery,
+		});
+		const prompt = harness.prompt("first");
+		await vi.waitFor(() => expect(calls).toBe(1));
+		await harness.nextTurn("later");
+		release();
+		await prompt;
+		expect(calls).toBe(2);
+		expect(contexts[1]!.messages.at(-1)).toMatchObject({
+			role: "user",
+			content: [{ text: recovery.followUp }],
+		});
+
+		await harness.prompt("second");
+		expect(
+			contexts[2]!.messages.some(
+				(message) => message.role === "user" && message.content.some((block) => block.text === "later"),
+			),
+		).toBe(true);
+	});
+
+	it("does not recover when the active signal is aborted", async () => {
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		let calls = 0;
+		const streamFn: StreamFn = (model) => {
+			calls += 1;
+			const stream = createAssistantMessageEventStream();
+			const message = createAssistantMessage(model);
+			void gate.then(() => {
+				stream.push({ type: "start", partial: message });
+				stream.push({ type: "done", reason: "stop", message });
+				stream.end(message);
+			});
+			return stream;
+		};
+		const models = createModelsFromStream(streamFn);
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "openai:gpt-5.5",
+			models,
+			emptyResponseRecovery: recovery,
+		});
+		const prompt = harness.prompt("task");
+		await vi.waitFor(() => expect(calls).toBe(1));
+		const abort = harness.abort();
+		release();
+		await abort;
+		await prompt;
+		expect(calls).toBe(1);
+	});
 	it.each([
 		{ limit: 2 as const, expected: ["image-4", "image-5"] },
 		{ limit: 0 as const, expected: [] },
