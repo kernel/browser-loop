@@ -27,6 +27,12 @@ import {
 	type SimpleStreamOptions,
 } from "@onkernel/cua-ai";
 import type Kernel from "@onkernel/sdk";
+import {
+	type CuaRetryOptions,
+	resolveProviderRetryPolicy,
+	withProviderRetry,
+	withProviderRetryModels,
+} from "./provider-retry";
 import { buildCuaComputerTools } from "./tools";
 import { InternalComputerTranslator, type KernelBrowser } from "./translator/translator";
 
@@ -89,6 +95,8 @@ export type CuaAgentOptions = Omit<AgentOptions, "initialState"> & {
 	playwright?: boolean;
 	/** Explicitly continue successful exact-empty responses with pi's follow-up queue. */
 	emptyResponseRecovery?: CuaEmptyResponseRecoveryOptions;
+	/** Optional CUA-level retries around each provider request. Disabled by default. */
+	retry?: CuaRetryOptions;
 };
 
 /**
@@ -129,6 +137,8 @@ export type CuaAgentHarnessOptions<
 	onPayload?: SimpleStreamOptions["onPayload"];
 	/** Explicitly continue successful exact-empty responses with pi's follow-up queue. */
 	emptyResponseRecovery?: CuaEmptyResponseRecoveryOptions;
+	/** Optional CUA-level retries around each provider request. Disabled by default. */
+	retry?: CuaRetryOptions;
 };
 
 /**
@@ -328,6 +338,7 @@ export class CuaAgent extends Agent {
 			nativeTool,
 			playwright,
 			emptyResponseRecovery,
+			retry,
 			...agentOptions
 		} = options;
 		const recovery = resolveEmptyResponseRecovery(emptyResponseRecovery);
@@ -341,13 +352,17 @@ export class CuaAgent extends Agent {
 			playwright,
 			onPayload,
 		});
+		const retryingStream = withProviderRetry(
+			streamFn ?? defaultCuaStream,
+			resolveProviderRetryPolicy(retry),
+		);
 		const wrappedStreamFn: StreamFn = (model, context, streamOptions) => {
 			const optionsWithCuaRuntime: CuaSimpleStreamOptions = {
 				...streamOptions,
 				onPayload: runtime.onPayload(),
 				keepToolNames: runtime.keepToolNames(),
 			};
-			return (streamFn ?? defaultCuaStream)(model, context, optionsWithCuaRuntime);
+			return retryingStream(model, context, optionsWithCuaRuntime);
 		};
 
 		super({
@@ -504,6 +519,7 @@ export class CuaAgentHarness<
 			onPayload,
 			activeToolNames,
 			emptyResponseRecovery,
+			retry,
 			...harnessOptions
 		} = options;
 		const recovery = resolveEmptyResponseRecovery(emptyResponseRecovery);
@@ -518,11 +534,15 @@ export class CuaAgentHarness<
 			onPayload,
 		});
 		const resolvedTools = runtime.tools();
+		const retryingModels = withProviderRetryModels(
+			models ?? cuaModels(),
+			resolveProviderRetryPolicy(retry),
+		);
 
 		super({
 			...harnessOptions,
 			model: runtime.model,
-			models: models ?? cuaModels(),
+			models: retryingModels,
 			tools: resolvedTools,
 			systemPrompt: systemPrompt ?? (() => runtime.systemPrompt),
 			activeToolNames: activeToolNames ?? resolvedTools.map((tool) => tool.name),

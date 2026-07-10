@@ -25,6 +25,7 @@ export interface BuildTestHarnessOptions {
 	skills?: Skill[];
 	/** CUA model ref. Defaults to "openai:gpt-5.5". */
 	modelRef?: string;
+	retry?: Parameters<typeof buildCuaHarness>[0]["retry"];
 }
 
 export async function buildTestHarness(opts: BuildTestHarnessOptions): Promise<TestHarnessFixture> {
@@ -46,6 +47,7 @@ export async function buildTestHarness(opts: BuildTestHarnessOptions): Promise<T
 		skills: opts.skills,
 		extraTools: [],
 		models: provider.models,
+		retry: opts.retry,
 	});
 
 	return {

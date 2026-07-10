@@ -22,3 +22,4 @@ export type {
 	CuaAgentState,
 	CuaEmptyResponseRecoveryOptions,
 } from "./agent";
+export type { CuaRetryOptions } from "./provider-retry";

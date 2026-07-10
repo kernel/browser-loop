@@ -280,6 +280,66 @@ describe("CuaAgent", () => {
 		expect(agent.state.systemPrompt).toBe("custom prompt");
 	});
 
+	it("does not retry transient errors by default", async () => {
+		let calls = 0;
+		const agent = new CuaAgent({
+			browser,
+			client,
+			streamFn: (model) => {
+				calls += 1;
+				const stream = createAssistantMessageEventStream();
+				const message = createAssistantMessage(model);
+				message.stopReason = "error";
+				message.errorMessage = "HTTP 429: rate limited";
+				stream.push({ type: "error", reason: "error", error: message });
+				return stream;
+			},
+			initialState: { model: "openai:gpt-5.5" },
+		});
+
+		await agent.prompt("hello");
+		expect(calls).toBe(1);
+	});
+
+	it("retries transient errors from a custom stream function", async () => {
+		vi.useFakeTimers();
+		try {
+			let calls = 0;
+			const streamFn: StreamFn = (model) => {
+				calls += 1;
+				const stream = createAssistantMessageEventStream();
+				const message = createAssistantMessage(model);
+				stream.push({ type: "start", partial: message });
+				if (calls === 1) {
+					message.stopReason = "error";
+					message.errorMessage = "HTTP 429: rate limited";
+					message.content.push({ type: "text", text: "discarded" });
+					stream.push({ type: "error", reason: "error", error: message });
+				} else {
+					message.content.push({ type: "text", text: "done" });
+					stream.push({ type: "done", reason: "stop", message });
+				}
+				return stream;
+			};
+			const agent = new CuaAgent({
+				browser,
+				client,
+				streamFn,
+				retry: { enabled: true },
+				initialState: { model: "openai:gpt-5.5" },
+			});
+			const prompt = agent.prompt("hello");
+			await vi.advanceTimersByTimeAsync(2_000);
+			await prompt;
+
+			expect(calls).toBe(2);
+			expect(JSON.stringify(agent.state.messages)).toContain("done");
+			expect(JSON.stringify(agent.state.messages)).not.toContain("discarded");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("composes payload hooks for custom stream functions", async () => {
 		const payloads: unknown[] = [];
 		const streamFn: StreamFn = (model, _context, options) => {
