@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { createAssistantMessageEventStream, type AssistantMessage } from "@earendil-works/pi-ai";
-import { createCuaModels, type CuaSimpleStreamOptions, resolveCuaRuntimeSpec } from "@onkernel/cua-ai";
+import {
+	type Context,
+	createCuaModels,
+	type CuaSimpleStreamOptions,
+	resolveCuaRuntimeSpec,
+} from "@onkernel/cua-ai";
 import type Kernel from "@onkernel/sdk";
 import {
 	Agent,
@@ -721,8 +726,10 @@ describe("CuaAgentHarness", () => {
 	it.each([true, false])("passes responseThreading=$enabled through all harness model methods", async (enabled) => {
 		const services = await createHarnessServices();
 		let streamOptions: CuaSimpleStreamOptions | undefined;
-		const streamFn: StreamFn = (model, _context, options) => {
+		let providerImageCount = -1;
+		const streamFn: StreamFn = (model, context, options) => {
 			streamOptions = options as CuaSimpleStreamOptions;
+			providerImageCount = context.messages.flatMap((message) => message.content).filter((block) => block.type === "image").length;
 			const stream = createAssistantMessageEventStream();
 			const message = createAssistantMessage(model);
 			stream.push({ type: "start", partial: message });
@@ -746,29 +753,43 @@ describe("CuaAgentHarness", () => {
 			model: "openai:gpt-5.5",
 			models,
 			responseThreading: enabled,
+			retry: { enabled: true, maxRetries: 1, baseDelayMs: 0 },
 		});
 
 		const expected = enabled ? undefined : true;
-		const context = { messages: [] };
+		const context: Context = {
+			messages: Array.from({ length: 5 }, (_, index) => ({
+				role: "toolResult" as const,
+				toolCallId: `call-${index}`,
+				toolName: "screenshot",
+				content: [{ type: "image" as const, data: `${index}`, mimeType: "image/png" }],
+				isError: false,
+				timestamp: index,
+			})),
+		};
 		const model = harness.getModel();
 
 		await harness.models.stream(model, context).result();
 		expect(streamOptions?.disableResponseThreading).toBe(expected);
+		expect(providerImageCount).toBe(5);
 		streamOptions = undefined;
 
 		await harness.models.complete(model, context);
 		expect(streamOptions?.disableResponseThreading).toBe(expected);
+		expect(providerImageCount).toBe(5);
 		streamOptions = undefined;
 
 		await harness.models.streamSimple(model, context).result();
 		expect(streamOptions?.disableResponseThreading).toBe(expected);
+		expect(providerImageCount).toBe(4);
 		streamOptions = undefined;
 
 		await harness.models.completeSimple(model, context);
 		expect(streamOptions?.disableResponseThreading).toBe(expected);
+		expect(providerImageCount).toBe(5);
 	});
 
-	it("uses last-result-wins context hook semantics", async () => {
+	it("applies image projection after user context hooks", async () => {
 		const run = async (replace: boolean) => {
 			const services = await createHarnessServices();
 			for (let index = 1; index <= 5; index += 1) {
@@ -783,9 +804,13 @@ describe("CuaAgentHarness", () => {
 				});
 			}
 			let providerImageCount = -1;
+			let providerOmissionCount = -1;
 			let observedImageCount = -1;
 			const streamFn: StreamFn = (model, context) => {
 				providerImageCount = context.messages.flatMap((message) => message.content).filter((block) => block.type === "image").length;
+				providerOmissionCount = context.messages
+					.flatMap((message) => message.content)
+					.filter((block) => block.type === "text" && block.text === "[stale tool-result images omitted]").length;
 				const stream = createAssistantMessageEventStream();
 				const message = createAssistantMessage(model);
 				stream.push({ type: "start", partial: message });
@@ -809,11 +834,11 @@ describe("CuaAgentHarness", () => {
 			});
 
 			await harness.prompt("next");
-			return { observedImageCount, providerImageCount };
+			return { observedImageCount, providerImageCount, providerOmissionCount };
 		};
 
-		await expect(run(false)).resolves.toEqual({ observedImageCount: 5, providerImageCount: 4 });
-		await expect(run(true)).resolves.toEqual({ observedImageCount: 5, providerImageCount: 5 });
+		await expect(run(false)).resolves.toEqual({ observedImageCount: 5, providerImageCount: 4, providerOmissionCount: 1 });
+		await expect(run(true)).resolves.toEqual({ observedImageCount: 5, providerImageCount: 4, providerOmissionCount: 1 });
 	});
 
 	it("bounds screenshots retained across long stateless CUA trajectories", async () => {

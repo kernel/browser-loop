@@ -60,7 +60,10 @@ function resolveToolResultImageReplayLimit(limit: ToolResultImageReplayLimit | u
 	return limit;
 }
 
-function projectToolResultImages(messages: AgentMessage[], limit: ToolResultImageReplayLimit): AgentMessage[] {
+function projectToolResultImages<TMessage extends AgentMessage>(
+	messages: TMessage[],
+	limit: ToolResultImageReplayLimit,
+): TMessage[] {
 	if (limit === false) return messages;
 
 	let imageCount = 0;
@@ -94,7 +97,7 @@ function projectToolResultImages(messages: AgentMessage[], limit: ToolResultImag
 				markerInserted = true;
 			}
 		}
-		return changed ? { ...message, content } : message;
+		return changed ? ({ ...message, content } as TMessage) : message;
 	});
 }
 
@@ -350,19 +353,34 @@ function resolveResponseThreading(responseThreading: boolean | undefined): boole
 	return responseThreading ?? true;
 }
 
-function disableResponseThreading<TOptions extends object | undefined>(
+function withResponseThreading<TOptions extends object | undefined>(
 	options: TOptions,
-): TOptions & { disableResponseThreading: true } {
-	return { ...options, disableResponseThreading: true };
+	enabled: boolean,
+): TOptions {
+	return enabled ? options : { ...options, disableResponseThreading: true };
 }
 
-function withoutResponseThreading(models: Models): Models {
+function withContextManagement(
+	models: Models,
+	imageReplayLimit: ToolResultImageReplayLimit,
+	responseThreading: boolean,
+): Models {
+	if (imageReplayLimit === false && responseThreading) return models;
+
 	const stream: Models["stream"] = (model, context, options) =>
-		models.stream(model, context, disableResponseThreading(options));
+		models.stream(model, context, withResponseThreading(options, responseThreading));
 	const complete: Models["complete"] = (model, context, options) =>
-		models.complete(model, context, disableResponseThreading(options));
+		models.complete(model, context, withResponseThreading(options, responseThreading));
 	const streamSimple: Models["streamSimple"] = (model, context, options) =>
-		models.streamSimple(model, context, disableResponseThreading(options));
+		models.streamSimple(
+			model,
+			imageReplayLimit === false
+				? context
+				: { ...context, messages: projectToolResultImages(context.messages, imageReplayLimit) },
+			withResponseThreading(options, responseThreading),
+		);
+	const completeSimple: Models["completeSimple"] = (model, context, options) =>
+		models.completeSimple(model, context, withResponseThreading(options, responseThreading));
 	return {
 		getProviders: () => models.getProviders(),
 		getProvider: (id) => models.getProvider(id),
@@ -373,7 +391,7 @@ function withoutResponseThreading(models: Models): Models {
 		stream,
 		complete,
 		streamSimple,
-		completeSimple: (model, context, options) => streamSimple(model, context, options).result(),
+		completeSimple,
 	};
 }
 
@@ -588,17 +606,16 @@ export class CuaAgentHarness<
 			onPayload,
 		});
 		const resolvedTools = runtime.tools();
-		const baseModels = models ?? cuaModels();
-		const contextModels = useResponseThreading ? baseModels : withoutResponseThreading(baseModels);
 		const retryingModels = withProviderRetryModels(
-			contextModels,
+			models ?? cuaModels(),
 			resolveProviderRetryPolicy(retry),
 		);
+		const contextModels = withContextManagement(retryingModels, imageReplayLimit, useResponseThreading);
 
 		super({
 			...harnessOptions,
 			model: runtime.model,
-			models: retryingModels,
+			models: contextModels,
 			tools: resolvedTools,
 			systemPrompt: systemPrompt ?? (() => runtime.systemPrompt),
 			activeToolNames: activeToolNames ?? resolvedTools.map((tool) => tool.name),
@@ -606,7 +623,6 @@ export class CuaAgentHarness<
 
 		this.runtime = runtime;
 		this.requestedActiveToolNames = activeToolNames;
-		this.on("context", ({ messages }) => ({ messages: projectToolResultImages(messages, imageReplayLimit) }));
 		this.on("before_provider_payload", async ({ model, payload }: { model: Model<Api>; payload: unknown }) => {
 			const onPayload = this.runtime.onPayload();
 			if (!onPayload) return { payload };

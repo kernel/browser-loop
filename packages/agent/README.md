@@ -137,13 +137,15 @@ pi provides several context-management layers with different lifetimes:
   `transformContext`, it runs first and the image limit is applied to its
   result.
 - `AgentHarness` exposes the same request-time stage through its `context`
-  hook. `CuaAgentHarness` registers the image limit there. pi's harness hooks
-  use last-result-wins semantics, so a later `context` handler that returns
-  `{ messages }` replaces the built-in projection rather than composing with
-  it.
+  hook. pi selects their final result first, then `CuaAgentHarness` applies
+  the image limit immediately before `Models.streamSimple`.
+  User handlers therefore compose with the built-in limit instead of replacing
+  it. Set `toolResultImageReplayLimit: false` if a handler should own image
+  filtering completely.
 - A harness `Session` can use `entryTransforms` and `entryProjectors` while
   building model context from stored session entries. These run before the
-  request-time `context` hook and do not rewrite stored entries.
+  request-time `context` hooks; the image limit runs afterward. None of these
+  projections rewrite stored entries.
 - `harness.compact()` is the persistent, model-generated option for reducing a
   long transcript. It writes a summary entry that future session contexts use.
   It is broader than the image limit and is not called automatically by this
