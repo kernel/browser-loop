@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createAssistantMessageEventStream, type AssistantMessage } from "@earendil-works/pi-ai";
-import { createCuaModels, resolveCuaRuntimeSpec } from "@onkernel/cua-ai";
+import { createCuaModels, type CuaSimpleStreamOptions, resolveCuaRuntimeSpec } from "@onkernel/cua-ai";
 import type Kernel from "@onkernel/sdk";
 import {
 	Agent,
@@ -230,6 +230,66 @@ describe("CuaAgent", () => {
 		const runtime = resolveCuaRuntimeSpec("google:gemini-3-flash-preview");
 		expect(agent.state.tools.map((item) => item.name)).toEqual([...runtime.toolExecutors.map((item) => item.definition.name), "computer_use_extra", "custom"]);
 		expect(agent.state.systemPrompt).toBe("custom prompt");
+	});
+
+	it("does not retry transient errors by default", async () => {
+		let calls = 0;
+		const agent = new CuaAgent({
+			browser,
+			client,
+			streamFn: (model) => {
+				calls += 1;
+				const stream = createAssistantMessageEventStream();
+				const message = createAssistantMessage(model);
+				message.stopReason = "error";
+				message.errorMessage = "HTTP 429: rate limited";
+				stream.push({ type: "error", reason: "error", error: message });
+				return stream;
+			},
+			initialState: { model: "openai:gpt-5.5" },
+		});
+
+		await agent.prompt("hello");
+		expect(calls).toBe(1);
+	});
+
+	it("retries transient errors from a custom stream function", async () => {
+		vi.useFakeTimers();
+		try {
+			let calls = 0;
+			const streamFn: StreamFn = (model) => {
+				calls += 1;
+				const stream = createAssistantMessageEventStream();
+				const message = createAssistantMessage(model);
+				stream.push({ type: "start", partial: message });
+				if (calls === 1) {
+					message.stopReason = "error";
+					message.errorMessage = "HTTP 429: rate limited";
+					message.content.push({ type: "text", text: "discarded" });
+					stream.push({ type: "error", reason: "error", error: message });
+				} else {
+					message.content.push({ type: "text", text: "done" });
+					stream.push({ type: "done", reason: "stop", message });
+				}
+				return stream;
+			};
+			const agent = new CuaAgent({
+				browser,
+				client,
+				streamFn,
+				retry: { enabled: true },
+				initialState: { model: "openai:gpt-5.5" },
+			});
+			const prompt = agent.prompt("hello");
+			await vi.advanceTimersByTimeAsync(2_000);
+			await prompt;
+
+			expect(calls).toBe(2);
+			expect(JSON.stringify(agent.state.messages)).toContain("done");
+			expect(JSON.stringify(agent.state.messages)).not.toContain("discarded");
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("composes payload hooks for custom stream functions", async () => {
@@ -539,7 +599,47 @@ describe("CuaAgent", () => {
 		expect(agent.state.messages.flatMap((message) => message.content).filter((block) => block.type === "image")).toHaveLength(5);
 	});
 
-	it("rejects invalid tool-result image replay limits", async () => {
+	it.each([true, false])("passes responseThreading=$enabled to provider streams", async (enabled) => {
+		let streamOptions: CuaSimpleStreamOptions | undefined;
+		const streamFn: StreamFn = (model, _context, options) => {
+			streamOptions = options as CuaSimpleStreamOptions;
+			const stream = createAssistantMessageEventStream();
+			const message = createAssistantMessage(model);
+			stream.push({ type: "start", partial: message });
+			stream.push({ type: "done", reason: "stop", message });
+			stream.end(message);
+			return stream;
+		};
+		const agent = new CuaAgent({
+			browser,
+			client,
+			streamFn,
+			responseThreading: enabled,
+			initialState: { model: "openai:gpt-5.5" },
+		});
+
+		await agent.prompt("next");
+
+		expect(streamOptions?.disableResponseThreading).toBe(!enabled);
+	});
+
+	it("rejects invalid context-management options", async () => {
+		expect(() => new CuaAgent({
+			browser,
+			client,
+			responseThreading: "false" as never,
+			initialState: { model: "openai:gpt-5.5" },
+		})).toThrow(new TypeError("responseThreading must be a boolean"));
+
+		const services = await createHarnessServices();
+		expect(() => new CuaAgentHarness({
+			...services,
+			browser,
+			client,
+			model: "openai:gpt-5.5",
+			responseThreading: "false" as never,
+		})).toThrow(new TypeError("responseThreading must be a boolean"));
+
 		for (const limit of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
 			expect(() => new CuaAgent({
 				browser,
@@ -616,6 +716,41 @@ describe("CuaAgentHarness", () => {
 		).toEqual(expected);
 		const stored = await services.session.buildContext();
 		expect(stored.messages.flatMap((message) => message.content).filter((block) => block.type === "image")).toHaveLength(5);
+	});
+
+	it.each([true, false])("passes responseThreading=$enabled through harness models", async (enabled) => {
+		const services = await createHarnessServices();
+		let streamOptions: CuaSimpleStreamOptions | undefined;
+		const streamFn: StreamFn = (model, _context, options) => {
+			streamOptions = options as CuaSimpleStreamOptions;
+			const stream = createAssistantMessageEventStream();
+			const message = createAssistantMessage(model);
+			stream.push({ type: "start", partial: message });
+			stream.push({ type: "done", reason: "stop", message });
+			stream.end(message);
+			return stream;
+		};
+		const models = createCuaModels();
+		models.setProvider({
+			id: "openai",
+			name: "threading test provider",
+			auth: { apiKey: { name: "test key", resolve: async () => ({ auth: { apiKey: "test-key" } }) } },
+			getModels: () => [],
+			stream: streamFn,
+			streamSimple: streamFn,
+		});
+		const harness = new CuaAgentHarness({
+			...services,
+			browser,
+			client,
+			model: "openai:gpt-5.5",
+			models,
+			responseThreading: enabled,
+		});
+
+		await harness.prompt("next");
+
+		expect(streamOptions?.disableResponseThreading).toBe(enabled ? undefined : true);
 	});
 
 	it("uses last-result-wins context hook semantics", async () => {

@@ -27,6 +27,12 @@ import {
 	type SimpleStreamOptions,
 } from "@onkernel/cua-ai";
 import type Kernel from "@onkernel/sdk";
+import {
+	type CuaRetryOptions,
+	resolveProviderRetryPolicy,
+	withProviderRetry,
+	withProviderRetryModels,
+} from "./provider-retry";
 import { buildCuaComputerTools } from "./tools";
 import { InternalComputerTranslator, type KernelBrowser } from "./translator/translator";
 
@@ -41,8 +47,8 @@ const DEFAULT_TOOL_RESULT_IMAGE_REPLAY_LIMIT = 4;
 const OMITTED_TOOL_RESULT_IMAGES = "[stale tool-result images omitted]";
 
 /**
- * Maximum number of tool-result images replayed from local history, or `false`
- * to keep the original message history unchanged.
+ * Maximum number of tool-result images included in the request-time message
+ * projection, or `false` to leave image blocks unchanged.
  */
 export type ToolResultImageReplayLimit = number | false;
 
@@ -134,8 +140,12 @@ export type CuaAgentOptions = Omit<AgentOptions, "initialState"> & {
 	nativeTool?: CuaNativeToolSpec;
 	/** Expose a tool that runs Playwright code against the browser session. */
 	playwright?: boolean;
-	/** Maximum tool-result images replayed from local history per provider request. Defaults to 4; false disables projection. */
+	/** Maximum tool-result images included from message history per provider request. Defaults to 4; false disables projection. */
 	toolResultImageReplayLimit?: ToolResultImageReplayLimit;
+	/** Chain OpenAI and Tzafon requests through provider-stored response state. Defaults to true. */
+	responseThreading?: boolean;
+	/** Optional CUA-level retries around each provider request. Disabled by default. */
+	retry?: CuaRetryOptions;
 };
 
 /**
@@ -174,8 +184,12 @@ export type CuaAgentHarnessOptions<
 	playwright?: boolean;
 	/** Optional payload hook composed after the provider-specific CUA payload hook. */
 	onPayload?: SimpleStreamOptions["onPayload"];
-	/** Maximum tool-result images replayed from local history per provider request. Defaults to 4; false disables projection. */
+	/** Maximum tool-result images included from message history per provider request. Defaults to 4; false disables projection. */
 	toolResultImageReplayLimit?: ToolResultImageReplayLimit;
+	/** Chain OpenAI and Tzafon requests through provider-stored response state. Defaults to true. */
+	responseThreading?: boolean;
+	/** Optional CUA-level retries around each provider request. Disabled by default. */
+	retry?: CuaRetryOptions;
 };
 
 /**
@@ -329,6 +343,30 @@ class CuaRuntimeController {
 /** Default stream path: the shared CUA `Models` collection. */
 const defaultCuaStream: StreamFn = (model, context, options) => cuaModels().streamSimple(model, context, options);
 
+function resolveResponseThreading(responseThreading: boolean | undefined): boolean {
+	if (responseThreading !== undefined && typeof responseThreading !== "boolean") {
+		throw new TypeError("responseThreading must be a boolean");
+	}
+	return responseThreading ?? true;
+}
+
+function withoutResponseThreading(models: Models): Models {
+	const streamSimple: Models["streamSimple"] = (model, context, options) =>
+		models.streamSimple(model, context, { ...options, disableResponseThreading: true } as CuaSimpleStreamOptions);
+	return {
+		getProviders: () => models.getProviders(),
+		getProvider: (id) => models.getProvider(id),
+		getModels: (provider) => models.getModels(provider),
+		getModel: (provider, id) => models.getModel(provider, id),
+		refresh: (provider) => models.refresh(provider),
+		getAuth: (model) => models.getAuth(model),
+		stream: (model, context, options) => models.stream(model, context, options),
+		complete: (model, context, options) => models.complete(model, context, options),
+		streamSimple,
+		completeSimple: (model, context, options) => streamSimple(model, context, options).result(),
+	};
+}
+
 /**
  * Pi `Agent` configured for Kernel browser computer use.
  *
@@ -358,9 +396,12 @@ export class CuaAgent extends Agent {
 			nativeTool,
 			playwright,
 			toolResultImageReplayLimit,
+			responseThreading,
+			retry,
 			...agentOptions
 		} = options;
 		const imageReplayLimit = resolveToolResultImageReplayLimit(toolResultImageReplayLimit);
+		const useResponseThreading = resolveResponseThreading(responseThreading);
 		const runtime = new CuaRuntimeController({
 			browser,
 			client,
@@ -371,13 +412,18 @@ export class CuaAgent extends Agent {
 			playwright,
 			onPayload,
 		});
+		const retryingStream = withProviderRetry(
+			streamFn ?? defaultCuaStream,
+			resolveProviderRetryPolicy(retry),
+		);
 		const wrappedStreamFn: StreamFn = (model, context, streamOptions) => {
 			const optionsWithCuaRuntime: CuaSimpleStreamOptions = {
 				...streamOptions,
 				onPayload: runtime.onPayload(),
 				keepToolNames: runtime.keepToolNames(),
+				disableResponseThreading: !useResponseThreading,
 			};
-			return (streamFn ?? defaultCuaStream)(model, context, optionsWithCuaRuntime);
+			return retryingStream(model, context, optionsWithCuaRuntime);
 		};
 
 		super({
@@ -515,9 +561,12 @@ export class CuaAgentHarness<
 			onPayload,
 			activeToolNames,
 			toolResultImageReplayLimit,
+			responseThreading,
+			retry,
 			...harnessOptions
 		} = options;
 		const imageReplayLimit = resolveToolResultImageReplayLimit(toolResultImageReplayLimit);
+		const useResponseThreading = resolveResponseThreading(responseThreading);
 		const runtime = new CuaRuntimeController({
 			browser,
 			client,
@@ -529,11 +578,17 @@ export class CuaAgentHarness<
 			onPayload,
 		});
 		const resolvedTools = runtime.tools();
+		const baseModels = models ?? cuaModels();
+		const contextModels = useResponseThreading ? baseModels : withoutResponseThreading(baseModels);
+		const retryingModels = withProviderRetryModels(
+			contextModels,
+			resolveProviderRetryPolicy(retry),
+		);
 
 		super({
 			...harnessOptions,
 			model: runtime.model,
-			models: models ?? cuaModels(),
+			models: retryingModels,
 			tools: resolvedTools,
 			systemPrompt: systemPrompt ?? (() => runtime.systemPrompt),
 			activeToolNames: activeToolNames ?? resolvedTools.map((tool) => tool.name),

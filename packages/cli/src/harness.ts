@@ -43,6 +43,12 @@ export interface BuildCuaHarnessOptions {
 	extraTools?: CuaAgentHarnessOptions["extraTools"];
 	/** Override the pi `Models` collection requests stream through (mainly for tests). */
 	models?: Models;
+	/** Maximum tool-result images included from message history per provider request. */
+	toolResultImageReplayLimit?: CuaAgentHarnessOptions["toolResultImageReplayLimit"];
+	/** Chain OpenAI and Tzafon requests through provider-stored response state. Defaults to true. */
+	responseThreading?: CuaAgentHarnessOptions["responseThreading"];
+	/** Optional CUA-level retries around each provider request. Disabled by default. */
+	retry?: CuaAgentHarnessOptions["retry"];
 	/** Override the catalog `baseUrl` on the resolved model (e.g. from `<PROVIDER>_BASE_URL`). */
 	modelBaseUrl?: string;
 }
@@ -84,6 +90,9 @@ export function buildCuaHarness(opts: BuildCuaHarnessOptions): CuaAgentHarness {
 			return composeSystemPrompt(runtime.defaultSystemPrompt, resources.skills ?? [], contextFiles);
 		},
 		models: opts.models,
+		toolResultImageReplayLimit: opts.toolResultImageReplayLimit,
+		responseThreading: opts.responseThreading,
+		retry: opts.retry,
 	});
 	return harness;
 }
