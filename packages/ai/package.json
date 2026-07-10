@@ -1,6 +1,6 @@
 {
   "name": "@onkernel/cua-ai",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Kernel-curated computer-use model access built on pi-ai",
   "license": "MIT",
   "type": "module",
