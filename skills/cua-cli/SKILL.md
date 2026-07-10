@@ -53,6 +53,11 @@ Useful flags:
   a bare model id that matches exactly one entry.
 - `--max-steps <n>` — bound the agent loop on `cua do` (default 3).
 - `--filter interactive` — restrict `cua snapshot` to interactive elements.
+- `--proxy <proxy-id-or-name>` — route the browser through a Kernel proxy.
+  The proxy must already exist (create one via the Kernel API/CLI first);
+  unlike `--profile`, an unknown name is an error, never auto-created. For
+  named sessions pass it to `session start`; later `-s` calls attach to the
+  same browser and inherit it.
 - `--profile <profile-id-or-name>` — load a Kernel browser profile for cookies /
   storage. Existing ids or names are reused; a non-id name is created if it
   does not exist. Use this whenever logged-in state or other persisted browser

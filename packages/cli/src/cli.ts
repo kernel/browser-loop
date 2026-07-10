@@ -58,6 +58,8 @@ Options:
       --thinking <level>         Thinking level: off | minimal | low | medium | high | xhigh
                                  (default: low; applies to providers that support it)
       --profile <name|id>        Kernel browser profile to load
+      --proxy <name|id>          Kernel proxy to route the browser through
+                                 (must already exist; never auto-created)
       --profile-no-save-changes  Do not persist changes back to the profile
       --browser-timeout <s>      Browser inactivity timeout in seconds (default 300)
       --max-steps <n>            Max turns for action subcommands (default 3)
@@ -130,6 +132,7 @@ interface CliFlags {
 	model?: string;
 	thinking?: string;
 	browserProfile?: string;
+	browserProxy?: string;
 	browserTimeout?: number;
 	maxSteps?: number;
 	out?: string;
@@ -159,6 +162,7 @@ function parseCliArgs(argv: string[]): CliFlags {
 				model: { type: "string", short: "m" },
 				thinking: { type: "string" },
 				profile: { type: "string" },
+				proxy: { type: "string" },
 				"profile-no-save-changes": { type: "boolean", default: false },
 				"browser-timeout": { type: "string" },
 				"max-steps": { type: "string" },
@@ -223,6 +227,7 @@ function parseCliArgs(argv: string[]): CliFlags {
 		model: parsed.values.model as string | undefined,
 		thinking: parsed.values.thinking as string | undefined,
 		browserProfile: parsed.values.profile as string | undefined,
+		browserProxy: parsed.values.proxy as string | undefined,
 		browserTimeout: Number.isFinite(browserTimeout) ? browserTimeout : undefined,
 		maxSteps: Number.isFinite(maxSteps) ? maxSteps : undefined,
 		out: parsed.values.out as string | undefined,
@@ -259,6 +264,7 @@ function toHarnessFlags(flags: CliFlags): HarnessCliFlags {
 		model: flags.model,
 		thinking: flags.thinking,
 		browserProfile: flags.browserProfile,
+		browserProxy: flags.browserProxy,
 		browserTimeout: flags.browserTimeout,
 		maxSteps: flags.maxSteps,
 		out: flags.out,
