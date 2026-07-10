@@ -650,8 +650,8 @@ export async function runInteractiveCommand(
 	flags: HarnessCliFlags,
 ): Promise<number> {
 	const runtime = await setupHarnessRuntime(flags);
-	const { runInteractive } = await import("./tui/main");
 	try {
+		const { runInteractive } = await import("./tui/main");
 		return await runInteractive({
 			cwd: process.cwd(),
 			harness: runtime.harness,
