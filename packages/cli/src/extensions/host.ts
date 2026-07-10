@@ -696,6 +696,9 @@ export class HarnessExtensionHost {
 		// During startup the user's first prompt owns the first-turn screenshot; an
 		// extension message here must not consume it (see `startedUp`).
 		if (!this.startedUp) return undefined;
+		// Browser mode tools use viewport coordinates; skip OS-display capture so we
+		// do not mix coordinate frames on the first turn.
+		if (this.harness.getMode() === "browser") return undefined;
 		if (await sessionHasPriorTurn(this.session)) return undefined;
 		return this.initialScreenshot();
 	}
