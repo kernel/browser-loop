@@ -723,7 +723,7 @@ describe("CuaAgentHarness", () => {
 		expect(stored.messages.flatMap((message) => message.content).filter((block) => block.type === "image")).toHaveLength(5);
 	});
 
-	it.each([true, false])("passes responseThreading=$enabled through all harness model methods", async (enabled) => {
+	it.each([true, false])("applies context management through all harness model methods", async (enabled) => {
 		const services = await createHarnessServices();
 		let streamOptions: CuaSimpleStreamOptions | undefined;
 		let providerImageCount = -1;
@@ -771,12 +771,12 @@ describe("CuaAgentHarness", () => {
 
 		await harness.models.stream(model, context).result();
 		expect(streamOptions?.disableResponseThreading).toBe(expected);
-		expect(providerImageCount).toBe(5);
+		expect(providerImageCount).toBe(4);
 		streamOptions = undefined;
 
 		await harness.models.complete(model, context);
 		expect(streamOptions?.disableResponseThreading).toBe(expected);
-		expect(providerImageCount).toBe(5);
+		expect(providerImageCount).toBe(4);
 		streamOptions = undefined;
 
 		await harness.models.streamSimple(model, context).result();
@@ -786,7 +786,7 @@ describe("CuaAgentHarness", () => {
 
 		await harness.models.completeSimple(model, context);
 		expect(streamOptions?.disableResponseThreading).toBe(expected);
-		expect(providerImageCount).toBe(5);
+		expect(providerImageCount).toBe(4);
 	});
 
 	it("applies image projection after user context hooks", async () => {

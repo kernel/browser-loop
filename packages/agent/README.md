@@ -138,7 +138,7 @@ pi provides several context-management layers with different lifetimes:
   result.
 - `AgentHarness` exposes the same request-time stage through its `context`
   hook. pi selects their final result first, then `CuaAgentHarness` applies
-  the image limit immediately before `Models.streamSimple`.
+  the image limit at the `Models` boundary before the provider call.
   User handlers therefore compose with the built-in limit instead of replacing
   it. Set `toolResultImageReplayLimit: false` if a handler should own image
   filtering completely.

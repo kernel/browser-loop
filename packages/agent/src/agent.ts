@@ -12,6 +12,7 @@ import {
 } from "@earendil-works/pi-agent-core";
 import {
 	type Api,
+	type Context,
 	CUA_NAVIGATION_TOOL_NAME,
 	CUA_PLAYWRIGHT_TOOL_NAME,
 	cuaModels,
@@ -360,6 +361,11 @@ function withResponseThreading<TOptions extends object | undefined>(
 	return enabled ? options : { ...options, disableResponseThreading: true };
 }
 
+function projectModelContext(context: Context, imageReplayLimit: ToolResultImageReplayLimit): Context {
+	const messages = projectToolResultImages(context.messages, imageReplayLimit);
+	return messages === context.messages ? context : { ...context, messages };
+}
+
 function withContextManagement(
 	models: Models,
 	imageReplayLimit: ToolResultImageReplayLimit,
@@ -368,19 +374,29 @@ function withContextManagement(
 	if (imageReplayLimit === false && responseThreading) return models;
 
 	const stream: Models["stream"] = (model, context, options) =>
-		models.stream(model, context, withResponseThreading(options, responseThreading));
+		models.stream(
+			model,
+			projectModelContext(context, imageReplayLimit),
+			withResponseThreading(options, responseThreading),
+		);
 	const complete: Models["complete"] = (model, context, options) =>
-		models.complete(model, context, withResponseThreading(options, responseThreading));
+		models.complete(
+			model,
+			projectModelContext(context, imageReplayLimit),
+			withResponseThreading(options, responseThreading),
+		);
 	const streamSimple: Models["streamSimple"] = (model, context, options) =>
 		models.streamSimple(
 			model,
-			imageReplayLimit === false
-				? context
-				: { ...context, messages: projectToolResultImages(context.messages, imageReplayLimit) },
+			projectModelContext(context, imageReplayLimit),
 			withResponseThreading(options, responseThreading),
 		);
 	const completeSimple: Models["completeSimple"] = (model, context, options) =>
-		models.completeSimple(model, context, withResponseThreading(options, responseThreading));
+		models.completeSimple(
+			model,
+			projectModelContext(context, imageReplayLimit),
+			withResponseThreading(options, responseThreading),
+		);
 	return {
 		getProviders: () => models.getProviders(),
 		getProvider: (id) => models.getProvider(id),
