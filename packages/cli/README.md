@@ -173,9 +173,11 @@ loader are appended to the system prompt and listed in the TUI's
 context files still load, since they describe the project rather than
 add agent capabilities.
 
-pi *extensions* are not executed by `cua`: extensions bind into pi's
-`AgentSession`, and `cua` drives the lower-level `AgentHarness`
-directly. Installed-package skills and context still load.
+Project and user pi extensions load at startup and can be refreshed with
+`/reload`. `--self-extend` additionally exposes `add_tool`, which accepts one
+constrained tool definition, persists it under `.agents/extensions`, and makes
+it callable on the next model turn in the same run. Authored execute code is
+trusted local code, not sandboxed.
 
 ## Image protocol
 

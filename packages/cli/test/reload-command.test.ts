@@ -54,8 +54,8 @@ describe("applyReloadCommand (/reload glue)", () => {
 	});
 
 	it("reports an in-progress reload instead of claiming success", async () => {
-		// A reload already in flight (e.g. a self-extend drain) coalesces this
-		// request; the command must not print "extensions reloaded" for work it
+		// A second manual reload coalesces with the operation already in flight;
+		// the command must not print "extensions reloaded" for work it
 		// didn't actually perform.
 		const reload = vi.fn(async () => "coalesced" as const);
 		const host = { reload, loadErrors: [], isDisposed: () => false } as unknown as HarnessExtensionHost;
