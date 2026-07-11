@@ -72,9 +72,8 @@ Options:
       --native-tool <type>       Drive an Anthropic model through its native tool schema:
                                  computer_20260701 (requires --mode computer) or
                                  browser_20260701 (requires --mode browser)
-      --self-extend              Allow the agent to author its own tools at runtime;
-                                 an authored tool joins the toolset at the next idle
-                                 boundary (no manual reload)
+      --self-extend              Expose add_tool for adding one durable project tool;
+                                 the tool is active on the next model turn in the same run
       --out <file|->             Output file for screenshot subcommand
       --filter <interactive>     Restrict \`cua snapshot\` to interactive elements
   -o, --output <fmt>             Output format for --print: text (default) | jsonl

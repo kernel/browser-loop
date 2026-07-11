@@ -646,6 +646,7 @@ export class CuaAgentHarness<
 	private requestedActiveToolNames?: string[];
 	private emptyResponseRecoveryAttempts = 0;
 	private hasPendingActiveQueue = false;
+	private toolMutation = Promise.resolve();
 
 	constructor(options: CuaAgentHarnessOptions<TSkill, TPromptTemplate>) {
 		const {
@@ -730,6 +731,16 @@ export class CuaAgentHarness<
 		this.emptyResponseRecoveryAttempts += 1;
 	}
 
+	/** Serialize tool-list changes with model switches. */
+	async mutateTools<T>(mutation: () => Promise<T>): Promise<T> {
+		const result = this.toolMutation.then(mutation);
+		this.toolMutation = result.then(
+			() => {},
+			() => {},
+		);
+		return result;
+	}
+
 	/**
 	 * Mirror pi `AgentHarness.setModel()` while accepting CUA model refs.
 	 *
@@ -740,16 +751,20 @@ export class CuaAgentHarness<
 	override async setModel(model: CuaRuntimeInput): Promise<void> {
 		this.runtime.setModel(model);
 		const tools = this.runtime.tools();
-		try {
-			await super.setTools(tools, this.requestedActiveToolNames ?? tools.map((tool) => tool.name));
-		} catch (err) {
-			// The pre-switch tools stay exposed, so restore the runtime they are
-			// bound to — including its still-live translator.
-			this.runtime.rollbackSwitch();
-			throw err;
-		}
-		this.runtime.commitSwitch();
-		await super.setModel(this.runtime.model);
+		const resolvedModel = this.runtime.model;
+		await this.mutateTools(async () => {
+			try {
+				await super.setTools(
+					tools,
+					this.requestedActiveToolNames ?? tools.map((tool) => tool.name),
+				);
+			} catch (err) {
+				this.runtime.rollbackSwitch();
+				throw err;
+			}
+			this.runtime.commitSwitch();
+		});
+		await super.setModel(resolvedModel);
 	}
 
 	override async setActiveTools(toolNames: string[]): Promise<void> {

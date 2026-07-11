@@ -582,8 +582,6 @@ export async function applyReloadCommand(opts: InteractiveOptions, messages: Mes
 			// down; don't claim a successful reload.
 			messages.addNotice("session is shutting down; extensions were not reloaded");
 		} else if (outcome === "coalesced") {
-			// Another reload was already in flight (e.g. a self-extend reload); this
-			// request was latched onto it, so nothing new has been applied yet.
 			messages.addNotice("a reload is already in progress");
 		} else if (opts.host.loadErrors.length > 0) {
 			for (const { path, error } of opts.host.loadErrors) messages.addError(`${path}: ${error}`);

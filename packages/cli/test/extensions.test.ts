@@ -159,29 +159,92 @@ describe("HarnessExtensionHost", () => {
 
 	it("coalesces a reload requested while another is in flight", async () => {
 		const created = await loadHost();
-		// reload() sets `reloading` synchronously before its first await, so a second
-		// call made before the first settles must report `coalesced`, not a completed
-		// reload — this is what keeps /reload from claiming false success.
+		// A second request must report that the first reload still owns the operation.
 		const first = created.reload();
 		const second = await created.reload();
 		expect(second).toBe("coalesced");
 		expect(await first).toBe("reloaded");
 	});
 
-	it("waits for an in-flight queued reload before disposing", async () => {
+	it("invalidates extension APIs after reload and disposal", async () => {
+		const extDir = mkdtempSync(join(tmpdir(), "cua-ext-"));
+		writeFileSync(
+			join(extDir, "capture.ts"),
+			"export default function (pi) { (globalThis.__capturedExtensionApis ??= []).push(pi); }",
+		);
+		const captured = [] as Array<{ getActiveTools(): string[] }>;
+		(globalThis as typeof globalThis & { __capturedExtensionApis?: typeof captured }).__capturedExtensionApis = captured;
+		fx = await buildTestHarness({
+			turns: [{ steps: [{ type: "text", text: "ok" }] }],
+		});
+		const created = new HarnessExtensionHost({
+			harness: fx.harness,
+			session: fx.session,
+			cwd: fx.cwd,
+			configuredPaths: [extDir],
+			agentDir: mkdtempSync(join(tmpdir(), "cua-agentdir-")),
+		});
+		host = created;
+		await created.load();
+		await created.reload();
+		expect(() => captured[0].getActiveTools()).toThrow(/stale/);
+		await created.dispose();
+		expect(() => captured[1].getActiveTools()).toThrow(/stale/);
+		delete (globalThis as typeof globalThis & { __capturedExtensionApis?: typeof captured }).__capturedExtensionApis;
+	});
+
+	it("finishes an in-flight reload before disposal", async () => {
 		const created = await loadHost();
-		// Put a reload in flight via a drain, then dispose concurrently: dispose must
-		// await the in-flight reload rather than tear down the bridge/runner under it.
-		const inFlight = created.reload();
-		expect(await created.reload()).toBe("coalesced");
-		await inFlight;
-		const drain = created.drainPendingReload();
-		const disposed = created.dispose();
-		await Promise.all([drain, disposed]);
+		const originalWaitForIdle = fx!.harness.waitForIdle.bind(fx!.harness);
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		fx!.harness.waitForIdle = async () => {
+			await gate;
+			await originalWaitForIdle();
+		};
+		const reload = created.reload();
+		const disposal = created.dispose();
+		release();
+		expect(await reload).toBe("disposed");
+		await disposal;
 		expect(created.isDisposed()).toBe(true);
-		// The tool list is coherent — not left half-applied by a reload racing teardown.
-		const names = fx!.harness.getTools().map((tool) => tool.name);
-		expect(new Set(names).size).toBe(names.length);
+		expect(fx!.harness.getTools().map((tool) => tool.name)).not.toContain(
+			"click_visual",
+		);
+	});
+
+	it("publishes a dynamically registered extension tool before the next turn", async () => {
+		const extDir = mkdtempSync(join(tmpdir(), "cua-ext-"));
+		writeFileSync(join(extDir, "dynamic.ts"), DYNAMIC_TOOL_EXTENSION);
+		fx = await buildTestHarness({
+			turns: [
+				{ steps: [{ type: "tool_call", toolName: "register_later", args: {} }] },
+				{ steps: [{ type: "tool_call", toolName: "registered_later", args: {} }] },
+				{ steps: [{ type: "text", text: "done" }] },
+			],
+		});
+		const created = new HarnessExtensionHost({
+			harness: fx.harness,
+			session: fx.session,
+			cwd: fx.cwd,
+			configuredPaths: [extDir],
+			agentDir: mkdtempSync(join(tmpdir(), "cua-agentdir-")),
+		});
+		host = created;
+		await created.load();
+		await fx.harness.prompt("register and call it");
+		const secondContext = fx.provider.contexts()[1];
+		expect(secondContext.tools?.map((tool) => tool.name)).toContain(
+			"registered_later",
+		);
+		const marker = secondContext.messages.find(
+			(message) =>
+				message.role === "toolResult" &&
+				message.toolName === "register_later",
+		);
+		expect(marker?.addedToolNames).toEqual(["registered_later"]);
 	});
 
 	it("does not let a startup extension message consume the first-turn screenshot", async () => {
@@ -254,60 +317,28 @@ describe("HarnessExtensionHost", () => {
 		expect(names.filter((name) => name === builtin)).toHaveLength(1);
 		expect(created.loadErrors.some((e) => e.path === builtin && /built-in/.test(e.error))).toBe(true);
 	});
-
-	it("does not deadlock when an extension shuts down during a queued reload", async () => {
-		const extDir = mkdtempSync(join(tmpdir(), "cua-ext-"));
-		writeFileSync(join(extDir, "shutdowner.ts"), SHUTDOWN_ON_RELOAD_EXTENSION);
-		fx = await buildTestHarness({
-			turns: [
-				{
-					steps: [
-						{
-							type: "tool_call",
-							toolName: "write_extension",
-							args: { filename: "authored.ts", code: makeToolExtension("authored_tool") },
-						},
-					],
-				},
-				{ steps: [{ type: "text", text: "done" }] },
-			],
-		});
-		const created = new HarnessExtensionHost({
-			harness: fx.harness,
-			session: fx.session,
-			cwd: fx.cwd,
-			configuredPaths: [extDir],
-			agentDir: mkdtempSync(join(tmpdir(), "cua-agentdir-")),
-			selfExtend: true,
-		});
-		host = created;
-		await created.load();
-		await fx.harness.prompt("author it");
-		// The queued reload emits session_shutdown(reload); the extension calls
-		// ctx.shutdown() during it, tearing the host down from inside reload(). This
-		// must not deadlock — disposeNow avoids awaiting the in-flight reload from
-		// within its own call stack. A hang here trips the test timeout.
-		await created.drainPendingReload();
-		expect(created.isDisposed()).toBe(true);
-	}, 5000);
 });
 
-/** An extension that asks the host to shut down when a reload tears it down. */
-const SHUTDOWN_ON_RELOAD_EXTENSION = [
-	"export default function (pi) {",
-	'  pi.on("session_shutdown", (event, ctx) => {',
-	'    if (event.reason === "reload") ctx.shutdown();',
-	"  });",
-	"  pi.registerTool({",
-	'    name: "shutdown_probe",',
-	'    label: "shutdown probe",',
-	'    description: "noop",',
-	'    parameters: { type: "object", properties: {}, additionalProperties: false },',
-	'    async execute() { return { content: [{ type: "text", text: "ok" }], details: {} }; },',
-	"  });",
-	"}",
-	"",
-].join("\n");
+const DYNAMIC_TOOL_EXTENSION = `
+	export default function (pi) {
+		pi.registerTool({
+			name: "register_later",
+			label: "register later",
+			description: "register another tool",
+			parameters: { type: "object", properties: {} },
+			async execute() {
+				pi.registerTool({
+					name: "registered_later",
+					label: "registered later",
+					description: "registered at runtime",
+					parameters: { type: "object", properties: {} },
+					async execute() { return { content: [{ type: "text", text: "ok" }], details: {} }; },
+				});
+				return { content: [{ type: "text", text: "registered" }], details: {} };
+			},
+		});
+	}
+`;
 
 /** An extension that sends a user message during the startup session_start. */
 const SEND_ON_STARTUP_EXTENSION = [

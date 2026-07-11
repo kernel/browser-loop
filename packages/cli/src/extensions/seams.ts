@@ -17,8 +17,8 @@ import {
  * its own session.
  */
 export interface SeamHooks {
-	/** Re-apply the authoritative base+extension tool union to the harness. */
 	refreshTools: () => void;
+	getActiveTools: () => string[];
 	/** Forward user text through the host's first-turn screenshot prompt path. */
 	sendUserMessage: (text: string) => Promise<void>;
 	/** Apply an active-tool set, recording extension-tool opt-outs in the host. */
@@ -60,7 +60,7 @@ export function makeExtensionActions(
 		// Labels are a TUI-only affordance (entry bookmarking); no headless sink.
 		setLabel(): void {},
 		getActiveTools(): string[] {
-			return harness.getActiveTools().map((tool) => tool.name);
+			return hooks.getActiveTools();
 		},
 		getAllTools(): ToolInfo[] {
 			return harness.getTools().map(

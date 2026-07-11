@@ -34,6 +34,8 @@ export interface ScriptedProviderHandle {
 	callCount(): number;
 	/** Latest context the provider was called with (assistant-side mock). */
 	lastContext(): Context | undefined;
+	/** Every provider context in dispatch order. */
+	contexts(): readonly Context[];
 	/** Latest stream options the provider was called with. */
 	lastStreamOptions(): CuaSimpleStreamOptions | undefined;
 }
@@ -48,10 +50,12 @@ export function createScriptedCuaModels(providerId: string, turns: ScriptedTurn[
 	const state = {
 		index: 0,
 		lastContext: undefined as Context | undefined,
+		contexts: [] as Context[],
 		lastStreamOptions: undefined as CuaSimpleStreamOptions | undefined,
 	};
 	const dispatch = (model: Model<Api>, context: Context, options?: CuaSimpleStreamOptions) => {
 		state.lastContext = context;
+		state.contexts.push(context);
 		state.lastStreamOptions = options;
 		const turn = turns[state.index];
 		state.index += 1;
@@ -71,6 +75,7 @@ export function createScriptedCuaModels(providerId: string, turns: ScriptedTurn[
 		reset(): void {
 			state.index = 0;
 			state.lastContext = undefined;
+			state.contexts = [];
 			state.lastStreamOptions = undefined;
 		},
 		callCount(): number {
@@ -78,6 +83,9 @@ export function createScriptedCuaModels(providerId: string, turns: ScriptedTurn[
 		},
 		lastContext(): Context | undefined {
 			return state.lastContext;
+		},
+		contexts(): readonly Context[] {
+			return state.contexts;
 		},
 		lastStreamOptions(): CuaSimpleStreamOptions | undefined {
 			return state.lastStreamOptions;

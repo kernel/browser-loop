@@ -10,8 +10,8 @@ import { HarnessExtensionHost } from "./host";
  * Global extensions (`<getAgentDir()>/extensions`) and project-local extensions
  * (`<cwd>/.agents/extensions` plus the loader's implicit `<cwd>/.pi/extensions`
  * scan) all load on every run; `--no-extensions` opts out entirely. This is the
- * substrate for the self-improve loop: an agent writes a learned tool into the
- * project extension dir and it loads on the next run.
+ * substrate for durable project tools: `add_tool` publishes beneath the project
+ * extension directory, and later processes discover those artifacts normally.
  *
  * No browser/auth/provisioning happens here, so a test can drive the exact load
  * path the CLI uses with a `buildTestHarness` fixture and temp dirs.
