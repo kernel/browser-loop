@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -9,6 +10,7 @@ import {
 	anthropic,
 	cuaModels,
 	gemini,
+	getCuaEnvApiKey,
 	getCuaModel,
 	meta,
 	openai,
@@ -16,7 +18,12 @@ import {
 	yutori,
 } from "../src/index";
 
-const screenshotPath = join(process.cwd(), "examples", "screenshot.png");
+const screenshotPath = [
+	join(process.cwd(), "examples", "screenshot.png"),
+	join(process.cwd(), "packages", "ai", "examples", "screenshot.png"),
+].find(existsSync);
+
+if (!screenshotPath) throw new Error("could not find packages/ai/examples/screenshot.png");
 
 interface ProviderCase {
 	provider: CuaProvider;
@@ -112,9 +119,13 @@ async function buildYutoriContext(): Promise<Context> {
 	};
 }
 
+function apiKeyForCase(c: ProviderCase): string | undefined {
+	return c.provider === "meta" ? getCuaEnvApiKey("meta") : process.env[c.envVar];
+}
+
 describe("individual computer action integration", () => {
 	for (const c of cases) {
-		const hasKey = !!process.env[c.envVar];
+		const hasKey = !!apiKeyForCase(c);
 		const ciEnabled = !c.ciOptInEnvVar || !process.env.CI || process.env[c.ciOptInEnvVar] === "1";
 		const test = hasKey ? it : it.skip;
 
@@ -122,7 +133,7 @@ describe("individual computer action integration", () => {
 			const model = getCuaModel(c.modelRef as never);
 			const context = await buildContext(c.tools);
 			const response = await cuaModels().complete(model, context, {
-				apiKey: process.env[c.envVar],
+				apiKey: apiKeyForCase(c),
 				maxTokens: 1024,
 				...c.extraOptions,
 			});
@@ -149,8 +160,8 @@ describe("individual computer action integration", () => {
 		}, 60_000);
 	}
 
-	const metaHasKey = !!process.env.META_MODEL_API_KEY;
-	(metaHasKey ? it : it.skip)(
+	const metaApiKey = getCuaEnvApiKey("meta");
+	(metaApiKey ? it : it.skip)(
 		"meta continues a screenshot tool loop with previous_response_id",
 		async () => {
 			const screenshot = await readFile(screenshotPath);
@@ -171,7 +182,7 @@ describe("individual computer action integration", () => {
 				tools,
 			};
 			const first = await cuaModels().complete(model, context, {
-				apiKey: process.env.META_MODEL_API_KEY,
+				apiKey: metaApiKey,
 				maxTokens: 1024,
 			});
 			const click = first.content.find((part) => part.type === "toolCall" && part.name === "click");
@@ -191,7 +202,7 @@ describe("individual computer action integration", () => {
 
 			let payload: Record<string, unknown> | undefined;
 			const second = await cuaModels().complete(model, context, {
-				apiKey: process.env.META_MODEL_API_KEY,
+				apiKey: metaApiKey,
 				maxTokens: 1024,
 				onPayload: (value) => {
 					payload = value as Record<string, unknown>;

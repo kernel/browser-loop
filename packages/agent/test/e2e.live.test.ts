@@ -140,11 +140,17 @@ type RunStats = {
 	assistantErrors: string[];
 };
 
+function apiKeyForCase(c: ProviderCase): string | undefined {
+	return c.name === "meta"
+		? process.env.META_MODEL_API_KEY ?? process.env.MODEL_API_KEY
+		: process.env[c.apiKeyEnvVar];
+}
+
 function shouldRunCase(c: ProviderCase): boolean {
 	if (!LIVE) return false;
 	if (!KERNEL_API_KEY) return false;
 	if (c.ciOptInEnvVar && process.env.CI && process.env[c.ciOptInEnvVar] !== "1") return false;
-	return Boolean(process.env[c.apiKeyEnvVar]);
+	return Boolean(apiKeyForCase(c));
 }
 
 function shouldRunSwitchCase(c: ModelSwitchCase): boolean {
@@ -244,7 +250,7 @@ describe("Cua live e2e", () => {
 					const agent = new CuaAgent({
 						browser,
 						client,
-						getApiKey: () => process.env[c.apiKeyEnvVar],
+						getApiKey: () => apiKeyForCase(c),
 						afterToolCall: async () => ({ terminate: true }),
 						initialState: {
 							model: c.modelRef,
@@ -272,7 +278,7 @@ describe("Cua live e2e", () => {
 						client,
 						model: c.modelRef,
 						getApiKeyAndHeaders: async () => {
-							const apiKey = process.env[c.apiKeyEnvVar];
+							const apiKey = apiKeyForCase(c);
 							return apiKey ? { apiKey } : undefined;
 						},
 					});
@@ -302,8 +308,8 @@ describe("Cua live e2e", () => {
 						browser,
 						client,
 						getApiKey: (provider) => {
-							if (provider === c.from.modelRef.split(":")[0]) return process.env[c.from.apiKeyEnvVar];
-							if (provider === c.to.modelRef.split(":")[0]) return process.env[c.to.apiKeyEnvVar];
+							if (provider === c.from.modelRef.split(":")[0]) return apiKeyForCase(c.from);
+							if (provider === c.to.modelRef.split(":")[0]) return apiKeyForCase(c.to);
 							return undefined;
 						},
 						initialState: {
@@ -338,11 +344,11 @@ describe("Cua live e2e", () => {
 						model: c.from.modelRef,
 						getApiKeyAndHeaders: async (model) => {
 							if (model.provider === c.from.modelRef.split(":")[0]) {
-								const apiKey = process.env[c.from.apiKeyEnvVar];
+								const apiKey = apiKeyForCase(c.from);
 								return apiKey ? { apiKey } : undefined;
 							}
 							if (model.provider === c.to.modelRef.split(":")[0]) {
-								const apiKey = process.env[c.to.apiKeyEnvVar];
+								const apiKey = apiKeyForCase(c.to);
 								return apiKey ? { apiKey } : undefined;
 							}
 							return undefined;
