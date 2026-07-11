@@ -1,4 +1,5 @@
 #!/usr/bin/env tsx
+import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -201,7 +202,12 @@ async function discoverMeta(args: Args): Promise<Record<string, unknown>> {
 
 async function smokeMeta(client: any, model: string): Promise<SmokeResult> {
 	try {
-		const screenshot = await readFile(join(process.cwd(), "packages", "ai", "examples", "screenshot.png"));
+		const screenshotPath = [
+			join(process.cwd(), "examples", "screenshot.png"),
+			join(process.cwd(), "packages", "ai", "examples", "screenshot.png"),
+		].find(existsSync);
+		if (!screenshotPath) throw new Error("could not find packages/ai/examples/screenshot.png");
+		const screenshot = await readFile(screenshotPath);
 		const response = await client.responses.create({
 			model,
 			store: false,
