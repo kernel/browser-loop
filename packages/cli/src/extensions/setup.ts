@@ -2,7 +2,18 @@ import type { CuaAgentHarness, Session } from "@onkernel/cua-agent";
 import type { ImageContent } from "@onkernel/cua-ai";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
-import { HarnessExtensionHost } from "./host";
+import {
+	HarnessExtensionHost,
+	type ReloadOutcome,
+} from "./compat/host";
+
+/** Stable CLI-facing surface; the AgentHarness compatibility host stays private. */
+export interface HarnessExtensions {
+	readonly loadErrors: Array<{ path: string; error: string }>;
+	isDisposed(): boolean;
+	reload(): Promise<ReloadOutcome>;
+	dispose(): Promise<void>;
+}
 
 /**
  * Resolve extension directories and construct + load a {@link HarnessExtensionHost}.
@@ -25,7 +36,7 @@ export async function loadHarnessExtensions(args: {
 	configuredPaths?: string[];
 	initialScreenshot?: () => Promise<ImageContent[] | undefined>;
 	selfExtend?: boolean;
-}): Promise<HarnessExtensionHost | undefined> {
+}): Promise<HarnessExtensions | undefined> {
 	if (args.noExtensions) return undefined;
 	const agentDir = args.agentDir ?? getAgentDir();
 	const configuredPaths = args.configuredPaths ?? [join(args.cwd, ".agents", "extensions")];

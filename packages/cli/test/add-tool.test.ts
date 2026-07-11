@@ -10,10 +10,10 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import {
-	HarnessExtensionHost,
 	renderToolExtension,
 	type AddToolInput,
-} from "../src/extensions/host";
+} from "../src/extensions/add-tool";
+import { HarnessExtensionHost } from "../src/extensions/compat/host";
 import { loadHarnessExtensions } from "../src/extensions/setup";
 import { buildTestHarness, type TestHarnessFixture } from "./fixtures/harness";
 
@@ -196,7 +196,7 @@ describe("add_tool", () => {
 			import { mkdtempSync } from "node:fs";
 			import { tmpdir } from "node:os";
 			import { join } from "node:path";
-			import { HarnessExtensionHost } from "./packages/cli/src/extensions/host.ts";
+			import { HarnessExtensionHost } from "./packages/cli/src/extensions/compat/host.ts";
 			import { buildTestHarness } from "./packages/cli/test/fixtures/harness.ts";
 			const fx = await buildTestHarness({ turns: [{ steps: [{ type: "text", text: "ok" }] }] });
 			const host = new HarnessExtensionHost({ harness: fx.harness, session: fx.session, cwd: fx.cwd, configuredPaths: [process.env.EXT_DIR], agentDir: mkdtempSync(join(tmpdir(), "cua-agentdir-")) });

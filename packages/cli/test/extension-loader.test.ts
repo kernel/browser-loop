@@ -3,12 +3,14 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { loadHarnessExtensions } from "../src/extensions/setup";
+import {
+	loadHarnessExtensions,
+	type HarnessExtensions,
+} from "../src/extensions/setup";
 import { buildTestHarness, type TestHarnessFixture } from "./fixtures/harness";
-import type { HarnessExtensionHost } from "../src/extensions/host";
 
 let fx: TestHarnessFixture | undefined;
-let host: HarnessExtensionHost | undefined;
+let host: HarnessExtensions | undefined;
 
 afterEach(async () => {
 	await host?.dispose();
