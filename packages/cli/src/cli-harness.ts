@@ -18,8 +18,10 @@ import {
 import { parseArgs } from "node:util";
 import { stderr, stdout } from "node:process";
 import { captureScreenshot, type CuaBrowserHandle } from "./harness-browser";
-import { loadHarnessExtensions } from "./extensions/setup";
-import type { HarnessExtensionHost } from "./extensions/host";
+import {
+	loadHarnessExtensions,
+	type HarnessExtensions,
+} from "./extensions/setup";
 import {
 	type ActionRequest,
 	type ModelActionType,
@@ -372,7 +374,7 @@ interface HarnessRuntime {
 	 */
 	skipInitialScreenshot: boolean;
 	/** Loaded pi-extension host. Undefined with --no-extensions or an untrusted project + no global extensions. */
-	host?: HarnessExtensionHost;
+	host?: HarnessExtensions;
 }
 
 export interface SetupHarnessRuntimeOptions {
@@ -508,7 +510,7 @@ async function finishHarnessRuntime(
 	// runs once this returns, so close the handle here before rethrowing. The
 	// first-turn screenshot decision reads the session, so keep it inside the same
 	// guard.
-	let host: HarnessExtensionHost | undefined;
+	let host: HarnessExtensions | undefined;
 	let skipInitialScreenshot: boolean;
 	try {
 		// Decide the first-turn screenshot before extensions load: a resumed session

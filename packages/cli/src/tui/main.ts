@@ -24,7 +24,7 @@ import { initTheme } from "@earendil-works/pi-coding-agent";
 import { homedir } from "node:os";
 import type { ImageContent, Model } from "@onkernel/cua-ai";
 import { captureScreenshot, type CuaBrowserHandle } from "../harness-browser";
-import type { HarnessExtensionHost } from "../extensions/host";
+import type { HarnessExtensions } from "../extensions/setup";
 import { resolveCuaModelRef } from "../harness-models";
 import { updateNamedSessionRuntime } from "../harness-named-sessions";
 import type { ContextFile } from "../harness-skills";
@@ -63,7 +63,7 @@ export interface InteractiveOptions {
 	/** Enable extra TUI render diagnostics for manual repros. */
 	debugTui?: boolean;
 	/** Loaded pi-extension host for /reload. Absent in fixture/headless and --no-extensions/untrusted paths, so /reload no-ops with a notice. */
-	host?: HarnessExtensionHost;
+	host?: HarnessExtensions;
 }
 
 /**

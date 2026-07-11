@@ -16,7 +16,7 @@ import {
  * runner only needs the call to be enqueued, matching how pi forwards these to
  * its own session.
  */
-export interface SeamHooks {
+export interface HarnessContextBindings {
 	refreshTools: () => void;
 	getActiveTools: () => string[];
 	/** Forward user text through the host's first-turn screenshot prompt path. */
@@ -32,7 +32,7 @@ export interface SeamHooks {
 export function makeExtensionActions(
 	harness: AgentHarness,
 	session: Session,
-	hooks: SeamHooks,
+	bindings: HarnessContextBindings,
 ): ExtensionActions {
 	return {
 		sendMessage(message): void {
@@ -45,22 +45,22 @@ export function makeExtensionActions(
 		},
 		sendUserMessage(content): void {
 			const text = typeof content === "string" ? content : textPartsOf(content);
-			void hooks.sendUserMessage(text);
+			void bindings.sendUserMessage(text);
 		},
 		appendEntry(customType, data): void {
 			void session.appendCustomEntry(customType, data);
 		},
 		setSessionName(name): void {
-			hooks.setSessionName(name);
+			bindings.setSessionName(name);
 			void session.appendSessionName(name);
 		},
 		getSessionName(): string | undefined {
-			return hooks.getSessionName();
+			return bindings.getSessionName();
 		},
 		// Labels are a TUI-only affordance (entry bookmarking); no headless sink.
 		setLabel(): void {},
 		getActiveTools(): string[] {
-			return hooks.getActiveTools();
+			return bindings.getActiveTools();
 		},
 		getAllTools(): ToolInfo[] {
 			return harness.getTools().map(
@@ -74,10 +74,10 @@ export function makeExtensionActions(
 			);
 		},
 		setActiveTools(names): void {
-			void hooks.setActiveTools(names);
+			void bindings.setActiveTools(names);
 		},
 		refreshTools(): void {
-			hooks.refreshTools();
+			bindings.refreshTools();
 		},
 		// Slash commands are Tier B; none are surfaced from this host.
 		getCommands(): never[] {

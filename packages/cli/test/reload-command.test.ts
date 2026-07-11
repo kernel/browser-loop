@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { applyReloadCommand, type InteractiveOptions } from "../src/tui/main";
 import { MessageList } from "../src/tui/message-list";
-import type { HarnessExtensionHost } from "../src/extensions/host";
+import type { HarnessExtensions } from "../src/extensions/setup";
 
 // `applyReloadCommand` is the glue the `/reload` dispatch runs (tui/main.ts):
 // it bridges the parsed command to `host.reload()` and reports the outcome.
@@ -10,7 +10,7 @@ import type { HarnessExtensionHost } from "../src/extensions/host";
 initTheme();
 
 /** Build the `applyReloadCommand` arg pair with a spyable host and message log. */
-function setup(host: HarnessExtensionHost | undefined): {
+function setup(host: HarnessExtensions | undefined): {
 	opts: InteractiveOptions;
 	messages: MessageList;
 	notices: string[];
@@ -27,7 +27,7 @@ function setup(host: HarnessExtensionHost | undefined): {
 describe("applyReloadCommand (/reload glue)", () => {
 	it("invokes host.reload() and reports a clean reload", async () => {
 		const reload = vi.fn(async () => {});
-		const host = { reload, loadErrors: [], isDisposed: () => false } as unknown as HarnessExtensionHost;
+		const host = { reload, loadErrors: [], isDisposed: () => false } as unknown as HarnessExtensions;
 		const { opts, messages, notices, errors } = setup(host);
 
 		await applyReloadCommand(opts, messages);
@@ -43,7 +43,7 @@ describe("applyReloadCommand (/reload glue)", () => {
 			reload,
 			loadErrors: [{ path: "/ext/broken.ts", error: "boom" }],
 			isDisposed: () => false,
-		} as unknown as HarnessExtensionHost;
+		} as unknown as HarnessExtensions;
 		const { opts, messages, errors, notices } = setup(host);
 
 		await applyReloadCommand(opts, messages);
@@ -58,7 +58,7 @@ describe("applyReloadCommand (/reload glue)", () => {
 		// the command must not print "extensions reloaded" for work it
 		// didn't actually perform.
 		const reload = vi.fn(async () => "coalesced" as const);
-		const host = { reload, loadErrors: [], isDisposed: () => false } as unknown as HarnessExtensionHost;
+		const host = { reload, loadErrors: [], isDisposed: () => false } as unknown as HarnessExtensions;
 		const { opts, messages, notices } = setup(host);
 
 		await applyReloadCommand(opts, messages);
@@ -69,7 +69,7 @@ describe("applyReloadCommand (/reload glue)", () => {
 
 	it("does not report success when the host disposed during reload", async () => {
 		const reload = vi.fn(async () => {});
-		const host = { reload, loadErrors: [], isDisposed: () => true } as unknown as HarnessExtensionHost;
+		const host = { reload, loadErrors: [], isDisposed: () => true } as unknown as HarnessExtensions;
 		const { opts, messages, notices } = setup(host);
 
 		await applyReloadCommand(opts, messages);

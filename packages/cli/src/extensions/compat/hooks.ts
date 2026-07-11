@@ -2,13 +2,13 @@ import type { AgentHarness } from "@onkernel/cua-agent";
 import type { ExtensionRunner } from "@earendil-works/pi-coding-agent";
 
 /**
- * State the bridge mutates while forwarding harness events into the runner.
+ * State updated while forwarding harness hooks into the extension runner.
  * `turnIndex` is host-owned because the harness `turn_start`/`turn_end` events
  * do not carry one, while the extension `TurnStartEvent`/`TurnEndEvent` require
  * it. `isIdle` is derived from `agent_start`/`agent_end` because the harness has
  * no synchronous idle predicate.
  */
-export interface BridgeState {
+export interface ExtensionHookState {
 	turnIndex: number;
 	isIdle: boolean;
 }
@@ -23,10 +23,10 @@ export interface BridgeState {
  * - `on(type)` for the participating own events whose reduced result the
  *   harness applies (context, before_provider_payload, tool_call, tool_result).
  */
-export function installBridge(
+export function installExtensionHooks(
 	harness: AgentHarness,
 	runner: ExtensionRunner,
-	state: BridgeState,
+	state: ExtensionHookState,
 	reapplyTools: () => Promise<void>,
 ): () => void {
 	const unsubscribes: Array<() => void> = [];

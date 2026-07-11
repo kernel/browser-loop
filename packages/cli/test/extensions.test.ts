@@ -3,7 +3,7 @@ import { cpSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { HarnessExtensionHost } from "../src/extensions/host";
+import { HarnessExtensionHost } from "../src/extensions/compat/host";
 import { buildTestHarness, type TestHarnessFixture } from "./fixtures/harness";
 
 const here = dirname(fileURLToPath(import.meta.url));
