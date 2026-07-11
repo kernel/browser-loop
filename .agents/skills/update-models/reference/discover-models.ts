@@ -3,9 +3,8 @@ import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
-import { parse as parseToml } from "smol-toml";
 
-type Provider = "openai" | "anthropic" | "gemini" | "tzafon" | "yutori";
+type Provider = "openai" | "anthropic" | "gemini" | "meta" | "tzafon" | "yutori";
 
 interface Args {
 	provider: Provider | "all";
@@ -38,7 +37,7 @@ interface ModelResult {
 	cua?: Record<string, unknown>;
 }
 
-const PROVIDERS: Provider[] = ["openai", "anthropic", "gemini", "tzafon", "yutori"];
+const PROVIDERS: Provider[] = ["openai", "anthropic", "gemini", "meta", "tzafon", "yutori"];
 const TZAFON_KNOWN_MODELS = [
 	"tzafon.northstar-cua-fast",
 ];
@@ -109,7 +108,7 @@ function usage(): never {
   npx tsx .agents/skills/update-models/reference/discover-models.ts --provider openai --models gpt-5.5,gpt-5.4
 
 Options:
-  --provider <all|openai|anthropic|gemini|tzafon|yutori>
+  --provider <all|openai|anthropic|gemini|meta|tzafon|yutori>
   --models <comma-separated model ids>    Smoke-test explicit models instead of inferred candidates.
   --candidate-limit <n>                  Max inferred candidates per provider. Default: 20.
   --no-smoke                             Only list metadata.
@@ -137,6 +136,7 @@ async function runProvider(provider: Provider, args: Args): Promise<Record<strin
 		if (provider === "openai") return await discoverOpenAI(args);
 		if (provider === "anthropic") return await discoverAnthropic(args);
 		if (provider === "gemini") return await discoverGemini(args);
+		if (provider === "meta") return await discoverMeta(args);
 		if (provider === "tzafon") return await discoverTzafon(args);
 		if (provider === "yutori") return await discoverYutori(args);
 		throw new Error(`unknown provider ${provider satisfies never}`);
@@ -173,6 +173,74 @@ async function discoverOpenAI(args: Args): Promise<Record<string, unknown>> {
 	}
 	await annotateCuaSupport("openai", models);
 	return { provider: "openai", metadata_source: "client.models.list()", models, candidates };
+}
+
+async function discoverMeta(args: Args): Promise<Record<string, unknown>> {
+	const OpenAI = await importDefault("openai", "OpenAI");
+	const apiKey = process.env.MODEL_API_KEY ?? process.env.META_MODEL_API_KEY;
+	const client = new OpenAI({ apiKey, baseURL: "https://api.meta.ai/v1" });
+	const rawModels = await collectAsync(client.models.list());
+	const models: ModelResult[] = rawModels.map((m) => ({
+		id: String(m.id),
+		display_name: String(m.id),
+		created_at: typeof m.created === "number" && m.created > 0 ? new Date(m.created * 1000).toISOString() : null,
+		raw: m,
+		supports_generation: true,
+	}));
+	const candidates = explicitOrCandidates(args, models.map((model) => model.id));
+	if (args.smoke) {
+		await Promise.all(candidates.map(async (id) => {
+			const model = models.find((candidate) => candidate.id === id) ?? { id, display_name: id, supports_generation: true };
+			model.computer_use = await smokeMeta(client, id);
+			if (!models.find((candidate) => candidate.id === id)) models.unshift(model);
+		}));
+	}
+	await annotateCuaSupport("meta", models);
+	return { provider: "meta", metadata_source: "Meta Model API models.list()", models, candidates };
+}
+
+async function smokeMeta(client: any, model: string): Promise<SmokeResult> {
+	try {
+		const screenshot = await readFile(join(process.cwd(), "packages", "ai", "examples", "screenshot.png"));
+		const response = await client.responses.create({
+			model,
+			store: false,
+			parallel_tool_calls: false,
+			max_output_tokens: 512,
+			reasoning: { effort: "low" },
+			input: [{
+				role: "user",
+				content: [
+					{ type: "input_text", text: "Call the click tool for the sign in link. Do not answer only in text." },
+					{ type: "input_image", image_url: `data:image/png;base64,${screenshot.toString("base64")}` },
+				],
+			}],
+			tools: [{
+				type: "function",
+				name: "click",
+				description: "Click at normalized 0-1000 screen coordinates.",
+				parameters: {
+					type: "object",
+					properties: { x: { type: "number" }, y: { type: "number" } },
+					required: ["x", "y"],
+					additionalProperties: false,
+				},
+			}],
+		});
+		const output: any[] = response.output ?? [];
+		const calls = output.filter((item) => item?.type === "function_call");
+		return {
+			status: calls.length > 0 ? "pass" : "inconclusive",
+			tool_name: "function_tools",
+			tool_version: null,
+			beta_header: null,
+			observed_actions: unique(calls.map((call) => call?.name).filter(Boolean)),
+			response_item_types: unique(output.map((item) => item?.type).filter(Boolean)),
+			error: null,
+		};
+	} catch (err) {
+		return smokeError(err, { tool_name: "function_tools" });
+	}
 }
 
 function likelyOpenAIGenerationModel(id: string): boolean {
@@ -478,7 +546,8 @@ async function yutoriApiKey(): Promise<string> {
 	if (env && env.trim()) return env;
 	const cfgPath = join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "cua", "config.toml");
 	try {
-		const raw = parseToml(await readFile(cfgPath, "utf8")) as any;
+		const { parse } = await import("smol-toml");
+		const raw = parse(await readFile(cfgPath, "utf8")) as any;
 		const profile = typeof raw?.default_profile === "string" ? raw.default_profile : undefined;
 		const key = profile ? raw?.profiles?.[profile]?.yutori_api_key : undefined;
 		if (typeof key === "string" && key.trim()) return key;

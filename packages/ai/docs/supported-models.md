@@ -58,6 +58,21 @@ Google's native `tools.computer_use` request wrapper instead.
 
 Source: [Gemini computer use docs](https://ai.google.dev/gemini-api/docs/computer-use).
 
+## `meta`
+
+API: `meta-responses` · coordinates: normalized 0–1000
+
+Exact IDs:
+
+- `muse-spark-1.1`
+
+Muse Spark uses Meta's OpenAI-compatible Responses API with ordinary function
+tools. CUA stores each response and continues tool loops with
+`previous_response_id`; threaded requests omit encrypted reasoning replay,
+which Meta does not allow alongside a previous response ID.
+
+Source: [Meta computer-use cookbook](https://dev.meta.ai/docs/getting-started/cookbook/computer-use-macos).
+
 ## `tzafon`
 
 API: `tzafon-responses` · coordinates: normalized 0–999

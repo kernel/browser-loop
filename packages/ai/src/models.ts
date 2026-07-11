@@ -1,9 +1,10 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { getBuiltinModel, getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
+import { META_RESPONSES_API } from "./providers/meta/provider";
 import { OPENAI_CUA_RESPONSES_API } from "./providers/openai/provider";
 
 /** Providers with curated computer-use model support. */
-export type CuaProvider = "openai" | "anthropic" | "google" | "tzafon" | "yutori";
+export type CuaProvider = "openai" | "anthropic" | "google" | "meta" | "tzafon" | "yutori";
 
 /** Provider-qualified model reference, e.g. `"openai:gpt-5.5"` or `"google:gemini-3-flash-preview"`. */
 export type CuaModelRef = `${CuaProvider}:${string}`;
@@ -20,7 +21,7 @@ export interface CuaModelInfo {
 }
 
 /** All providers this package curates computer-use models for. */
-export const CUA_PROVIDERS: readonly CuaProvider[] = ["openai", "anthropic", "google", "tzafon", "yutori"];
+export const CUA_PROVIDERS: readonly CuaProvider[] = ["openai", "anthropic", "google", "meta", "tzafon", "yutori"];
 
 /**
  * How a {@link CuaModelAnnotation} matches model ids.
@@ -78,6 +79,9 @@ export const CUA_MODEL_ANNOTATIONS: Record<CuaProvider, readonly CuaModelAnnotat
 		// gemini-3-pro-preview is intentionally absent: Google retired it and
 		// the API now returns 404 "model no longer available".
 	],
+	meta: [
+		{ match: { kind: "exact", id: "muse-spark-1.1" }, source: "https://dev.meta.ai/docs/getting-started/cookbook/computer-use-macos" },
+	],
 	tzafon: [
 		{ match: { kind: "exact", id: "tzafon.northstar-cua-fast" }, source: "https://huggingface.co/Tzafon/Northstar-CUA-Fast" },
 		{ match: { kind: "exact", id: "tzafon.northstar-cua-fast-1.6" }, source: "https://huggingface.co/Tzafon/Northstar-CUA-Fast" },
@@ -100,6 +104,7 @@ const CUA_MODEL_OVERRIDES: Record<CuaProvider, readonly Model<Api>[]> = {
 	openai: [],
 	anthropic: [],
 	google: [],
+	meta: [cuaModel("meta", "muse-spark-1.1", "Muse Spark 1.1")],
 	tzafon: [
 		cuaModel("tzafon", "tzafon.northstar-cua-fast", "Tzafon Northstar CUA Fast"),
 		cuaModel("tzafon", "tzafon.northstar-cua-fast-1.6", "Tzafon Northstar CUA Fast 1.6"),
@@ -193,13 +198,17 @@ export function getCuaModel(ref: CuaModelRef): Model<Api> {
 	throw new Error(`CUA model "${ref}" is supported but not registered. Add it to pi-ai (models.dev) or CUA_MODEL_OVERRIDES.`);
 }
 
-// Route OpenAI CUA models to cua's own openai-cua-responses stream provider,
-// which threads previous_response_id. Registry-resolved models (gpt-5.4,
-// gpt-5.4-mini, gpt-5.5) otherwise carry pi-ai's builtin "openai-responses" api.
+// Route OpenAI-compatible CUA models to provider-specific Responses transports
+// that thread previous_response_id. Registry-resolved models otherwise carry
+// pi-ai's builtin "openai-responses" api.
 export function routeCuaApi(model: Model<Api>): Model<Api> {
-	return model.provider === "openai" && model.api !== OPENAI_CUA_RESPONSES_API
-		? { ...model, api: OPENAI_CUA_RESPONSES_API }
-		: model;
+	if (model.provider === "openai" && model.api !== OPENAI_CUA_RESPONSES_API) {
+		return { ...model, api: OPENAI_CUA_RESPONSES_API };
+	}
+	if (model.provider === "meta" && model.api !== META_RESPONSES_API) {
+		return { ...model, api: META_RESPONSES_API };
+	}
+	return model;
 }
 
 /** Return the {@link CuaProvider} for a concrete model, or throw when it is not a CUA provider. */
@@ -251,7 +260,7 @@ function cuaModel(provider: CuaProvider, id: string, name: string): Model<Api> {
 		id,
 		name,
 		provider,
-		reasoning: provider === "openai" || provider === "anthropic" || provider === "google",
+		reasoning: provider === "openai" || provider === "anthropic" || provider === "google" || provider === "meta",
 		input: ["text", "image"],
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 	} satisfies Partial<Model<Api>>;
@@ -263,6 +272,17 @@ function cuaModel(provider: CuaProvider, id: string, name: string): Model<Api> {
 			return { ...base, api: "anthropic-messages", baseUrl: "https://api.anthropic.com", contextWindow: 200_000, maxTokens: 64_000 } as Model<Api>;
 		case "google":
 			return { ...base, api: "google-generative-ai", baseUrl: "https://generativelanguage.googleapis.com/v1beta", contextWindow: 1_048_576, maxTokens: 65_536 } as Model<Api>;
+		case "meta":
+			return {
+				...base,
+				api: META_RESPONSES_API,
+				baseUrl: "https://api.meta.ai/v1",
+				thinkingLevelMap: { off: null, xhigh: "xhigh" },
+				cost: { input: 1.25, output: 4.25, cacheRead: 0.15, cacheWrite: 0 },
+				contextWindow: 1_048_576,
+				maxTokens: 128_000,
+				compat: { supportsDeveloperRole: true, sendSessionIdHeader: false, supportsLongCacheRetention: true },
+			} as Model<Api>;
 		case "tzafon":
 			return { ...base, api: "tzafon-responses", baseUrl: "https://api.lightcone.ai", contextWindow: 128_000, maxTokens: 4_096 } as Model<Api>;
 		case "yutori":

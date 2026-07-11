@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CUA_NAVIGATION_TOOL_NAME, CUA_PROVIDERS, getCuaModel, listCuaModels, openai, resolveCuaRuntimeSpec } from "../src/index";
+import { CUA_NAVIGATION_TOOL_NAME, CUA_PROVIDERS, getCuaModel, listCuaModels, meta, openai, resolveCuaRuntimeSpec } from "../src/index";
 
 describe("resolveCuaRuntimeSpec", () => {
 	it("resolves a runtime spec for every CUA provider", () => {
@@ -45,9 +45,12 @@ describe("resolveCuaRuntimeSpec", () => {
 		expect(anthropicSpec.onPayload).toBeTypeOf("function");
 	});
 
-	it("routes a concrete OpenAI Model input (not just a string ref) to openai-cua-responses", () => {
-		const raw = { ...getCuaModel("openai:gpt-5.5"), api: "openai-responses" } as Parameters<typeof resolveCuaRuntimeSpec>[0];
-		expect(resolveCuaRuntimeSpec(raw).model.api).toBe(openai.OPENAI_CUA_RESPONSES_API);
+	it("routes concrete Responses models to provider-specific APIs", () => {
+		const openaiModel = { ...getCuaModel("openai:gpt-5.5"), api: "openai-responses" } as Parameters<typeof resolveCuaRuntimeSpec>[0];
+		expect(resolveCuaRuntimeSpec(openaiModel).model.api).toBe(openai.OPENAI_CUA_RESPONSES_API);
+
+		const metaModel = { ...getCuaModel("meta:muse-spark-1.1"), api: "openai-responses" } as Parameters<typeof resolveCuaRuntimeSpec>[0];
+		expect(resolveCuaRuntimeSpec(metaModel).model.api).toBe(meta.META_RESPONSES_API);
 	});
 
 	it("threads tool options through to the provider module", () => {

@@ -1,6 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	CUA_ACTION_TYPES,
@@ -11,13 +10,13 @@ import {
 	cuaModels,
 	gemini,
 	getCuaModel,
+	meta,
 	openai,
 	tzafon,
 	yutori,
 } from "../src/index";
 
-const here = dirname(fileURLToPath(import.meta.url));
-const screenshotPath = join(here, "..", "examples", "screenshot.png");
+const screenshotPath = join(process.cwd(), "examples", "screenshot.png");
 
 interface ProviderCase {
 	provider: CuaProvider;
@@ -54,6 +53,14 @@ const cases: ProviderCase[] = [
 		modelRef: "google:gemini-3-flash-preview",
 		tools: () => gemini.computerTools({ actions: ["click"] }),
 		coordinateRange: [0, 999],
+		requireToolCalls: true,
+	},
+	{
+		provider: "meta",
+		envVar: "MODEL_API_KEY",
+		modelRef: "meta:muse-spark-1.1",
+		tools: () => meta.computerTools({ actions: ["click"] }),
+		coordinateRange: [0, 1000],
 		requireToolCalls: true,
 	},
 	{
@@ -141,6 +148,64 @@ describe("individual computer action integration", () => {
 			expect(response.usage.totalTokens, `${c.provider} usage tokens not reported`).toBeGreaterThan(0);
 		}, 60_000);
 	}
+
+	const metaHasKey = !!process.env.MODEL_API_KEY;
+	(metaHasKey ? it : it.skip)(
+		"meta continues a screenshot tool loop with previous_response_id",
+		async () => {
+			const screenshot = await readFile(screenshotPath);
+			const model = getCuaModel("meta:muse-spark-1.1");
+			const tools = meta.computerTools({ actions: ["click"] });
+			const context: Context = {
+				systemPrompt: "Use normalized 0-1000 coordinates. Call click exactly once, then answer in text after its result.",
+				messages: [
+					{
+						role: "user",
+						content: [
+							{ type: "text", text: "Click the sign in / up link. After the tool result, report that the click completed without calling another tool." },
+							{ type: "image", data: screenshot.toString("base64"), mimeType: "image/png" },
+						],
+						timestamp: Date.now(),
+					},
+				],
+				tools,
+			};
+			const first = await cuaModels().complete(model, context, {
+				apiKey: process.env.MODEL_API_KEY,
+				maxTokens: 1024,
+			});
+			const click = first.content.find((part) => part.type === "toolCall" && part.name === "click");
+			expect(click).toBeDefined();
+			expect(first.responseId).toBeTruthy();
+			context.messages.push(first, {
+				role: "toolResult",
+				toolCallId: click!.id,
+				toolName: click!.name,
+				content: [
+					{ type: "text", text: "Click executed successfully." },
+					{ type: "image", data: screenshot.toString("base64"), mimeType: "image/png" },
+				],
+				isError: false,
+				timestamp: Date.now(),
+			});
+
+			let payload: Record<string, unknown> | undefined;
+			const second = await cuaModels().complete(model, context, {
+				apiKey: process.env.MODEL_API_KEY,
+				maxTokens: 1024,
+				onPayload: (value) => {
+					payload = value as Record<string, unknown>;
+				},
+			});
+			expect(second.stopReason).not.toBe("error");
+			expect(second.responseId).toBeTruthy();
+			expect(payload?.previous_response_id).toBe(first.responseId);
+			expect(payload?.store).toBe(true);
+			expect(payload?.parallel_tool_calls).toBe(false);
+			expect(payload?.include).toBeUndefined();
+		},
+		90_000,
+	);
 
 	const yutoriHasKey = !!process.env.YUTORI_API_KEY;
 	(yutoriHasKey ? it : it.skip)(

@@ -14,6 +14,7 @@ import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { cuaApiKeyEnvVarsForProvider } from "./api-keys";
 import { cuaOverrideModels } from "./models";
 import { ANTHROPIC_NATIVE_API_BETA_HEADERS, withAnthropicBetaHeader } from "./providers/anthropic/native";
+import { META_RESPONSES_API, streamMetaResponses, streamSimpleMetaResponses } from "./providers/meta/provider";
 import { OPENAI_CUA_RESPONSES_API, streamOpenAIResponses, streamSimpleOpenAIResponses } from "./providers/openai/provider";
 import { streamSimpleTzafonResponses, streamTzafonResponses, TZAFON_RESPONSES_API } from "./providers/tzafon/provider";
 import { streamSimpleYutori, streamYutori, YUTORI_CHAT_COMPLETIONS_API } from "./providers/yutori/provider";
@@ -32,7 +33,7 @@ import { streamSimpleYutori, streamYutori, YUTORI_CHAT_COMPLETIONS_API } from ".
  *   `anthropic-beta` header merged in.
  * - `google` resolves its API key from `GOOGLE_API_KEY` or `GEMINI_API_KEY`
  *   (pi's builtin only reads `GEMINI_API_KEY`).
- * - `tzafon` and `yutori` are CUA-only providers pi does not ship.
+ * - `meta`, `tzafon`, and `yutori` are CUA-only providers pi does not ship.
  *
  * Each call returns an independent collection; register additional providers
  * or credentials on it freely. Use {@link cuaModels} for the shared default.
@@ -45,6 +46,7 @@ export function createCuaModels(options?: CreateModelsOptions): MutableModels {
 	if (anthropic) models.setProvider(withAnthropicNativeTools(anthropic));
 	const google = models.getProvider("google");
 	if (google) models.setProvider(withGoogleEnvKeys(google));
+	models.setProvider(metaProvider());
 	models.setProvider(tzafonProvider());
 	models.setProvider(yutoriProvider());
 	return models;
@@ -106,6 +108,17 @@ function withGoogleEnvKeys(base: Provider): Provider {
 	return { ...base, auth: { ...base.auth, apiKey: envApiKeyAuth("Google API key", cuaApiKeyEnvVarsForProvider("google")) } };
 }
 
+function metaProvider(): Provider {
+	return createProvider({
+		id: "meta",
+		name: "Meta",
+		baseUrl: "https://api.meta.ai/v1",
+		auth: { apiKey: envApiKeyAuth("Meta Model API key", cuaApiKeyEnvVarsForProvider("meta")) },
+		models: cuaOverrideModels("meta"),
+		api: { stream: streamMetaResponses, streamSimple: streamSimpleMetaResponses },
+	});
+}
+
 function tzafonProvider(): Provider {
 	return createProvider({
 		id: "tzafon",
@@ -128,6 +141,7 @@ function yutoriProvider(): Provider {
 	});
 }
 
+export { META_RESPONSES_API, streamMetaResponses, streamSimpleMetaResponses };
 export { OPENAI_CUA_RESPONSES_API, streamOpenAIResponses, streamSimpleOpenAIResponses };
 export { TZAFON_RESPONSES_API, streamSimpleTzafonResponses, streamTzafonResponses };
 export { YUTORI_CHAT_COMPLETIONS_API, streamSimpleYutori, streamYutori };

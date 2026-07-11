@@ -9,14 +9,20 @@ describe("resolveCuaModelRef", () => {
 
 	it("passes provider-qualified refs through", () => {
 		expect(resolveCuaModelRef("openai:gpt-5.5")).toBe("openai:gpt-5.5");
+		expect(resolveCuaModelRef("meta:muse-spark-1.1")).toBe("meta:muse-spark-1.1");
 	});
 
 	it("accepts bare ids when they match exactly one catalog entry", () => {
 		expect(resolveCuaModelRef("gpt-5.5")).toBe("openai:gpt-5.5");
+		expect(resolveCuaModelRef("muse-spark-1.1")).toBe("meta:muse-spark-1.1");
 	});
 
 	it("throws on unknown bare ids", () => {
 		expect(() => resolveCuaModelRef("does-not-exist")).toThrow(/unknown model/);
+	});
+
+	it("filters the Meta catalog", () => {
+		expect(listSupportedModels("meta").map((model) => model.ref)).toEqual(["meta:muse-spark-1.1"]);
 	});
 
 	it("treats 'gemini' as an alias for google when filtering", () => {

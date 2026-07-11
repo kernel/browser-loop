@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { anthropic, CUA_COMPUTER_ACTION_TYPES, CUA_PROVIDERS, type CuaProvider, gemini, openai, tzafon, yutori } from "../src/index";
+import { anthropic, CUA_COMPUTER_ACTION_TYPES, CUA_PROVIDERS, type CuaProvider, gemini, meta, openai, tzafon, yutori } from "../src/index";
 import type { CuaProviderModule } from "../src/providers/common";
 
 const MODULES: Record<CuaProvider, { providerModule: CuaProviderModule }> = {
 	openai,
 	anthropic,
 	google: gemini,
+	meta,
 	tzafon,
 	yutori,
 };
@@ -14,6 +15,7 @@ const NAMESPACES: Record<CuaProvider, { namespace: Record<string, unknown>; pref
 	openai: { namespace: openai, prefix: "OPENAI" },
 	anthropic: { namespace: anthropic, prefix: "ANTHROPIC" },
 	google: { namespace: gemini, prefix: "GEMINI" },
+	meta: { namespace: meta, prefix: "META" },
 	tzafon: { namespace: tzafon, prefix: "TZAFON" },
 	yutori: { namespace: yutori, prefix: "YUTORI" },
 };
@@ -50,6 +52,11 @@ describe("provider modules satisfy the uniform contract", () => {
 
 	it("yutori sends no model-facing tool definitions", () => {
 		expect(yutori.providerModule.toolDefinitions()).toEqual([]);
+	});
+
+	it("meta currently restricts its normalized coordinate contract to computer mode", () => {
+		expect(() => meta.providerModule.toolDefinitions({ mode: "browser" })).toThrow(/computer only/);
+		expect(() => meta.providerModule.toolDefinitions({ mode: "hybrid" })).toThrow(/computer only/);
 	});
 });
 

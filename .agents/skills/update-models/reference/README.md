@@ -11,10 +11,11 @@ These scripts support the `update-models` skill. Run them from the repository ro
   - `OPENAI_API_KEY`
   - `ANTHROPIC_API_KEY`
   - `GOOGLE_API_KEY` or `GEMINI_API_KEY`
+  - `MODEL_API_KEY` or `META_MODEL_API_KEY`
   - `TZAFON_API_KEY`
   - `YUTORI_API_KEY`
 
-The scripts never print API keys. Smoke tests are non-destructive: they ask each model to emit a provider-native computer-use tool call, then inspect the response without executing the action.
+The scripts never print API keys. Smoke tests are non-destructive: they ask each model to emit a computer-use tool call, then inspect the response without executing the action. Meta uses supplied function tools; other providers may use provider-native computer tools.
 
 ## Common Commands
 

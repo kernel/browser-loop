@@ -2,7 +2,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import process from "node:process";
 
-type Provider = "openai" | "anthropic" | "gemini" | "yutori";
+type Provider = "openai" | "anthropic" | "gemini" | "meta" | "yutori";
 
 interface Args {
 	examples: string;
@@ -30,6 +30,11 @@ const DOCS: Record<Provider, string[]> = {
 		"https://ai.google.dev/gemini-api/docs/computer-use",
 		"https://ai.google.dev/api/models",
 	],
+	meta: [
+		"https://dev.meta.ai/docs/getting-started/cookbook/computer-use-macos",
+		"https://dev.meta.ai/docs/features/responses",
+		"https://dev.meta.ai/docs/features/tool-calling",
+	],
 	yutori: [
 		"https://docs.yutori.com/reference/navigator",
 		"https://docs.yutori.com/reference/n1",
@@ -42,6 +47,7 @@ const LOCAL_FILES: Record<Provider, string> = {
 	openai: "packages/ai/src/providers/openai/index.ts",
 	anthropic: "packages/ai/src/providers/anthropic/actions.ts",
 	gemini: "packages/ai/src/providers/gemini/index.ts",
+	meta: "packages/ai/src/providers/meta/index.ts",
 	yutori: "packages/ai/src/providers/yutori/actions.ts",
 };
 
@@ -49,6 +55,7 @@ const ACTION_REGEXES: Record<Provider, RegExp> = {
 	openai: /\b(click|double_click|scroll|type|wait|keypress|drag|move|screenshot)\b/g,
 	anthropic: /\b(screenshot|left_click|right_click|middle_click|double_click|triple_click|left_click_drag|mouse_move|key|type|scroll|hold_key|wait|left_mouse_down|left_mouse_up|cursor_position|zoom)\b/g,
 	gemini: /\b(open_web_browser|open_web|wait_5_seconds|go_back|go_forward|search|navigate|click_at|hover_at|type_text_at|key_combination|scroll_document|scroll_at|drag_and_drop)\b/g,
+	meta: /\b(click|double_click|mouse_down|mouse_up|scroll|type|wait|keypress|drag|move|screenshot|goto|back|forward|url|cursor_position|left_click|right_click|middle_click|triple_click|left_click_drag|mouse_move|key|hold_key|left_mouse_down|left_mouse_up)\b/g,
 	yutori: /\b(left_click|double_click|triple_click|right_click|scroll|type|key_press|hover|drag|wait|refresh|go_back|go_forward|goto_url|mouse_move|middle_click|mouse_down|mouse_up|hold_key|extract_elements|find|set_element_value|execute_js)\b/g,
 };
 
@@ -123,8 +130,8 @@ async function checkProvider(provider: Provider, examples: any): Promise<Record<
 		documented_actions: sorted(documentedActions),
 		example_repo_actions: sorted(exampleActions),
 		repo_supported_actions: sorted(localActions),
-		unknown_documented_actions: sorted(difference(new Set(documentedActions), new Set(localActions))),
-		unknown_example_actions: sorted(difference(new Set(exampleActions), new Set(localActions))),
+		unknown_documented_actions: sorted(difference(new Set(documentedActions.map((action) => normalizeProviderAction(provider, action))), new Set(localActions))),
+		unknown_example_actions: sorted(difference(new Set(exampleActions.map((action) => normalizeProviderAction(provider, action))), new Set(localActions))),
 		response_fields_from_examples: sorted(example.response_fields ?? []),
 		notes: notesFor(provider, documentedToolVersions, exampleToolVersions, localToolVersions),
 	};
@@ -140,6 +147,23 @@ async function fetchText(url: string): Promise<FetchResult> {
 	}
 }
 
+function normalizeProviderAction(provider: Provider, action: string): string {
+	if (provider !== "meta") return action;
+	const aliases: Record<string, string> = {
+		left_click: "click",
+		right_click: "click",
+		middle_click: "click",
+		triple_click: "click",
+		left_click_drag: "drag",
+		mouse_move: "move",
+		key: "keypress",
+		hold_key: "keypress",
+		left_mouse_down: "mouse_down",
+		left_mouse_up: "mouse_up",
+	};
+	return aliases[action] ?? action;
+}
+
 function notesFor(provider: Provider, documentedToolVersions: string[], exampleToolVersions: string[], localToolVersions: string[]): string[] {
 	const notes: string[] = [];
 	if (provider === "openai") {
@@ -153,6 +177,9 @@ function notesFor(provider: Provider, documentedToolVersions: string[], exampleT
 	}
 	if (provider === "gemini") {
 		notes.push("Gemini official computer use emits predefined function-call names; keep this separate from CUA custom function declarations.");
+	}
+	if (provider === "meta") {
+		notes.push("Meta computer use uses developer-defined function tools over the Responses API; compare payload threading and coordinate conventions as well as action names.");
 	}
 	if (provider === "yutori") {
 		notes.push("Yutori Navigator emits OpenAI-compatible tool_calls for built-in browser actions; local AgentTools should execute those names but outbound payloads should not duplicate the built-in browser schemas.");

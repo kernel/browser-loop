@@ -12,6 +12,7 @@ Use this shape for JSON reports and the same fields when writing a Markdown summ
     "openai": {},
     "anthropic": {},
     "gemini": {},
+    "meta": {},
     "tzafon": {},
     "yutori": {}
   },

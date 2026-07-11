@@ -20,6 +20,7 @@ type ProviderCase = {
 		| "openai:gpt-5.5"
 		| "anthropic:claude-opus-4-7"
 		| "google:gemini-3-flash-preview"
+		| "meta:muse-spark-1.1"
 		| "tzafon:tzafon.northstar-cua-fast"
 		| "yutori:n1.5-latest";
 	prompt: string;
@@ -78,6 +79,20 @@ const cases: ProviderCase[] = [
 		expectToolCalls: true,
 		timeoutMs: 300_000,
 		ciOptInEnvVar: "CUA_E2E_GEMINI",
+	},
+	{
+		name: "meta",
+		apiKeyEnvVar: "MODEL_API_KEY",
+		modelRef: "meta:muse-spark-1.1",
+		prompt: [
+			"Use the tool named `screenshot` exactly once to inspect the browser.",
+			"Pass empty arguments (`{}`).",
+			"Do not call any other tools.",
+			"After the tool result, provide a one-sentence summary.",
+		].join("\n"),
+		expectToolCalls: true,
+		timeoutMs: 180_000,
+		ciOptInEnvVar: "CUA_E2E_META",
 	},
 	{
 		name: "tzafon",
