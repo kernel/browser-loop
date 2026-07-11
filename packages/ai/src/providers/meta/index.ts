@@ -29,6 +29,7 @@ export function coordinateSystem(): ComputerToolCoordinateSystem {
 
 export const META_COMPUTER_INSTRUCTIONS = `You control a Kernel cloud browser through individual browser tools. Coordinates are normalized from 0 to 1000 relative to the most recent screenshot, with (0, 0) at the top left and (1000, 1000) at the bottom right. Base each action on the latest observed state and request a screenshot when you need a fresh view.`;
 
+/** Build the default system prompt used with Meta CUA models. */
 export function buildMetaSystemPrompt(opts: { suffix?: string } = {}): string {
 	return [META_COMPUTER_INSTRUCTIONS, opts.suffix].filter(Boolean).join("\n\n");
 }

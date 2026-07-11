@@ -16,7 +16,7 @@ Use this workflow to keep CUA current with provider model releases and computer-
 eval "$(python3 - <<'PY'
 import pathlib, re, shlex
 text = pathlib.Path('~/AGENTS.md').expanduser().read_text()
-for key in ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GOOGLE_API_KEY', 'META_MODEL_API_KEY', 'TZAFON_API_KEY', 'YUTORI_API_KEY']:
+for key in ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GOOGLE_API_KEY', 'META_MODEL_API_KEY', 'MODEL_API_KEY', 'TZAFON_API_KEY', 'YUTORI_API_KEY']:
     m = re.search(r'export\s+' + re.escape(key) + r'=(?:"([^"]+)"|([^\s\n]+))', text)
     if m:
         print(f'export {key}={shlex.quote(m.group(1) or m.group(2))}')
