@@ -9,6 +9,8 @@ All package versions and internal `@earendil-works/*` dependencies were rewritte
 to the shared prerelease version `0.80.7-anchor.3d8f743` before running the normal
 upstream build and `npm pack`. Replace these file dependencies with the first
 normal npm release containing the commit before merging when one is available.
+The package manifests use immutable raw GitHub URLs pinned to the commit that
+first checked in these tarballs so packed CUA packages remain installable.
 
 SHA-256:
 
