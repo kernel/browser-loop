@@ -19,7 +19,7 @@ export interface BridgeState {
  *
  * Two channels are used, matching how the harness dispatches:
  * - `subscribe()` (catch-all) for loop events and own observe-only events.
- *   This is also where tool persistence runs, gated on `model_update`.
+ *   Tool reconciliation also runs here after `model_update`.
  * - `on(type)` for the participating own events whose reduced result the
  *   harness applies (context, before_provider_payload, tool_call, tool_result).
  */
@@ -28,7 +28,6 @@ export function installBridge(
 	runner: ExtensionRunner,
 	state: BridgeState,
 	reapplyTools: () => Promise<void>,
-	drainPendingReload: () => void,
 ): () => void {
 	const unsubscribes: Array<() => void> = [];
 
@@ -42,21 +41,7 @@ export function installBridge(
 					break;
 				case "agent_end":
 					state.isIdle = true;
-					// A reload requested by a tool during this run runs here, at the
-					// only true idle boundary (agent_end is where the harness sets
-					// phase=idle). It is scheduled off-stack rather than awaited: this
-					// listener runs inside the harness's synchronous event dispatch, so
-					// awaiting reload() here would tear down this very listener
-					// mid-dispatch and swap the runner out from under the in-flight loop.
-					// Deferring is safe because reload() immediately awaits async I/O
-					// (re-discovering extensions), yielding off the dispatch before any
-					// teardown or runner swap. Scheduled in `finally` so a throwing
-					// agent_end handler can't strand the queued reload.
-					try {
-						await runner.emit({ type: "agent_end", messages: event.messages });
-					} finally {
-						queueMicrotask(() => drainPendingReload());
-					}
+					await runner.emit({ type: "agent_end", messages: event.messages });
 					break;
 				case "turn_start":
 					await runner.emit({ type: "turn_start", turnIndex: state.turnIndex, timestamp: Date.now() });
@@ -171,6 +156,9 @@ export function installBridge(
 
 	unsubscribes.push(
 		harness.on("tool_result", async (event) => {
+			// Registration during tool execution must reach the harness before the
+			// next provider turn is prepared.
+			await reapplyTools();
 			if (!runner.hasHandlers("tool_result")) return undefined;
 			const result = await runner.emitToolResult({
 				type: "tool_result",
