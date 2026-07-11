@@ -208,7 +208,10 @@ export class HarnessExtensionHost {
 
 	reload(): Promise<ReloadOutcome> {
 		if (this.disposed) return Promise.resolve("disposed");
-		if (this.reloadPromise) return Promise.resolve("coalesced");
+		if (this.reloadPromise)
+			return this.reloadPromise.then((outcome) =>
+				outcome === "disposed" ? "disposed" : "coalesced",
+			);
 		const operation = this.reloadNow();
 		this.reloadPromise = operation;
 		const clear = () => {
@@ -471,7 +474,9 @@ export class HarnessExtensionHost {
 			if (active.has(tool.name)) this.inactiveExtensionTools.delete(tool.name);
 			else this.inactiveExtensionTools.add(tool.name);
 		}
-		await this.harness.setActiveTools(names);
+		await this.mutateHarnessTools(async () => {
+			await this.harness.setActiveTools(names);
+		});
 	}
 
 	private uninstallBridge(): void {

@@ -581,11 +581,15 @@ export async function applyReloadCommand(opts: InteractiveOptions, messages: Mes
 			// An extension calling ctx.shutdown() during the reload tears the host
 			// down; don't claim a successful reload.
 			messages.addNotice("session is shutting down; extensions were not reloaded");
-		} else if (outcome === "coalesced") {
+			return;
+		}
+		if (outcome === "coalesced") {
 			messages.addNotice("a reload is already in progress");
-		} else if (opts.host.loadErrors.length > 0) {
+		}
+		if (opts.host.loadErrors.length > 0) {
 			for (const { path, error } of opts.host.loadErrors) messages.addError(`${path}: ${error}`);
 		} else {
+			if (outcome === "coalesced") return;
 			messages.addNotice("extensions reloaded");
 		}
 	} catch (err) {

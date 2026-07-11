@@ -778,28 +778,30 @@ export class CuaAgentHarness<
 	 * plane conflicts with the requested mode.
 	 */
 	async setMode(mode: CuaMode): Promise<void> {
-		if (mode === this.runtime.mode) return;
-		const previousNames = new Set(this.getTools().map((tool) => tool.name));
-		this.runtime.setMode(mode);
-		const tools = this.runtime.tools();
-		// Tools that survive the mode switch (extraTools, shared names) keep
-		// their requested activation state; names new in this mode activate.
-		const requested = this.requestedActiveToolNames;
-		const active = requested
-			? tools.map((tool) => tool.name).filter((name) => !previousNames.has(name) || requested.includes(name))
-			: tools.map((tool) => tool.name);
-		try {
-			await super.setTools(tools, active);
-		} catch (err) {
-			// The pre-switch tools stay exposed, so restore the runtime they are
-			// bound to — including its still-live translator.
-			this.runtime.rollbackSwitch();
-			throw err;
-		}
-		this.runtime.commitSwitch();
-		// The requested subset now reflects this mode's toolset; without this a
-		// later setModel would restore the pre-switch names.
-		if (requested) this.requestedActiveToolNames = active;
+		await this.mutateTools(async () => {
+			if (mode === this.runtime.mode) return;
+			const previousNames = new Set(this.getTools().map((tool) => tool.name));
+			this.runtime.setMode(mode);
+			const tools = this.runtime.tools();
+			// Tools that survive the mode switch (extraTools, shared names) keep
+			// their requested activation state; names new in this mode activate.
+			const requested = this.requestedActiveToolNames;
+			const active = requested
+				? tools.map((tool) => tool.name).filter((name) => !previousNames.has(name) || requested.includes(name))
+				: tools.map((tool) => tool.name);
+			try {
+				await super.setTools(tools, active);
+			} catch (err) {
+				// The pre-switch tools stay exposed, so restore the runtime they are
+				// bound to — including its still-live translator.
+				this.runtime.rollbackSwitch();
+				throw err;
+			}
+			this.runtime.commitSwitch();
+			// The requested subset now reflects this mode's toolset; without this a
+			// later setModel would restore the pre-switch names.
+			if (requested) this.requestedActiveToolNames = active;
+		});
 	}
 
 	/** The action plane(s) currently exposed to the model. */

@@ -159,10 +159,27 @@ describe("HarnessExtensionHost", () => {
 
 	it("coalesces a reload requested while another is in flight", async () => {
 		const created = await loadHost();
-		// A second request must report that the first reload still owns the operation.
+		const originalWaitForIdle = fx!.harness.waitForIdle.bind(fx!.harness);
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		fx!.harness.waitForIdle = async () => {
+			await gate;
+			await originalWaitForIdle();
+		};
+		// A second request must report that the first reload still owns the operation
+		// and should not resolve until the in-flight reload has finished.
 		const first = created.reload();
-		const second = await created.reload();
-		expect(second).toBe("coalesced");
+		let secondResolved = false;
+		const second = created.reload().then((outcome) => {
+			secondResolved = true;
+			return outcome;
+		});
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(secondResolved).toBe(false);
+		release();
+		expect(await second).toBe("coalesced");
 		expect(await first).toBe("reloaded");
 	});
 

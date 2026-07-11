@@ -1976,6 +1976,46 @@ describe("CuaAgentHarness", () => {
 		expect(harness.getModel().id).toBe("gpt-5.5");
 	});
 
+	it("serializes setMode while a model switch tool mutation is in flight", async () => {
+		const { env, session } = await createHarnessServices();
+		let gate: Promise<void> | undefined;
+		const gatedSession = new Proxy(session, {
+			get(target, prop, receiver) {
+				const value = Reflect.get(target, prop, receiver);
+				if (prop === "appendActiveToolsChange" && gate) {
+					const pending = gate;
+					gate = undefined;
+					return async (...args: unknown[]) => {
+						await pending;
+						return (value as (...a: unknown[]) => Promise<void>).apply(target, args);
+					};
+				}
+				return typeof value === "function" ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+			},
+		});
+		const harness = new CuaAgentHarness({
+			env,
+			session: gatedSession,
+			browser,
+			client,
+			model: "anthropic:claude-opus-4-5",
+		});
+		let release!: () => void;
+		gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const modelSwitch = harness.setModel("anthropic:claude-opus-4-7");
+		await new Promise<void>((resolve) => setTimeout(resolve, 0));
+		const modeSwitch = harness.setMode("browser");
+		release();
+		await Promise.all([modelSwitch, modeSwitch]);
+
+		expect(harness.getMode()).toBe("browser");
+		const toolNames = harness.getTools().map((tool) => tool.name);
+		expect(toolNames).toContain("snapshot");
+		expect(toolNames).not.toContain("computer_click");
+	});
+
 	it("treats a repeated setMode as a no-op", async () => {
 		const harness = new CuaAgentHarness({
 			...(await createHarnessServices()),
