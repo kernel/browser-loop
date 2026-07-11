@@ -9,14 +9,14 @@ Use this workflow to keep CUA current with provider model releases and computer-
 
 ## Quick Start
 
-1. Verify credentials are available: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY` or `GEMINI_API_KEY`, `MODEL_API_KEY` or `META_MODEL_API_KEY`, `TZAFON_API_KEY`, and `YUTORI_API_KEY`.
+1. Verify credentials are available: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY` or `GEMINI_API_KEY`, `META_MODEL_API_KEY` or `MODEL_API_KEY`, `TZAFON_API_KEY`, and `YUTORI_API_KEY`.
 2. If credentials live in `~/AGENTS.md`, load them into the current shell without printing them:
 
 ```bash
 eval "$(python3 - <<'PY'
 import pathlib, re, shlex
 text = pathlib.Path('~/AGENTS.md').expanduser().read_text()
-for key in ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GOOGLE_API_KEY', 'MODEL_API_KEY', 'TZAFON_API_KEY', 'YUTORI_API_KEY']:
+for key in ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GOOGLE_API_KEY', 'META_MODEL_API_KEY', 'TZAFON_API_KEY', 'YUTORI_API_KEY']:
     m = re.search(r'export\s+' + re.escape(key) + r'=(?:"([^"]+)"|([^\s\n]+))', text)
     if m:
         print(f'export {key}={shlex.quote(m.group(1) or m.group(2))}')
@@ -70,7 +70,7 @@ When live discovery finds a new model with passing smoke tests, update `packages
 
 Meta:
 
-- Discover with the OpenAI SDK against `https://api.meta.ai/v1` using `MODEL_API_KEY` (or `META_MODEL_API_KEY`).
+- Discover with the OpenAI SDK against `https://api.meta.ai/v1` using `META_MODEL_API_KEY` (or Meta's documented `MODEL_API_KEY` alias).
 - Smoke-test the Responses API with screenshot input and explicit function tools matching CUA's canonical actions.
 - Pass condition: response output contains a `function_call` for one of the supplied browser actions.
 - Use `store: true` plus `previous_response_id` for CUA tool loops. Meta rejects `include: ["reasoning.encrypted_content"]` on requests that set `previous_response_id`.

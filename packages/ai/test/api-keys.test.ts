@@ -33,7 +33,7 @@ describe("cua api key helpers", () => {
 		expect(cuaApiKeyEnvVarsForProvider("openai")).toEqual(["OPENAI_API_KEY"]);
 		expect(cuaApiKeyEnvVarsForProvider("google")).toEqual(["GOOGLE_API_KEY", "GEMINI_API_KEY"]);
 		expect(cuaApiKeyEnvVarsForProvider("gemini")).toEqual(["GOOGLE_API_KEY", "GEMINI_API_KEY"]);
-		expect(cuaApiKeyEnvVarsForProvider("meta")).toEqual(["MODEL_API_KEY", "META_MODEL_API_KEY"]);
+		expect(cuaApiKeyEnvVarsForProvider("meta")).toEqual(["META_MODEL_API_KEY", "MODEL_API_KEY"]);
 		expect(cuaApiKeyEnvVarsForProvider("unknown")).toEqual([]);
 	});
 
@@ -48,10 +48,10 @@ describe("cua api key helpers", () => {
 	it("resolves keys from model refs", () => {
 		process.env.OPENAI_API_KEY = "openai";
 		expect(getCuaEnvApiKeyForModel("openai:gpt-5.5")).toBe("openai");
-		delete process.env.MODEL_API_KEY;
-		process.env.META_MODEL_API_KEY = "meta-fallback";
-		expect(getCuaEnvApiKeyForModel("meta:muse-spark-1.1")).toBe("meta-fallback");
-		process.env.MODEL_API_KEY = "meta";
+		delete process.env.META_MODEL_API_KEY;
+		process.env.MODEL_API_KEY = "meta-official-alias";
+		expect(getCuaEnvApiKeyForModel("meta:muse-spark-1.1")).toBe("meta-official-alias");
+		process.env.META_MODEL_API_KEY = "meta";
 		expect(getCuaEnvApiKeyForModel("meta:muse-spark-1.1")).toBe("meta");
 	});
 

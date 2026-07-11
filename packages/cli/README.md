@@ -86,8 +86,8 @@ Configuration is by environment variable. There is no config file.
 | `ANTHROPIC_API_KEY`  | Anthropic API key (required when `-m anthropic:…`) |
 | `GOOGLE_API_KEY`     | Google API key (required when `-m google:…`)   |
 | `GEMINI_API_KEY`     | alias of `GOOGLE_API_KEY`                      |
-| `MODEL_API_KEY`      | Meta Model API key (required when `-m meta:…`)  |
-| `META_MODEL_API_KEY` | alias of `MODEL_API_KEY`                        |
+| `META_MODEL_API_KEY` | Meta Model API key (required when `-m meta:…`)  |
+| `MODEL_API_KEY`      | alias accepted for Meta's official examples     |
 | `TZAFON_API_KEY`     | Tzafon API key (required when `-m tzafon:…`)   |
 | `YUTORI_API_KEY`     | Yutori API key (required when `-m yutori:…`)   |
 | `KERNEL_BASE_URL`    | override Kernel base URL                       |

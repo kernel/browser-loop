@@ -102,7 +102,7 @@ npx tsx packages/cli/src/cli.ts --help
 export OPENAI_API_KEY=sk-...                 # for gpt-5.5
 export ANTHROPIC_API_KEY=sk-ant-...          # for claude-opus-4-7
 export GOOGLE_API_KEY=...                    # for gemini-3-flash-preview
-export MODEL_API_KEY=...                     # for muse-spark-1.1
+export META_MODEL_API_KEY=...                # for muse-spark-1.1
 export YUTORI_API_KEY=yt_...                 # for n1.5-latest
 export KERNEL_API_KEY=sk_...                 # always required
 

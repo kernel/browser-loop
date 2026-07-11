@@ -57,7 +57,7 @@ const cases: ProviderCase[] = [
 	},
 	{
 		provider: "meta",
-		envVar: "MODEL_API_KEY",
+		envVar: "META_MODEL_API_KEY",
 		modelRef: "meta:muse-spark-1.1",
 		tools: () => meta.computerTools({ actions: ["click"] }),
 		coordinateRange: [0, 1000],
@@ -149,7 +149,7 @@ describe("individual computer action integration", () => {
 		}, 60_000);
 	}
 
-	const metaHasKey = !!process.env.MODEL_API_KEY;
+	const metaHasKey = !!process.env.META_MODEL_API_KEY;
 	(metaHasKey ? it : it.skip)(
 		"meta continues a screenshot tool loop with previous_response_id",
 		async () => {
@@ -171,7 +171,7 @@ describe("individual computer action integration", () => {
 				tools,
 			};
 			const first = await cuaModels().complete(model, context, {
-				apiKey: process.env.MODEL_API_KEY,
+				apiKey: process.env.META_MODEL_API_KEY,
 				maxTokens: 1024,
 			});
 			const click = first.content.find((part) => part.type === "toolCall" && part.name === "click");
@@ -191,7 +191,7 @@ describe("individual computer action integration", () => {
 
 			let payload: Record<string, unknown> | undefined;
 			const second = await cuaModels().complete(model, context, {
-				apiKey: process.env.MODEL_API_KEY,
+				apiKey: process.env.META_MODEL_API_KEY,
 				maxTokens: 1024,
 				onPayload: (value) => {
 					payload = value as Record<string, unknown>;

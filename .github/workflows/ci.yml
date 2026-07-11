@@ -132,7 +132,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          MODEL_API_KEY: ${{ secrets.MODEL_API_KEY }}
+          META_MODEL_API_KEY: ${{ secrets.META_MODEL_API_KEY }}
           TZAFON_API_KEY: ${{ secrets.TZAFON_API_KEY }}
           YUTORI_API_KEY: ${{ secrets.YUTORI_API_KEY }}
         run: npm run test:integration --workspace @onkernel/cua-ai
@@ -160,7 +160,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          MODEL_API_KEY: ${{ secrets.MODEL_API_KEY }}
+          META_MODEL_API_KEY: ${{ secrets.META_MODEL_API_KEY }}
           TZAFON_API_KEY: ${{ secrets.TZAFON_API_KEY }}
           YUTORI_API_KEY: ${{ secrets.YUTORI_API_KEY }}
         run: npm test --workspace @onkernel/cua-agent -- test/e2e.live.test.ts

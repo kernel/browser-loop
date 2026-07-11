@@ -177,7 +177,7 @@ async function discoverOpenAI(args: Args): Promise<Record<string, unknown>> {
 
 async function discoverMeta(args: Args): Promise<Record<string, unknown>> {
 	const OpenAI = await importDefault("openai", "OpenAI");
-	const apiKey = process.env.MODEL_API_KEY ?? process.env.META_MODEL_API_KEY;
+	const apiKey = process.env.META_MODEL_API_KEY ?? process.env.MODEL_API_KEY;
 	const client = new OpenAI({ apiKey, baseURL: "https://api.meta.ai/v1" });
 	const rawModels = await collectAsync(client.models.list());
 	const models: ModelResult[] = rawModels.map((m) => ({

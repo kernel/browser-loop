@@ -20,7 +20,7 @@ check these environment variables, in order:
 | `openai`    | `OPENAI_API_KEY`                            |
 | `anthropic` | `ANTHROPIC_OAUTH_TOKEN`, `ANTHROPIC_API_KEY` |
 | `google`    | `GOOGLE_API_KEY`, `GEMINI_API_KEY`          |
-| `meta`      | `MODEL_API_KEY`, `META_MODEL_API_KEY`       |
+| `meta`      | `META_MODEL_API_KEY`, `MODEL_API_KEY`       |
 | `tzafon`    | `TZAFON_API_KEY`                            |
 | `yutori`    | `YUTORI_API_KEY`                            |
 

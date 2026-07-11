@@ -82,7 +82,7 @@ const cases: ProviderCase[] = [
 	},
 	{
 		name: "meta",
-		apiKeyEnvVar: "MODEL_API_KEY",
+		apiKeyEnvVar: "META_MODEL_API_KEY",
 		modelRef: "meta:muse-spark-1.1",
 		prompt: [
 			"Use the tool named `screenshot` exactly once to inspect the browser.",
