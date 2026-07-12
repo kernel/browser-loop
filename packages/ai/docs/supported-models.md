@@ -17,7 +17,7 @@ with CUA-only entries that pi-ai does not ship yet.
 
 ## `openai`
 
-API: `openai-responses` · coordinates: pixel
+Coordinates: pixel
 
 Family matches (root + numeric revision/dated-snapshot suffixes):
 
@@ -27,7 +27,7 @@ Family matches (root + numeric revision/dated-snapshot suffixes):
 
 ## `anthropic`
 
-API: `anthropic-messages` · coordinates: pixel
+Coordinates: pixel
 
 Family matches (root + numeric revision/dated-snapshot suffixes):
 
@@ -42,7 +42,7 @@ Source: [Anthropic computer use docs](https://docs.anthropic.com/en/docs/build-w
 
 ## `google`
 
-API: `google-generative-ai` · coordinates: normalized 0–999
+Coordinates: normalized 0–999
 
 Model refs use the `google:` prefix; `gemini:` is accepted as an alias.
 
@@ -73,7 +73,7 @@ Source: [Meta computer-use cookbook](https://dev.meta.ai/docs/getting-started/co
 
 ## `tzafon`
 
-API: `tzafon-responses` · coordinates: normalized 0–999
+Coordinates: normalized 0–999
 
 Exact IDs:
 
@@ -83,7 +83,7 @@ Exact IDs:
 
 ## `yutori`
 
-API: `yutori-chat-completions` · coordinates: normalized 0–1000
+Coordinates: normalized 0–1000
 
 Exact IDs:
 
