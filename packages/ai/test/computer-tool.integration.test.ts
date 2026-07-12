@@ -64,7 +64,7 @@ const cases: ProviderCase[] = [
 	},
 	{
 		provider: "meta",
-		envVar: "META_MODEL_API_KEY",
+		envVar: "META_API_KEY",
 		modelRef: "meta:muse-spark-1.1",
 		tools: () => meta.computerTools({ actions: ["click"] }),
 		coordinateRange: [0, 1000],

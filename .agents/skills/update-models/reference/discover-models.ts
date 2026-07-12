@@ -4,6 +4,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
+import { parse as parseToml } from "smol-toml";
 
 type Provider = "openai" | "anthropic" | "gemini" | "meta" | "tzafon" | "yutori";
 
@@ -178,7 +179,7 @@ async function discoverOpenAI(args: Args): Promise<Record<string, unknown>> {
 
 async function discoverMeta(args: Args): Promise<Record<string, unknown>> {
 	const OpenAI = await importDefault("openai", "OpenAI");
-	const apiKey = process.env.META_MODEL_API_KEY ?? process.env.MODEL_API_KEY;
+	const apiKey = process.env.META_API_KEY;
 	const client = new OpenAI({ apiKey, baseURL: "https://api.meta.ai/v1" });
 	const rawModels = await collectAsync(client.models.list());
 	const models: ModelResult[] = rawModels.map((m) => ({
@@ -552,8 +553,7 @@ async function yutoriApiKey(): Promise<string> {
 	if (env && env.trim()) return env;
 	const cfgPath = join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "cua", "config.toml");
 	try {
-		const { parse } = await import("smol-toml");
-		const raw = parse(await readFile(cfgPath, "utf8")) as any;
+		const raw = parseToml(await readFile(cfgPath, "utf8")) as any;
 		const profile = typeof raw?.default_profile === "string" ? raw.default_profile : undefined;
 		const key = profile ? raw?.profiles?.[profile]?.yutori_api_key : undefined;
 		if (typeof key === "string" && key.trim()) return key;

@@ -82,7 +82,7 @@ const cases: ProviderCase[] = [
 	},
 	{
 		name: "meta",
-		apiKeyEnvVar: "META_MODEL_API_KEY",
+		apiKeyEnvVar: "META_API_KEY",
 		modelRef: "meta:muse-spark-1.1",
 		prompt: [
 			"Use the tool named `screenshot` exactly once to inspect the browser.",
@@ -141,9 +141,7 @@ type RunStats = {
 };
 
 function apiKeyForCase(c: ProviderCase): string | undefined {
-	return c.name === "meta"
-		? process.env.META_MODEL_API_KEY ?? process.env.MODEL_API_KEY
-		: process.env[c.apiKeyEnvVar];
+	return process.env[c.apiKeyEnvVar];
 }
 
 function shouldRunCase(c: ProviderCase): boolean {

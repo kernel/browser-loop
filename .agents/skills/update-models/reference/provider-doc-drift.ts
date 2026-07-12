@@ -51,6 +51,19 @@ const LOCAL_FILES: Record<Provider, string> = {
 	yutori: "packages/ai/src/providers/yutori/actions.ts",
 };
 
+const META_ACTION_ALIASES: Record<string, string> = {
+	left_click: "click",
+	right_click: "click",
+	middle_click: "click",
+	triple_click: "click",
+	left_click_drag: "drag",
+	mouse_move: "move",
+	key: "keypress",
+	hold_key: "keypress",
+	left_mouse_down: "mouse_down",
+	left_mouse_up: "mouse_up",
+};
+
 const ACTION_REGEXES: Record<Provider, RegExp> = {
 	openai: /\b(click|double_click|scroll|type|wait|keypress|drag|move|screenshot)\b/g,
 	anthropic: /\b(screenshot|left_click|right_click|middle_click|double_click|triple_click|left_click_drag|mouse_move|key|type|scroll|hold_key|wait|left_mouse_down|left_mouse_up|cursor_position|zoom)\b/g,
@@ -115,6 +128,8 @@ async function checkProvider(provider: Provider, examples: any): Promise<Record<
 	const documentedBetaHeaders = unique(extractAll(docText, /computer-use-\d{4}-\d{2}-\d{2}/g));
 	const localBetaHeaders = unique(extractAll(localText, /computer-use-\d{4}-\d{2}-\d{2}/g));
 	const exampleBetaHeaders: string[] = example.beta_headers ?? [];
+	const documentedActionsForComparison = provider === "meta" ? documentedActions.map(normalizeMetaAction) : documentedActions;
+	const exampleActionsForComparison = provider === "meta" ? exampleActions.map(normalizeMetaAction) : exampleActions;
 
 	return {
 		provider,
@@ -130,8 +145,8 @@ async function checkProvider(provider: Provider, examples: any): Promise<Record<
 		documented_actions: sorted(documentedActions),
 		example_repo_actions: sorted(exampleActions),
 		repo_supported_actions: sorted(localActions),
-		unknown_documented_actions: sorted(difference(new Set(documentedActions.map((action) => normalizeProviderAction(provider, action))), new Set(localActions))),
-		unknown_example_actions: sorted(difference(new Set(exampleActions.map((action) => normalizeProviderAction(provider, action))), new Set(localActions))),
+		unknown_documented_actions: sorted(difference(new Set(documentedActionsForComparison), new Set(localActions))),
+		unknown_example_actions: sorted(difference(new Set(exampleActionsForComparison), new Set(localActions))),
 		response_fields_from_examples: sorted(example.response_fields ?? []),
 		notes: notesFor(provider, documentedToolVersions, exampleToolVersions, localToolVersions),
 	};
@@ -147,21 +162,8 @@ async function fetchText(url: string): Promise<FetchResult> {
 	}
 }
 
-function normalizeProviderAction(provider: Provider, action: string): string {
-	if (provider !== "meta") return action;
-	const aliases: Record<string, string> = {
-		left_click: "click",
-		right_click: "click",
-		middle_click: "click",
-		triple_click: "click",
-		left_click_drag: "drag",
-		mouse_move: "move",
-		key: "keypress",
-		hold_key: "keypress",
-		left_mouse_down: "mouse_down",
-		left_mouse_up: "mouse_up",
-	};
-	return aliases[action] ?? action;
+function normalizeMetaAction(action: string): string {
+	return META_ACTION_ALIASES[action] ?? action;
 }
 
 function notesFor(provider: Provider, documentedToolVersions: string[], exampleToolVersions: string[], localToolVersions: string[]): string[] {

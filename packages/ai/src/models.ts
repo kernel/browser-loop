@@ -104,6 +104,7 @@ const CUA_MODEL_OVERRIDES: Record<CuaProvider, readonly Model<Api>[]> = {
 	openai: [],
 	anthropic: [],
 	google: [],
+	// pi-ai 0.80.3 predates Meta's models.dev catalog entry.
 	meta: [cuaModel("meta", "muse-spark-1.1", "Muse Spark 1.1")],
 	tzafon: [
 		cuaModel("tzafon", "tzafon.northstar-cua-fast", "Tzafon Northstar CUA Fast"),
@@ -273,6 +274,8 @@ function cuaModel(provider: CuaProvider, id: string, name: string): Model<Api> {
 		case "google":
 			return { ...base, api: "google-generative-ai", baseUrl: "https://generativelanguage.googleapis.com/v1beta", contextWindow: 1_048_576, maxTokens: 65_536 } as Model<Api>;
 		case "meta":
+			// Meta documents the 1,048,576-token context window, and its
+			// computer-use cookbook configures 128,000 maximum output tokens.
 			return {
 				...base,
 				api: META_RESPONSES_API,

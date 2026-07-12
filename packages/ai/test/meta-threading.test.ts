@@ -34,7 +34,7 @@ describe("Meta Responses threading", () => {
 	it("threads the latest response and applies serial computer-use defaults", async () => {
 		const { context, onPayload } = threadMetaRequest(multiTurnContext(), undefined);
 		expect(context.messages).toHaveLength(1);
-		expect(await onPayload({ input: [], include: ["reasoning.encrypted_content"] }, model)).toEqual({
+		expect(await onPayload({ input: [] }, model)).toEqual({
 			input: [],
 			store: true,
 			parallel_tool_calls: false,
@@ -42,12 +42,11 @@ describe("Meta Responses threading", () => {
 		});
 	});
 
-	it("keeps encrypted reasoning on the initial unthreaded request", async () => {
+	it("omits encrypted reasoning replay on the initial request", async () => {
 		const context: Context = { messages: [{ role: "user", content: "hello", timestamp: 0 }] };
 		const { onPayload } = threadMetaRequest(context, undefined);
 		expect(await onPayload({ input: [], include: ["reasoning.encrypted_content"] }, model)).toEqual({
 			input: [],
-			include: ["reasoning.encrypted_content"],
 			store: true,
 			parallel_tool_calls: false,
 		});
@@ -64,15 +63,16 @@ describe("Meta Responses threading", () => {
 		});
 	});
 
-	it("reapplies protocol invariants after a caller payload hook", async () => {
+	it("passes the prepared request to a caller payload hook", async () => {
 		const { onPayload } = threadMetaRequest(multiTurnContext(), {
-			onPayload: (payload) => ({ ...(payload as object), store: false, parallel_tool_calls: true, include: ["reasoning.encrypted_content", "other"] }),
+			onPayload: (payload) => ({ wrapped: payload }),
 		});
 		expect(await onPayload({}, model)).toEqual({
-			store: true,
-			parallel_tool_calls: false,
-			previous_response_id: "resp_meta_1",
-			include: ["other"],
+			wrapped: {
+				store: true,
+				parallel_tool_calls: false,
+				previous_response_id: "resp_meta_1",
+			},
 		});
 	});
 });

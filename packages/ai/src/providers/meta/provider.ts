@@ -22,11 +22,7 @@ export interface MetaResponsesOptions extends PiOpenAIResponsesOptions, Response
 
 type OnPayload = NonNullable<StreamOptions["onPayload"]>;
 
-/**
- * Prepare a Meta Responses request with server-managed conversation state.
- * Meta rejects reasoning.encrypted_content when previous_response_id is set,
- * so threaded turns remove that include while retaining reasoning server-side.
- */
+/** Prepare a Meta Responses request that continues from the latest stored response. */
 export function threadMetaRequest(
 	context: Context,
 	options: (ResponseThreadingOptions & { onPayload?: OnPayload }) | undefined,
@@ -35,26 +31,17 @@ export function threadMetaRequest(
 	const previousResponseId = delta?.previousResponseId;
 	const messages = previousResponseId && delta ? delta.deltaMessages : context.messages;
 	const onPayload: OnPayload = async (payload, model) => {
-		const threaded = applyMetaPayloadDefaults(payload, previousResponseId);
-		const transformed = options?.onPayload ? ((await options.onPayload(threaded, model)) ?? threaded) : threaded;
-		return applyMetaPayloadDefaults(transformed, previousResponseId);
+		const next: Record<string, unknown> = {
+			...(payload as Record<string, unknown>),
+			store: true,
+			parallel_tool_calls: false,
+			...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
+		};
+		// CUA uses stored response state instead of stateless encrypted reasoning replay.
+		delete next.include;
+		return options?.onPayload ? ((await options.onPayload(next, model)) ?? next) : next;
 	};
 	return { context: messages === context.messages ? context : { ...context, messages }, onPayload };
-}
-
-function applyMetaPayloadDefaults(payload: unknown, previousResponseId?: string): Record<string, unknown> {
-	const next: Record<string, unknown> = {
-		...(payload as Record<string, unknown>),
-		store: true,
-		parallel_tool_calls: false,
-		...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
-	};
-	if (!previousResponseId || !Array.isArray(next.include)) return next;
-
-	const include = next.include.filter((value: unknown) => value !== "reasoning.encrypted_content");
-	if (include.length > 0) next.include = include;
-	else delete next.include;
-	return next;
 }
 
 // Meta implements the OpenAI Responses wire protocol. The model carries a
