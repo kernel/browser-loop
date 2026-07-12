@@ -75,4 +75,15 @@ describe("Meta Responses threading", () => {
 			},
 		});
 	});
+
+	it("removes include fields added by caller payload hooks", async () => {
+		const { onPayload } = threadMetaRequest(multiTurnContext(), {
+			onPayload: (payload) => ({ ...(payload as object), include: ["reasoning.encrypted_content"] }),
+		});
+		expect(await onPayload({}, model)).toEqual({
+			store: true,
+			parallel_tool_calls: false,
+			previous_response_id: "resp_meta_1",
+		});
+	});
 });

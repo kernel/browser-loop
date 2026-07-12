@@ -39,7 +39,10 @@ export function threadMetaRequest(
 		};
 		// CUA uses stored response state instead of stateless encrypted reasoning replay.
 		delete next.include;
-		return options?.onPayload ? ((await options.onPayload(next, model)) ?? next) : next;
+		const prepared = options?.onPayload ? ((await options.onPayload(next, model)) ?? next) : next;
+		const sanitized = { ...(prepared as Record<string, unknown>) };
+		delete sanitized.include;
+		return sanitized;
 	};
 	return { context: messages === context.messages ? context : { ...context, messages }, onPayload };
 }
