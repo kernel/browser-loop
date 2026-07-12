@@ -299,7 +299,7 @@ export function threadResponsesRequest(
 	context: Context,
 	api: Api,
 	options: ResponsesThreadingOptions | undefined,
-): { context: Context; onPayload: ResponsesOnPayload } {
+): { context: Context; onPayload: ResponsesOnPayload; previousResponseId?: string } {
 	const delta = responseThreadingEnabled(options) ? responseThreadingDelta(context.messages, api) : undefined;
 	const previousResponseId = delta?.previousResponseId;
 	const messages = previousResponseId && delta ? delta.deltaMessages : context.messages;
@@ -311,7 +311,7 @@ export function threadResponsesRequest(
 		};
 		return options?.onPayload ? ((await options.onPayload(threaded, model)) ?? threaded) : threaded;
 	};
-	return { context: messages === context.messages ? context : { ...context, messages }, onPayload };
+	return { context: messages === context.messages ? context : { ...context, messages }, onPayload, previousResponseId };
 }
 
 /**

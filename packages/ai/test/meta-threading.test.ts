@@ -54,7 +54,10 @@ describe("Meta Responses threading", () => {
 
 	it("sends full history without previous_response_id when threading is disabled", async () => {
 		const context = multiTurnContext();
-		const prepared = threadMetaRequest(context, { disableResponseThreading: true });
+		const prepared = threadMetaRequest(context, {
+			disableResponseThreading: true,
+			onPayload: (payload) => ({ ...(payload as object), previous_response_id: "foreign-response" }),
+		});
 		expect(prepared.context).toBe(context);
 		expect(await prepared.onPayload({ input: [] }, model)).toEqual({
 			input: [],
@@ -65,20 +68,25 @@ describe("Meta Responses threading", () => {
 
 	it("passes the prepared request to a caller payload hook", async () => {
 		const { onPayload } = threadMetaRequest(multiTurnContext(), {
-			onPayload: (payload) => ({ wrapped: payload }),
+			onPayload: (payload) => ({ ...(payload as object), caller_field: true }),
 		});
 		expect(await onPayload({}, model)).toEqual({
-			wrapped: {
-				store: true,
-				parallel_tool_calls: false,
-				previous_response_id: "resp_meta_1",
-			},
+			caller_field: true,
+			store: true,
+			parallel_tool_calls: false,
+			previous_response_id: "resp_meta_1",
 		});
 	});
 
-	it("removes include fields added by caller payload hooks", async () => {
+	it("reapplies Meta constraints after caller payload hooks", async () => {
 		const { onPayload } = threadMetaRequest(multiTurnContext(), {
-			onPayload: (payload) => ({ ...(payload as object), include: ["reasoning.encrypted_content"] }),
+			onPayload: (payload) => ({
+				...(payload as object),
+				store: false,
+				parallel_tool_calls: true,
+				previous_response_id: "wrong-response",
+				include: ["reasoning.encrypted_content"],
+			}),
 		});
 		expect(await onPayload({}, model)).toEqual({
 			store: true,

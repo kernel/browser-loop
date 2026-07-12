@@ -20,7 +20,8 @@ export interface OpenAIResponsesOptions extends PiOpenAIResponsesOptions, Respon
 
 /** Prepare a request for the OpenAI Responses transport with stored response state. */
 export function threadRequest(context: Context, options: ResponsesThreadingOptions | undefined) {
-	return threadResponsesRequest(context, OPENAI_CUA_RESPONSES_API, options);
+	const { context: threadedContext, onPayload } = threadResponsesRequest(context, OPENAI_CUA_RESPONSES_API, options);
+	return { context: threadedContext, onPayload };
 }
 
 // pi-ai's builtin stream fns are typed to the "openai-responses" api; we reuse them under our routed api, hence `as never` on the model.

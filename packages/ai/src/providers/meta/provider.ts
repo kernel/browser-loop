@@ -31,7 +31,13 @@ export function threadMetaRequest(context: Context, options: ResponsesThreadingO
 	});
 	const onPayload: typeof threaded.onPayload = async (payload, model) => {
 		const prepared = await threaded.onPayload(payload, model);
-		const sanitized = { ...(prepared as Record<string, unknown>) };
+		const sanitized: Record<string, unknown> = {
+			...(prepared as Record<string, unknown>),
+			store: true,
+			parallel_tool_calls: false,
+		};
+		delete sanitized.previous_response_id;
+		if (threaded.previousResponseId) sanitized.previous_response_id = threaded.previousResponseId;
 		// CUA uses stored response state instead of stateless encrypted reasoning replay.
 		delete sanitized.include;
 		return sanitized;
