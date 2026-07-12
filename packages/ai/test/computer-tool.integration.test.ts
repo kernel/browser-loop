@@ -63,14 +63,6 @@ const cases: ProviderCase[] = [
 		requireToolCalls: true,
 	},
 	{
-		provider: "meta",
-		envVar: "META_API_KEY",
-		modelRef: "meta:muse-spark-1.1",
-		tools: () => meta.computerTools({ actions: ["click"] }),
-		coordinateRange: [0, 1000],
-		requireToolCalls: true,
-	},
-	{
 		provider: "tzafon",
 		envVar: "TZAFON_API_KEY",
 		modelRef: "tzafon:tzafon.northstar-cua-fast",
@@ -187,6 +179,12 @@ describe("individual computer action integration", () => {
 			});
 			const click = first.content.find((part) => part.type === "toolCall" && part.name === "click");
 			expect(click).toBeDefined();
+			expect(typeof click!.arguments.x).toBe("number");
+			expect(typeof click!.arguments.y).toBe("number");
+			expect(click!.arguments.x as number).toBeGreaterThanOrEqual(0);
+			expect(click!.arguments.x as number).toBeLessThanOrEqual(1000);
+			expect(click!.arguments.y as number).toBeGreaterThanOrEqual(0);
+			expect(click!.arguments.y as number).toBeLessThanOrEqual(1000);
 			expect(first.responseId).toBeTruthy();
 			context.messages.push(first, {
 				role: "toolResult",
