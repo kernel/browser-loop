@@ -1,8 +1,10 @@
-import { assertComputerModeOnly, computerToolExecutors, computerTools } from "../common";
+import { assertComputerModeOnly, buildDefaultComputerSystemPrompt, computerToolExecutors, computerTools } from "../common";
 import type { ComputerToolCoordinateSystem, ComputerToolsOptions, CuaProviderModule } from "../common";
 
 export {
+	buildDefaultComputerSystemPrompt as buildMetaSystemPrompt,
 	CUA_ACTION_TYPES as META_CUA_ACTION_TYPES,
+	DEFAULT_COMPUTER_INSTRUCTIONS as META_COMPUTER_INSTRUCTIONS,
 	computerToolExecutors,
 	computerTools,
 	createCuaActionSchema as createActionSchema,
@@ -19,19 +21,10 @@ export {
 } from "./provider";
 export type { MetaResponsesOptions } from "./provider";
 
-// CUA supplies Muse Spark with its canonical function actions: click,
-// double_click, mouse_down, mouse_up, type, keypress, scroll, move, drag,
-// wait, screenshot, goto, back, forward, url, and cursor_position.
-// Meta's computer-use reference agent uses normalized 0-1000 coordinates.
+// Muse Spark reports screenshot positions on a normalized 0-1000 grid.
+// Source: https://dev.meta.ai/docs/features/image-understanding#coordinate-system
 export function coordinateSystem(): ComputerToolCoordinateSystem {
 	return { type: "normalized", range: [0, 1000] };
-}
-
-export const META_COMPUTER_INSTRUCTIONS = `You control a Kernel cloud browser through individual browser tools. Base each action on the latest observed state and request a screenshot when you need a fresh view.`;
-
-/** Build the default system prompt used with Meta CUA models. */
-export function buildMetaSystemPrompt(opts: { suffix?: string } = {}): string {
-	return [META_COMPUTER_INSTRUCTIONS, opts.suffix].filter(Boolean).join("\n\n");
 }
 
 export const providerModule = {
@@ -44,5 +37,5 @@ export const providerModule = {
 		return computerToolExecutors(options);
 	},
 	coordinateSystem,
-	buildSystemPrompt: buildMetaSystemPrompt,
+	buildSystemPrompt: buildDefaultComputerSystemPrompt,
 } satisfies CuaProviderModule;

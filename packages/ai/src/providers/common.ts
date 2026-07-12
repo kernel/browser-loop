@@ -2,10 +2,12 @@ import {
 	Type,
 	type Api,
 	type AssistantMessage,
+	type Context,
 	type Message,
 	type Model,
 	type SimpleStreamOptions,
 	type Static,
+	type StreamOptions,
 	type TSchema,
 	type Tool,
 } from "@earendil-works/pi-ai";
@@ -24,6 +26,13 @@ export * from "../native-tools";
  * {@link CUA_COMPUTER_ACTION_TYPES} and {@link CUA_BROWSER_ACTION_TYPES}.
  */
 export const CUA_ACTION_TYPES = CUA_DEFAULT_COMPUTER_ACTION_TYPES;
+
+export const DEFAULT_COMPUTER_INSTRUCTIONS = `You control a Kernel cloud browser through individual browser tools. Base each action on the latest observed state and request a screenshot when you need a fresh view.`;
+
+/** Build the provider-neutral system prompt for canonical computer tools. */
+export function buildDefaultComputerSystemPrompt(opts: { suffix?: string } = {}): string {
+	return [DEFAULT_COMPUTER_INSTRUCTIONS, opts.suffix].filter(Boolean).join("\n\n");
+}
 
 type ObjectSchemaWithProperties = TSchema & { properties: Record<string, TSchema> };
 
@@ -273,6 +282,36 @@ export interface CuaSimpleStreamOptions extends SimpleStreamOptions, ResponseThr
 export interface ResponseThreadingOptions {
 	/** Force this request to send its full message context instead of chaining to a stored provider response. */
 	disableResponseThreading?: boolean;
+}
+
+type ResponsesOnPayload = NonNullable<StreamOptions["onPayload"]>;
+
+/** Options shared by OpenAI-compatible Responses transports that support threading. */
+export interface ResponsesThreadingOptions extends ResponseThreadingOptions {
+	onPayload?: ResponsesOnPayload;
+}
+
+/**
+ * Prepare an OpenAI-compatible Responses request using stored response state.
+ * When a prior response exists, only messages after it are sent.
+ */
+export function threadResponsesRequest(
+	context: Context,
+	api: Api,
+	options: ResponsesThreadingOptions | undefined,
+): { context: Context; onPayload: ResponsesOnPayload } {
+	const delta = responseThreadingEnabled(options) ? responseThreadingDelta(context.messages, api) : undefined;
+	const previousResponseId = delta?.previousResponseId;
+	const messages = previousResponseId && delta ? delta.deltaMessages : context.messages;
+	const onPayload: ResponsesOnPayload = async (payload, model) => {
+		const threaded = {
+			...(payload as Record<string, unknown>),
+			store: true,
+			...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
+		};
+		return options?.onPayload ? ((await options.onPayload(threaded, model)) ?? threaded) : threaded;
+	};
+	return { context: messages === context.messages ? context : { ...context, messages }, onPayload };
 }
 
 /**
