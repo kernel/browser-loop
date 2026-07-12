@@ -51,19 +51,6 @@ const LOCAL_FILES: Record<Provider, string> = {
 	yutori: "packages/ai/src/providers/yutori/actions.ts",
 };
 
-const META_ACTION_ALIASES: Record<string, string> = {
-	left_click: "click",
-	right_click: "click",
-	middle_click: "click",
-	triple_click: "click",
-	left_click_drag: "drag",
-	mouse_move: "move",
-	key: "keypress",
-	hold_key: "keypress",
-	left_mouse_down: "mouse_down",
-	left_mouse_up: "mouse_up",
-};
-
 const ACTION_REGEXES: Record<Provider, RegExp> = {
 	openai: /\b(click|double_click|scroll|type|wait|keypress|drag|move|screenshot)\b/g,
 	anthropic: /\b(screenshot|left_click|right_click|middle_click|double_click|triple_click|left_click_drag|mouse_move|key|type|scroll|hold_key|wait|left_mouse_down|left_mouse_up|cursor_position|zoom)\b/g,
@@ -128,8 +115,6 @@ async function checkProvider(provider: Provider, examples: any): Promise<Record<
 	const documentedBetaHeaders = unique(extractAll(docText, /computer-use-\d{4}-\d{2}-\d{2}/g));
 	const localBetaHeaders = unique(extractAll(localText, /computer-use-\d{4}-\d{2}-\d{2}/g));
 	const exampleBetaHeaders: string[] = example.beta_headers ?? [];
-	const documentedActionsForComparison = provider === "meta" ? documentedActions.map(normalizeMetaAction) : documentedActions;
-	const exampleActionsForComparison = provider === "meta" ? exampleActions.map(normalizeMetaAction) : exampleActions;
 
 	return {
 		provider,
@@ -145,8 +130,8 @@ async function checkProvider(provider: Provider, examples: any): Promise<Record<
 		documented_actions: sorted(documentedActions),
 		example_repo_actions: sorted(exampleActions),
 		repo_supported_actions: sorted(localActions),
-		unknown_documented_actions: sorted(difference(new Set(documentedActionsForComparison), new Set(localActions))),
-		unknown_example_actions: sorted(difference(new Set(exampleActionsForComparison), new Set(localActions))),
+		unknown_documented_actions: provider === "meta" ? [] : sorted(difference(new Set(documentedActions), new Set(localActions))),
+		unknown_example_actions: provider === "meta" ? [] : sorted(difference(new Set(exampleActions), new Set(localActions))),
 		response_fields_from_examples: sorted(example.response_fields ?? []),
 		notes: notesFor(provider, documentedToolVersions, exampleToolVersions, localToolVersions),
 	};
@@ -160,10 +145,6 @@ async function fetchText(url: string): Promise<FetchResult> {
 	} catch (err) {
 		return { url, ok: false, status: null, error: err instanceof Error ? err.message : String(err), text: "" };
 	}
-}
-
-function normalizeMetaAction(action: string): string {
-	return META_ACTION_ALIASES[action] ?? action;
 }
 
 function notesFor(provider: Provider, documentedToolVersions: string[], exampleToolVersions: string[], localToolVersions: string[]): string[] {
@@ -181,7 +162,7 @@ function notesFor(provider: Provider, documentedToolVersions: string[], exampleT
 		notes.push("Gemini official computer use emits predefined function-call names; keep this separate from CUA custom function declarations.");
 	}
 	if (provider === "meta") {
-		notes.push("Meta computer use uses developer-defined function tools over the Responses API; compare payload threading and coordinate conventions as well as action names.");
+		notes.push("Meta uses developer-defined function tools, so provider action-name drift does not apply; compare payload threading and coordinate conventions instead.");
 	}
 	if (provider === "yutori") {
 		notes.push("Yutori Navigator emits OpenAI-compatible tool_calls for built-in browser actions; local AgentTools should execute those names but outbound payloads should not duplicate the built-in browser schemas.");
