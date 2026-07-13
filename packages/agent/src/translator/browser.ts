@@ -1029,7 +1029,7 @@ export class BrowserExecutor {
 		rootSessionTargetId = targetId,
 	): Promise<FrameStitchResult> {
 		const stitches = new Map<string, FrameStitch>();
-		const visitedFrames = new Set<string>([targetId]);
+		const visitedFrames = new Set<string>([targetId, rootFrameKey]);
 		let complete = true;
 		const visit = async (
 			frameNodes: AXNode[],

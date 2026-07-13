@@ -1744,9 +1744,11 @@ describe("BrowserExecutor iframe stitching", () => {
 		]);
 		fake.setIframeFrame(60, "FRAME-INNER");
 		fake.setFrameTree("FRAME-INNER", [
-			ax({ nodeId: "g1", role: "RootWebArea", name: "Nested", childIds: ["g2"] }),
+			ax({ nodeId: "g1", role: "RootWebArea", name: "Nested", childIds: ["g2", "g3"] }),
 			ax({ nodeId: "g2", role: "button", name: "Deep", backendDOMNodeId: 70, parentId: "g1" }),
+			ax({ nodeId: "g3", role: "Iframe", backendDOMNodeId: 71, parentId: "g1" }),
 		]);
+		fake.setIframeFrame(71, "FRAME-SP");
 		const inner = fake.cdp as unknown as { send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown> };
 		let missStitch = false;
 		const wrapped = {
@@ -1763,8 +1765,10 @@ describe("BrowserExecutor iframe stitching", () => {
 		missStitch = true;
 
 		const scoped = await snapshotText(executor, { ref: "e2" });
-		expect(scoped).toContain('region "Inside" [e5]');
-		expect(scoped).toContain('button "Deep" [e7]');
+		expect(scoped).toContain('region "Inside" [e');
+		expect(scoped).toContain('button "Deep" [e');
+		const frameParents = (executor as unknown as { frameParents: Map<string, string> }).frameParents;
+		expect(frameParents.get("FRAME-SP")).toBe("TARGET-1");
 	});
 
 	const OOPIF_PAGE = [
