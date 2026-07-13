@@ -5,7 +5,9 @@ name: Prerelease CUA CLI
 # "tag is on main" gate — this exists to try unmerged work via
 # `npm install -g @onkernel/cua-cli@<dist-tag>`. The published version is
 # `<pkg-version>-<dist-tag>.<run-number>`, unique per run, and only reachable
-# through the chosen dist-tag, so normal installs are unaffected.
+# through the chosen dist-tag, so normal installs are unaffected. The tarball
+# bundles cua-ai and cua-agent from the checked-out ref so cross-workspace branch
+# changes are included without publishing those packages separately.
 
 on:
   workflow_dispatch:
@@ -65,21 +67,59 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "cua-cli prerelease version: $VERSION"
 
-      - name: Verify runtime dependencies are published
-        run: |
-          node -p 'require("./packages/cli/package.json").dependencies["@onkernel/cua-ai"]' \
-            | xargs -I{} npm view @onkernel/cua-ai@{} version
-          node -p 'require("./packages/cli/package.json").dependencies["@onkernel/cua-agent"]' \
-            | xargs -I{} npm view @onkernel/cua-agent@{} version
-
       - run: npm run build --workspace @onkernel/cua-ai
       - run: npm run build --workspace @onkernel/cua-agent
 
       - name: Build cua-cli
         run: npm run build --workspace @onkernel/cua-cli
 
-      - name: Pack tarball
-        run: npm pack --workspace @onkernel/cua-cli --pack-destination "$RUNNER_TEMP"
+      - name: Pack branch workspace dependencies
+        run: |
+          mkdir -p "$RUNNER_TEMP/workspace-packages"
+          npm pack --workspace @onkernel/cua-ai --pack-destination "$RUNNER_TEMP/workspace-packages"
+          npm pack --workspace @onkernel/cua-agent --pack-destination "$RUNNER_TEMP/workspace-packages"
+
+      - name: Pack bundled CLI prerelease
+        run: |
+          export STAGE_DIR="$RUNNER_TEMP/cua-cli-prerelease"
+          mkdir -p "$STAGE_DIR/node_modules/@onkernel"
+          cp packages/cli/package.json packages/cli/README.md "$STAGE_DIR/"
+          cp -R packages/cli/dist "$STAGE_DIR/"
+
+          for package in cua-ai cua-agent; do
+            tarball=$(find "$RUNNER_TEMP/workspace-packages" -name "onkernel-${package}-*.tgz" -print -quit)
+            mkdir -p "$STAGE_DIR/node_modules/@onkernel/$package"
+            tar -xzf "$tarball" --strip-components=1 -C "$STAGE_DIR/node_modules/@onkernel/$package"
+          done
+
+          node --input-type=module <<'EOF'
+          import { readFileSync, writeFileSync } from "node:fs";
+          import { join } from "node:path";
+
+          const packagePath = join(process.env.STAGE_DIR, "package.json");
+          const pkg = JSON.parse(readFileSync(packagePath, "utf8"));
+          const bundled = ["@onkernel/cua-ai", "@onkernel/cua-agent"];
+
+          for (const name of bundled) {
+            const dependency = JSON.parse(
+              readFileSync(join(process.env.STAGE_DIR, "node_modules", name, "package.json"), "utf8"),
+            );
+            pkg.dependencies[name] = dependency.version;
+            for (const [dependencyName, version] of Object.entries(dependency.dependencies ?? {})) {
+              if (bundled.includes(dependencyName)) continue;
+              const current = pkg.dependencies[dependencyName];
+              if (current && current !== version) {
+                throw new Error(`Conflicting ${dependencyName} versions: ${current} and ${version}`);
+              }
+              pkg.dependencies[dependencyName] = version;
+            }
+          }
+
+          pkg.bundledDependencies = bundled;
+          writeFileSync(packagePath, `${JSON.stringify(pkg, null, 2)}\n`);
+          EOF
+
+          npm pack "$STAGE_DIR" --pack-destination "$RUNNER_TEMP"
 
       - name: CLI bin smoke test
         run: |
@@ -87,6 +127,8 @@ jobs:
           cd "$SMOKE_DIR"
           npm init -y > /dev/null
           npm install "$RUNNER_TEMP"/onkernel-cua-cli-*.tgz
+          test -f node_modules/@onkernel/cua-cli/node_modules/@onkernel/cua-ai/dist/index.js
+          test -f node_modules/@onkernel/cua-cli/node_modules/@onkernel/cua-agent/dist/index.js
           OUTPUT=$(./node_modules/.bin/cua --help)
           echo "$OUTPUT"
           echo "$OUTPUT" | grep -q "Usage:"
@@ -95,7 +137,7 @@ jobs:
       - name: Publish to npm
         env:
           DIST_TAG: ${{ inputs.dist_tag }}
-        run: npm publish --workspace @onkernel/cua-cli --access public --tag "$DIST_TAG"
+        run: npm publish "$RUNNER_TEMP"/onkernel-cua-cli-*.tgz --access public --tag "$DIST_TAG"
 
       - name: Job summary
         env:
