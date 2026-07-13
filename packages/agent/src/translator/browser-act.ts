@@ -21,6 +21,7 @@ import type {
 const EXPECTATION_TIMEOUT_MS = 2_000;
 const EXPECTATION_POLL_MS = 50;
 
+/** Internal three-valued result produced while checking a browser expectation. */
 export interface ExpectationEvaluation {
 	truth?: boolean;
 	details: string[];
@@ -28,11 +29,13 @@ export interface ExpectationEvaluation {
 
 type RefExpectation = Extract<CuaBrowserExpectation, { type: "ref" }>;
 
+/** Browser capabilities required by the dependent action state machine. */
 export interface BrowserActRuntime {
 	observe(tabId?: string): Promise<BrowserObservation>;
 	targetIds(): Promise<string[]>;
 	dialogCount(): number;
 	generations(): ReadonlyMap<string, number>;
+	navigationEpoch(targetId: string): number;
 	executeStep(step: CuaBrowserActStep, tabId?: string): Promise<void>;
 	evaluateRefExpectation(expectation: RefExpectation, observation: BrowserObservation): ExpectationEvaluation;
 	presentObservation(observation: BrowserObservation, action: CuaActionBrowserSnapshot): BrowserPresentation;
@@ -40,6 +43,7 @@ export interface BrowserActRuntime {
 	rememberPresentation(presentation: BrowserPresentation): void;
 }
 
+/** Execute a dependent browser action list against an injected browser runtime. */
 export async function runBrowserAct(action: CuaActionBrowserAct, runtime: BrowserActRuntime): Promise<BrowserActResult> {
 	const observationAction: CuaActionBrowserSnapshot = { type: "browser_snapshot", tab_id: action.tab_id, ...action.successor };
 	const completeObservationAction: CuaActionBrowserSnapshot = {
@@ -87,6 +91,7 @@ export async function runBrowserAct(action: CuaActionBrowserAct, runtime: Browse
 			current,
 			beforeObservation,
 			runtime.generations(),
+			runtime.navigationEpoch(beforeObservation.targetId),
 			currentTargets,
 			beforeTargets,
 			currentDialogCount,
@@ -128,6 +133,7 @@ export async function runBrowserAct(action: CuaActionBrowserAct, runtime: Browse
 					beforeObservation,
 					afterObservation,
 					runtime.generations(),
+					runtime.navigationEpoch(afterObservation.targetId),
 					beforeTargets,
 					afterTargets,
 					dialogCount,
@@ -202,6 +208,7 @@ export async function runBrowserAct(action: CuaActionBrowserAct, runtime: Browse
 					current,
 					afterObservation,
 					runtime.generations(),
+					runtime.navigationEpoch(afterObservation.targetId),
 					currentTargets,
 					afterTargets,
 					currentDialogCount,
@@ -249,6 +256,7 @@ export async function runBrowserAct(action: CuaActionBrowserAct, runtime: Browse
 				current,
 				successorObservation,
 				runtime.generations(),
+				runtime.navigationEpoch(successorObservation.targetId),
 				currentTargets,
 				successorTargets,
 				currentDialogCount,
@@ -387,8 +395,9 @@ function observationGenerationsChanged(
 	before: BrowserObservation,
 	after: BrowserObservation,
 	live: ReadonlyMap<string, number>,
+	liveNavigationEpoch: number,
 ): boolean {
-	if (before.navigationEpoch !== after.navigationEpoch) return true;
+	if (before.navigationEpoch !== after.navigationEpoch || after.navigationEpoch !== liveNavigationEpoch) return true;
 	for (const [key, generation] of after.generations) {
 		if (generation !== (live.get(key) ?? 0)) return true;
 		const previous = before.generations.get(key);
@@ -401,13 +410,14 @@ function browserControlChange(
 	before: BrowserObservation,
 	after: BrowserObservation,
 	liveGenerations: ReadonlyMap<string, number>,
+	liveNavigationEpoch: number,
 	beforeTargets: readonly string[],
 	afterTargets: readonly string[],
 	beforeDialogCount: number,
 	afterDialogCount: number,
 ): BrowserActResult["stop_reason"] {
 	if (afterDialogCount > beforeDialogCount) return "dialog";
-	if (observationGenerationsChanged(before, after, liveGenerations)) return "navigation";
+	if (observationGenerationsChanged(before, after, liveGenerations, liveNavigationEpoch)) return "navigation";
 	if (targetsChanged(beforeTargets, afterTargets)) return "control_flow";
 	return undefined;
 }

@@ -546,6 +546,7 @@ export class BrowserExecutor {
 			targetIds: () => this.pageTargetIds(),
 			dialogCount: () => this.dialogNotes.length,
 			generations: () => this.generations,
+			navigationEpoch: (targetId) => this.navigationEpoch(targetId),
 			executeStep: (step, tabId) => this.executeActStep(step, tabId),
 			evaluateRefExpectation: (expectation, observation) => this.evaluateRefExpectation(expectation, observation),
 			presentObservation: (observation, snapshot) => this.presentObservation(observation, snapshot),
@@ -1311,10 +1312,6 @@ function normalizeState(value: unknown): boolean | "mixed" | undefined {
 	if (value === false || value === "false") return false;
 	if (value === "mixed") return "mixed";
 	return undefined;
-}
-
-function errorMessage(err: unknown): string {
-	return err instanceof Error ? err.message : String(err);
 }
 
 function tabOf(action: { tab_id?: string }): string | undefined {

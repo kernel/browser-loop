@@ -1,7 +1,9 @@
 import type { BrowserObservationDiff } from "./types";
 
+/** Internal marker replaced with a minted element ref during rendering. */
 export const REF_PLACEHOLDER = "\u0000";
 
+/** Minimal CDP accessibility node shape used by browser observation code. */
 export interface AXNode {
 	nodeId: string;
 	ignored?: boolean;
@@ -14,11 +16,13 @@ export interface AXNode {
 	childIds?: string[];
 }
 
+/** Role/name cohort positions used for conservative ref healing. */
 export interface NthIndex {
 	index: Map<string, number>;
 	cohorts: Map<string, number>;
 }
 
+/** Frame and generation metadata needed to render and mint refs. */
 export interface RenderContext {
 	targetId: string;
 	frameKey: string;
@@ -29,28 +33,33 @@ export interface RenderContext {
 	cursorIds?: ReadonlySet<number>;
 }
 
+/** One normalized accessibility line before ref placeholders are resolved. */
 export interface ObservationLine {
 	text: string;
 	refNode?: AXNode;
 	ctx: RenderContext;
 }
 
+/** Accessibility node paired with its owning frame context. */
 export interface ObservedNode {
 	node: AXNode;
 	ctx: RenderContext;
 }
 
+/** Accessibility tree collected for one stitched child frame. */
 export interface FrameStitch {
 	byId: Map<string, AXNode>;
 	roots: string[];
 	ctx: RenderContext;
 }
 
+/** Collected child frames plus whether the traversal was complete. */
 export interface FrameStitchResult {
 	frames: Map<string, FrameStitch>;
 	complete: boolean;
 }
 
+/** Complete structured browser state collected before presentation filtering. */
 export interface BrowserObservation {
 	targetId: string;
 	navigationEpoch: number;
@@ -63,6 +72,7 @@ export interface BrowserObservation {
 	complete: boolean;
 }
 
+/** Render-ready projection of a structured browser observation. */
 export interface BrowserPresentation {
 	observation: BrowserObservation;
 	key: string;
@@ -70,14 +80,17 @@ export interface BrowserPresentation {
 	shape: string;
 }
 
+/** Signals that browser state changed while an observation was being collected. */
 export class ObservationChangedError extends Error {
 	constructor() {
 		super("page changed while collecting the browser observation");
 	}
 }
 
+/** Signals that a referenced frame was absent from the page-root stitched observation. */
 export class MissingFrameObservationError extends Error {}
 
+/** Compute a complete normalized successor diff without exposing unstable refs. */
 export function diffObservations(before: BrowserPresentation, after: BrowserPresentation): BrowserObservationDiff {
 	const oldLines = before.lines.map((line) => line.text.replace(REF_PLACEHOLDER, "ref"));
 	const newLines = after.lines.map((line) => line.text.replace(REF_PLACEHOLDER, "ref"));
@@ -124,10 +137,12 @@ export function buildNthIndex(nodes: AXNode[]): NthIndex {
 	return { index, cohorts };
 }
 
+/** Build the stable key for a role/name healing cohort. */
 export function cohortKey(role: string, name: string): string {
 	return `${role}\u0000${name}`;
 }
 
+/** Build the lookup key for an iframe node's stitched child tree. */
 export function frameStitchKey(parentFrameKey: string, backendNodeId: number): string {
 	return `${parentFrameKey}\u0000${backendNodeId}`;
 }
