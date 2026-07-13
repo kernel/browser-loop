@@ -36,11 +36,12 @@ export function buildDefaultComputerSystemPrompt(opts: { suffix?: string } = {})
 	return [DEFAULT_COMPUTER_INSTRUCTIONS, opts.suffix].filter(Boolean).join("\n\n");
 }
 
-type ObjectSchemaWithProperties = TSchema & { properties: Record<string, TSchema> };
+type SchemaWithDefinitions = TSchema & { $defs?: Record<string, TSchema> };
+type ObjectSchemaWithProperties = SchemaWithDefinitions & { properties: Record<string, TSchema> };
 
 function createCuaActionArgumentSchema(action: CuaActionType, mode: CuaMode): TSchema {
 	const schemaByType = cuaActionSchemaByType(schemaOptionsForMode(mode));
-	const schema = schemaByType[action] as ObjectSchemaWithProperties & { $defs?: Record<string, TSchema> };
+	const schema = schemaByType[action] as ObjectSchemaWithProperties;
 	const { type: _type, ...properties } = schema.properties;
 	return Type.Object(properties, { additionalProperties: false, ...(schema.$defs ? { $defs: schema.$defs } : {}) });
 }
@@ -63,9 +64,20 @@ export function createCuaActionToolDefinitions(actions: readonly CuaActionType[]
 export const CuaActionSchema = createCuaActionSchema();
 
 export function createCuaBatchSchema(actions?: readonly CuaActionType[], mode: CuaMode = "computer"): TSchema {
-	return Type.Object({
-		actions: Type.Array(createCuaActionSchema(actions, mode), { description: "Ordered computer actions to execute." }),
+	const actionTypes = actions ?? CUA_ACTION_TYPES;
+	if (actionTypes.length === 0) throw new Error("actions must include at least one CUA action type");
+	const schemaByType = cuaActionSchemaByType(schemaOptionsForMode(mode));
+	const definitions: Record<string, TSchema> = {};
+	const schemas = actionTypes.map((action) => {
+		const { $defs, ...schema } = schemaByType[action] as SchemaWithDefinitions;
+		if ($defs) Object.assign(definitions, $defs);
+		return schema as TSchema;
 	});
+	const actionSchema = schemas.length === 1 ? schemas[0]! : Type.Union(schemas);
+	return Type.Object(
+		{ actions: Type.Array(actionSchema, { description: "Ordered computer actions to execute." }) },
+		Object.keys(definitions).length > 0 ? { $defs: definitions } : {},
+	);
 }
 
 export const CuaBatchSchema = createCuaBatchSchema();

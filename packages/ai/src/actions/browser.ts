@@ -77,11 +77,13 @@ type CuaBrowserExpectationLeaf =
 
 type NonEmptyArray<T> = [T, ...T[]];
 
+/** Semantic condition evaluated before and after browser action delivery. */
 export type CuaBrowserExpectation =
 	| CuaBrowserExpectationLeaf
 	| { all: NonEmptyArray<CuaBrowserExpectationLeaf> }
 	| { any: NonEmptyArray<CuaBrowserExpectationLeaf> };
 
+/** One ref- or focus-based operation in a dependent `browser_act` action list. */
 export type CuaBrowserActStep =
 	| { type: "click"; ref: string; button?: "left" | "right" | "middle"; num_clicks?: number; modifiers?: string[]; expect?: CuaBrowserExpectation }
 	| { type: "hover"; ref: string; expect?: CuaBrowserExpectation }
@@ -91,6 +93,7 @@ export type CuaBrowserActStep =
 	| { type: "scroll_to"; ref: string; expect?: CuaBrowserExpectation }
 	| { type: "wait"; ms?: number; expect?: CuaBrowserExpectation };
 
+/** Dependent browser action list with optional per-step and final semantic expectations. */
 export interface CuaActionBrowserAct {
 	type: "browser_act";
 	steps: NonEmptyArray<CuaBrowserActStep>;

@@ -913,7 +913,12 @@ export class BrowserExecutor {
 						parentSession,
 					);
 					const frameId = dom.contentDocument?.frameId ?? dom.frameId;
-					if (!frameId || visitedFrames.has(frameId)) {
+					if (!frameId) {
+						complete = false;
+						continue;
+					}
+					if (frameId === targetId) continue;
+					if (visitedFrames.has(frameId)) {
 						complete = false;
 						continue;
 					}
@@ -1380,7 +1385,8 @@ export class BrowserExecutor {
 				this.refs.delete(ref);
 			}
 		}
-		for (const frameId of invalidatedFrames) this.generations.set(frameId, this.generation(frameId) + 1);
+		for (const frameId of invalidatedFrames) this.generations.delete(frameId);
+		this.generations.delete(targetId);
 	}
 
 	/** SPAs can mint refs indefinitely without ever navigating; bound per-target growth by evicting the oldest. */

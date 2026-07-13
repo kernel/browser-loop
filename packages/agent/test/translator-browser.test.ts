@@ -350,6 +350,17 @@ describe("BrowserExecutor ref lifecycle", () => {
 		await expect(executor.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction)).rejects.toThrow(/stale/);
 	});
 
+	it("drops generation state when a target detaches", async () => {
+		const { cdp, emit } = createFakeCdp(BUTTON_TREE);
+		const executor = new BrowserExecutor(cdp);
+		await snapshotText(executor);
+
+		emit({ method: "Target.detachedFromTarget", params: { sessionId: "session-1", targetId: "TARGET-1" } });
+
+		expect((executor as unknown as { generations: Map<string, number> }).generations.has("TARGET-1")).toBe(false);
+		expect(refsOf(executor).size).toBe(0);
+	});
+
 	it("does not double-bump the generation for its own navigate", async () => {
 		const { cdp, emit } = createFakeCdp(BUTTON_TREE);
 		const executor = new BrowserExecutor(cdp);
@@ -1373,6 +1384,24 @@ describe("BrowserExecutor browser_act", () => {
 		expect(result.steps[0]?.expectation?.status).toBe("newly_verified");
 		expect(result.final_expectation?.status).toBe("newly_verified");
 		expect(observedSuccessor(result).diff.url?.after).toBe("https://a.test/saved");
+	});
+
+	it("does not mark a page-target iframe stub as incomplete", async () => {
+		const fake = createFakeCdp([
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "3"] }),
+			ax({ nodeId: "2", role: "button", name: "Save", backendDOMNodeId: 42, parentId: "1" }),
+			ax({ nodeId: "3", role: "Iframe", backendDOMNodeId: 50, parentId: "1" }),
+		]);
+		fake.setIframeFrame(50, "TARGET-1");
+		const executor = new BrowserExecutor(fake.cdp);
+		await snapshotText(executor);
+
+		const result = await actResult(executor, {
+			steps: [{ type: "click", ref: "e1", expect: { type: "text", text: "Missing", exists: false } }],
+		});
+
+		expect(result.stop_reason).toBeUndefined();
+		expect(result.steps[0]?.expectation?.status).toBe("preexisting");
 	});
 
 	it("does not verify absence against an incomplete nested iframe observation", async () => {

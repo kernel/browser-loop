@@ -103,6 +103,7 @@ describe("mode tool schemas", () => {
 			description: "batch",
 			parameters: createCuaBatchSchema(defaultActionsForMode("browser"), "browser"),
 		};
+		expect(batch.parameters.$defs).toBeDefined();
 		expect(() =>
 			validateToolArguments(batch, {
 				id: "call_1",
