@@ -350,10 +350,11 @@ describe("BrowserExecutor ref lifecycle", () => {
 		await expect(executor.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction)).rejects.toThrow(/stale/);
 	});
 
-	it("prunes generation and ancestry state for rotated iframes", async () => {
+	it("prunes rotated iframe state when another iframe is incomplete", async () => {
 		const fake = createFakeCdp([
-			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "3"] }),
 			ax({ nodeId: "2", role: "Iframe", backendDOMNodeId: 50, parentId: "1" }),
+			ax({ nodeId: "3", role: "Iframe", backendDOMNodeId: 51, parentId: "1" }),
 		]);
 		const executor = new BrowserExecutor(fake.cdp);
 		for (let index = 0; index < 5; index += 1) {

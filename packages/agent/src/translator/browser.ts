@@ -413,7 +413,7 @@ export class BrowserExecutor {
 		if ([...generations].some(([frameKey, generation]) => this.generation(frameKey) !== generation)) {
 			throw new ObservationChangedError();
 		}
-		if (complete) this.pruneFrameState(targetId, new Set(generations.keys()));
+		this.pruneFrameState(targetId, new Set(generations.keys()));
 		return {
 			targetId,
 			tree,
