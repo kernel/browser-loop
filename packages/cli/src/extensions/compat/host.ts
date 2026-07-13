@@ -302,7 +302,7 @@ export class HarnessExtensionHost {
 			this.harness,
 			runner,
 			this.hookState,
-			() => this.tools.reapply(runner, () => runner === this.runner),
+			() => this.tools.reapply(runner, () => runner === this.runner && !this.disposed),
 		);
 	}
 
