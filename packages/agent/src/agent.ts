@@ -783,9 +783,21 @@ export class CuaAgentHarness<
 	 */
 	async setMode(mode: CuaMode): Promise<void> {
 		if (mode === this.runtime.mode) return;
-		const previousNames = new Set(this.getTools().map((tool) => tool.name));
+		const previousTools = this.getTools();
+		const previousNames = new Set(previousTools.map((tool) => tool.name));
+		const previousRuntimeNames = new Set(this.runtime.tools().map((tool) => tool.name));
 		this.runtime.setMode(mode);
-		const tools = this.runtime.tools();
+		const runtimeTools = this.runtime.tools();
+		const runtimeNames = new Set(runtimeTools.map((tool) => tool.name));
+		// Keep externally registered tools (extensions/add_tool/manual setTools)
+		// while swapping only CUA runtime-owned tools for the new mode.
+		const tools = [
+			...runtimeTools,
+			...previousTools.filter(
+				(tool) =>
+					!previousRuntimeNames.has(tool.name) && !runtimeNames.has(tool.name),
+			),
+		];
 		// Tools that survive the mode switch (extraTools, shared names) keep
 		// their requested activation state; names new in this mode activate.
 		const requested = this.requestedActiveToolNames;
