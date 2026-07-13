@@ -1097,6 +1097,35 @@ describe("BrowserExecutor browser_act", () => {
 		expect(result.steps).toHaveLength(1);
 	});
 
+	it("stops after a same-document navigation changes page identity", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		const inner = fake.cdp as unknown as { send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown> };
+		const wrapped = {
+			...fake.cdp,
+			send: async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
+				const result = await inner.send(method, params, sessionId);
+				if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased") {
+					fake.setTargets([{ targetId: "TARGET-1", type: "page", title: "Page", url: "https://a.test/#next" }]);
+					fake.emit({
+						method: "Page.navigatedWithinDocument",
+						params: { frameId: "TARGET-1", url: "https://a.test/#next" },
+						sessionId: "session-1",
+					});
+				}
+				return result;
+			},
+		} as unknown as CdpConnection;
+		const executor = new BrowserExecutor(wrapped);
+		await snapshotText(executor);
+
+		const result = await actResult(executor, {
+			steps: [{ type: "click", ref: "e1" }, { type: "type", text: "must not run" }],
+		});
+
+		expect(result).toMatchObject({ outcome: "unknown", stopped_at: 0, stop_reason: "navigation" });
+		expect(result.steps).toHaveLength(1);
+	});
+
 	it("keeps a navigation expectation verified while stopping later dispatch", async () => {
 		const fake = createFakeCdp(BUTTON_TREE);
 		const inner = fake.cdp as unknown as { send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown> };

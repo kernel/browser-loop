@@ -218,7 +218,10 @@ export class BrowserExecutor {
 				if (!event.sessionId) return;
 				const targetId = this.targetsBySession.get(event.sessionId);
 				const { frameId } = event.params as { frameId?: string };
-				if (targetId && frameId === targetId) this.selfNavigations.delete(targetId);
+				if (!targetId || !frameId) return;
+				if (frameId === targetId && this.selfNavigations.delete(targetId)) return;
+				const root = this.rootFrame(frameId);
+				this.navigationEpochs.set(root, this.navigationEpoch(root) + 1);
 				return;
 			}
 			case "Page.frameDetached": {
