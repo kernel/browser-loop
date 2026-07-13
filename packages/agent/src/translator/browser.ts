@@ -377,7 +377,7 @@ export class BrowserExecutor {
 		const targetsBefore = await this.cdp.pageTargets();
 		const targetBefore = targetsBefore.find((candidate) => candidate.targetId === targetId);
 		if (!targetBefore) throw new ObservationChangedError();
-		const generationBefore = this.generation(targetId);
+		const generationBefore = this.trackGeneration(targetId);
 		const { nodes, sessionId } = await this.frameAxTree(targetId, targetId, pageSession);
 		const ctx: RenderContext = {
 			targetId,
@@ -413,6 +413,7 @@ export class BrowserExecutor {
 		if ([...generations].some(([frameKey, generation]) => this.generation(frameKey) !== generation)) {
 			throw new ObservationChangedError();
 		}
+		if (complete) this.pruneFrameState(targetId, new Set(generations.keys()));
 		return {
 			targetId,
 			tree,
@@ -924,7 +925,7 @@ export class BrowserExecutor {
 					}
 					visitedFrames.add(frameId);
 					this.frameParents.set(frameId, parentFrameKey);
-					const generation = this.generation(frameId);
+					const generation = this.trackGeneration(frameId);
 					const { nodes: childNodes, sessionId } = await this.frameAxTree(frameId, targetId, parentSession);
 					if (generation !== this.generation(frameId)) throw new ObservationChangedError();
 					const sessionTargetId = this.frameSessions.has(frameId) ? frameId : parentSessionTargetId;
@@ -1331,6 +1332,12 @@ export class BrowserExecutor {
 		return this.generations.get(targetId) ?? 0;
 	}
 
+	private trackGeneration(targetId: string): number {
+		const generation = this.generation(targetId);
+		if (!this.generations.has(targetId)) this.generations.set(targetId, generation);
+		return generation;
+	}
+
 	private invalidateRefs(targetId: string): void {
 		this.invalidateFrame(targetId);
 		for (const [ref, entry] of this.refs) {
@@ -1338,7 +1345,44 @@ export class BrowserExecutor {
 		}
 	}
 
+	private pruneFrameState(targetId: string, observed: ReadonlySet<string>): void {
+		const stale = new Set<string>();
+		for (const frameId of this.frameParents.keys()) {
+			if (observed.has(frameId)) continue;
+			const visited = new Set<string>([frameId]);
+			let parent = this.frameParents.get(frameId);
+			while (parent && !visited.has(parent)) {
+				if (parent === targetId) {
+					stale.add(frameId);
+					break;
+				}
+				visited.add(parent);
+				parent = this.frameParents.get(parent);
+			}
+		}
+		for (const frameId of stale) {
+			this.frameParents.delete(frameId);
+			this.frameSessions.delete(frameId);
+			this.generations.delete(frameId);
+		}
+		for (const [ref, entry] of this.refs) {
+			if (stale.has(entry.frameId) || (entry.sessionTargetId !== undefined && stale.has(entry.sessionTargetId))) {
+				this.refs.delete(ref);
+			}
+		}
+	}
+
 	private invalidateFrame(frameKey: string): void {
+		let tracked = this.generations.has(frameKey) || this.frameParents.has(frameKey) || this.frameSessions.has(frameKey);
+		if (!tracked) {
+			for (const entry of this.refs.values()) {
+				if (entry.frameId === frameKey || entry.sessionTargetId === frameKey) {
+					tracked = true;
+					break;
+				}
+			}
+		}
+		if (!tracked) return;
 		const invalidated = new Set<string>([frameKey]);
 		let found = true;
 		while (found) {

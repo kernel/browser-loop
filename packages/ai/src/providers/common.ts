@@ -46,11 +46,22 @@ function createCuaActionArgumentSchema(action: CuaActionType, mode: CuaMode): TS
 	return Type.Object(properties, { additionalProperties: false, ...(schema.$defs ? { $defs: schema.$defs } : {}) });
 }
 
-export function createCuaActionSchema(actions: readonly CuaActionType[] = CUA_ACTION_TYPES, mode: CuaMode = "computer"): TSchema {
+function actionSchemasWithDefinitions(actions: readonly CuaActionType[], mode: CuaMode): { schemas: TSchema[]; definitions: Record<string, TSchema> } {
 	if (actions.length === 0) throw new Error("actions must include at least one CUA action type");
 	const schemaByType = cuaActionSchemaByType(schemaOptionsForMode(mode));
-	if (actions.length === 1) return schemaByType[actions[0]!];
-	return Type.Union(actions.map((action) => schemaByType[action]));
+	const definitions: Record<string, TSchema> = {};
+	const schemas = actions.map((action) => {
+		const { $defs, ...schema } = schemaByType[action] as SchemaWithDefinitions;
+		if ($defs) Object.assign(definitions, $defs);
+		return schema as TSchema;
+	});
+	return { schemas, definitions };
+}
+
+export function createCuaActionSchema(actions: readonly CuaActionType[] = CUA_ACTION_TYPES, mode: CuaMode = "computer"): TSchema {
+	const { schemas, definitions } = actionSchemasWithDefinitions(actions, mode);
+	const options = Object.keys(definitions).length > 0 ? { $defs: definitions } : {};
+	return schemas.length === 1 ? Object.assign(schemas[0]!, options) : Type.Union(schemas, options);
 }
 
 export function createCuaActionToolDefinitions(actions: readonly CuaActionType[] = CUA_ACTION_TYPES, mode: CuaMode = "computer"): Tool[] {
@@ -64,15 +75,7 @@ export function createCuaActionToolDefinitions(actions: readonly CuaActionType[]
 export const CuaActionSchema = createCuaActionSchema();
 
 export function createCuaBatchSchema(actions?: readonly CuaActionType[], mode: CuaMode = "computer"): TSchema {
-	const actionTypes = actions ?? CUA_ACTION_TYPES;
-	if (actionTypes.length === 0) throw new Error("actions must include at least one CUA action type");
-	const schemaByType = cuaActionSchemaByType(schemaOptionsForMode(mode));
-	const definitions: Record<string, TSchema> = {};
-	const schemas = actionTypes.map((action) => {
-		const { $defs, ...schema } = schemaByType[action] as SchemaWithDefinitions;
-		if ($defs) Object.assign(definitions, $defs);
-		return schema as TSchema;
-	});
+	const { schemas, definitions } = actionSchemasWithDefinitions(actions ?? CUA_ACTION_TYPES, mode);
 	const actionSchema = schemas.length === 1 ? schemas[0]! : Type.Union(schemas);
 	return Type.Object(
 		{ actions: Type.Array(actionSchema, { description: "Ordered computer actions to execute." }) },

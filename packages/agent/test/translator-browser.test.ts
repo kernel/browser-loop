@@ -350,6 +350,28 @@ describe("BrowserExecutor ref lifecycle", () => {
 		await expect(executor.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction)).rejects.toThrow(/stale/);
 	});
 
+	it("prunes generation and ancestry state for rotated iframes", async () => {
+		const fake = createFakeCdp([
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),
+			ax({ nodeId: "2", role: "Iframe", backendDOMNodeId: 50, parentId: "1" }),
+		]);
+		const executor = new BrowserExecutor(fake.cdp);
+		for (let index = 0; index < 5; index += 1) {
+			const frameId = `FRAME-${index}`;
+			fake.setIframeFrame(50, frameId);
+			fake.setFrameTree(frameId, [ax({ nodeId: `f${index}`, role: "RootWebArea", name: `Frame ${index}` })]);
+			await snapshotText(executor);
+			if (index < 4) {
+				fake.emit({ method: "Page.frameNavigated", params: { frame: { id: frameId, parentId: "TARGET-1" } }, sessionId: "session-1" });
+			}
+		}
+
+		const generations = (executor as unknown as { generations: Map<string, number> }).generations;
+		const frameParents = (executor as unknown as { frameParents: Map<string, string> }).frameParents;
+		expect([...generations.keys()].filter((key) => key.startsWith("FRAME-"))).toEqual(["FRAME-4"]);
+		expect([...frameParents.keys()]).toEqual(["FRAME-4"]);
+	});
+
 	it("drops generation state when a target detaches", async () => {
 		const { cdp, emit } = createFakeCdp(BUTTON_TREE);
 		const executor = new BrowserExecutor(cdp);

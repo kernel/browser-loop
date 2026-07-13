@@ -7,6 +7,7 @@ import {
 	CUA_HYBRID_COMPUTER_ACTION_TYPES,
 	anthropic,
 	computerTools,
+	createCuaActionSchema,
 	createCuaBatchSchema,
 	cuaToolNameForAction,
 	defaultActionsForMode,
@@ -97,7 +98,21 @@ describe("mode tool schemas", () => {
 		}
 	});
 
-	it("keeps browser_act definitions resolvable inside a batch schema", () => {
+	it("keeps browser_act definitions resolvable in action unions and batches", () => {
+		const union = {
+			name: "action",
+			description: "action",
+			parameters: createCuaActionSchema(defaultActionsForMode("browser"), "browser"),
+		};
+		expect(union.parameters.$defs).toBeDefined();
+		expect(() =>
+			validateToolArguments(union, {
+				id: "call_0",
+				name: "action",
+				arguments: { type: "browser_act", steps: [{ type: "wait", ms: 0, expect: { type: "url", changed: true } }] },
+			}),
+		).not.toThrow();
+
 		const batch = {
 			name: "batch",
 			description: "batch",
