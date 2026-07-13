@@ -1517,7 +1517,7 @@ export class BrowserExecutor {
 	private invalidateSessionTarget(targetId: string): void {
 		const ownedFrames = new Set<string>();
 		for (const entry of this.refs.values()) {
-			if (entry.sessionTargetId === targetId) ownedFrames.add(entry.frameId);
+			if (entry.sessionTargetId === targetId && entry.frameId !== targetId) ownedFrames.add(entry.frameId);
 		}
 		this.invalidateFrame(targetId);
 		for (const frameKey of ownedFrames) this.invalidateFrame(frameKey);

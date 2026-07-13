@@ -1797,8 +1797,10 @@ describe("BrowserExecutor iframe stitching", () => {
 		const { cdp, emit } = setupOopif();
 		const executor = new BrowserExecutor(cdp);
 		await snapshotText(executor);
+		const generations = (executor as unknown as { generations: Map<string, number> }).generations;
 
 		emit({ method: "Page.frameNavigated", params: { frame: { id: "FRAME-OOP" } }, sessionId: "session-oop" });
+		expect(generations.get("FRAME-OOP")).toBe(1);
 		await expect(executor.execute({ type: "browser_click", ref: "e3" } as CuaBrowserAction)).rejects.toThrow(/stale/);
 		await executor.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction);
 
