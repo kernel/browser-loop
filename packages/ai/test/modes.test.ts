@@ -1,3 +1,4 @@
+import { validateToolArguments } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import {
 	CUA_ACTION_TYPES,
@@ -6,6 +7,7 @@ import {
 	CUA_HYBRID_COMPUTER_ACTION_TYPES,
 	anthropic,
 	computerTools,
+	createCuaBatchSchema,
 	cuaToolNameForAction,
 	defaultActionsForMode,
 	openai,
@@ -20,6 +22,7 @@ describe("mode action sets", () => {
 	it("browser mode defaults to every browser action plus wait", () => {
 		const actions = defaultActionsForMode("browser");
 		expect(actions).toContain("browser_snapshot");
+		expect(actions).toContain("browser_act");
 		expect(actions).toContain("wait");
 		expect(actions).toContain("browser_evaluate");
 		expect(actions).not.toContain("click");
@@ -31,6 +34,7 @@ describe("mode action sets", () => {
 		expect(actions).not.toContain("goto");
 		expect(actions).not.toContain("url");
 		expect(actions).toContain("browser_navigate");
+		expect(actions).toContain("browser_act");
 		// One screenshot: the OS display.
 		expect(actions).toContain("screenshot");
 		expect(actions).toContain("zoom");
@@ -50,12 +54,14 @@ describe("mode tool naming", () => {
 	it("browser mode strips the browser_ prefix", () => {
 		expect(cuaToolNameForAction("browser_snapshot", "browser")).toBe("snapshot");
 		expect(cuaToolNameForAction("browser_click", "browser")).toBe("click");
+		expect(cuaToolNameForAction("browser_act", "browser")).toBe("act");
 		expect(cuaToolNameForAction("wait", "browser")).toBe("wait");
 	});
 
 	it("hybrid mode prefixes computer actions and keeps browser_ names", () => {
 		expect(cuaToolNameForAction("click", "hybrid")).toBe("computer_click");
 		expect(cuaToolNameForAction("browser_click", "hybrid")).toBe("browser_click");
+		expect(cuaToolNameForAction("browser_act", "hybrid")).toBe("browser_act");
 	});
 
 	it("computer mode rejects browser actions", () => {
@@ -77,6 +83,60 @@ describe("mode tool schemas", () => {
 		expect(pageClick.parameters.properties.ref).toBeDefined();
 		expect(pageClick.parameters.properties.x).toBeUndefined();
 		expect(pageClick.parameters.required).toContain("ref");
+	});
+
+	it("exposes browser_act as a ref-only dependent action schema", () => {
+		const browserAct = computerTools({ mode: "browser" }).find((tool) => tool.name === "act")!;
+		const hybridAct = computerTools({ mode: "hybrid" }).find((tool) => tool.name === "browser_act")!;
+		for (const tool of [browserAct, hybridAct]) {
+			expect(tool.parameters.properties.steps).toBeDefined();
+			expect(tool.parameters.properties.expect).toBeDefined();
+			expect(tool.parameters.properties.successor).toBeDefined();
+			expect(JSON.stringify(tool.parameters.properties.steps)).not.toContain('"x"');
+			expect(JSON.stringify(tool.parameters).length).toBeLessThan(10_000);
+		}
+	});
+
+	it("keeps browser_act definitions resolvable inside a batch schema", () => {
+		const batch = {
+			name: "batch",
+			description: "batch",
+			parameters: createCuaBatchSchema(defaultActionsForMode("browser"), "browser"),
+		};
+		expect(() =>
+			validateToolArguments(batch, {
+				id: "call_1",
+				name: "batch",
+				arguments: {
+					actions: [{ type: "browser_act", steps: [{ type: "wait", ms: 0, expect: { type: "url", changed: true } }] }],
+				},
+			}),
+		).not.toThrow();
+	});
+
+	it("rejects semantic leaves without a predicate", () => {
+		const act = computerTools({ mode: "browser" }).find((tool) => tool.name === "act")!;
+		for (const predicate of [
+			{ type: "role_name" },
+			{ type: "ref", ref: "e1" },
+			{ type: "url" },
+			{ type: "title" },
+		]) {
+			expect(() =>
+				validateToolArguments(act, {
+					id: "call_1",
+					name: "act",
+					arguments: { steps: [{ type: "wait", ms: 0, expect: predicate }] },
+				}),
+			).toThrow(/Validation failed/);
+		}
+		expect(() =>
+			validateToolArguments(act, {
+				id: "call_2",
+				name: "act",
+				arguments: { steps: [{ type: "wait", ms: 0, expect: { type: "url", changed: true } }] },
+			}),
+		).not.toThrow();
 	});
 
 	it("browser mode exposes every default browser action under its unprefixed name", () => {

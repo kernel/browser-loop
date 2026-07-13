@@ -15,6 +15,7 @@ import {
 	type TSchema,
 } from "@onkernel/cua-ai";
 import { InternalComputerTranslator, type KernelBrowser } from "./translator/translator";
+import type { BrowserActResult } from "./translator/types";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 
 export interface ComputerToolOptions {
@@ -37,6 +38,7 @@ export interface BatchDetails {
 		| { type: "screenshot"; bytes: number }
 		| { type: "cursor_position"; x: number; y: number }
 		| { type: "browser_text"; label: string; bytes: number }
+		| { type: "browser_act"; result: BrowserActResult }
 	>;
 }
 
@@ -170,6 +172,9 @@ async function executeBatchTool(
 			} else if (read.type === "browser_text") {
 				readResults.push({ type: "browser_text", label: read.label, bytes: read.text.length });
 				content.push({ type: "text", text: read.text });
+			} else if (read.type === "browser_act") {
+				readResults.push({ type: "browser_act", result: read.result });
+				content.push({ type: "text", text: formatBrowserActResult(read.result) });
 			} else {
 				readResults.push({ type: "screenshot", bytes: read.data.length });
 				content.push({ type: "image", data: read.data.toString("base64"), mimeType: read.mimeType });
@@ -185,7 +190,16 @@ async function executeBatchTool(
 	} catch (err) {
 		throw new Error(`Actions failed: ${errorMessage(err)}`, { cause: err });
 	}
-	return { content, details: { statusText: "Actions executed successfully.", readResults } };
+	const actResults = readResults.flatMap((read) => (read.type === "browser_act" ? [read.result] : []));
+	const statusText =
+		actResults.length === 0
+			? "Actions executed successfully."
+			: actResults.some((result) => result.outcome === "didnt")
+				? "Browser actions did not satisfy their expectations."
+				: actResults.every((result) => result.outcome === "worked")
+					? "Browser actions worked."
+					: "Browser action outcome is unknown.";
+	return { content, details: { statusText, readResults } };
 }
 
 async function executeNavigationTool(
@@ -255,6 +269,26 @@ async function executePlaywrightTool(translator: InternalComputerTranslator, par
 	} catch (err) {
 		throw new Error(`playwright_execute failed: ${errorMessage(err)}`, { cause: err });
 	}
+}
+
+function formatBrowserActResult(result: BrowserActResult): string {
+	const lines = [`browser_act outcome: ${result.outcome}`];
+	if (result.stopped_at !== undefined) lines.push(`stopped_at: ${result.stopped_at} (${result.stop_reason ?? "unknown"})`);
+	for (const step of result.steps) {
+		lines.push(`step ${step.index} ${step.type}: ${step.outcome} — ${step.evidence.join("; ")}`);
+		for (const detail of step.expectation?.details ?? []) lines.push(`  ${detail}`);
+	}
+	if (result.final_expectation) lines.push(`final expectation: ${result.final_expectation.status}`);
+	if (result.successor.status === "unavailable") {
+		lines.push(`successor unavailable: ${result.successor.error}`);
+	} else {
+		const { diff } = result.successor;
+		lines.push(`successor diff: ${diff.changed ? `+${diff.added.length} -${diff.removed.length}` : "unchanged"}`);
+		for (const line of diff.added) lines.push(`  + ${line}`);
+		for (const line of diff.removed) lines.push(`  - ${line}`);
+		lines.push(result.successor.text);
+	}
+	return lines.join("\n");
 }
 
 function formatPlaywrightResult(result: unknown): string {

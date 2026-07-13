@@ -1,5 +1,8 @@
 import {
 	normalizeGotoUrl,
+	type CuaActionBrowserAct,
+	type CuaBrowserActStep,
+	type CuaBrowserExpectation,
 	type CuaActionBrowserClick,
 	type CuaActionBrowserDrag,
 	type CuaActionBrowserFill,
@@ -13,13 +16,21 @@ import {
 	type CuaBrowserAction,
 } from "@onkernel/cua-ai";
 import { CdpConnection, type CdpEventMessage } from "./cdp";
-import type { BatchReadResult } from "./types";
+import type {
+	BatchReadResult,
+	BrowserActResult,
+	BrowserActStepResult,
+	BrowserExpectationEvidence,
+	BrowserObservationDiff,
+} from "./types";
 
 const SNAPSHOT_CHAR_LIMIT = 50_000;
 const DEFAULT_SNAPSHOT_DEPTH = 15;
 const FIND_MATCH_LIMIT = 20;
 const REF_LIMIT_PER_TARGET = 1000;
 const SCROLL_NOTCH_PX = 120;
+const EXPECTATION_TIMEOUT_MS = 2_000;
+const EXPECTATION_POLL_MS = 50;
 
 const STALE_REF_HINT = "Call snapshot (or find) to get fresh element references.";
 const REF_PLACEHOLDER = "\u0000";
@@ -42,6 +53,8 @@ interface RefEntry {
 	targetId: string;
 	/** Generation key: the owning page target id for main-frame refs, the frame id for iframe refs. */
 	frameId: string;
+	/** Target whose CDP session owns this frame; omitted only by ref state exported before this field existed. */
+	sessionTargetId?: string;
 	/** Session to route DOM/Input calls through: the frame's own session for OOPIFs, the page session otherwise. */
 	sessionId: string;
 	generation: number;
@@ -60,23 +73,51 @@ interface NthIndex {
 interface RenderContext {
 	targetId: string;
 	frameKey: string;
+	sessionTargetId: string;
 	sessionId: string;
 	generation: number;
-	interactiveOnly: boolean;
 	nthIndex: NthIndex;
 	cursorIds?: ReadonlySet<number>;
 }
 
-interface RenderedLine {
+interface ObservationLine {
 	text: string;
 	refNode?: AXNode;
 	ctx: RenderContext;
+}
+
+interface ObservedNode {
+	node: AXNode;
+	ctx: RenderContext;
+}
+
+interface BrowserObservation {
+	targetId: string;
+	tree: FrameStitch;
+	stitches: Map<string, FrameStitch>;
+	nodes: ObservedNode[];
+	url: string;
+	title: string;
+	generations: Map<string, number>;
+	complete: boolean;
+}
+
+interface BrowserPresentation {
+	observation: BrowserObservation;
+	key: string;
+	lines: ObservationLine[];
+	shape: string;
 }
 
 interface FrameStitch {
 	byId: Map<string, AXNode>;
 	roots: string[];
 	ctx: RenderContext;
+}
+
+interface FrameStitchResult {
+	frames: Map<string, FrameStitch>;
+	complete: boolean;
 }
 
 export interface BrowserFindCandidate {
@@ -99,6 +140,7 @@ export interface BrowserRefState {
 	activeTargetId?: string;
 	generations: Array<[string, number]>;
 	refs: Array<[string, Omit<RefEntry, "sessionId">]>;
+	frameParents?: Array<[string, string]>;
 }
 
 /**
@@ -135,7 +177,8 @@ export class BrowserExecutor {
 	private readonly targetsBySession = new Map<string, string>();
 	private readonly frameSessions = new Map<string, string>();
 	private readonly frameTargets = new Set<string>();
-	private readonly lastSnapshots = new Map<string, { key: string; shape: string }>();
+	private readonly frameParents = new Map<string, string>();
+	private readonly lastSnapshots = new Map<string, BrowserPresentation>();
 	private readonly selfNavigations = new Set<string>();
 	private readonly dialogNotes: string[] = [];
 	private refCounter = 0;
@@ -155,10 +198,7 @@ export class BrowserExecutor {
 				const targetId = this.targetsBySession.get(event.sessionId);
 				if (!targetId) return;
 				if (this.frameTargets.has(targetId)) {
-					// Refs from a frame target's tree (its root and any same-process
-					// subframes inlined in it) are all minted against the target's key,
-					// so any navigation observed in its session stales them.
-					this.invalidateFrame(targetId);
+					this.invalidateSessionTarget(targetId);
 					return;
 				}
 				if (frame.parentId) {
@@ -223,6 +263,7 @@ export class BrowserExecutor {
 			...(this.activeTargetId ? { activeTargetId: this.activeTargetId } : {}),
 			generations: [...this.generations],
 			refs: [...this.refs].map(([ref, { sessionId: _sessionId, ...entry }]) => [ref, entry]),
+			frameParents: [...this.frameParents],
 		};
 	}
 
@@ -232,6 +273,7 @@ export class BrowserExecutor {
 		this.activeTargetId = state.activeTargetId ?? this.activeTargetId;
 		for (const [frameId, generation] of state.generations) this.generations.set(frameId, generation);
 		for (const [ref, entry] of state.refs) this.refs.set(ref, { ...entry, sessionId: "" });
+		for (const [frameId, parentId] of state.frameParents ?? []) this.frameParents.set(frameId, parentId);
 	}
 
 	async execute(action: CuaBrowserAction): Promise<BatchReadResult[]> {
@@ -245,6 +287,8 @@ export class BrowserExecutor {
 		switch (action.type) {
 			case "browser_snapshot":
 				return [{ type: "browser_text", label: "snapshot", text: await this.snapshot(action) }];
+			case "browser_act":
+				return [{ type: "browser_act", result: await this.act(action) }];
 			case "browser_text":
 				return [{ type: "browser_text", label: "text", text: await this.pageText(tabOf(action)) }];
 			case "browser_find":
@@ -306,45 +350,116 @@ export class BrowserExecutor {
 	}
 
 	private async snapshot(action: CuaActionBrowserSnapshot): Promise<string> {
-		const targetId = await this.resolveTarget(action.tab_id);
+		const presentation = this.presentObservation(await this.observe(action.tab_id), action);
+		const cached = this.lastSnapshots.get(presentation.observation.targetId);
+		this.lastSnapshots.set(presentation.observation.targetId, presentation);
+		if (cached && cached.key === presentation.key && cached.shape === presentation.shape) return UNCHANGED_SNAPSHOT;
+		return this.renderObservation(presentation);
+	}
+
+	/** Build a generation-fenced observation before applying presentation options or minting refs. */
+	private async observe(tabId?: string): Promise<BrowserObservation> {
+		let changed: ObservationChangedError | undefined;
+		for (let attempt = 0; attempt < 3; attempt += 1) {
+			try {
+				return await this.collectObservation(tabId);
+			} catch (err) {
+				if (!(err instanceof ObservationChangedError)) throw err;
+				changed = err;
+			}
+		}
+		throw changed ?? new ObservationChangedError();
+	}
+
+	private async collectObservation(tabId?: string): Promise<BrowserObservation> {
+		const targetId = await this.resolveTarget(tabId);
 		const pageSession = await this.attach(targetId);
-		const refEntry = action.ref ? this.resolveRef(action.ref, targetId) : undefined;
-		const frameKey = refEntry?.frameId ?? targetId;
-		const { nodes, sessionId } = await this.frameAxTree(frameKey, targetId, pageSession);
-		const byId = new Map(nodes.map((node) => [node.nodeId, node]));
-		let rootIds = nodes.filter((node) => !node.parentId).map((node) => node.nodeId);
-		if (action.ref && refEntry) {
-			const rootNode =
-				nodes.find((node) => node.backendDOMNodeId === refEntry.backendNodeId) ?? this.healEntry(action.ref, refEntry, nodes);
+		const targetsBefore = await this.cdp.pageTargets();
+		const targetBefore = targetsBefore.find((candidate) => candidate.targetId === targetId);
+		if (!targetBefore) throw new ObservationChangedError();
+		const generationBefore = this.generation(targetId);
+		const { nodes, sessionId } = await this.frameAxTree(targetId, targetId, pageSession);
+		const ctx: RenderContext = {
+			targetId,
+			frameKey: targetId,
+			sessionTargetId: targetId,
+			sessionId,
+			generation: generationBefore,
+			nthIndex: buildNthIndex(nodes),
+			cursorIds: await this.cursorPointerIds(pageSession),
+		};
+		const tree: FrameStitch = {
+			byId: new Map(nodes.map((node) => [node.nodeId, node])),
+			roots: nodes.filter((node) => !node.parentId).map((node) => node.nodeId),
+			ctx,
+		};
+		const { frames: stitches, complete } = await this.stitchFrames(nodes, targetId, pageSession);
+		const observedNodes: ObservedNode[] = nodes.map((node) => ({ node, ctx }));
+		for (const stitch of stitches.values()) {
+			for (const node of stitch.byId.values()) observedNodes.push({ node, ctx: stitch.ctx });
+		}
+		const targetsAfter = await this.cdp.pageTargets();
+		const targetAfter = targetsAfter.find((candidate) => candidate.targetId === targetId);
+		if (
+			!targetAfter ||
+			generationBefore !== this.generation(targetId) ||
+			targetBefore.url !== targetAfter.url ||
+			targetBefore.title !== targetAfter.title
+		) {
+			throw new ObservationChangedError();
+		}
+		const generations = new Map<string, number>([[targetId, ctx.generation]]);
+		for (const stitch of stitches.values()) generations.set(stitch.ctx.frameKey, stitch.ctx.generation);
+		if ([...generations].some(([frameKey, generation]) => this.generation(frameKey) !== generation)) {
+			throw new ObservationChangedError();
+		}
+		return {
+			targetId,
+			tree,
+			stitches,
+			nodes: observedNodes,
+			url: targetAfter.url,
+			title: targetAfter.title,
+			generations,
+			complete,
+		};
+	}
+
+	private presentObservation(observation: BrowserObservation, action: CuaActionBrowserSnapshot): BrowserPresentation {
+		let tree = observation.tree;
+		let rootIds = tree.roots;
+		if (action.ref) {
+			const entry = this.resolveRef(action.ref, observation.targetId);
+			const frameTree =
+				entry.frameId === observation.tree.ctx.frameKey
+					? observation.tree
+					: [...observation.stitches.values()].find((candidate) => candidate.ctx.frameKey === entry.frameId);
+			if (!frameTree) throw staleRefError(action.ref);
+			tree = frameTree;
+			const nodes = [...tree.byId.values()];
+			const rootNode = nodes.find((node) => node.backendDOMNodeId === entry.backendNodeId) ?? this.healEntry(action.ref, entry, nodes);
 			rootIds = [rootNode.nodeId];
 		}
 
 		const interactiveOnly = action.filter === "interactive";
-		const ctx: RenderContext = {
-			targetId,
-			frameKey,
-			sessionId,
-			generation: this.generation(frameKey),
-			interactiveOnly,
-			nthIndex: buildNthIndex(nodes),
-			cursorIds: frameKey === targetId ? await this.cursorPointerIds(pageSession) : undefined,
-		};
-		const stitches = frameKey === targetId ? await this.stitchFrames(nodes, targetId, pageSession, interactiveOnly) : new Map<number, FrameStitch>();
-		const lines: RenderedLine[] = [];
 		const maxDepth = action.depth ?? DEFAULT_SNAPSHOT_DEPTH;
-		const walk = (tree: Map<string, AXNode>, treeCtx: RenderContext, nodeId: string, depth: number, parentName: string): void => {
-			const node = tree.get(nodeId);
+		const lines: ObservationLine[] = [];
+		const walk = (nodes: Map<string, AXNode>, treeCtx: RenderContext, nodeId: string, depth: number, parentName: string): void => {
+			const node = nodes.get(nodeId);
 			if (!node) return;
 			let childDepth = depth;
 			if (!node.ignored) {
-				const rendered = this.renderNode(node, depth, parentName, treeCtx);
+				const rendered = this.renderNode(node, depth, parentName, treeCtx, interactiveOnly);
 				if (rendered) {
 					lines.push({ ...rendered, ctx: treeCtx });
 					childDepth = depth + 1;
 				}
 			}
 			if (childDepth > maxDepth) return;
-			const stitch = treeCtx === ctx && node.backendDOMNodeId !== undefined ? stitches.get(node.backendDOMNodeId) : undefined;
+			const stitch =
+				node.backendDOMNodeId === undefined
+					? undefined
+					: observation.stitches.get(frameStitchKey(treeCtx.frameKey, node.backendDOMNodeId));
 			if (stitch) {
 				for (const frameRootId of stitch.roots) walk(stitch.byId, stitch.ctx, frameRootId, childDepth, "");
 				return;
@@ -352,28 +467,31 @@ export class BrowserExecutor {
 			const name = node.name?.value ?? "";
 			const childName = name || parentName;
 			const childIds = node.childIds ?? [];
-			for (let i = 0; i < childIds.length; i += 1) {
-				const run = staticTextRun(tree, childIds, i);
+			for (let index = 0; index < childIds.length; index += 1) {
+				const run = staticTextRun(nodes, childIds, index);
 				if (run) {
-					const rendered = this.renderNode(run.node, childDepth, childName, treeCtx);
+					const rendered = this.renderNode(run.node, childDepth, childName, treeCtx, interactiveOnly);
 					if (rendered) lines.push({ ...rendered, ctx: treeCtx });
-					i = run.end;
+					index = run.end;
 					continue;
 				}
-				walk(tree, treeCtx, childIds[i]!, childDepth, childName);
+				walk(nodes, treeCtx, childIds[index]!, childDepth, childName);
 			}
 		};
-		for (const rootId of rootIds) walk(byId, ctx, rootId, 0, "");
+		for (const rootId of rootIds) walk(tree.byId, tree.ctx, rootId, 0, "");
 
-		const shape = lines.map((line) => line.text).join("\n");
-		const frameGenerations = [...stitches.values()].map((stitch) => `${stitch.ctx.frameKey}:${stitch.ctx.generation}`);
-		const key = [action.ref ?? "", action.depth ?? "", action.filter ?? "", `${frameKey}:${ctx.generation}`, ...frameGenerations].join("|");
-		const cached = this.lastSnapshots.get(targetId);
-		this.lastSnapshots.set(targetId, { key, shape });
-		if (cached && cached.key === key && cached.shape === shape) return UNCHANGED_SNAPSHOT;
+		const frameGenerations = [...observation.generations].map(([key, generation]) => `${key}:${generation}`);
+		return {
+			observation,
+			key: [action.ref ?? "", action.depth ?? "", action.filter ?? "", ...frameGenerations].join("|"),
+			lines,
+			shape: lines.map((line) => line.text).join("\n"),
+		};
+	}
 
+	private renderObservation(presentation: BrowserPresentation): string {
 		let text = "";
-		for (const line of lines) {
+		for (const line of presentation.lines) {
 			if (text.length > SNAPSHOT_CHAR_LIMIT) break;
 			const rendered = line.refNode ? line.text.replace(REF_PLACEHOLDER, this.mintRef(line.refNode, line.ctx)) : line.text;
 			text = text ? `${text}\n${rendered}` : rendered;
@@ -381,18 +499,371 @@ export class BrowserExecutor {
 		if (text.length > SNAPSHOT_CHAR_LIMIT) {
 			text = `${text.slice(0, SNAPSHOT_CHAR_LIMIT)}\n… truncated at ${SNAPSHOT_CHAR_LIMIT} characters. Re-request with a smaller depth, filter: "interactive", or a ref to narrow the subtree.`;
 		}
-		this.pruneRefs(targetId);
+		this.pruneRefs(presentation.observation.targetId);
 		return text || "(empty accessibility tree)";
 	}
 
-	private renderNode(node: AXNode, depth: number, parentName: string, ctx: RenderContext): { text: string; refNode?: AXNode } | undefined {
+	private async act(action: CuaActionBrowserAct): Promise<BrowserActResult> {
+		const observationAction: CuaActionBrowserSnapshot = { type: "browser_snapshot", tab_id: action.tab_id, ...action.successor };
+		const completeObservationAction: CuaActionBrowserSnapshot = {
+			type: "browser_snapshot",
+			tab_id: action.tab_id,
+			depth: Number.MAX_SAFE_INTEGER,
+		};
+		const baseline = await this.observe(action.tab_id);
+		let current = baseline;
+		let currentTargets = await this.pageTargetIds();
+		let currentDialogCount = this.dialogNotes.length;
+		const steps: BrowserActStepResult[] = [];
+		let stoppedAt: number | undefined;
+		let stopReason: BrowserActResult["stop_reason"];
+
+		for (let index = 0; index < action.steps.length; index += 1) {
+			const step = action.steps[index]!;
+			const evidence: string[] = [];
+			let beforeObservation: BrowserObservation;
+			let beforeTargets: string[];
+			try {
+				beforeObservation = await this.observe(action.tab_id);
+				beforeTargets = await this.pageTargetIds();
+			} catch (err) {
+				evidence.push(`pre-action observation failed: ${errorMessage(err)}`);
+				steps.push({ index, type: step.type, outcome: "unknown", evidence });
+				stoppedAt = index;
+				stopReason = "control_flow";
+				break;
+			}
+
+			const boundary = browserControlChange(
+				current,
+				beforeObservation,
+				this.generations,
+				currentTargets,
+				beforeTargets,
+				currentDialogCount,
+				this.dialogNotes.length,
+			);
+			current = beforeObservation;
+			currentTargets = beforeTargets;
+			currentDialogCount = this.dialogNotes.length;
+			if (boundary) {
+				evidence.push(`${boundary} detected before input delivery`);
+				steps.push({ index, type: step.type, outcome: "unknown", evidence });
+				stoppedAt = index;
+				stopReason = boundary;
+				break;
+			}
+
+			const before = step.expect ? this.evaluateExpectation(step.expect, beforeObservation, baseline) : undefined;
+			const dialogCount = currentDialogCount;
+			let actionError: unknown;
+			try {
+				await this.executeActStep(step, action.tab_id);
+				evidence.push("input delivered");
+			} catch (err) {
+				actionError = err;
+				evidence.push(errorMessage(err));
+			}
+
+			let expectation: BrowserExpectationEvidence | undefined;
+			let observationError: unknown;
+			let boundaryAfter: BrowserActResult["stop_reason"];
+			const deadline = Date.now() + EXPECTATION_TIMEOUT_MS;
+			while (true) {
+				try {
+					await delay(0);
+					const afterObservation = await this.observe(action.tab_id);
+					await delay(0);
+					const afterTargets = await this.pageTargetIds();
+					boundaryAfter = browserControlChange(
+						beforeObservation,
+						afterObservation,
+						this.generations,
+						beforeTargets,
+						afterTargets,
+						dialogCount,
+						this.dialogNotes.length,
+					);
+					current = afterObservation;
+					currentTargets = afterTargets;
+					currentDialogCount = this.dialogNotes.length;
+					if (step.expect) expectation = expectationEvidence(before!, this.evaluateExpectation(step.expect, current, baseline));
+					if (boundaryAfter && expectation?.status === "failed") {
+						expectation = { ...expectation, status: "unverifiable", details: [...expectation.details, `${boundaryAfter} interrupted verification`] };
+					}
+					if (boundaryAfter || !step.expect || expectation?.status !== "failed" || Date.now() >= deadline) break;
+					await delay(EXPECTATION_POLL_MS);
+				} catch (err) {
+					observationError = err;
+					if (step.expect) {
+						expectation = {
+							status: "unverifiable",
+							before: before?.truth,
+							details: [...(before?.details ?? []), errorMessage(err)],
+						};
+					}
+					break;
+				}
+			}
+
+			let outcome: BrowserActStepResult["outcome"] = "unknown";
+			const staleRef = actionError !== undefined && /ref .* stale/.test(errorMessage(actionError));
+			if (expectation?.status === "newly_verified" && actionError === undefined) outcome = "worked";
+			else if (expectation?.status === "failed" || staleRef) outcome = "didnt";
+			if (expectation) evidence.push(`expectation ${expectation.status}`);
+			if (observationError) evidence.push(`post-action observation failed: ${errorMessage(observationError)}`);
+			steps.push({ index, type: step.type, outcome, evidence, ...(expectation ? { expectation } : {}) });
+
+			if (boundaryAfter) {
+				stopReason = boundaryAfter;
+			} else if (observationError || expectation?.status === "unverifiable") {
+				stopReason = "control_flow";
+			} else if (actionError) {
+				stopReason = staleRef ? "stale_ref" : "action_failed";
+			} else if (expectation?.status === "failed") {
+				stopReason = "expectation_failed";
+			}
+			if (stopReason) {
+				stoppedAt = index;
+				break;
+			}
+		}
+
+		let finalExpectation: BrowserExpectationEvidence | undefined;
+		const terminalNavigation =
+			stopReason === "navigation" &&
+			stoppedAt === action.steps.length - 1 &&
+			steps.length === action.steps.length &&
+			steps.at(-1)?.evidence.includes("input delivered") === true;
+		if (action.expect && (!stopReason || terminalNavigation)) {
+			const before = this.evaluateExpectation(action.expect, baseline, baseline);
+			const deadline = Date.now() + EXPECTATION_TIMEOUT_MS;
+			while (true) {
+				try {
+					const afterObservation = await this.observe(action.tab_id);
+					await delay(0);
+					const afterTargets = await this.pageTargetIds();
+					const boundary = browserControlChange(
+						current,
+						afterObservation,
+						this.generations,
+						currentTargets,
+						afterTargets,
+						currentDialogCount,
+						this.dialogNotes.length,
+					);
+					current = afterObservation;
+					currentTargets = afterTargets;
+					currentDialogCount = this.dialogNotes.length;
+					if (boundary) {
+						finalExpectation = {
+							status: "unverifiable",
+							before: before.truth,
+							details: [...(finalExpectation?.details ?? before.details), `${boundary} interrupted verification`],
+						};
+						stopReason = boundary;
+						break;
+					}
+					finalExpectation = expectationEvidence(before, this.evaluateExpectation(action.expect, current, baseline));
+					if (finalExpectation.status !== "failed" || Date.now() >= deadline) break;
+					await delay(EXPECTATION_POLL_MS);
+				} catch (err) {
+					finalExpectation = { status: "unverifiable", before: before.truth, details: [...before.details, errorMessage(err)] };
+					stopReason = "control_flow";
+					break;
+				}
+			}
+			if (!stopReason && finalExpectation?.status === "failed") stopReason = "expectation_failed";
+			else if (!stopReason && finalExpectation?.status === "unverifiable") stopReason = "control_flow";
+			if (stopReason) stoppedAt = action.steps.length;
+		}
+
+		let successor: BrowserActResult["successor"] | undefined;
+		let successorError: unknown;
+		for (let attempt = 0; attempt < 3 && !successor; attempt += 1) {
+			try {
+				const successorObservation = await this.observe(action.tab_id);
+				await delay(0);
+				const successorTargets = await this.pageTargetIds();
+				const lateBoundary = browserControlChange(
+					current,
+					successorObservation,
+					this.generations,
+					currentTargets,
+					successorTargets,
+					currentDialogCount,
+					this.dialogNotes.length,
+				);
+				current = successorObservation;
+				currentTargets = successorTargets;
+				currentDialogCount = this.dialogNotes.length;
+				if (lateBoundary) {
+					if (!stopReason || stopReason === "control_flow") stopReason = lateBoundary;
+					stoppedAt ??= action.steps.length;
+					successorError = new ObservationChangedError();
+					continue;
+				}
+				const baselineComplete = this.presentObservation(baseline, completeObservationAction);
+				const currentComplete = this.presentObservation(current, completeObservationAction);
+				const currentPresentation = this.presentObservation(current, observationAction);
+				successor = {
+					status: "observed",
+					text: this.renderObservation(currentPresentation),
+					url: current.url,
+					title: current.title,
+					diff: diffObservations(baselineComplete, currentComplete),
+				};
+				this.lastSnapshots.set(current.targetId, currentPresentation);
+			} catch (err) {
+				successorError = err;
+			}
+		}
+		if (!successor) {
+			successor = { status: "unavailable", error: errorMessage(successorError ?? new ObservationChangedError()) };
+			stopReason ??= "control_flow";
+			stoppedAt ??= action.steps.length;
+		}
+
+		const completed = steps.length === action.steps.length && (!stopReason || terminalNavigation);
+		const definitiveFailure = steps.some((step) => step.outcome === "didnt") || finalExpectation?.status === "failed";
+		const semanticallyVerified = action.expect
+			? finalExpectation?.status === "newly_verified"
+			: steps.length > 0 && steps.every((step) => step.outcome === "worked");
+		const outcome = definitiveFailure ? "didnt" : completed && semanticallyVerified ? "worked" : "unknown";
+		return {
+			outcome,
+			steps,
+			...(stoppedAt !== undefined ? { stopped_at: stoppedAt } : {}),
+			...(stopReason ? { stop_reason: stopReason } : {}),
+			...(finalExpectation ? { final_expectation: finalExpectation } : {}),
+			successor,
+		};
+	}
+
+	private async executeActStep(step: CuaBrowserActStep, tabId?: string): Promise<void> {
+		switch (step.type) {
+			case "click":
+				return this.click({
+					type: "browser_click",
+					tab_id: tabId,
+					ref: step.ref,
+					button: step.button,
+					num_clicks: step.num_clicks,
+					modifiers: step.modifiers,
+				});
+			case "hover":
+				return this.hover({ type: "browser_hover", tab_id: tabId, ref: step.ref });
+			case "fill":
+				return this.fill({ type: "browser_fill", tab_id: tabId, ref: step.ref, value: step.value });
+			case "type": {
+				const session = await this.session(tabId);
+				await this.cdp.send("Input.insertText", { text: step.text }, session);
+				return;
+			}
+			case "key":
+				return this.key({ type: "browser_key", tab_id: tabId, text: step.text, repeat: step.repeat });
+			case "scroll_to":
+				return this.scrollTo({ type: "browser_scroll_to", tab_id: tabId, ref: step.ref });
+			case "wait":
+				await new Promise((resolve) => setTimeout(resolve, Math.min(Math.max(0, step.ms ?? 1000), 30_000)));
+		}
+	}
+
+	private evaluateExpectation(
+		expectation: CuaBrowserExpectation,
+		observation: BrowserObservation,
+		baseline: BrowserObservation,
+	): ExpectationEvaluation {
+		if ("all" in expectation) {
+			const children = expectation.all.map((child) => this.evaluateExpectation(child, observation, baseline));
+			const truth = children.some((child) => child.truth === false)
+				? false
+				: children.some((child) => child.truth === undefined)
+					? undefined
+					: true;
+			return { truth, details: children.flatMap((child) => child.details) };
+		}
+		if ("any" in expectation) {
+			const children = expectation.any.map((child) => this.evaluateExpectation(child, observation, baseline));
+			const truth = children.some((child) => child.truth === true)
+				? true
+				: children.some((child) => child.truth === undefined)
+					? undefined
+					: false;
+			return { truth, details: children.flatMap((child) => child.details) };
+		}
+		if (expectation.type === "text") {
+			const found = observation.nodes.some(
+				({ node }) => !node.ignored && (node.name?.value ?? "").toLowerCase().includes(expectation.text.toLowerCase()),
+			);
+			const truth = !found && !observation.complete ? undefined : found === (expectation.exists ?? true);
+			const completeness = observation.complete ? "" : "; observation incomplete";
+			return { truth, details: [`text ${JSON.stringify(expectation.text)} ${found ? "present" : "absent"}${completeness}`] };
+		}
+		if (expectation.type === "role_name") {
+			const found = observation.nodes.some(
+				({ node }) =>
+					!node.ignored &&
+					(expectation.role === undefined || (node.role?.value ?? "") === expectation.role) &&
+					(expectation.name === undefined || (node.name?.value ?? "") === expectation.name),
+			);
+			const truth = !found && !observation.complete ? undefined : found === (expectation.exists ?? true);
+			const completeness = observation.complete ? "" : "; observation incomplete";
+			return { truth, details: [`role/name ${found ? "present" : "absent"}${completeness}`] };
+		}
+		if (expectation.type === "url" || expectation.type === "title") {
+			const value = observation[expectation.type];
+			const initial = baseline[expectation.type];
+			const checks = [
+				expectation.equals === undefined || value === expectation.equals,
+				expectation.contains === undefined || value.includes(expectation.contains),
+				expectation.changed === undefined || (value !== initial) === expectation.changed,
+			];
+			return { truth: checks.every(Boolean), details: [`${expectation.type}=${JSON.stringify(value)}`] };
+		}
+		if (expectation.type !== "ref") return { truth: undefined, details: ["unsupported expectation"] };
+
+		const entry = this.refs.get(expectation.ref);
+		if (!entry || entry.targetId !== observation.targetId || entry.generation !== this.generation(entry.frameId)) {
+			return { truth: undefined, details: [`ref ${expectation.ref} is stale`] };
+		}
+		const frameNodes = observation.nodes.filter(({ ctx }) => ctx.frameKey === entry.frameId).map(({ node }) => node);
+		let observed = frameNodes.find((node) => node.backendDOMNodeId === entry.backendNodeId);
+		if (!observed) {
+			try {
+				observed = this.healEntry(expectation.ref, entry, frameNodes);
+			} catch {
+				return { truth: undefined, details: [`ref ${expectation.ref} was not observable`] };
+			}
+		}
+		const checks: boolean[] = [];
+		if (expectation.value !== undefined) checks.push(String(observed.value?.value ?? "") === expectation.value);
+		for (const state of ["checked", "selected", "expanded"] as const) {
+			const expected = expectation[state];
+			if (expected === undefined) continue;
+			const actual = observed.properties?.find((property) => property.name === state)?.value?.value;
+			checks.push(normalizeState(actual) === expected);
+		}
+		return {
+			truth: checks.length > 0 ? checks.every(Boolean) : undefined,
+			details: [`ref ${expectation.ref} value/state ${checks.every(Boolean) ? "matched" : "did not match"}`],
+		};
+	}
+
+	private renderNode(
+		node: AXNode,
+		depth: number,
+		parentName: string,
+		ctx: RenderContext,
+		interactiveOnly: boolean,
+	): { text: string; refNode?: AXNode } | undefined {
 		const role = node.role?.value ?? "";
 		const name = node.name?.value ?? "";
 		const interactive = INTERACTIVE_ROLES.has(role);
 		const pointer = node.backendDOMNodeId !== undefined && (ctx.cursorIds?.has(node.backendDOMNodeId) ?? false);
-		if (ctx.interactiveOnly && !interactive && !pointer) return undefined;
+		if (interactiveOnly && !interactive && !pointer) return undefined;
 		if (role === "StaticText" && name === parentName) return undefined;
-		if (!ctx.interactiveOnly && !name && !interactive && !pointer && SKIPPED_ROLES.has(role)) return undefined;
+		if (!interactiveOnly && !name && !interactive && !pointer && SKIPPED_ROLES.has(role)) return undefined;
 		let line = `${"  ".repeat(Math.min(depth, 20))}${role || "node"}${name ? ` ${JSON.stringify(name)}` : ""}`;
 		let refNode: AXNode | undefined;
 		const refWorthy = interactive || pointer || FRAME_ROLES.has(role) || (name !== "" && CONTENT_ROLES.has(role));
@@ -418,42 +889,58 @@ export class BrowserExecutor {
 		return { nodes, sessionId: pageSession };
 	}
 
-	/** Resolve each iframe node's child frame and fetch its AX tree for stitching. One nesting level only. */
-	private async stitchFrames(
-		nodes: AXNode[],
-		targetId: string,
-		pageSession: string,
-		interactiveOnly: boolean,
-	): Promise<Map<number, FrameStitch>> {
-		const stitches = new Map<number, FrameStitch>();
-		for (const node of nodes) {
-			if (node.ignored || !FRAME_ROLES.has(node.role?.value ?? "") || node.backendDOMNodeId === undefined) continue;
-			try {
-				const { node: dom } = await this.cdp.send<{ node: { frameId?: string; contentDocument?: { frameId?: string } } }>(
-					"DOM.describeNode",
-					{ backendNodeId: node.backendDOMNodeId, depth: 1 },
-					pageSession,
-				);
-				const frameId = dom.contentDocument?.frameId ?? dom.frameId;
-				if (!frameId || frameId === targetId) continue;
-				const { nodes: frameNodes, sessionId } = await this.frameAxTree(frameId, targetId, pageSession);
-				stitches.set(node.backendDOMNodeId, {
-					byId: new Map(frameNodes.map((frameNode) => [frameNode.nodeId, frameNode])),
-					roots: frameNodes.filter((frameNode) => !frameNode.parentId).map((frameNode) => frameNode.nodeId),
-					ctx: {
-						targetId,
-						frameKey: frameId,
-						sessionId,
-						generation: this.generation(frameId),
-						interactiveOnly,
-						nthIndex: buildNthIndex(frameNodes),
-					},
-				});
-			} catch {
-				// Cross-origin or already-detached frames can refuse the fetch; the iframe renders without children.
+	/** Resolve iframe nodes recursively and fetch each child frame's AX tree for stitching. */
+	private async stitchFrames(nodes: AXNode[], targetId: string, pageSession: string): Promise<FrameStitchResult> {
+		const stitches = new Map<string, FrameStitch>();
+		const visitedFrames = new Set<string>([targetId]);
+		let complete = true;
+		const visit = async (
+			frameNodes: AXNode[],
+			parentFrameKey: string,
+			parentSession: string,
+			parentSessionTargetId: string,
+		): Promise<void> => {
+			for (const node of frameNodes) {
+				if (node.ignored || !FRAME_ROLES.has(node.role?.value ?? "") || node.backendDOMNodeId === undefined) continue;
+				try {
+					const { node: dom } = await this.cdp.send<{ node: { frameId?: string; contentDocument?: { frameId?: string } } }>(
+						"DOM.describeNode",
+						{ backendNodeId: node.backendDOMNodeId, depth: 1 },
+						parentSession,
+					);
+					const frameId = dom.contentDocument?.frameId ?? dom.frameId;
+					if (!frameId || visitedFrames.has(frameId)) {
+						complete = false;
+						continue;
+					}
+					visitedFrames.add(frameId);
+					this.frameParents.set(frameId, parentFrameKey);
+					const generation = this.generation(frameId);
+					const { nodes: childNodes, sessionId } = await this.frameAxTree(frameId, targetId, parentSession);
+					if (generation !== this.generation(frameId)) throw new ObservationChangedError();
+					const sessionTargetId = this.frameSessions.has(frameId) ? frameId : parentSessionTargetId;
+					const stitch: FrameStitch = {
+						byId: new Map(childNodes.map((child) => [child.nodeId, child])),
+						roots: childNodes.filter((child) => !child.parentId).map((child) => child.nodeId),
+						ctx: {
+							targetId,
+							frameKey: frameId,
+							sessionTargetId,
+							sessionId,
+							generation,
+							nthIndex: buildNthIndex(childNodes),
+						},
+					};
+					stitches.set(frameStitchKey(parentFrameKey, node.backendDOMNodeId), stitch);
+					await visit(childNodes, frameId, sessionId, sessionTargetId);
+				} catch (err) {
+					if (err instanceof ObservationChangedError) throw err;
+					complete = false;
+				}
 			}
-		}
-		return stitches;
+		};
+		await visit(nodes, targetId, pageSession, targetId);
+		return { frames: stitches, complete };
 	}
 
 	/** Resolve backend node ids for elements whose own computed cursor is "pointer", without touching the DOM. */
@@ -499,35 +986,13 @@ export class BrowserExecutor {
 	 * matches, best first. Structured counterpart of the `browser_find` action.
 	 */
 	async findCandidates(query: string, tabId?: string, roles?: ReadonlySet<string>): Promise<BrowserFindCandidate[]> {
-		const targetId = await this.resolveTarget(tabId);
-		const session = await this.attach(targetId);
-		const { nodes } = await this.cdp.send<{ nodes: AXNode[] }>("Accessibility.getFullAXTree", {}, session);
-		const pools: Array<{ nodes: AXNode[]; ctx: RenderContext }> = [
-			{
-				nodes,
-				ctx: {
-					targetId,
-					frameKey: targetId,
-					sessionId: session,
-					generation: this.generation(targetId),
-					interactiveOnly: false,
-					nthIndex: buildNthIndex(nodes),
-				},
-			},
-		];
-		// Search stitched frames too so find sees everything snapshot renders.
-		for (const stitch of (await this.stitchFrames(nodes, targetId, session, false)).values()) {
-			pools.push({ nodes: [...stitch.byId.values()], ctx: stitch.ctx });
-		}
+		const observation = await this.observe(tabId);
 		const queryTokens = tokenize(query);
-		const scored = pools
-			.flatMap(({ nodes: poolNodes, ctx }) =>
-				poolNodes
-					.filter(
-						(node) => !node.ignored && node.backendDOMNodeId !== undefined && (node.name?.value || INTERACTIVE_ROLES.has(node.role?.value ?? "")),
-					)
-					.map((node) => ({ node, ctx, score: overlapScore(queryTokens, tokenize(`${node.role?.value ?? ""} ${node.name?.value ?? ""}`)) })),
+		const scored = observation.nodes
+			.filter(
+				({ node }) => !node.ignored && node.backendDOMNodeId !== undefined && (node.name?.value || INTERACTIVE_ROLES.has(node.role?.value ?? "")),
 			)
+			.map(({ node, ctx }) => ({ node, ctx, score: overlapScore(queryTokens, tokenize(`${node.role?.value ?? ""} ${node.name?.value ?? ""}`)) }))
 			.filter((entry) => entry.score > 0 && (!roles || roles.has(entry.node.role?.value ?? "")))
 			.sort((a, b) => b.score - a.score)
 			.slice(0, FIND_MATCH_LIMIT);
@@ -537,7 +1002,7 @@ export class BrowserExecutor {
 			name: node.name?.value ?? "",
 			score,
 		}));
-		this.pruneRefs(targetId);
+		this.pruneRefs(observation.targetId);
 		return candidates;
 	}
 
@@ -810,6 +1275,7 @@ export class BrowserExecutor {
 			backendNodeId: node.backendDOMNodeId!,
 			targetId: ctx.targetId,
 			frameId: ctx.frameKey,
+			sessionTargetId: ctx.sessionTargetId,
 			sessionId: ctx.sessionId,
 			generation: ctx.generation,
 			role,
@@ -828,7 +1294,13 @@ export class BrowserExecutor {
 	 */
 	private async refSession(entry: RefEntry): Promise<string> {
 		if (!entry.sessionId) {
-			entry.sessionId = this.frameSessions.get(entry.frameId) ?? (await this.attach(entry.targetId));
+			await this.attach(entry.targetId);
+			const sessionTargetId = entry.sessionTargetId ?? entry.frameId;
+			const frameSession = this.frameSessions.get(sessionTargetId);
+			if (sessionTargetId !== entry.targetId && !frameSession) {
+				throw new Error("owning frame session is unavailable; the element ref is stale");
+			}
+			entry.sessionId = frameSession ?? (await this.attach(entry.targetId));
 		}
 		return entry.sessionId;
 	}
@@ -855,30 +1327,50 @@ export class BrowserExecutor {
 	}
 
 	private invalidateFrame(frameKey: string): void {
-		let tracked = this.generations.has(frameKey) || this.frameSessions.has(frameKey);
-		for (const [ref, entry] of this.refs) {
-			if (entry.frameId === frameKey) {
-				this.refs.delete(ref);
-				tracked = true;
+		const invalidated = new Set<string>([frameKey]);
+		let found = true;
+		while (found) {
+			found = false;
+			for (const [child, parent] of this.frameParents) {
+				if (invalidated.has(parent) && !invalidated.has(child)) {
+					invalidated.add(child);
+					found = true;
+				}
 			}
 		}
-		// Frames we never referenced don't get a generation entry, or pages with
-		// rotating ad iframes would grow the map without bound.
-		if (tracked) this.generations.set(frameKey, this.generation(frameKey) + 1);
+		for (const invalidatedFrame of invalidated) {
+			this.generations.set(invalidatedFrame, this.generation(invalidatedFrame) + 1);
+			if (invalidatedFrame !== frameKey) this.frameParents.delete(invalidatedFrame);
+		}
+		for (const [ref, entry] of this.refs) {
+			if (invalidated.has(entry.frameId)) this.refs.delete(ref);
+		}
+	}
+
+	private invalidateSessionTarget(targetId: string): void {
+		const ownedFrames = new Set<string>();
+		for (const entry of this.refs.values()) {
+			if (entry.sessionTargetId === targetId) ownedFrames.add(entry.frameId);
+		}
+		this.invalidateFrame(targetId);
+		for (const frameKey of ownedFrames) this.invalidateFrame(frameKey);
 	}
 
 	private dropTarget(targetId: string): void {
-		this.generations.delete(targetId);
+		this.invalidateFrame(targetId);
 		this.selfNavigations.delete(targetId);
 		this.lastSnapshots.delete(targetId);
 		this.frameSessions.delete(targetId);
 		this.frameTargets.delete(targetId);
+		this.frameParents.delete(targetId);
+		const invalidatedFrames = new Set<string>();
 		for (const [ref, entry] of this.refs) {
-			if (entry.targetId === targetId || entry.frameId === targetId) {
-				if (entry.frameId !== targetId) this.generations.delete(entry.frameId);
+			if (entry.targetId === targetId || entry.frameId === targetId || entry.sessionTargetId === targetId) {
+				if (entry.frameId !== targetId) invalidatedFrames.add(entry.frameId);
 				this.refs.delete(ref);
 			}
 		}
+		for (const frameId of invalidatedFrames) this.generations.set(frameId, this.generation(frameId) + 1);
 	}
 
 	/** SPAs can mint refs indefinitely without ever navigating; bound per-target growth by evicting the oldest. */
@@ -911,6 +1403,10 @@ export class BrowserExecutor {
 		return session;
 	}
 
+	private async pageTargetIds(): Promise<string[]> {
+		return (await this.cdp.pageTargets()).map((target) => target.targetId).sort();
+	}
+
 	private async resolveTarget(tabId?: string): Promise<string> {
 		const targets = await this.cdp.pageTargets();
 		if (targets.length === 0) throw new Error("no open browser tabs");
@@ -926,6 +1422,106 @@ export class BrowserExecutor {
 		this.activeTargetId = targets[0]!.targetId;
 		return this.activeTargetId;
 	}
+}
+
+class ObservationChangedError extends Error {
+	constructor() {
+		super("page changed while collecting the browser observation");
+	}
+}
+
+interface ExpectationEvaluation {
+	truth?: boolean;
+	details: string[];
+}
+
+function expectationEvidence(before: ExpectationEvaluation, after: ExpectationEvaluation): BrowserExpectationEvidence {
+	const details = [...before.details.map((detail) => `before: ${detail}`), ...after.details.map((detail) => `after: ${detail}`)];
+	if (before.truth === undefined || after.truth === undefined) {
+		return { status: "unverifiable", before: before.truth, after: after.truth, details };
+	}
+	if (before.truth && after.truth) return { status: "preexisting", before: true, after: true, details };
+	if (!before.truth && after.truth) return { status: "newly_verified", before: false, after: true, details };
+	return { status: "failed", before: before.truth, after: after.truth, details };
+}
+
+function normalizeState(value: unknown): boolean | "mixed" | undefined {
+	if (value === true || value === "true") return true;
+	if (value === false || value === "false") return false;
+	if (value === "mixed") return "mixed";
+	return undefined;
+}
+
+function observationGenerationsChanged(
+	before: BrowserObservation,
+	after: BrowserObservation,
+	live: ReadonlyMap<string, number>,
+): boolean {
+	const keys = new Set([...before.generations.keys(), ...after.generations.keys()]);
+	return [...keys].some(
+		(key) =>
+			before.generations.get(key) !== after.generations.get(key) ||
+			(after.generations.has(key) && after.generations.get(key) !== (live.get(key) ?? 0)),
+	);
+}
+
+function browserControlChange(
+	before: BrowserObservation,
+	after: BrowserObservation,
+	liveGenerations: ReadonlyMap<string, number>,
+	beforeTargets: readonly string[],
+	afterTargets: readonly string[],
+	beforeDialogCount: number,
+	afterDialogCount: number,
+): BrowserActResult["stop_reason"] {
+	if (afterDialogCount > beforeDialogCount) return "dialog";
+	if (observationGenerationsChanged(before, after, liveGenerations)) return "navigation";
+	if (targetsChanged(beforeTargets, afterTargets)) return "control_flow";
+	return undefined;
+}
+
+function targetsChanged(before: readonly string[], after: readonly string[]): boolean {
+	return before.length !== after.length || before.some((targetId, index) => targetId !== after[index]);
+}
+
+function delay(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function diffObservations(before: BrowserPresentation, after: BrowserPresentation): BrowserObservationDiff {
+	const oldLines = before.lines.map((line) => line.text.replace(REF_PLACEHOLDER, "ref"));
+	const newLines = after.lines.map((line) => line.text.replace(REF_PLACEHOLDER, "ref"));
+	const remaining = new Map<string, number>();
+	for (const line of oldLines) remaining.set(line, (remaining.get(line) ?? 0) + 1);
+	const added: string[] = [];
+	for (const line of newLines) {
+		const count = remaining.get(line) ?? 0;
+		if (count === 0) added.push(line);
+		else remaining.set(line, count - 1);
+	}
+	const removed: string[] = [];
+	for (const [line, count] of remaining) {
+		for (let index = 0; index < count; index += 1) removed.push(line);
+	}
+	const url =
+		before.observation.url === after.observation.url
+			? undefined
+			: { before: before.observation.url, after: after.observation.url };
+	const title =
+		before.observation.title === after.observation.title
+			? undefined
+			: { before: before.observation.title, after: after.observation.title };
+	return {
+		changed: added.length > 0 || removed.length > 0 || url !== undefined || title !== undefined,
+		added,
+		removed,
+		...(url ? { url } : {}),
+		...(title ? { title } : {}),
+	};
+}
+
+function errorMessage(err: unknown): string {
+	return err instanceof Error ? err.message : String(err);
 }
 
 function tabOf(action: { tab_id?: string }): string | undefined {
@@ -952,6 +1548,10 @@ function buildNthIndex(nodes: AXNode[]): NthIndex {
 
 function cohortKey(role: string, name: string): string {
 	return `${role}\u0000${name}`;
+}
+
+function frameStitchKey(parentFrameKey: string, backendNodeId: number): string {
+	return `${parentFrameKey}\u0000${backendNodeId}`;
 }
 
 /** Merge a run of two or more consecutive StaticText siblings (text split by inline markup) into one node. */

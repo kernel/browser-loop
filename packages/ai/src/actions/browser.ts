@@ -17,6 +17,7 @@ import { Type, type TSchema } from "@earendil-works/pi-ai";
  */
 export const CUA_BROWSER_ACTION_TYPES = [
 	"browser_snapshot",
+	"browser_act",
 	"browser_text",
 	"browser_find",
 	"browser_click",
@@ -41,6 +42,62 @@ export interface CuaActionBrowserSnapshot {
 	filter?: "all" | "interactive";
 	ref?: string;
 	depth?: number;
+	tab_id?: string;
+}
+
+type RoleNameExpectation =
+	| { type: "role_name"; role: string; name?: string; exists?: boolean }
+	| { type: "role_name"; role?: string; name: string; exists?: boolean };
+
+type RefExpectationState = {
+	value?: string;
+	checked?: boolean | "mixed";
+	selected?: boolean;
+	expanded?: boolean;
+};
+
+type RefExpectation = { type: "ref"; ref: string } & (
+	| (RefExpectationState & { value: string })
+	| (RefExpectationState & { checked: boolean | "mixed" })
+	| (RefExpectationState & { selected: boolean })
+	| (RefExpectationState & { expanded: boolean })
+);
+
+type LocationExpectation = { type: "url" | "title" } & (
+	| { equals: string; contains?: string; changed?: boolean }
+	| { equals?: string; contains: string; changed?: boolean }
+	| { equals?: string; contains?: string; changed: boolean }
+);
+
+type CuaBrowserExpectationLeaf =
+	| { type: "text"; text: string; exists?: boolean }
+	| RoleNameExpectation
+	| RefExpectation
+	| LocationExpectation;
+
+type NonEmptyArray<T> = [T, ...T[]];
+
+export type CuaBrowserExpectation =
+	| CuaBrowserExpectationLeaf
+	| { all: NonEmptyArray<CuaBrowserExpectationLeaf> }
+	| { any: NonEmptyArray<CuaBrowserExpectationLeaf> };
+
+export type CuaBrowserActStep =
+	| { type: "click"; ref: string; button?: "left" | "right" | "middle"; num_clicks?: number; modifiers?: string[]; expect?: CuaBrowserExpectation }
+	| { type: "hover"; ref: string; expect?: CuaBrowserExpectation }
+	| { type: "fill"; ref: string; value: string | number | boolean; expect?: CuaBrowserExpectation }
+	| { type: "type"; text: string; expect?: CuaBrowserExpectation }
+	| { type: "key"; text: string; repeat?: number; expect?: CuaBrowserExpectation }
+	| { type: "scroll_to"; ref: string; expect?: CuaBrowserExpectation }
+	| { type: "wait"; ms?: number; expect?: CuaBrowserExpectation };
+
+export interface CuaActionBrowserAct {
+	type: "browser_act";
+	steps: NonEmptyArray<CuaBrowserActStep>;
+	/** Optional final semantic expectation, evaluated against the initial and successor observations. */
+	expect?: CuaBrowserExpectation;
+	/** Controls presentation of the single successor observation. */
+	successor?: { filter?: "all" | "interactive"; depth?: number };
 	tab_id?: string;
 }
 
@@ -146,6 +203,7 @@ export interface CuaActionBrowserEvaluate {
 
 export type CuaBrowserAction =
 	| CuaActionBrowserSnapshot
+	| CuaActionBrowserAct
 	| CuaActionBrowserText
 	| CuaActionBrowserFind
 	| CuaActionBrowserClick
@@ -179,6 +237,79 @@ const TabId = () => Type.Optional(Type.String({ description: "Tab to act on. Def
 const RefProperty = () => Type.String({ description: "Element reference from browser_snapshot or browser_find, e.g. \"e12\"." });
 
 export function createCuaBrowserActionSchemaByType(options: CuaBrowserSchemaOptions): Record<CuaBrowserActionType, TSchema> {
+	const expectationLeaves = (): TSchema[] => {
+		const roleName = (required: "role" | "name") =>
+			Type.Object(
+				{
+					type: Type.Literal("role_name"),
+					role: required === "role" ? Type.String() : Type.Optional(Type.String()),
+					name: required === "name" ? Type.String() : Type.Optional(Type.String()),
+					exists: Type.Optional(Type.Boolean()),
+				},
+				{ additionalProperties: false },
+			);
+		const refState = (required: "value" | "checked" | "selected" | "expanded") =>
+			Type.Object(
+				{
+					type: Type.Literal("ref"),
+					ref: RefProperty(),
+					value: required === "value" ? Type.String() : Type.Optional(Type.String()),
+					checked:
+						required === "checked"
+							? Type.Union([Type.Boolean(), Type.Literal("mixed")])
+							: Type.Optional(Type.Union([Type.Boolean(), Type.Literal("mixed")])),
+					selected: required === "selected" ? Type.Boolean() : Type.Optional(Type.Boolean()),
+					expanded: required === "expanded" ? Type.Boolean() : Type.Optional(Type.Boolean()),
+				},
+				{ additionalProperties: false },
+			);
+		const location = (required: "equals" | "contains" | "changed") =>
+			Type.Object(
+				{
+					type: Type.Union([Type.Literal("url"), Type.Literal("title")]),
+					equals: required === "equals" ? Type.String() : Type.Optional(Type.String()),
+					contains: required === "contains" ? Type.String() : Type.Optional(Type.String()),
+					changed: required === "changed" ? Type.Boolean() : Type.Optional(Type.Boolean()),
+				},
+				{ additionalProperties: false },
+			);
+		return [
+			Type.Object({ type: Type.Literal("text"), text: Type.String(), exists: Type.Optional(Type.Boolean()) }, { additionalProperties: false }),
+			roleName("role"),
+			roleName("name"),
+			refState("value"),
+			refState("checked"),
+			refState("selected"),
+			refState("expanded"),
+			location("equals"),
+			location("contains"),
+			location("changed"),
+		];
+	};
+	const expectationLeaf = Type.Union(expectationLeaves(), { $id: "BrowserExpectationLeaf" });
+	const expectationLeafRef = () => Type.Ref("BrowserExpectationLeaf");
+	const expectation = Type.Union(
+		[
+			expectationLeafRef(),
+			Type.Object({ all: Type.Array(expectationLeafRef(), { minItems: 1 }) }, { additionalProperties: false }),
+			Type.Object({ any: Type.Array(expectationLeafRef(), { minItems: 1 }) }, { additionalProperties: false }),
+		],
+		{ $id: "BrowserExpectation" },
+	);
+	const expectationRef = () => Type.Ref("BrowserExpectation");
+	const stepExpectation = { expect: Type.Optional(expectationRef()) };
+	const actStep = Type.Union(
+		[
+			Type.Object({ type: Type.Literal("click"), ref: RefProperty(), button: Type.Optional(Type.Union([Type.Literal("left"), Type.Literal("right"), Type.Literal("middle")])), num_clicks: Type.Optional(Type.Number()), modifiers: Type.Optional(Type.Array(Type.String())), ...stepExpectation }, { additionalProperties: false }),
+			Type.Object({ type: Type.Literal("hover"), ref: RefProperty(), ...stepExpectation }, { additionalProperties: false }),
+			Type.Object({ type: Type.Literal("fill"), ref: RefProperty(), value: Type.Union([Type.String(), Type.Number(), Type.Boolean()]), ...stepExpectation }, { additionalProperties: false }),
+			Type.Object({ type: Type.Literal("type"), text: Type.String(), ...stepExpectation }, { additionalProperties: false }),
+			Type.Object({ type: Type.Literal("key"), text: Type.String(), repeat: Type.Optional(Type.Number()), ...stepExpectation }, { additionalProperties: false }),
+			Type.Object({ type: Type.Literal("scroll_to"), ref: RefProperty(), ...stepExpectation }, { additionalProperties: false }),
+			Type.Object({ type: Type.Literal("wait"), ms: Type.Optional(Type.Number({ minimum: 0, maximum: 30_000 })), ...stepExpectation }, { additionalProperties: false }),
+		],
+		{ $id: "BrowserActStep" },
+	);
 	const clickTarget: Record<string, TSchema> = options.coordinates
 		? {
 				ref: Type.Optional(RefProperty()),
@@ -197,6 +328,31 @@ export function createCuaBrowserActionSchemaByType(options: CuaBrowserSchemaOpti
 				tab_id: TabId(),
 			},
 			{ additionalProperties: false },
+		),
+		browser_act: Type.Object(
+			{
+				type: Type.Literal("browser_act"),
+				steps: Type.Array(Type.Ref("BrowserActStep"), { minItems: 1, maxItems: 20 }),
+				expect: Type.Optional(expectationRef()),
+				successor: Type.Optional(
+					Type.Object(
+						{
+							filter: Type.Optional(Type.Union([Type.Literal("all"), Type.Literal("interactive")])),
+							depth: Type.Optional(Type.Number()),
+						},
+						{ additionalProperties: false },
+					),
+				),
+				tab_id: TabId(),
+			},
+			{
+				additionalProperties: false,
+				$defs: {
+					BrowserExpectationLeaf: expectationLeaf,
+					BrowserExpectation: expectation,
+					BrowserActStep: actStep,
+				},
+			},
 		),
 		browser_text: Type.Object(
 			{

@@ -49,13 +49,15 @@ export const CUA_HYBRID_COMPUTER_ACTION_TYPES: readonly CuaComputerActionType[] 
 
 /**
  * Browser actions exposed in hybrid mode: reads, element-targeted writes,
- * and JavaScript evaluation. Pointer/keyboard capabilities (`browser_click` by coordinate,
- * `browser_type`, `browser_key`, `browser_scroll`, `browser_hover`, `browser_drag`) and
+ * dependent ref/focus action lists, and JavaScript evaluation. Standalone
+ * pointer/keyboard capabilities (`browser_click` by coordinate, `browser_type`,
+ * `browser_key`, `browser_scroll`, `browser_hover`, `browser_drag`) and
  * `browser_screenshot` are excluded — real OS input and the OS screenshot cover
- * those, keeping one tool per capability and one coordinate frame.
+ * those, keeping one coordinate frame.
  */
 export const CUA_HYBRID_BROWSER_ACTION_TYPES: readonly CuaBrowserActionType[] = [
 	"browser_snapshot",
+	"browser_act",
 	"browser_text",
 	"browser_find",
 	"browser_click",
@@ -113,6 +115,8 @@ const BROWSER_ACTION_DESCRIPTIONS: Record<CuaBrowserActionType, string> = {
 		"Return an accessibility-tree snapshot of the page, including iframe content, with element references like [e12]. " +
 		"Use the refs to target elements in other page tools. Refs are only valid until the page changes; re-snapshot when told a ref is stale. " +
 		"If the page has not changed since your previous snapshot, a short unchanged notice is returned instead and earlier refs remain valid.",
+	browser_act:
+		"Execute one dependent list of ref/focus-based browser actions and return honest semantic outcomes, per-step evidence, stop boundaries, and one successor observation diff. Input delivery alone is not reported as success.",
 	browser_text: "Return the page's visible text content as plain text. Best for articles and text-heavy pages.",
 	browser_find:
 		"Find elements on the page (including iframe content) matching a natural-language description and return them with element references, like a filtered snapshot.",

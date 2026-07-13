@@ -40,8 +40,9 @@ type ObjectSchemaWithProperties = TSchema & { properties: Record<string, TSchema
 
 function createCuaActionArgumentSchema(action: CuaActionType, mode: CuaMode): TSchema {
 	const schemaByType = cuaActionSchemaByType(schemaOptionsForMode(mode));
-	const { type: _type, ...properties } = (schemaByType[action] as ObjectSchemaWithProperties).properties;
-	return Type.Object(properties, { additionalProperties: false });
+	const schema = schemaByType[action] as ObjectSchemaWithProperties & { $defs?: Record<string, TSchema> };
+	const { type: _type, ...properties } = schema.properties;
+	return Type.Object(properties, { additionalProperties: false, ...(schema.$defs ? { $defs: schema.$defs } : {}) });
 }
 
 export function createCuaActionSchema(actions: readonly CuaActionType[] = CUA_ACTION_TYPES, mode: CuaMode = "computer"): TSchema {

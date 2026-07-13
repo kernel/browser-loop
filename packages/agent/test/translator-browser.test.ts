@@ -1,7 +1,7 @@
 import type Kernel from "@onkernel/sdk";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
-import type { CuaBrowserAction } from "@onkernel/cua-ai";
+import { computerToolExecutors, type CuaBrowserAction } from "@onkernel/cua-ai";
 import { BrowserExecutor } from "../src/translator/browser";
 import type { CdpConnection } from "../src/translator/cdp";
 import { buildCuaComputerTools } from "../src/tools";
@@ -32,6 +32,18 @@ function createFakeBrowserExecutor() {
 		execute: async (action: CuaBrowserAction): Promise<BatchReadResult[]> => {
 			executed.push(action);
 			if (action.type === "browser_text") return [{ type: "browser_text", label: "text", text: "hello" }];
+			if (action.type === "browser_act") {
+				const stopped = action.steps[0]?.type === "click" && action.steps[0].ref === "stale";
+				return [{
+					type: "browser_act",
+					result: {
+						outcome: stopped ? "didnt" : "unknown",
+						steps: [{ index: 0, type: "click", outcome: stopped ? "didnt" : "unknown", evidence: ["input delivered"] }],
+						...(stopped ? { stopped_at: 0, stop_reason: "stale_ref" as const } : {}),
+						successor: { status: "observed", text: 'button "Save" [e2]', url: "https://a.test/", title: "Page", diff: { changed: false, added: [], removed: [] } },
+					},
+				}];
+			}
 			return [];
 		},
 		screenshot: async () => ({ data: Buffer.from("png"), mimeType: "image/png" }),
@@ -54,6 +66,35 @@ describe("InternalComputerTranslator browser plane", () => {
 		expect(batches).toHaveLength(1);
 		expect(executed.map((action) => action.type)).toEqual(["browser_text", "browser_click"]);
 		expect(result.readResults).toEqual([{ type: "browser_text", label: "text", text: "hello" }]);
+	});
+
+	it("surfaces browser_act as readable content and structured tool details without a fallback screenshot", async () => {
+		const { client } = createClient();
+		const { executor } = createFakeBrowserExecutor();
+		const translator = new InternalComputerTranslator({ browser, client, createBrowserExecutor: () => executor });
+		const actExecutor = computerToolExecutors({ mode: "browser" }).find((candidate) => candidate.definition.name === "act")!;
+		const tool = buildCuaComputerTools({ toolExecutors: [actExecutor], mode: "browser" }, translator).find((candidate) => candidate.name === "act")!;
+
+		const result = await tool.execute("call_1", { steps: [{ type: "click", ref: "e1" }] });
+
+		expect(result.content).toHaveLength(1);
+		expect(result.content[0]).toMatchObject({ type: "text" });
+		expect((result.content[0] as { text: string }).text).toContain("browser_act outcome: unknown");
+		expect(result.details.statusText).toBe("Browser action outcome is unknown.");
+		expect(result.details.readResults[0]).toMatchObject({ type: "browser_act", result: { outcome: "unknown" } });
+	});
+
+	it("stops a mixed batch after browser_act reaches a stop boundary", async () => {
+		const { client } = createClient();
+		const { executor, executed } = createFakeBrowserExecutor();
+		const translator = new InternalComputerTranslator({ browser, client, createBrowserExecutor: () => executor });
+
+		await translator.executeBatch([
+			{ type: "browser_act", steps: [{ type: "click", ref: "stale" }] },
+			{ type: "browser_type", text: "must not run" },
+		]);
+
+		expect(executed.map((action) => action.type)).toEqual(["browser_act"]);
 	});
 
 	it("errors on browser actions when the browser has no cdp_ws_url", async () => {
@@ -106,6 +147,7 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 	const listeners: Array<(event: FakeCdpEvent) => void> = [];
 	let nodes = initialNodes as Array<{ backendDOMNodeId?: number }>;
 	let cursorBackendIds: number[] = [];
+	let targets = [{ targetId: "TARGET-1", type: "page", title: "Page", url: "https://a.test/" }];
 	const sessionTrees = new Map<string, Array<{ backendDOMNodeId?: number }>>();
 	const frameTrees = new Map<string, Array<{ backendDOMNodeId?: number }>>();
 	const iframeFrameIds = new Map<number, string>();
@@ -120,7 +162,9 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 		return nodes;
 	};
 	const requireBackendId = (id: unknown, sessionId?: string) => {
-		const candidates = sessionId && sessionTrees.has(sessionId) ? [sessionTrees.get(sessionId)!] : [nodes, ...frameTrees.values()];
+		const candidates = sessionId && sessionTrees.has(sessionId)
+			? [sessionTrees.get(sessionId)!, ...frameTrees.values()]
+			: [nodes, ...frameTrees.values()];
 		if (!candidates.some((tree) => tree.some((node) => node.backendDOMNodeId === id))) throw new Error("No node with given id found");
 	};
 	const fake = {
@@ -170,13 +214,16 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 					return {};
 			}
 		},
-		pageTargets: async () => [{ targetId: "TARGET-1", type: "page", title: "Page", url: "https://a.test/" }],
+		pageTargets: async () => targets,
 		attachToTarget: async () => "session-1",
 		createTarget: async () => "TARGET-2",
 		close: () => {},
 	};
 	const setNodes = (next: unknown[]) => {
 		nodes = next as Array<{ backendDOMNodeId?: number }>;
+	};
+	const setTargets = (next: typeof targets) => {
+		targets = next;
 	};
 	const setCursorBackendIds = (ids: number[]) => {
 		cursorBackendIds = ids;
@@ -200,6 +247,7 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 		sent,
 		emit,
 		setNodes,
+		setTargets,
 		setCursorBackendIds,
 		setSessionTree,
 		setFrameTree,
@@ -212,6 +260,7 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 
 interface AXNodeSpec {
 	nodeId: string;
+	ignored?: boolean;
 	role?: string;
 	name?: string;
 	value?: unknown;
@@ -224,6 +273,7 @@ interface AXNodeSpec {
 function ax(spec: AXNodeSpec) {
 	return {
 		nodeId: spec.nodeId,
+		ignored: spec.ignored,
 		parentId: spec.parentId,
 		childIds: spec.childIds,
 		backendDOMNodeId: spec.backendDOMNodeId,
@@ -647,6 +697,722 @@ describe("BrowserExecutor snapshot diffing", () => {
 		await snapshotText(executor);
 		expect(await snapshotText(executor, { filter: "interactive" })).toContain('button "Save" [e2]');
 	});
+
+	it("retries when an earlier iframe navigates while later frames are collected", async () => {
+		const fake = createFakeCdp([
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "3"] }),
+			ax({ nodeId: "2", role: "Iframe", backendDOMNodeId: 50, parentId: "1" }),
+			ax({ nodeId: "3", role: "Iframe", backendDOMNodeId: 51, parentId: "1" }),
+		]);
+		fake.setIframeFrame(50, "FRAME-1");
+		fake.setFrameTree("FRAME-1", [ax({ nodeId: "f1", role: "RootWebArea", name: "Old frame" })]);
+		fake.setIframeFrame(51, "FRAME-2");
+		fake.setFrameTree("FRAME-2", [ax({ nodeId: "g1", role: "RootWebArea", name: "Other frame" })]);
+		const inner = fake.cdp as unknown as { send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown> };
+		let changed = false;
+		const wrapped = {
+			...fake.cdp,
+			send: async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
+				const result = await inner.send(method, params, sessionId);
+				if (method === "Accessibility.getFullAXTree" && params?.frameId === "FRAME-2" && !changed) {
+					changed = true;
+					fake.setFrameTree("FRAME-1", [ax({ nodeId: "f1", role: "RootWebArea", name: "Updated frame" })]);
+					fake.emit({ method: "Page.frameNavigated", params: { frame: { id: "FRAME-1", parentId: "TARGET-1" } }, sessionId: "session-1" });
+				}
+				return result;
+			},
+		} as unknown as CdpConnection;
+
+		const text = await snapshotText(new BrowserExecutor(wrapped));
+		expect(text).toContain('RootWebArea "Updated frame"');
+		expect(text).not.toContain('RootWebArea "Old frame"');
+	});
+
+	it("generation-fences browser_find before minting refs", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		const inner = fake.cdp as unknown as { send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown> };
+		let changed = false;
+		const wrapped = {
+			...fake.cdp,
+			send: async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
+				const result = await inner.send(method, params, sessionId);
+				if (method === "Accessibility.getFullAXTree" && !changed) {
+					changed = true;
+					fake.setNodes([
+						ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),
+						ax({ nodeId: "2", role: "button", name: "Delete", backendDOMNodeId: 43, parentId: "1" }),
+					]);
+					fake.emit({ method: "Page.frameNavigated", params: { frame: { id: "TARGET-1" } }, sessionId: "session-1" });
+				}
+				return result;
+			},
+		} as unknown as CdpConnection;
+		const executor = new BrowserExecutor(wrapped);
+
+		const results = await executor.execute({ type: "browser_find", query: "delete button" } as CuaBrowserAction);
+		const read = results[0];
+		if (!read || read.type !== "browser_text") throw new Error("expected find result");
+		expect(read.text).toContain('button "Delete"');
+		expect(read.text).not.toContain('button "Save"');
+	});
+
+	it("retries when navigation changes the document during observation", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		const inner = fake.cdp as unknown as { send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown> };
+		let changed = false;
+		const wrapped = {
+			...fake.cdp,
+			send: async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
+				const result = await inner.send(method, params, sessionId);
+				if (method === "Accessibility.getFullAXTree" && !changed) {
+					changed = true;
+					fake.setNodes([
+						ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),
+						ax({ nodeId: "2", role: "button", name: "Delete", backendDOMNodeId: 43, parentId: "1" }),
+					]);
+					fake.emit({ method: "Page.frameNavigated", params: { frame: { id: "TARGET-1" } }, sessionId: "session-1" });
+				}
+				return result;
+			},
+		} as unknown as CdpConnection;
+
+		const text = await snapshotText(new BrowserExecutor(wrapped));
+		expect(text).toContain('button "Delete"');
+		expect(text).not.toContain('button "Save"');
+	});
+});
+
+describe("BrowserExecutor browser_act", () => {
+	const actResult = async (executor: BrowserExecutor, action: Omit<Extract<CuaBrowserAction, { type: "browser_act" }>, "type">) => {
+		const reads = await executor.execute({ type: "browser_act", ...action });
+		const read = reads.find((item) => item.type === "browser_act");
+		if (!read || read.type !== "browser_act") throw new Error("expected browser_act result");
+		return read.result;
+	};
+	const observedSuccessor = (result: Awaited<ReturnType<typeof actResult>>) => {
+		if (result.successor.status !== "observed") throw new Error("expected observed successor");
+		return result.successor;
+	};
+
+	it("reports a newly verified expectation and a structured successor diff", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		const inner = fake.cdp as unknown as { send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown> };
+		const wrapped = {
+			...fake.cdp,
+			send: async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
+				const result = await inner.send(method, params, sessionId);
+				if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased") {
+					fake.setNodes([
+						ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "3"] }),
+						ax({ nodeId: "2", role: "button", name: "Save", backendDOMNodeId: 42, parentId: "1" }),
+						ax({ nodeId: "3", role: "StaticText", name: "Saved", parentId: "1" }),
+					]);
+				}
+				return result;
+			},
+		} as unknown as CdpConnection;
+		const executor = new BrowserExecutor(wrapped);
+		await snapshotText(executor);
+
+		const result = await actResult(executor, {
+			steps: [
+				{
+					type: "click",
+					ref: "e1",
+					expect: {
+						any: [
+							{ type: "role_name", role: "StaticText", name: "Saved" },
+							{ type: "text", text: "missing" },
+						],
+					},
+				},
+			],
+		});
+
+		expect(result.outcome).toBe("worked");
+		expect(result.steps[0]?.expectation).toMatchObject({ status: "newly_verified", before: false, after: true });
+		expect(observedSuccessor(result).diff).toMatchObject({ changed: true, added: ['  StaticText "Saved"'] });
+		expect(observedSuccessor(result).text).toContain('StaticText "Saved"');
+		expect(await snapshotText(executor)).toBe("Page unchanged since the last snapshot; previous element refs are still valid.");
+	});
+
+	it("reports a failed postcondition and does not execute later steps", async () => {
+		const { cdp, sent } = createFakeCdp([
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "3"] }),
+			ax({ nodeId: "2", role: "button", name: "Save", backendDOMNodeId: 42, parentId: "1" }),
+			ax({ nodeId: "3", role: "button", name: "Next", backendDOMNodeId: 43, parentId: "1" }),
+		]);
+		const executor = new BrowserExecutor(cdp);
+		await snapshotText(executor);
+
+		const result = await actResult(executor, {
+			steps: [
+				{ type: "click", ref: "e1", expect: { type: "text", text: "Saved" } },
+				{ type: "click", ref: "e2" },
+			],
+		});
+
+		expect(result).toMatchObject({ outcome: "didnt", stopped_at: 0, stop_reason: "expectation_failed" });
+		expect(result.steps[0]?.expectation?.status).toBe("failed");
+		expect(sent.filter((command) => command.method === "Input.dispatchMouseEvent" && command.params.type === "mousePressed")).toHaveLength(1);
+	});
+
+	it("labels an already-satisfied expectation as preexisting instead of success", async () => {
+		const { cdp } = createFakeCdp([
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "3"] }),
+			ax({ nodeId: "2", role: "button", name: "Save", backendDOMNodeId: 42, parentId: "1" }),
+			ax({ nodeId: "3", role: "StaticText", name: "Saved", parentId: "1" }),
+		]);
+		const executor = new BrowserExecutor(cdp);
+		await snapshotText(executor);
+		const result = await actResult(executor, {
+			steps: [{ type: "click", ref: "e1", expect: { type: "text", text: "Saved" } }],
+		});
+		expect(result.outcome).toBe("unknown");
+		expect(result.steps[0]?.expectation?.status).toBe("preexisting");
+	});
+
+	it("requires a supplied final expectation to be newly verified", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		const inner = fake.cdp as unknown as { send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown> };
+		const wrapped = {
+			...fake.cdp,
+			send: async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
+				const result = await inner.send(method, params, sessionId);
+				if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased") {
+					fake.setNodes([...BUTTON_TREE, ax({ nodeId: "3", role: "StaticText", name: "Saved", parentId: "1" })]);
+				}
+				return result;
+			},
+		} as unknown as CdpConnection;
+		const executor = new BrowserExecutor(wrapped);
+		await snapshotText(executor);
+
+		const result = await actResult(executor, {
+			steps: [{ type: "click", ref: "e1", expect: { type: "text", text: "Saved" } }],
+			expect: { type: "title", equals: "Page" },
+		});
+
+		expect(result.steps[0]?.expectation?.status).toBe("newly_verified");
+		expect(result.final_expectation?.status).toBe("preexisting");
+		expect(result.outcome).toBe("unknown");
+	});
+
+	it("stops a dependent list when navigation invalidates its refs", async () => {
+		const fake = createFakeCdp([
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "3"] }),
+			ax({ nodeId: "2", role: "button", name: "Go", backendDOMNodeId: 42, parentId: "1" }),
+			ax({ nodeId: "3", role: "button", name: "Later", backendDOMNodeId: 43, parentId: "1" }),
+		]);
+		const inner = fake.cdp as unknown as { send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown> };
+		const wrapped = {
+			...fake.cdp,
+			send: async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
+				const result = await inner.send(method, params, sessionId);
+				if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased") {
+					fake.emit({ method: "Page.frameNavigated", params: { frame: { id: "TARGET-1" } }, sessionId: "session-1" });
+				}
+				return result;
+			},
+		} as unknown as CdpConnection;
+		const executor = new BrowserExecutor(wrapped);
+		await snapshotText(executor);
+		const result = await actResult(executor, { steps: [{ type: "click", ref: "e1" }, { type: "click", ref: "e2" }] });
+		expect(result).toMatchObject({ outcome: "unknown", stopped_at: 0, stop_reason: "navigation" });
+		expect(result.steps).toHaveLength(1);
+	});
+
+	it("keeps a navigation expectation verified while stopping later dispatch", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		const inner = fake.cdp as unknown as { send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown> };
+		const wrapped = {
+			...fake.cdp,
+			send: async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
+				const result = await inner.send(method, params, sessionId);
+				if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased") {
+					fake.setTargets([{ targetId: "TARGET-1", type: "page", title: "Next", url: "https://a.test/next" }]);
+					fake.emit({ method: "Page.frameNavigated", params: { frame: { id: "TARGET-1" } }, sessionId: "session-1" });
+				}
+				return result;
+			},
+		} as unknown as CdpConnection;
+		const executor = new BrowserExecutor(wrapped);
+		await snapshotText(executor);
+
+		const result = await actResult(executor, {
+			steps: [{ type: "click", ref: "e1", expect: { type: "url", contains: "/next", changed: true } }],
+		});
+
+		expect(result).toMatchObject({ outcome: "worked", stopped_at: 0, stop_reason: "navigation" });
+		expect(result.steps[0]).toMatchObject({ outcome: "worked", expectation: { status: "newly_verified" } });
+	});
+
+	it("does not treat a final step skipped by navigation as completed", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		const inner = fake.cdp as unknown as {
+			send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown>;
+			pageTargets: () => Promise<Array<{ targetId: string; type: string; title: string; url: string }>>;
+		};
+		let released = false;
+		let targetReadsAfterRelease = 0;
+		const wrapped = {
+			...fake.cdp,
+			send: async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
+				const result = await inner.send(method, params, sessionId);
+				if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased") released = true;
+				return result;
+			},
+			pageTargets: async () => {
+				const targets = await inner.pageTargets();
+				if (released && ++targetReadsAfterRelease === 8) {
+					fake.setTargets([{ targetId: "TARGET-1", type: "page", title: "Next", url: "https://a.test/next" }]);
+					fake.emit({ method: "Page.frameNavigated", params: { frame: { id: "TARGET-1" } }, sessionId: "session-1" });
+				}
+				return targets;
+			},
+		} as unknown as CdpConnection;
+		const executor = new BrowserExecutor(wrapped);
+		await snapshotText(executor);
+
+		const result = await actResult(executor, {
+			steps: [{ type: "click", ref: "e1" }, { type: "type", text: "must not run" }],
+			expect: { type: "url", contains: "/next", changed: true },
+		});
+
+		expect(result).toMatchObject({ outcome: "unknown", stopped_at: 1, stop_reason: "navigation" });
+		expect(result.steps[1]).toMatchObject({ outcome: "unknown", evidence: ["navigation detected before input delivery"] });
+		expect(fake.sent.some((command) => command.method === "Input.insertText")).toBe(false);
+	});
+
+	it("stops after a dialog changes control flow", async () => {
+		const fake = createFakeCdp([
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "3"] }),
+			ax({ nodeId: "2", role: "button", name: "Delete", backendDOMNodeId: 42, parentId: "1" }),
+			ax({ nodeId: "3", role: "button", name: "Later", backendDOMNodeId: 43, parentId: "1" }),
+		]);
+		const inner = fake.cdp as unknown as { send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown> };
+		const wrapped = {
+			...fake.cdp,
+			send: async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
+				const result = await inner.send(method, params, sessionId);
+				if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased") {
+					fake.emit({ method: "Page.javascriptDialogOpening", params: { type: "confirm", message: "Delete?" }, sessionId: "session-1" });
+				}
+				return result;
+			},
+		} as unknown as CdpConnection;
+		const executor = new BrowserExecutor(wrapped);
+		await snapshotText(executor);
+		const result = await actResult(executor, { steps: [{ type: "click", ref: "e1" }, { type: "click", ref: "e2" }] });
+		expect(result).toMatchObject({ stopped_at: 0, stop_reason: "dialog" });
+		expect(result.steps).toHaveLength(1);
+	});
+
+	it("polls delayed postconditions and uses a fresh observation before each action", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		const inner = fake.cdp as unknown as { send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown> };
+		let released = false;
+		const wrapped = {
+			...fake.cdp,
+			send: async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
+				const result = await inner.send(method, params, sessionId);
+				if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased" && !released) {
+					released = true;
+					setTimeout(() => fake.setNodes([
+						...BUTTON_TREE,
+						ax({ nodeId: "3", role: "StaticText", name: "Saved", parentId: "1" }),
+					]), 30);
+				}
+				return result;
+			},
+		} as unknown as CdpConnection;
+		const executor = new BrowserExecutor(wrapped);
+		await snapshotText(executor);
+		const result = await actResult(executor, {
+			steps: [
+				{ type: "click", ref: "e1", expect: { type: "text", text: "Saved" } },
+				{ type: "wait", ms: 0, expect: { type: "text", text: "Saved" } },
+			],
+		});
+		expect(result.outcome).toBe("unknown");
+		expect(result.steps.map((step) => step.expectation?.status)).toEqual(["newly_verified", "preexisting"]);
+	});
+
+	it("does not satisfy accessible expectations from ignored nodes", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		const inner = fake.cdp as unknown as { send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown> };
+		const wrapped = {
+			...fake.cdp,
+			send: async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
+				const result = await inner.send(method, params, sessionId);
+				if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased") {
+					fake.setNodes([...BUTTON_TREE, ax({ nodeId: "3", ignored: true, role: "StaticText", name: "Saved", parentId: "1" })]);
+				}
+				return result;
+			},
+		} as unknown as CdpConnection;
+		const executor = new BrowserExecutor(wrapped);
+		await snapshotText(executor);
+		const textResult = await actResult(executor, {
+			steps: [{ type: "click", ref: "e1", expect: { type: "text", text: "Saved" } }],
+		});
+		expect(textResult.steps[0]?.expectation?.status).toBe("failed");
+
+		const roleResult = await actResult(executor, {
+			steps: [{ type: "click", ref: "e1", expect: { type: "role_name", role: "StaticText", name: "Saved" } }],
+		});
+		expect(roleResult.steps[0]?.expectation?.status).toBe("failed");
+	});
+
+	it("stops when a post-action observation is unavailable", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		const inner = fake.cdp as unknown as { send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown> };
+		let failObservation = false;
+		const wrapped = {
+			...fake.cdp,
+			send: async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
+				if (method === "Accessibility.getFullAXTree" && failObservation) throw new Error("document replaced");
+				const result = await inner.send(method, params, sessionId);
+				if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased") failObservation = true;
+				return result;
+			},
+		} as unknown as CdpConnection;
+		const executor = new BrowserExecutor(wrapped);
+		await snapshotText(executor);
+		const result = await actResult(executor, {
+			steps: [{ type: "click", ref: "e1", expect: { type: "text", text: "Saved" } }, { type: "type", text: "later" }],
+		});
+		expect(result).toMatchObject({ outcome: "unknown", stopped_at: 0, stop_reason: "control_flow" });
+		expect(result.steps[0]?.expectation?.status).toBe("unverifiable");
+		expect(result.successor.status).toBe("unavailable");
+		expect(fake.sent.some((command) => command.method === "Input.insertText")).toBe(false);
+	});
+
+	it("returns an observed successor when dispatch fails after changing the page", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		const inner = fake.cdp as unknown as { send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown> };
+		const wrapped = {
+			...fake.cdp,
+			send: async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
+				const result = await inner.send(method, params, sessionId);
+				if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased") {
+					fake.setNodes([
+						ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "3"] }),
+						ax({ nodeId: "2", role: "button", name: "Save", backendDOMNodeId: 42, parentId: "1" }),
+						ax({ nodeId: "3", role: "StaticText", name: "Partially saved", parentId: "1" }),
+					]);
+					throw new Error("mouse release acknowledgement lost");
+				}
+				return result;
+			},
+		} as unknown as CdpConnection;
+		const executor = new BrowserExecutor(wrapped);
+		await snapshotText(executor);
+
+		const result = await actResult(executor, {
+			steps: [{ type: "click", ref: "e1", expect: { type: "text", text: "Partially saved" } }],
+		});
+
+		expect(result).toMatchObject({ outcome: "unknown", stopped_at: 0, stop_reason: "action_failed" });
+		expect(result.steps[0]).toMatchObject({ outcome: "unknown", expectation: { status: "newly_verified" } });
+		expect(observedSuccessor(result).text).toContain("Partially saved");
+		expect(observedSuccessor(result).diff.added).toContain('  StaticText "Partially saved"');
+	});
+
+	it("detects delayed navigation while polling a final expectation", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		const inner = fake.cdp as unknown as { send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown> };
+		let released = false;
+		const wrapped = {
+			...fake.cdp,
+			send: async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
+				const result = await inner.send(method, params, sessionId);
+				if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased" && !released) {
+					released = true;
+					setTimeout(() => fake.emit({ method: "Page.frameNavigated", params: { frame: { id: "TARGET-1" } }, sessionId: "session-1" }), 20);
+				}
+				return result;
+			},
+		} as unknown as CdpConnection;
+		const executor = new BrowserExecutor(wrapped);
+		await snapshotText(executor);
+
+		const result = await actResult(executor, {
+			steps: [{ type: "click", ref: "e1" }],
+			expect: { type: "text", text: "Never appears" },
+		});
+
+		expect(result).toMatchObject({ outcome: "unknown", stopped_at: 1, stop_reason: "navigation" });
+	});
+
+	it("recollects the successor when navigation lands during the final boundary check", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		const inner = fake.cdp as unknown as {
+			send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown>;
+			pageTargets: () => Promise<Array<{ targetId: string; type: string; title: string; url: string }>>;
+		};
+		let released = false;
+		let targetReadsAfterRelease = 0;
+		const wrapped = {
+			...fake.cdp,
+			send: async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
+				const result = await inner.send(method, params, sessionId);
+				if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased") released = true;
+				return result;
+			},
+			pageTargets: async () => {
+				const targets = await inner.pageTargets();
+				if (released && ++targetReadsAfterRelease === 8) {
+					fake.setNodes([
+						ax({ nodeId: "1", role: "RootWebArea", name: "New page", childIds: ["2"] }),
+						ax({ nodeId: "2", role: "button", name: "Continue", backendDOMNodeId: 84, parentId: "1" }),
+					]);
+					fake.emit({ method: "Page.frameNavigated", params: { frame: { id: "TARGET-1" } }, sessionId: "session-1" });
+				}
+				return targets;
+			},
+		} as unknown as CdpConnection;
+		const executor = new BrowserExecutor(wrapped);
+		await snapshotText(executor);
+
+		const result = await actResult(executor, { steps: [{ type: "click", ref: "e1" }] });
+
+		expect(result).toMatchObject({ outcome: "unknown", stopped_at: 1, stop_reason: "navigation" });
+		expect(observedSuccessor(result).text).toContain('button "Continue"');
+	});
+
+	it("detects delayed navigation and ignores unrelated target generations", async () => {
+		const fake = createFakeCdp([
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "3"] }),
+			ax({ nodeId: "2", role: "button", name: "Go", backendDOMNodeId: 42, parentId: "1" }),
+			ax({ nodeId: "3", role: "button", name: "Later", backendDOMNodeId: 43, parentId: "1" }),
+		]);
+		const inner = fake.cdp as unknown as { send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown> };
+		let released = false;
+		const wrapped = {
+			...fake.cdp,
+			send: async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
+				const result = await inner.send(method, params, sessionId);
+				if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased" && !released) {
+					released = true;
+					setTimeout(() => fake.emit({ method: "Page.frameNavigated", params: { frame: { id: "TARGET-1" } }, sessionId: "session-1" }), 0);
+				}
+				return result;
+			},
+		} as unknown as CdpConnection;
+		const executor = new BrowserExecutor(wrapped);
+		await snapshotText(executor);
+		(executor as unknown as { generations: Map<string, number> }).generations.set("OTHER-TARGET", 1);
+		const result = await actResult(executor, { steps: [{ type: "click", ref: "e1" }, { type: "click", ref: "e2" }] });
+		expect(result).toMatchObject({ outcome: "unknown", stopped_at: 0, stop_reason: "navigation" });
+		expect(result.steps).toHaveLength(1);
+	});
+
+	it("stops when an action opens a new page target", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		const inner = fake.cdp as unknown as { send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown> };
+		const wrapped = {
+			...fake.cdp,
+			send: async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
+				const result = await inner.send(method, params, sessionId);
+				if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased") {
+					fake.setTargets([
+						{ targetId: "TARGET-1", type: "page", title: "Page", url: "https://a.test/" },
+						{ targetId: "TARGET-2", type: "page", title: "Popup", url: "https://b.test/" },
+					]);
+				}
+				return result;
+			},
+		} as unknown as CdpConnection;
+		const executor = new BrowserExecutor(wrapped);
+		await snapshotText(executor);
+		const result = await actResult(executor, { steps: [{ type: "click", ref: "e1" }, { type: "type", text: "later" }] });
+		expect(result).toMatchObject({ stopped_at: 0, stop_reason: "control_flow" });
+		expect(result.steps).toHaveLength(1);
+	});
+
+	it("keeps the successor diff complete when text presentation is filtered", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		const inner = fake.cdp as unknown as { send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown> };
+		const wrapped = {
+			...fake.cdp,
+			send: async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
+				const result = await inner.send(method, params, sessionId);
+				if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased") {
+					fake.setNodes([
+						ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "3"] }),
+						ax({ nodeId: "2", role: "button", name: "Save", backendDOMNodeId: 42, parentId: "1" }),
+						ax({ nodeId: "3", role: "StaticText", name: "Saved", parentId: "1" }),
+					]);
+				}
+				return result;
+			},
+		} as unknown as CdpConnection;
+		const executor = new BrowserExecutor(wrapped);
+		await snapshotText(executor);
+		const result = await actResult(executor, { steps: [{ type: "click", ref: "e1" }], successor: { filter: "interactive" } });
+		expect(observedSuccessor(result).text).not.toContain("Saved");
+		expect(observedSuccessor(result).diff.added).toContain('  StaticText "Saved"');
+	});
+
+	it("conservatively heals ref expectations after an unambiguous rerender", async () => {
+		const fake = createFakeCdp([
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),
+			ax({ nodeId: "2", role: "checkbox", name: "Ready", properties: [{ name: "checked", value: false }], backendDOMNodeId: 42, parentId: "1" }),
+		]);
+		const inner = fake.cdp as unknown as { send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown> };
+		const wrapped = {
+			...fake.cdp,
+			send: async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
+				const result = await inner.send(method, params, sessionId);
+				if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased") {
+					fake.setNodes([
+						ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["9"] }),
+						ax({ nodeId: "9", role: "checkbox", name: "Ready", properties: [{ name: "checked", value: true }], backendDOMNodeId: 99, parentId: "1" }),
+					]);
+				}
+				return result;
+			},
+		} as unknown as CdpConnection;
+		const executor = new BrowserExecutor(wrapped);
+		await snapshotText(executor);
+		const result = await actResult(executor, {
+			steps: [{ type: "click", ref: "e1", expect: { type: "ref", ref: "e1", checked: true } }],
+		});
+		expect(result.outcome).toBe("worked");
+		expect(result.steps[0]?.expectation?.status).toBe("newly_verified");
+	});
+
+	it("evaluates ref value/state and final URL, title, and disappearance expectations", async () => {
+		const fake = createFakeCdp([
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "3"] }),
+			ax({
+				nodeId: "2",
+				role: "option",
+				name: "Choice",
+				value: "old",
+				properties: [{ name: "selected", value: false }, { name: "expanded", value: false }],
+				backendDOMNodeId: 42,
+				parentId: "1",
+			}),
+			ax({ nodeId: "3", role: "StaticText", name: "Loading", parentId: "1" }),
+		]);
+		const inner = fake.cdp as unknown as { send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown> };
+		const wrapped = {
+			...fake.cdp,
+			send: async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
+				const result = await inner.send(method, params, sessionId);
+				if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased") {
+					fake.setNodes([
+						ax({ nodeId: "1", role: "RootWebArea", name: "Done", childIds: ["2"] }),
+						ax({
+							nodeId: "2",
+							role: "option",
+							name: "Choice",
+							value: "new",
+							properties: [{ name: "selected", value: true }, { name: "expanded", value: true }],
+							backendDOMNodeId: 42,
+							parentId: "1",
+						}),
+					]);
+					fake.setTargets([{ targetId: "TARGET-1", type: "page", title: "Done", url: "https://a.test/saved" }]);
+				}
+				return result;
+			},
+		} as unknown as CdpConnection;
+		const executor = new BrowserExecutor(wrapped);
+		await snapshotText(executor);
+		const result = await actResult(executor, {
+			steps: [{
+				type: "click",
+				ref: "e1",
+				expect: { all: [
+					{ type: "ref", ref: "e1", value: "new", selected: true, expanded: true },
+					{ type: "text", text: "Loading", exists: false },
+				] },
+			}],
+			expect: { all: [
+				{ type: "url", contains: "/saved", changed: true },
+				{ type: "title", equals: "Done", changed: true },
+			] },
+		});
+		expect(result.outcome).toBe("worked");
+		expect(result.steps[0]?.expectation?.status).toBe("newly_verified");
+		expect(result.final_expectation?.status).toBe("newly_verified");
+		expect(observedSuccessor(result).diff.url?.after).toBe("https://a.test/saved");
+	});
+
+	it("does not verify absence against an incomplete nested iframe observation", async () => {
+		const fake = createFakeCdp([
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "3"] }),
+			ax({ nodeId: "2", role: "button", name: "Save", backendDOMNodeId: 42, parentId: "1" }),
+			ax({ nodeId: "3", role: "Iframe", backendDOMNodeId: 50, parentId: "1" }),
+		]);
+		fake.setIframeFrame(50, "FRAME-1");
+		fake.setFrameTree("FRAME-1", [
+			ax({ nodeId: "f1", role: "RootWebArea", name: "First frame", childIds: ["f2"] }),
+			ax({ nodeId: "f2", role: "Iframe", backendDOMNodeId: 60, parentId: "f1" }),
+		]);
+		const executor = new BrowserExecutor(fake.cdp);
+		await snapshotText(executor);
+
+		const result = await actResult(executor, {
+			steps: [{ type: "click", ref: "e1", expect: { type: "text", text: "Missing", exists: false } }],
+		});
+
+		expect(result).toMatchObject({ outcome: "unknown", stopped_at: 0, stop_reason: "control_flow" });
+		expect(result.steps[0]?.expectation?.status).toBe("unverifiable");
+	});
+
+	it("keeps ambiguous ref replacement unverifiable and stops", async () => {
+		const fake = createFakeCdp([
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),
+			ax({ nodeId: "2", role: "checkbox", name: "Ready", backendDOMNodeId: 42, parentId: "1" }),
+		]);
+		const inner = fake.cdp as unknown as { send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown> };
+		const wrapped = {
+			...fake.cdp,
+			send: async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
+				const result = await inner.send(method, params, sessionId);
+				if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased") {
+					fake.setNodes([
+						ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["8", "9"] }),
+						ax({ nodeId: "8", role: "checkbox", name: "Ready", backendDOMNodeId: 98, parentId: "1" }),
+						ax({ nodeId: "9", role: "checkbox", name: "Ready", properties: [{ name: "checked", value: true }], backendDOMNodeId: 99, parentId: "1" }),
+					]);
+				}
+				return result;
+			},
+		} as unknown as CdpConnection;
+		const executor = new BrowserExecutor(wrapped);
+		await snapshotText(executor);
+		const result = await actResult(executor, {
+			steps: [{ type: "click", ref: "e1", expect: { type: "ref", ref: "e1", checked: true } }, { type: "type", text: "later" }],
+		});
+		expect(result).toMatchObject({ outcome: "unknown", stopped_at: 0, stop_reason: "control_flow" });
+		expect(result.steps[0]?.expectation?.status).toBe("unverifiable");
+	});
+
+	it("sets the final expectation stop boundary after all actions", async () => {
+		const executor = new BrowserExecutor(createFakeCdp(BUTTON_TREE).cdp);
+		await snapshotText(executor);
+		const result = await actResult(executor, {
+			steps: [{ type: "click", ref: "e1" }],
+			expect: { type: "title", equals: "Missing" },
+		});
+		expect(result).toMatchObject({ outcome: "didnt", stopped_at: 1, stop_reason: "expectation_failed" });
+		expect(result.final_expectation?.status).toBe("failed");
+	});
+
+	it("returns a stale-ref outcome instead of dispatching later actions", async () => {
+		const { cdp, emit, sent } = createFakeCdp(BUTTON_TREE);
+		const executor = new BrowserExecutor(cdp);
+		await snapshotText(executor);
+		emit({ method: "Page.frameNavigated", params: { frame: { id: "TARGET-1" } }, sessionId: "session-1" });
+		const result = await actResult(executor, { steps: [{ type: "click", ref: "e1" }, { type: "type", text: "later" }] });
+		expect(result).toMatchObject({ outcome: "didnt", stopped_at: 0, stop_reason: "stale_ref" });
+		expect(sent.some((command) => command.method === "Input.insertText")).toBe(false);
+	});
 });
 
 describe("BrowserExecutor iframe stitching", () => {
@@ -686,6 +1452,106 @@ describe("BrowserExecutor iframe stitching", () => {
 		fake.setSessionTree("session-oop", OOPIF_CHILD);
 		return fake;
 	};
+
+	it("recursively stitches nested iframe subtrees and invalidates descendants with their parent", async () => {
+		const fake = createFakeCdp([
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),
+			ax({ nodeId: "2", role: "Iframe", backendDOMNodeId: 50, parentId: "1" }),
+		]);
+		fake.setIframeFrame(50, "FRAME-1");
+		fake.setFrameTree("FRAME-1", [
+			ax({ nodeId: "f1", role: "RootWebArea", name: "First", childIds: ["f2"] }),
+			ax({ nodeId: "f2", role: "Iframe", backendDOMNodeId: 60, parentId: "f1" }),
+		]);
+		fake.setIframeFrame(60, "FRAME-2");
+		fake.setFrameTree("FRAME-2", [
+			ax({ nodeId: "g1", role: "RootWebArea", name: "Second", childIds: ["g2"] }),
+			ax({ nodeId: "g2", role: "button", name: "Deep", backendDOMNodeId: 70, parentId: "g1" }),
+		]);
+		const executor = new BrowserExecutor(fake.cdp);
+
+		const text = await snapshotText(executor);
+
+		expect(text).toContain('button "Deep" [e3]');
+		await executor.execute({ type: "browser_click", ref: "e3" } as CuaBrowserAction);
+		expect(fake.sent).toContainEqual(expect.objectContaining({ method: "DOM.getBoxModel", params: { backendNodeId: 70 } }));
+
+		fake.emit({ method: "Page.frameNavigated", params: { frame: { id: "FRAME-1", parentId: "TARGET-1" } }, sessionId: "session-1" });
+		await expect(executor.execute({ type: "browser_click", ref: "e3" } as CuaBrowserAction)).rejects.toThrow(/stale/);
+		await executor.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction);
+	});
+
+	it("invalidates nested same-process refs when their OOPIF session navigates", async () => {
+		const fake = createFakeCdp(OOPIF_PAGE);
+		fake.setIframeFrame(50, "FRAME-OOP");
+		fake.addAutoAttachFrame({ targetId: "FRAME-OOP", sessionId: "session-oop" });
+		fake.setSessionTree("session-oop", [
+			ax({ nodeId: "f1", role: "RootWebArea", name: "Widget", childIds: ["f2"] }),
+			ax({ nodeId: "f2", role: "Iframe", backendDOMNodeId: 60, parentId: "f1" }),
+		]);
+		fake.setIframeFrame(60, "FRAME-INNER");
+		fake.setFrameTree("FRAME-INNER", [
+			ax({ nodeId: "g1", role: "RootWebArea", name: "Inner", childIds: ["g2"] }),
+			ax({ nodeId: "g2", role: "button", name: "Deep", backendDOMNodeId: 80, parentId: "g1" }),
+		]);
+		const executor = new BrowserExecutor(fake.cdp);
+		const text = await snapshotText(executor);
+		expect(text).toContain('button "Deep" [e4]');
+
+		fake.emit({ method: "Page.frameNavigated", params: { frame: { id: "FRAME-INNER", parentId: "FRAME-OOP" } }, sessionId: "session-oop" });
+
+		await expect(executor.execute({ type: "browser_click", ref: "e4" } as CuaBrowserAction)).rejects.toThrow(/stale/);
+		await executor.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction);
+	});
+
+	it("rebinds imported nested OOPIF refs only through the owning OOPIF session", async () => {
+		const fake = createFakeCdp(OOPIF_PAGE);
+		const configureAutoAttach = () => fake.addAutoAttachFrame({ targetId: "FRAME-OOP", sessionId: "session-oop" });
+		fake.setIframeFrame(50, "FRAME-OOP");
+		configureAutoAttach();
+		fake.setSessionTree("session-oop", [
+			ax({ nodeId: "f1", role: "RootWebArea", name: "Widget", childIds: ["f2"] }),
+			ax({ nodeId: "f2", role: "Iframe", backendDOMNodeId: 60, parentId: "f1" }),
+		]);
+		fake.setIframeFrame(60, "FRAME-INNER");
+		fake.setFrameTree("FRAME-INNER", [
+			ax({ nodeId: "g1", role: "RootWebArea", name: "Inner", childIds: ["g2"] }),
+			ax({ nodeId: "g2", role: "button", name: "Deep", backendDOMNodeId: 80, parentId: "g1" }),
+		]);
+		const first = new BrowserExecutor(fake.cdp);
+		const text = await snapshotText(first);
+		expect(text).toContain('button "Deep" [e4]');
+		const state = first.exportRefState();
+		first.close();
+
+		configureAutoAttach();
+		const resumed = new BrowserExecutor(fake.cdp);
+		resumed.importRefState(state);
+		await resumed.execute({ type: "browser_click", ref: "e4" } as CuaBrowserAction);
+
+		const resolved = fake.sent.filter((command) => command.method === "DOM.getBoxModel" && command.params.backendNodeId === 80).at(-1);
+		expect(resolved?.sessionId).toBe("session-oop");
+
+		const resolvedCount = fake.sent.filter((command) => command.method === "DOM.getBoxModel" && command.params.backendNodeId === 80).length;
+		const unavailable = new BrowserExecutor(fake.cdp);
+		unavailable.importRefState(state);
+		await expect(unavailable.execute({ type: "browser_click", ref: "e4" } as CuaBrowserAction)).rejects.toThrow(/owning frame session/);
+		expect(fake.sent.filter((command) => command.method === "DOM.getBoxModel" && command.params.backendNodeId === 80)).toHaveLength(resolvedCount);
+
+		configureAutoAttach();
+		const scrolling = new BrowserExecutor(fake.cdp);
+		scrolling.importRefState(state);
+		await scrolling.execute({ type: "browser_scroll_to", ref: "e4" } as CuaBrowserAction);
+		const scrolled = fake.sent.filter((command) => command.method === "DOM.scrollIntoViewIfNeeded" && command.params.backendNodeId === 80).at(-1);
+		expect(scrolled?.sessionId).toBe("session-oop");
+
+		configureAutoAttach();
+		const ancestry = new BrowserExecutor(fake.cdp);
+		ancestry.importRefState(state);
+		await ancestry.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction);
+		fake.emit({ method: "Page.frameNavigated", params: { frame: { id: "FRAME-OOP", parentId: "TARGET-1" } }, sessionId: "session-1" });
+		await expect(ancestry.execute({ type: "browser_click", ref: "e4" } as CuaBrowserAction)).rejects.toThrow(/stale/);
+	});
 
 	it("resolves an OOPIF ref's node through the child session but dispatches input on the page session", async () => {
 		const { cdp, sent } = setupOopif();
