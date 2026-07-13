@@ -422,6 +422,24 @@ describe("BrowserExecutor ref lifecycle", () => {
 		expect(internal.frameParents.has("FRAME-4")).toBe(true);
 	});
 
+	it("scopes frame navigation epochs to their owning target", async () => {
+		const executor = new BrowserExecutor(createFakeCdp(BUTTON_TREE).cdp);
+		await snapshotText(executor);
+		const internal = executor as unknown as {
+			generations: Map<string, number>;
+			frameParents: Map<string, string>;
+			navigationEpochs: Map<string, number>;
+			invalidateFrame: (frameId: string) => void;
+		};
+		internal.generations.set("OTHER-FRAME", 0);
+		internal.frameParents.set("OTHER-FRAME", "OTHER-TARGET");
+
+		internal.invalidateFrame("OTHER-FRAME");
+
+		expect(internal.navigationEpochs.get("OTHER-TARGET")).toBe(1);
+		expect(internal.navigationEpochs.get("TARGET-1")).toBeUndefined();
+	});
+
 	it("drops generation state when a target detaches", async () => {
 		const { cdp, emit } = createFakeCdp(BUTTON_TREE);
 		const executor = new BrowserExecutor(cdp);
@@ -876,6 +894,20 @@ describe("BrowserExecutor browser_act", () => {
 		if (result.successor.status !== "observed") throw new Error("expected observed successor");
 		return result.successor;
 	};
+
+	it("returns a structured result when the baseline observation is unavailable", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		fake.failOn("Accessibility.getFullAXTree");
+		const result = await actResult(new BrowserExecutor(fake.cdp), { steps: [{ type: "wait", ms: 0 }] });
+
+		expect(result).toMatchObject({
+			outcome: "unknown",
+			steps: [],
+			stopped_at: 0,
+			stop_reason: "control_flow",
+			successor: { status: "unavailable" },
+		});
+	});
 
 	it("reports a newly verified expectation and a structured successor diff", async () => {
 		const fake = createFakeCdp(BUTTON_TREE);

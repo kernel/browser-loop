@@ -184,7 +184,7 @@ export class BrowserExecutor {
 	private readonly selfNavigations = new Set<string>();
 	private readonly dialogNotes: string[] = [];
 	private refCounter = 0;
-	private frameNavigationEpoch = 0;
+	private readonly navigationEpochs = new Map<string, number>();
 	private activeTargetId?: string;
 	private readonly cdp: CdpConnection;
 
@@ -389,7 +389,7 @@ export class BrowserExecutor {
 		const targetBefore = targetsBefore.find((candidate) => candidate.targetId === targetId);
 		if (!targetBefore) throw new ObservationChangedError();
 		const generationBefore = this.trackGeneration(targetId);
-		const navigationEpoch = this.frameNavigationEpoch;
+		const navigationEpoch = this.navigationEpoch(targetId);
 		const { nodes, sessionId } = await this.frameAxTree(targetId, targetId, pageSession);
 		const ctx: RenderContext = {
 			targetId,
@@ -415,7 +415,7 @@ export class BrowserExecutor {
 		if (
 			!targetAfter ||
 			generationBefore !== this.generation(targetId) ||
-			navigationEpoch !== this.frameNavigationEpoch ||
+			navigationEpoch !== this.navigationEpoch(targetId) ||
 			targetBefore.url !== targetAfter.url ||
 			targetBefore.title !== targetAfter.title
 		) {
@@ -453,7 +453,7 @@ export class BrowserExecutor {
 				if (!targetBefore) throw new ObservationChangedError();
 				const targetGeneration = this.trackGeneration(targetId);
 				const frameGeneration = this.trackGeneration(entry.frameId);
-				const navigationEpoch = this.frameNavigationEpoch;
+				const navigationEpoch = this.navigationEpoch(targetId);
 				const { nodes, sessionId } = await this.frameAxTree(entry.frameId, targetId, pageSession);
 				const targetsAfter = await this.cdp.pageTargets();
 				const targetAfter = targetsAfter.find((candidate) => candidate.targetId === targetId);
@@ -461,7 +461,7 @@ export class BrowserExecutor {
 					!targetAfter ||
 					targetGeneration !== this.generation(targetId) ||
 					frameGeneration !== this.generation(entry.frameId) ||
-					navigationEpoch !== this.frameNavigationEpoch ||
+					navigationEpoch !== this.navigationEpoch(targetId) ||
 					targetBefore.url !== targetAfter.url ||
 					targetBefore.title !== targetAfter.title
 				) {
@@ -584,9 +584,21 @@ export class BrowserExecutor {
 			tab_id: action.tab_id,
 			depth: Number.MAX_SAFE_INTEGER,
 		};
-		const baseline = await this.observe(action.tab_id);
+		let baseline: BrowserObservation;
+		let currentTargets: string[];
+		try {
+			baseline = await this.observe(action.tab_id);
+			currentTargets = await this.pageTargetIds();
+		} catch (err) {
+			return {
+				outcome: "unknown",
+				steps: [],
+				stopped_at: 0,
+				stop_reason: "control_flow",
+				successor: { status: "unavailable", error: errorMessage(err) },
+			};
+		}
 		let current = baseline;
-		let currentTargets = await this.pageTargetIds();
 		let currentDialogCount = this.dialogNotes.length;
 		const steps: BrowserActStepResult[] = [];
 		let stoppedAt: number | undefined;
@@ -1430,6 +1442,22 @@ export class BrowserExecutor {
 		return generation;
 	}
 
+	private navigationEpoch(targetId: string): number {
+		return this.navigationEpochs.get(targetId) ?? 0;
+	}
+
+	private rootFrame(frameKey: string): string {
+		const visited = new Set<string>();
+		let root = frameKey;
+		while (!visited.has(root)) {
+			visited.add(root);
+			const parent = this.frameParents.get(root);
+			if (!parent) break;
+			root = parent;
+		}
+		return root;
+	}
+
 	private invalidateRefs(targetId: string): void {
 		this.invalidateFrame(targetId);
 		for (const [ref, entry] of this.refs) {
@@ -1505,7 +1533,8 @@ export class BrowserExecutor {
 			}
 		}
 		if (!tracked) return;
-		this.frameNavigationEpoch += 1;
+		const targetId = this.rootFrame(frameKey);
+		this.navigationEpochs.set(targetId, this.navigationEpoch(targetId) + 1);
 		const invalidated = new Set<string>([frameKey]);
 		let found = true;
 		while (found) {
@@ -1556,6 +1585,7 @@ export class BrowserExecutor {
 		}
 		for (const frameId of invalidatedFrames) this.generations.delete(frameId);
 		this.generations.delete(targetId);
+		this.navigationEpochs.delete(targetId);
 	}
 
 	/** SPAs can mint refs indefinitely without ever navigating; bound per-target growth by evicting the oldest. */
