@@ -108,9 +108,9 @@ const CUA_MODEL_OVERRIDES: Record<CuaProvider, readonly Model<Api>[]> = {
 	openai: [],
 	anthropic: [],
 	google: [],
-	// pi-ai 0.80.3 predates these providers' current models.dev catalog entries.
+	// pi-ai 0.80.6 predates Meta's models.dev catalog entry.
 	meta: [cuaModel("meta", "muse-spark-1.1", "Muse Spark 1.1")],
-	xai: [cuaModel("xai", "grok-4.5", "Grok 4.5")],
+	xai: [],
 	tzafon: [
 		cuaModel("tzafon", "tzafon.northstar-cua-fast", "Tzafon Northstar CUA Fast"),
 		cuaModel("tzafon", "tzafon.northstar-cua-fast-1.6", "Tzafon Northstar CUA Fast 1.6"),
@@ -214,8 +214,17 @@ export function routeCuaApi(model: Model<Api>): Model<Api> {
 	if (model.provider === "meta" && model.api !== META_RESPONSES_API) {
 		return { ...model, api: META_RESPONSES_API };
 	}
-	if (model.provider === "xai" && model.api !== XAI_CUA_RESPONSES_API) {
-		return { ...model, api: XAI_CUA_RESPONSES_API };
+	if (model.provider === "xai" && model.id === "grok-4.5") {
+		return {
+			...model,
+			api: XAI_CUA_RESPONSES_API,
+			thinkingLevelMap: { off: "low", minimal: "low", xhigh: "high" },
+			cost: {
+				...model.cost,
+				tiers: [{ inputTokensAbove: 200_000, input: 4, output: 12, cacheRead: 1, cacheWrite: 0 }],
+			},
+			compat: { supportsDeveloperRole: false, sendSessionIdHeader: false, supportsLongCacheRetention: false },
+		};
 	}
 	return model;
 }
@@ -264,12 +273,12 @@ function isCuaFamilyMatch(id: string, family: string): boolean {
 		.every((segment) => /^\d+$/.test(segment));
 }
 
-function cuaModel(provider: CuaProvider, id: string, name: string): Model<Api> {
+function cuaModel(provider: Exclude<CuaProvider, "xai">, id: string, name: string): Model<Api> {
 	const base = {
 		id,
 		name,
 		provider,
-		reasoning: provider === "openai" || provider === "anthropic" || provider === "google" || provider === "meta" || provider === "xai",
+		reasoning: provider === "openai" || provider === "anthropic" || provider === "google" || provider === "meta",
 		input: ["text", "image"],
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 	} satisfies Partial<Model<Api>>;
@@ -293,19 +302,6 @@ function cuaModel(provider: CuaProvider, id: string, name: string): Model<Api> {
 				contextWindow: 1_048_576,
 				maxTokens: 128_000,
 				compat: { supportsDeveloperRole: true, sendSessionIdHeader: false, supportsLongCacheRetention: true },
-			} as Model<Api>;
-		case "xai":
-			// xAI doubles token prices above 200k input tokens; pi's flat Model
-			// cost fields record the standard-context rates.
-			return {
-				...base,
-				api: XAI_CUA_RESPONSES_API,
-				baseUrl: "https://api.x.ai/v1",
-				thinkingLevelMap: { off: "low", minimal: "low", xhigh: "high" },
-				cost: { input: 2, output: 6, cacheRead: 0.5, cacheWrite: 0 },
-				contextWindow: 500_000,
-				maxTokens: 500_000,
-				compat: { supportsDeveloperRole: false, sendSessionIdHeader: false, supportsLongCacheRetention: false },
 			} as Model<Api>;
 		case "tzafon":
 			return { ...base, api: "tzafon-responses", baseUrl: "https://api.lightcone.ai", contextWindow: 128_000, maxTokens: 4_096 } as Model<Api>;

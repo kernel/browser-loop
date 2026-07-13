@@ -83,8 +83,8 @@ Grok 4.5 uses xAI's OpenAI-compatible Responses API with screenshot input and
 ordinary function tools. xAI does not define a native computer tool or
 coordinate protocol, so CUA supplies the browser actions and normalized
 coordinate instructions. Tool loops continue through `previous_response_id`.
-The catalog records xAI's standard-context prices; xAI doubles token prices
-when input exceeds 200k tokens.
+CUA adds xAI's doubled token-price tier above 200k input tokens to pi-ai's
+Grok 4.5 model metadata.
 
 Source: [Grok 4.5 docs](https://docs.x.ai/developers/grok-4-5), [function calling](https://docs.x.ai/developers/tools/function-calling), and [image understanding](https://docs.x.ai/developers/model-capabilities/images/understanding).
 

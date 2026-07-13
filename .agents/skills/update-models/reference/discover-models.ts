@@ -840,9 +840,9 @@ const TZAFON_FUNCTION_TOOLS = [
 
 async function annotateCuaSupport(provider: Provider, models: ModelResult[]): Promise<void> {
 	const piProvider = provider === "gemini" ? "google" : provider;
-	const getModel = await import("@earendil-works/pi-ai").then((mod) => mod.getModel).catch(() => undefined);
+	const getBuiltinModel = await import("@earendil-works/pi-ai/providers/all").then((mod) => mod.getBuiltinModel).catch(() => undefined);
 	for (const model of models) {
-		const inRegistry = getModel ? !!getModel(piProvider as never, model.id as never) : false;
+		const inRegistry = getBuiltinModel ? !!getBuiltinModel(piProvider as never, model.id as never) : false;
 		const localAdapterSupport = localAdapterSupportStatus(provider, model);
 		model.cua = {
 			provider_inference: provider,

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	CUA_MODEL_ANNOTATIONS,
 	CUA_PROVIDERS,
+	cuaOverrideModels,
 	findCuaAnnotation,
 	formatCuaModelRef,
 	getCuaModel,
@@ -60,16 +61,20 @@ describe("CUA model refs", () => {
 		expect(muse.contextWindow).toBe(1_048_576);
 		expect(muse.maxTokens).toBe(128_000);
 		expect(muse.thinkingLevelMap?.off).toBeNull();
+	});
 
+	it("uses pi-ai's Grok catalog entry with CUA routing overrides", () => {
+		expect(cuaOverrideModels("xai")).toEqual([]);
 		const grok = getCuaModel("xai:grok-4.5");
 		expect(grok.provider).toBe("xai");
 		expect(grok.api).toBe(xai.XAI_CUA_RESPONSES_API);
 		expect(grok.baseUrl).toBe("https://api.x.ai/v1");
 		expect(grok.contextWindow).toBe(500_000);
 		expect(grok.maxTokens).toBe(500_000);
-		expect(grok.thinkingLevelMap?.off).toBe("low");
-		expect(grok.thinkingLevelMap?.minimal).toBe("low");
-		expect(grok.thinkingLevelMap?.xhigh).toBe("high");
+		expect(grok.thinkingLevelMap).toEqual({ off: "low", minimal: "low", xhigh: "high" });
+		expect(grok.cost.tiers).toEqual([
+			{ inputTokensAbove: 200_000, input: 4, output: 12, cacheRead: 1, cacheWrite: 0 },
+		]);
 	});
 
 	it("loads supported custom provider models without explicit registration", () => {

@@ -116,11 +116,6 @@ function withGoogleEnvKeys(base: Provider): Provider {
 function withXaiCuaResponses(base: Provider): Provider {
 	return {
 		...base,
-		getModels: () => {
-			const models = new Map(base.getModels().map((model) => [model.id, model]));
-			for (const model of cuaOverrideModels("xai")) models.set(model.id, model);
-			return [...models.values()];
-		},
 		stream: (model: Model<Api>, context: Context, options?: StreamOptions) =>
 			model.api === XAI_CUA_RESPONSES_API
 				? streamXaiResponses(model as never, context, options)

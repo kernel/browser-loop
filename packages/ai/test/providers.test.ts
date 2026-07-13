@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createCuaModels, cuaModels, tzafon, xai, yutori } from "../src/index";
+import { createCuaModels, cuaModels, tzafon, yutori } from "../src/index";
 import { OPENAI_CUA_RESPONSES_API } from "../src/providers/openai/provider";
 
 const TZAFON_RESPONSES_API = tzafon.TZAFON_RESPONSES_API;
@@ -16,10 +16,10 @@ describe("createCuaModels", () => {
 		}
 	});
 
-	it("lists the CUA-only provider catalogs", () => {
+	it("lists CUA provider catalogs", () => {
 		const models = createCuaModels();
 		expect(models.getModel("meta", "muse-spark-1.1")?.api).toBe("meta-responses");
-		expect(models.getModel("xai", "grok-4.5")?.api).toBe(xai.XAI_CUA_RESPONSES_API);
+		expect(models.getModel("xai", "grok-4.5")?.api).toBe("openai-completions");
 		const tzafonIds = models.getModels("tzafon").map((m) => m.id);
 		expect(tzafonIds).toContain("tzafon.northstar-cua-fast");
 		const yutoriIds = models.getModels("yutori").map((m) => m.id);
