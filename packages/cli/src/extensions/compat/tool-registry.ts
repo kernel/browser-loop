@@ -114,12 +114,14 @@ export class HarnessToolRegistry {
 	}
 
 	async applyActiveTools(names: string[]): Promise<void> {
-		const active = new Set(names);
-		for (const tool of [...this.extensionTools, ...this.runtimeTools.values()]) {
-			if (active.has(tool.name)) this.inactiveExtensionTools.delete(tool.name);
-			else this.inactiveExtensionTools.add(tool.name);
-		}
-		await this.harness.setActiveTools(names);
+		await this.mutateHarnessTools(async () => {
+			const active = new Set(names);
+			for (const tool of [...this.extensionTools, ...this.runtimeTools.values()]) {
+				if (active.has(tool.name)) this.inactiveExtensionTools.delete(tool.name);
+				else this.inactiveExtensionTools.add(tool.name);
+			}
+			await this.harness.setActiveTools(names);
+		});
 	}
 
 	private snapshot(): RegistrySnapshot {
