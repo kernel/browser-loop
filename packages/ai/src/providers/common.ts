@@ -272,7 +272,7 @@ export type CuaPayloadHook = (payload: unknown, model: Model<Api>, context?: Cua
  * pi-ai `SimpleStreamOptions` plus CUA request controls consumed by provider
  * adapters. Pass `keepToolNames` for caller tools that must survive native
  * tool-set substitution; use `disableResponseThreading` for a full-context
- * OpenAI or Tzafon request.
+ * OpenAI, Meta, or Tzafon request.
  */
 export interface CuaSimpleStreamOptions extends SimpleStreamOptions, ResponseThreadingOptions {
 	keepToolNames?: readonly string[];
