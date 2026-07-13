@@ -1,9 +1,11 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AgentHarness } from "@onkernel/cua-agent";
 import { cpSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { HarnessExtensionHost } from "../src/extensions/compat/host";
+import { HarnessToolRegistry } from "../src/extensions/compat/tool-registry";
 import { buildTestHarness, type TestHarnessFixture } from "./fixtures/harness";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -326,6 +328,32 @@ describe("HarnessExtensionHost", () => {
 		const names = fx.harness.getTools().map((tool) => tool.name);
 		expect(names.filter((name) => name === builtin)).toHaveLength(1);
 		expect(created.loadErrors.some((e) => e.path === builtin && /built-in/.test(e.error))).toBe(true);
+	});
+});
+
+describe("HarnessToolRegistry", () => {
+	it("serializes extension active-tool changes with other tool mutations", async () => {
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const setActiveTools = vi.fn(async () => {});
+		const harness = {
+			setActiveTools,
+			mutateTools: async <T>(mutation: () => Promise<T>) => {
+				await gate;
+				return mutation();
+			},
+		} as unknown as AgentHarness;
+		const registry = new HarnessToolRegistry(harness, () => {});
+
+		const update = registry.applyActiveTools(["click_visual"]);
+		await Promise.resolve();
+		expect(setActiveTools).not.toHaveBeenCalled();
+
+		release();
+		await update;
+		expect(setActiveTools).toHaveBeenCalledWith(["click_visual"]);
 	});
 });
 
