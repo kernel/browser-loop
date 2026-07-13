@@ -955,6 +955,27 @@ describe("BrowserExecutor browser_act", () => {
 		expect(result.steps[0]?.expectation?.status).toBe("preexisting");
 	});
 
+	it("matches text expectations against merged static-text runs", async () => {
+		const executor = new BrowserExecutor(createFakeCdp([
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "3"] }),
+			ax({ nodeId: "2", role: "StaticText", name: "Hello", parentId: "1" }),
+			ax({ nodeId: "3", role: "StaticText", name: "world", parentId: "1" }),
+		]).cdp);
+
+		const result = await actResult(executor, {
+			steps: [{
+				type: "wait",
+				ms: 0,
+				expect: { all: [
+					{ type: "text", text: "Hello world" },
+					{ type: "role_name", role: "StaticText", name: "Hello world" },
+				] },
+			}],
+		});
+
+		expect(result.steps[0]?.expectation?.status).toBe("preexisting");
+	});
+
 	it("requires a supplied final expectation to be newly verified", async () => {
 		const fake = createFakeCdp(BUTTON_TREE);
 		const inner = fake.cdp as unknown as { send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown> };
@@ -1202,6 +1223,41 @@ describe("BrowserExecutor browser_act", () => {
 		expect(result.steps[0]?.expectation?.status).toBe("unverifiable");
 		expect(result.successor.status).toBe("unavailable");
 		expect(fake.sent.some((command) => command.method === "Input.insertText")).toBe(false);
+	});
+
+	it("keeps a verified outcome when successor collection is unavailable", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		const inner = fake.cdp as unknown as { send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown> };
+		let afterAction = false;
+		let observationsAfterAction = 0;
+		const wrapped = {
+			...fake.cdp,
+			send: async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
+				if (method === "Accessibility.getFullAXTree" && afterAction && ++observationsAfterAction > 1) {
+					throw new Error("successor unavailable");
+				}
+				const result = await inner.send(method, params, sessionId);
+				if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased") {
+					fake.setNodes([
+						ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "3"] }),
+						ax({ nodeId: "2", role: "button", name: "Save", backendDOMNodeId: 42, parentId: "1" }),
+						ax({ nodeId: "3", role: "StaticText", name: "Saved", parentId: "1" }),
+					]);
+					afterAction = true;
+				}
+				return result;
+			},
+		} as unknown as CdpConnection;
+		const executor = new BrowserExecutor(wrapped);
+		await snapshotText(executor);
+
+		const result = await actResult(executor, {
+			steps: [{ type: "click", ref: "e1", expect: { type: "text", text: "Saved" } }],
+		});
+
+		expect(result).toMatchObject({ outcome: "worked", stopped_at: 1, stop_reason: "control_flow" });
+		expect(result.steps[0]?.expectation?.status).toBe("newly_verified");
+		expect(result.successor.status).toBe("unavailable");
 	});
 
 	it("returns an observed successor when dispatch fails after changing the page", async () => {

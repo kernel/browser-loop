@@ -758,6 +758,7 @@ export class BrowserExecutor {
 			}
 		}
 
+		const completed = steps.length === action.steps.length && (!stopReason || terminalNavigation);
 		let successor: BrowserActResult["successor"] | undefined;
 		let successorError: unknown;
 		for (let attempt = 0; attempt < 3 && !successor; attempt += 1) {
@@ -804,7 +805,6 @@ export class BrowserExecutor {
 			stoppedAt ??= action.steps.length;
 		}
 
-		const completed = steps.length === action.steps.length && (!stopReason || terminalNavigation);
 		const definitiveFailure = steps.some((step) => step.outcome === "didnt") || finalExpectation?.status === "failed";
 		const semanticallyVerified = action.expect
 			? finalExpectation?.status === "newly_verified"
@@ -849,6 +849,23 @@ export class BrowserExecutor {
 		}
 	}
 
+	private expectationNodes(observation: BrowserObservation): AXNode[] {
+		const nodes = observation.nodes.map(({ node }) => node);
+		for (const tree of [observation.tree, ...observation.stitches.values()]) {
+			for (const node of tree.byId.values()) {
+				const childIds = node.childIds ?? [];
+				for (let index = 0; index < childIds.length; index += 1) {
+					const run = staticTextRun(tree.byId, childIds, index);
+					if (run) {
+						nodes.push(run.node);
+						index = run.end;
+					}
+				}
+			}
+		}
+		return nodes;
+	}
+
 	private evaluateExpectation(
 		expectation: CuaBrowserExpectation,
 		observation: BrowserObservation,
@@ -873,16 +890,16 @@ export class BrowserExecutor {
 			return { truth, details: children.flatMap((child) => child.details) };
 		}
 		if (expectation.type === "text") {
-			const found = observation.nodes.some(
-				({ node }) => !node.ignored && (node.name?.value ?? "").toLowerCase().includes(expectation.text.toLowerCase()),
+			const found = this.expectationNodes(observation).some(
+				(node) => !node.ignored && (node.name?.value ?? "").toLowerCase().includes(expectation.text.toLowerCase()),
 			);
 			const truth = !found && !observation.complete ? undefined : found === (expectation.exists ?? true);
 			const completeness = observation.complete ? "" : "; observation incomplete";
 			return { truth, details: [`text ${JSON.stringify(expectation.text)} ${found ? "present" : "absent"}${completeness}`] };
 		}
 		if (expectation.type === "role_name") {
-			const found = observation.nodes.some(
-				({ node }) =>
+			const found = this.expectationNodes(observation).some(
+				(node) =>
 					!node.ignored &&
 					(expectation.role === undefined || (node.role?.value ?? "") === expectation.role) &&
 					(expectation.name === undefined || (node.name?.value ?? "") === expectation.name),
