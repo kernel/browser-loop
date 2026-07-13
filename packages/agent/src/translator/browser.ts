@@ -463,26 +463,40 @@ export class BrowserExecutor {
 				const frameGeneration = this.trackGeneration(entry.frameId);
 				const navigationEpoch = this.navigationEpoch(targetId);
 				const { nodes, sessionId } = await this.frameAxTree(entry.frameId, targetId, pageSession);
-				const targetsAfter = await this.cdp.pageTargets();
-				const targetAfter = targetsAfter.find((candidate) => candidate.targetId === targetId);
-				if (
-					!targetAfter ||
-					targetGeneration !== this.generation(targetId) ||
-					frameGeneration !== this.generation(entry.frameId) ||
-					navigationEpoch !== this.navigationEpoch(targetId) ||
-					targetBefore.url !== targetAfter.url ||
-					targetBefore.title !== targetAfter.title
-				) {
-					throw new ObservationChangedError();
-				}
+				const sessionTargetId = entry.sessionTargetId ?? (this.frameSessions.has(entry.frameId) ? entry.frameId : targetId);
 				const ctx: RenderContext = {
 					targetId,
 					frameKey: entry.frameId,
-					sessionTargetId: entry.sessionTargetId ?? (this.frameSessions.has(entry.frameId) ? entry.frameId : targetId),
+					sessionTargetId,
 					sessionId,
 					generation: frameGeneration,
 					nthIndex: buildNthIndex(nodes),
 				};
+				const { frames: stitches, complete } = await this.stitchFrames(
+					nodes,
+					targetId,
+					sessionId,
+					entry.frameId,
+					sessionTargetId,
+				);
+				const targetsAfter = await this.cdp.pageTargets();
+				const targetAfter = targetsAfter.find((candidate) => candidate.targetId === targetId);
+				const generations = new Map<string, number>([[targetId, targetGeneration], [entry.frameId, frameGeneration]]);
+				for (const stitch of stitches.values()) generations.set(stitch.ctx.frameKey, stitch.ctx.generation);
+				if (
+					!targetAfter ||
+					navigationEpoch !== this.navigationEpoch(targetId) ||
+					targetBefore.url !== targetAfter.url ||
+					targetBefore.title !== targetAfter.title ||
+					[...generations].some(([frameKey, generation]) => this.generation(frameKey) !== generation)
+				) {
+					throw new ObservationChangedError();
+				}
+				const observedNodes: ObservedNode[] = nodes.map((node) => ({ node, ctx }));
+				for (const stitch of stitches.values()) {
+					for (const node of stitch.byId.values()) observedNodes.push({ node, ctx: stitch.ctx });
+				}
+				this.boundFrameState(new Set(generations.keys()));
 				const observation: BrowserObservation = {
 					targetId,
 					navigationEpoch,
@@ -491,12 +505,12 @@ export class BrowserExecutor {
 						roots: nodes.filter((node) => !node.parentId).map((node) => node.nodeId),
 						ctx,
 					},
-					stitches: new Map(),
-					nodes: nodes.map((node) => ({ node, ctx })),
+					stitches,
+					nodes: observedNodes,
 					url: targetAfter.url,
 					title: targetAfter.title,
-					generations: new Map([[targetId, targetGeneration], [entry.frameId, frameGeneration]]),
-					complete: true,
+					generations,
+					complete,
 				};
 				return this.presentObservation(observation, action);
 			} catch (err) {
@@ -1007,7 +1021,13 @@ export class BrowserExecutor {
 	}
 
 	/** Resolve iframe nodes recursively and fetch each child frame's AX tree for stitching. */
-	private async stitchFrames(nodes: AXNode[], targetId: string, pageSession: string): Promise<FrameStitchResult> {
+	private async stitchFrames(
+		nodes: AXNode[],
+		targetId: string,
+		pageSession: string,
+		rootFrameKey = targetId,
+		rootSessionTargetId = targetId,
+	): Promise<FrameStitchResult> {
 		const stitches = new Map<string, FrameStitch>();
 		const visitedFrames = new Set<string>([targetId]);
 		let complete = true;
@@ -1061,7 +1081,7 @@ export class BrowserExecutor {
 				}
 			}
 		};
-		await visit(nodes, targetId, pageSession, targetId);
+		await visit(nodes, rootFrameKey, pageSession, rootSessionTargetId);
 		return { frames: stitches, complete };
 	}
 
@@ -1462,6 +1482,11 @@ export class BrowserExecutor {
 			const parent = this.frameParents.get(root);
 			if (!parent) break;
 			root = parent;
+		}
+		if (root === frameKey) {
+			for (const entry of this.refs.values()) {
+				if (entry.frameId === frameKey || entry.sessionTargetId === frameKey) return entry.targetId;
+			}
 		}
 		return root;
 	}

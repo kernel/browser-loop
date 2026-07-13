@@ -1739,7 +1739,13 @@ describe("BrowserExecutor iframe stitching", () => {
 		fake.setIframeFrame(50, "FRAME-SP");
 		fake.setFrameTree("FRAME-SP", [
 			ax({ nodeId: "f1", role: "RootWebArea", name: "Frame", childIds: ["f2"] }),
-			ax({ nodeId: "f2", role: "button", name: "Inside", backendDOMNodeId: 60, parentId: "f1" }),
+			ax({ nodeId: "f2", role: "region", name: "Inside", backendDOMNodeId: 62, parentId: "f1", childIds: ["f3"] }),
+			ax({ nodeId: "f3", role: "Iframe", backendDOMNodeId: 60, parentId: "f2" }),
+		]);
+		fake.setIframeFrame(60, "FRAME-INNER");
+		fake.setFrameTree("FRAME-INNER", [
+			ax({ nodeId: "g1", role: "RootWebArea", name: "Nested", childIds: ["g2"] }),
+			ax({ nodeId: "g2", role: "button", name: "Deep", backendDOMNodeId: 70, parentId: "g1" }),
 		]);
 		const inner = fake.cdp as unknown as { send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown> };
 		let missStitch = false;
@@ -1753,10 +1759,12 @@ describe("BrowserExecutor iframe stitching", () => {
 			},
 		} as unknown as CdpConnection;
 		const executor = new BrowserExecutor(wrapped);
-		expect(await snapshotText(executor)).toContain('button "Inside" [e2]');
+		expect(await snapshotText(executor)).toContain('region "Inside" [e2]');
 		missStitch = true;
 
-		expect(await snapshotText(executor, { ref: "e2" })).toContain('button "Inside" [e3]');
+		const scoped = await snapshotText(executor, { ref: "e2" });
+		expect(scoped).toContain('region "Inside" [e5]');
+		expect(scoped).toContain('button "Deep" [e7]');
 	});
 
 	const OOPIF_PAGE = [
@@ -2041,6 +2049,14 @@ describe("BrowserExecutor ref state export/import", () => {
 
 		const resolved = secondFake.sent.find((command) => command.method === "DOM.getBoxModel" && command.params.backendNodeId === 60);
 		expect(resolved?.sessionId).toBe("session-1");
+
+		secondFake.emit({
+			method: "Page.navigatedWithinDocument",
+			params: { frameId: "FRAME-SP", url: "https://a.test/#frame" },
+			sessionId: "session-1",
+		});
+		const epochs = (second as unknown as { navigationEpochs: Map<string, number> }).navigationEpochs;
+		expect(epochs.get("TARGET-1")).toBe(1);
 	});
 
 	it("keeps minting unique refs after import and invalidates imported refs on navigation", async () => {
