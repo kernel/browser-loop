@@ -403,7 +403,9 @@ describe("BrowserExecutor ref lifecycle", () => {
 		const internal = executor as unknown as {
 			generations: Map<string, number>;
 			frameParents: Map<string, string>;
+			frameSessions: Map<string, string>;
 			boundFrameState: (observed: ReadonlySet<string>) => void;
+			pruneFrameState: (targetId: string, observed: ReadonlySet<string>) => void;
 		};
 		expect([...internal.generations.keys()].filter((key) => key.startsWith("FRAME-"))).toEqual([
 			"FRAME-0",
@@ -420,6 +422,12 @@ describe("BrowserExecutor ref lifecycle", () => {
 		expect(internal.frameParents.size).toBeLessThanOrEqual(1000);
 		expect(internal.generations.size).toBeLessThanOrEqual(1000);
 		expect(internal.frameParents.has("FRAME-4")).toBe(true);
+
+		internal.frameParents.set("ATTACHED-OOPIF", "TARGET-1");
+		internal.frameSessions.set("ATTACHED-OOPIF", "session-oop");
+		internal.generations.set("ATTACHED-OOPIF", 0);
+		internal.pruneFrameState("TARGET-1", new Set(["TARGET-1", "FRAME-4"]));
+		expect(internal.frameSessions.get("ATTACHED-OOPIF")).toBe("session-oop");
 	});
 
 	it("scopes frame navigation epochs to their owning target", async () => {

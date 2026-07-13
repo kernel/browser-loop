@@ -1517,7 +1517,6 @@ export class BrowserExecutor {
 		}
 		for (const frameId of stale) {
 			this.frameParents.delete(frameId);
-			this.frameSessions.delete(frameId);
 			this.generations.delete(frameId);
 		}
 		for (const [ref, entry] of this.refs) {
