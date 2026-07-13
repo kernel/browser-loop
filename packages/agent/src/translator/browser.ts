@@ -198,7 +198,8 @@ export class BrowserExecutor {
 				const targetId = this.targetsBySession.get(event.sessionId);
 				if (!targetId) return;
 				if (this.frameTargets.has(targetId)) {
-					this.invalidateSessionTarget(targetId);
+					if (frame.id && frame.id !== targetId) this.invalidateFrame(frame.id);
+					else this.invalidateSessionTarget(targetId);
 					return;
 				}
 				if (frame.parentId) {

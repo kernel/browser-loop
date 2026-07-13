@@ -278,12 +278,19 @@ function formatBrowserActResult(result: BrowserActResult): string {
 		lines.push(`step ${step.index} ${step.type}: ${step.outcome} — ${step.evidence.join("; ")}`);
 		for (const detail of step.expectation?.details ?? []) lines.push(`  ${detail}`);
 	}
-	if (result.final_expectation) lines.push(`final expectation: ${result.final_expectation.status}`);
+	if (result.final_expectation) {
+		lines.push(`final expectation: ${result.final_expectation.status}`);
+		for (const detail of result.final_expectation.details) lines.push(`  ${detail}`);
+	}
 	if (result.successor.status === "unavailable") {
 		lines.push(`successor unavailable: ${result.successor.error}`);
 	} else {
 		const { diff } = result.successor;
+		lines.push(`successor url: ${result.successor.url}`);
+		lines.push(`successor title: ${result.successor.title}`);
 		lines.push(`successor diff: ${diff.changed ? `+${diff.added.length} -${diff.removed.length}` : "unchanged"}`);
+		if (diff.url) lines.push(`  url: ${diff.url.before} -> ${diff.url.after}`);
+		if (diff.title) lines.push(`  title: ${diff.title.before} -> ${diff.title.after}`);
 		for (const line of diff.added) lines.push(`  + ${line}`);
 		for (const line of diff.removed) lines.push(`  - ${line}`);
 		lines.push(result.successor.text);

@@ -40,7 +40,20 @@ function createFakeBrowserExecutor() {
 						outcome: stopped ? "didnt" : "unknown",
 						steps: [{ index: 0, type: "click", outcome: stopped ? "didnt" : "unknown", evidence: ["input delivered"] }],
 						...(stopped ? { stopped_at: 0, stop_reason: "stale_ref" as const } : {}),
-						successor: { status: "observed", text: 'button "Save" [e2]', url: "https://a.test/", title: "Page", diff: { changed: false, added: [], removed: [] } },
+						final_expectation: { status: "preexisting", before: true, after: true, details: ["after: title=\"Page\""] },
+						successor: {
+							status: "observed",
+							text: 'button "Save" [e2]',
+							url: "https://a.test/",
+							title: "Page",
+							diff: {
+								changed: true,
+								added: [],
+								removed: [],
+								url: { before: "https://a.test/old", after: "https://a.test/" },
+								title: { before: "Old", after: "Page" },
+							},
+						},
 					},
 				}];
 			}
@@ -79,7 +92,12 @@ describe("InternalComputerTranslator browser plane", () => {
 
 		expect(result.content).toHaveLength(1);
 		expect(result.content[0]).toMatchObject({ type: "text" });
-		expect((result.content[0] as { text: string }).text).toContain("browser_act outcome: unknown");
+		const text = (result.content[0] as { text: string }).text;
+		expect(text).toContain("browser_act outcome: unknown");
+		expect(text).toContain('after: title="Page"');
+		expect(text).toContain("successor url: https://a.test/");
+		expect(text).toContain("url: https://a.test/old -> https://a.test/");
+		expect(text).toContain("title: Old -> Page");
 		expect(result.details.statusText).toBe("Browser action outcome is unknown.");
 		expect(result.details.readResults[0]).toMatchObject({ type: "browser_act", result: { outcome: "unknown" } });
 	});
@@ -1590,6 +1608,7 @@ describe("BrowserExecutor iframe stitching", () => {
 		fake.emit({ method: "Page.frameNavigated", params: { frame: { id: "FRAME-INNER", parentId: "FRAME-OOP" } }, sessionId: "session-oop" });
 
 		await expect(executor.execute({ type: "browser_click", ref: "e4" } as CuaBrowserAction)).rejects.toThrow(/stale/);
+		await executor.execute({ type: "browser_click", ref: "e3" } as CuaBrowserAction);
 		await executor.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction);
 	});
 
@@ -1656,13 +1675,13 @@ describe("BrowserExecutor iframe stitching", () => {
 		expect(pressed?.sessionId).toBe("session-1");
 	});
 
-	it("invalidates a frame target's refs when a subframe inside it navigates", async () => {
+	it("keeps an OOPIF root ref valid when an unrelated nested frame navigates", async () => {
 		const { cdp, emit } = setupOopif();
 		const executor = new BrowserExecutor(cdp);
 		await snapshotText(executor);
 
 		emit({ method: "Page.frameNavigated", params: { frame: { id: "FRAME-INNER", parentId: "FRAME-OOP" } }, sessionId: "session-oop" });
-		await expect(executor.execute({ type: "browser_click", ref: "e3" } as CuaBrowserAction)).rejects.toThrow(/stale/);
+		await expect(executor.execute({ type: "browser_click", ref: "e3" } as CuaBrowserAction)).resolves.toEqual([]);
 	});
 
 	it("finds elements inside stitched iframes", async () => {
