@@ -34,6 +34,7 @@ function createFakeBrowserExecutor() {
 			if (action.type === "browser_text") return [{ type: "browser_text", label: "text", text: "hello" }];
 			if (action.type === "browser_act") {
 				const stopped = action.steps[0]?.type === "click" && action.steps[0].ref === "stale";
+				const largeDiff = action.steps[0]?.type === "click" && action.steps[0].ref === "large";
 				return [{
 					type: "browser_act",
 					result: {
@@ -48,7 +49,7 @@ function createFakeBrowserExecutor() {
 							title: "Page",
 							diff: {
 								changed: true,
-								added: [],
+								added: largeDiff ? Array.from({ length: 201 }, (_, index) => `line-${index}`) : [],
 								removed: [],
 								url: { before: "https://a.test/old", after: "https://a.test/" },
 								title: { before: "Old", after: "Page" },
@@ -100,6 +101,20 @@ describe("InternalComputerTranslator browser plane", () => {
 		expect(text).toContain("title: Old -> Page");
 		expect(result.details.statusText).toBe("Browser action outcome is unknown.");
 		expect(result.details.readResults[0]).toMatchObject({ type: "browser_act", result: { outcome: "unknown" } });
+	});
+
+	it("bounds model-facing successor diff output", async () => {
+		const { client } = createClient();
+		const { executor } = createFakeBrowserExecutor();
+		const translator = new InternalComputerTranslator({ browser, client, createBrowserExecutor: () => executor });
+		const actExecutor = computerToolExecutors({ mode: "browser" }).find((candidate) => candidate.definition.name === "act")!;
+		const tool = buildCuaComputerTools({ toolExecutors: [actExecutor], mode: "browser" }, translator).find((candidate) => candidate.name === "act")!;
+
+		const result = await tool.execute("call_1", { steps: [{ type: "click", ref: "large" }] });
+		const text = (result.content[0] as { text: string }).text;
+		expect(text).toContain("+ line-199");
+		expect(text).not.toContain("+ line-200");
+		expect(text).toContain("1 more diff lines omitted");
 	});
 
 	it("stops a mixed batch after browser_act reaches a stop boundary", async () => {
@@ -990,6 +1005,37 @@ describe("BrowserExecutor browser_act", () => {
 		expect(result.steps).toHaveLength(1);
 	});
 
+	it("stops after a navigated iframe disappears from the successor observation", async () => {
+		const fake = createFakeCdp([
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "3"] }),
+			ax({ nodeId: "2", role: "button", name: "Save", backendDOMNodeId: 42, parentId: "1" }),
+			ax({ nodeId: "3", role: "Iframe", backendDOMNodeId: 50, parentId: "1" }),
+		]);
+		fake.setIframeFrame(50, "FRAME-SP");
+		fake.setFrameTree("FRAME-SP", [ax({ nodeId: "f1", role: "RootWebArea", name: "Frame" })]);
+		const inner = fake.cdp as unknown as { send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown> };
+		const wrapped = {
+			...fake.cdp,
+			send: async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
+				const result = await inner.send(method, params, sessionId);
+				if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased") {
+					fake.emit({ method: "Page.frameNavigated", params: { frame: { id: "FRAME-SP", parentId: "TARGET-1" } }, sessionId: "session-1" });
+					fake.setNodes(BUTTON_TREE);
+				}
+				return result;
+			},
+		} as unknown as CdpConnection;
+		const executor = new BrowserExecutor(wrapped);
+		await snapshotText(executor);
+
+		const result = await actResult(executor, {
+			steps: [{ type: "click", ref: "e1" }, { type: "type", text: "must not run" }],
+		});
+
+		expect(result).toMatchObject({ outcome: "unknown", stopped_at: 0, stop_reason: "navigation" });
+		expect(result.steps).toHaveLength(1);
+	});
+
 	it("keeps a navigation expectation verified while stopping later dispatch", async () => {
 		const fake = createFakeCdp(BUTTON_TREE);
 		const inner = fake.cdp as unknown as { send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown> };
@@ -1528,7 +1574,12 @@ describe("BrowserExecutor browser_act", () => {
 		const executor = new BrowserExecutor(cdp);
 		await snapshotText(executor);
 		emit({ method: "Page.frameNavigated", params: { frame: { id: "TARGET-1" } }, sessionId: "session-1" });
-		const result = await actResult(executor, { steps: [{ type: "click", ref: "e1" }, { type: "type", text: "later" }] });
+		const result = await actResult(executor, {
+			steps: [
+				{ type: "click", ref: "e1", expect: { type: "ref", ref: "e1", checked: true } },
+				{ type: "type", text: "later" },
+			],
+		});
 		expect(result).toMatchObject({ outcome: "didnt", stopped_at: 0, stop_reason: "stale_ref" });
 		expect(sent.some((command) => command.method === "Input.insertText")).toBe(false);
 	});
@@ -1553,6 +1604,34 @@ describe("BrowserExecutor iframe stitching", () => {
 
 		emit({ method: "Page.frameNavigated", params: { frame: { id: "FRAME-SP", parentId: "F0" } }, sessionId: "session-1" });
 		await expect(executor.execute({ type: "browser_click", ref: "e2" } as CuaBrowserAction)).rejects.toThrow(/stale/);
+	});
+
+	it("loads a referenced frame directly when page-root stitching is unavailable", async () => {
+		const fake = createFakeCdp([
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),
+			ax({ nodeId: "2", role: "Iframe", backendDOMNodeId: 50, parentId: "1" }),
+		]);
+		fake.setIframeFrame(50, "FRAME-SP");
+		fake.setFrameTree("FRAME-SP", [
+			ax({ nodeId: "f1", role: "RootWebArea", name: "Frame", childIds: ["f2"] }),
+			ax({ nodeId: "f2", role: "button", name: "Inside", backendDOMNodeId: 60, parentId: "f1" }),
+		]);
+		const inner = fake.cdp as unknown as { send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown> };
+		let missStitch = false;
+		const wrapped = {
+			...fake.cdp,
+			send: async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
+				if (method === "DOM.describeNode" && params?.backendNodeId === 50 && missStitch) {
+					return { node: { backendNodeId: 50 } };
+				}
+				return inner.send(method, params, sessionId);
+			},
+		} as unknown as CdpConnection;
+		const executor = new BrowserExecutor(wrapped);
+		expect(await snapshotText(executor)).toContain('button "Inside" [e2]');
+		missStitch = true;
+
+		expect(await snapshotText(executor, { ref: "e2" })).toContain('button "Inside" [e3]');
 	});
 
 	const OOPIF_PAGE = [

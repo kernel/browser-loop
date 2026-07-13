@@ -18,6 +18,8 @@ import { InternalComputerTranslator, type KernelBrowser } from "./translator/tra
 import type { BrowserActResult } from "./translator/types";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 
+const BROWSER_ACT_DIFF_LINE_LIMIT = 200;
+
 export interface ComputerToolOptions {
 	browser: KernelBrowser;
 	client: Kernel;
@@ -291,8 +293,11 @@ function formatBrowserActResult(result: BrowserActResult): string {
 		lines.push(`successor diff: ${diff.changed ? `+${diff.added.length} -${diff.removed.length}` : "unchanged"}`);
 		if (diff.url) lines.push(`  url: ${diff.url.before} -> ${diff.url.after}`);
 		if (diff.title) lines.push(`  title: ${diff.title.before} -> ${diff.title.after}`);
-		for (const line of diff.added) lines.push(`  + ${line}`);
-		for (const line of diff.removed) lines.push(`  - ${line}`);
+		for (const line of diff.added.slice(0, BROWSER_ACT_DIFF_LINE_LIMIT)) lines.push(`  + ${line}`);
+		const remaining = Math.max(0, BROWSER_ACT_DIFF_LINE_LIMIT - diff.added.length);
+		for (const line of diff.removed.slice(0, remaining)) lines.push(`  - ${line}`);
+		const omitted = diff.added.length + diff.removed.length - BROWSER_ACT_DIFF_LINE_LIMIT;
+		if (omitted > 0) lines.push(`  … ${omitted} more diff lines omitted`);
 		lines.push(result.successor.text);
 	}
 	return lines.join("\n");

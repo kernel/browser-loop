@@ -94,6 +94,7 @@ interface ObservedNode {
 
 interface BrowserObservation {
 	targetId: string;
+	navigationEpoch: number;
 	tree: FrameStitch;
 	stitches: Map<string, FrameStitch>;
 	nodes: ObservedNode[];
@@ -183,6 +184,7 @@ export class BrowserExecutor {
 	private readonly selfNavigations = new Set<string>();
 	private readonly dialogNotes: string[] = [];
 	private refCounter = 0;
+	private frameNavigationEpoch = 0;
 	private activeTargetId?: string;
 	private readonly cdp: CdpConnection;
 
@@ -352,7 +354,14 @@ export class BrowserExecutor {
 	}
 
 	private async snapshot(action: CuaActionBrowserSnapshot): Promise<string> {
-		const presentation = this.presentObservation(await this.observe(action.tab_id), action);
+		const observation = await this.observe(action.tab_id);
+		let presentation: BrowserPresentation;
+		try {
+			presentation = this.presentObservation(observation, action);
+		} catch (err) {
+			if (!(err instanceof MissingFrameObservationError) || !action.ref) throw err;
+			presentation = await this.observeReferencedFrame({ ...action, ref: action.ref }, observation.targetId);
+		}
 		const cached = this.lastSnapshots.get(presentation.observation.targetId);
 		this.lastSnapshots.set(presentation.observation.targetId, presentation);
 		if (cached && cached.key === presentation.key && cached.shape === presentation.shape) return UNCHANGED_SNAPSHOT;
@@ -380,6 +389,7 @@ export class BrowserExecutor {
 		const targetBefore = targetsBefore.find((candidate) => candidate.targetId === targetId);
 		if (!targetBefore) throw new ObservationChangedError();
 		const generationBefore = this.trackGeneration(targetId);
+		const navigationEpoch = this.frameNavigationEpoch;
 		const { nodes, sessionId } = await this.frameAxTree(targetId, targetId, pageSession);
 		const ctx: RenderContext = {
 			targetId,
@@ -405,6 +415,7 @@ export class BrowserExecutor {
 		if (
 			!targetAfter ||
 			generationBefore !== this.generation(targetId) ||
+			navigationEpoch !== this.frameNavigationEpoch ||
 			targetBefore.url !== targetAfter.url ||
 			targetBefore.title !== targetAfter.title
 		) {
@@ -420,6 +431,7 @@ export class BrowserExecutor {
 		else this.boundFrameState(observedFrames);
 		return {
 			targetId,
+			navigationEpoch,
 			tree,
 			stitches,
 			nodes: observedNodes,
@@ -428,6 +440,63 @@ export class BrowserExecutor {
 			generations,
 			complete,
 		};
+	}
+
+	private async observeReferencedFrame(action: CuaActionBrowserSnapshot & { ref: string }, targetId: string): Promise<BrowserPresentation> {
+		let changed: ObservationChangedError | undefined;
+		for (let attempt = 0; attempt < 3; attempt += 1) {
+			try {
+				const entry = this.resolveRef(action.ref, targetId);
+				const pageSession = await this.attach(targetId);
+				const targetsBefore = await this.cdp.pageTargets();
+				const targetBefore = targetsBefore.find((candidate) => candidate.targetId === targetId);
+				if (!targetBefore) throw new ObservationChangedError();
+				const targetGeneration = this.trackGeneration(targetId);
+				const frameGeneration = this.trackGeneration(entry.frameId);
+				const navigationEpoch = this.frameNavigationEpoch;
+				const { nodes, sessionId } = await this.frameAxTree(entry.frameId, targetId, pageSession);
+				const targetsAfter = await this.cdp.pageTargets();
+				const targetAfter = targetsAfter.find((candidate) => candidate.targetId === targetId);
+				if (
+					!targetAfter ||
+					targetGeneration !== this.generation(targetId) ||
+					frameGeneration !== this.generation(entry.frameId) ||
+					navigationEpoch !== this.frameNavigationEpoch ||
+					targetBefore.url !== targetAfter.url ||
+					targetBefore.title !== targetAfter.title
+				) {
+					throw new ObservationChangedError();
+				}
+				const ctx: RenderContext = {
+					targetId,
+					frameKey: entry.frameId,
+					sessionTargetId: entry.sessionTargetId ?? (this.frameSessions.has(entry.frameId) ? entry.frameId : targetId),
+					sessionId,
+					generation: frameGeneration,
+					nthIndex: buildNthIndex(nodes),
+				};
+				const observation: BrowserObservation = {
+					targetId,
+					navigationEpoch,
+					tree: {
+						byId: new Map(nodes.map((node) => [node.nodeId, node])),
+						roots: nodes.filter((node) => !node.parentId).map((node) => node.nodeId),
+						ctx,
+					},
+					stitches: new Map(),
+					nodes: nodes.map((node) => ({ node, ctx })),
+					url: targetAfter.url,
+					title: targetAfter.title,
+					generations: new Map([[targetId, targetGeneration], [entry.frameId, frameGeneration]]),
+					complete: true,
+				};
+				return this.presentObservation(observation, action);
+			} catch (err) {
+				if (!(err instanceof ObservationChangedError)) throw err;
+				changed = err;
+			}
+		}
+		throw changed ?? new ObservationChangedError();
 	}
 
 	private presentObservation(observation: BrowserObservation, action: CuaActionBrowserSnapshot): BrowserPresentation {
@@ -439,7 +508,7 @@ export class BrowserExecutor {
 				entry.frameId === observation.tree.ctx.frameKey
 					? observation.tree
 					: [...observation.stitches.values()].find((candidate) => candidate.ctx.frameKey === entry.frameId);
-			if (!frameTree) throw staleRefError(action.ref);
+			if (!frameTree) throw new MissingFrameObservationError();
 			tree = frameTree;
 			const nodes = [...tree.byId.values()];
 			const rootNode = nodes.find((node) => node.backendDOMNodeId === entry.backendNodeId) ?? this.healEntry(action.ref, entry, nodes);
@@ -621,10 +690,12 @@ export class BrowserExecutor {
 
 			if (boundaryAfter) {
 				stopReason = boundaryAfter;
+			} else if (staleRef) {
+				stopReason = "stale_ref";
 			} else if (observationError || expectation?.status === "unverifiable") {
 				stopReason = "control_flow";
 			} else if (actionError) {
-				stopReason = staleRef ? "stale_ref" : "action_failed";
+				stopReason = "action_failed";
 			} else if (expectation?.status === "failed") {
 				stopReason = "expectation_failed";
 			}
@@ -1417,6 +1488,7 @@ export class BrowserExecutor {
 			}
 		}
 		if (!tracked) return;
+		this.frameNavigationEpoch += 1;
 		const invalidated = new Set<string>([frameKey]);
 		let found = true;
 		while (found) {
@@ -1436,7 +1508,9 @@ export class BrowserExecutor {
 			}
 		}
 		for (const [ref, entry] of this.refs) {
-			if (invalidated.has(entry.frameId)) this.refs.delete(ref);
+			if (invalidated.has(entry.frameId) || (entry.sessionTargetId !== undefined && invalidated.has(entry.sessionTargetId))) {
+				this.refs.delete(ref);
+			}
 		}
 	}
 
@@ -1524,6 +1598,8 @@ class ObservationChangedError extends Error {
 	}
 }
 
+class MissingFrameObservationError extends Error {}
+
 interface ExpectationEvaluation {
 	truth?: boolean;
 	details: string[];
@@ -1551,6 +1627,7 @@ function observationGenerationsChanged(
 	after: BrowserObservation,
 	live: ReadonlyMap<string, number>,
 ): boolean {
+	if (before.navigationEpoch !== after.navigationEpoch) return true;
 	for (const [key, generation] of after.generations) {
 		if (generation !== (live.get(key) ?? 0)) return true;
 		const previous = before.generations.get(key);
