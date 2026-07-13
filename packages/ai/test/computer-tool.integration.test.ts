@@ -15,6 +15,7 @@ import {
 	meta,
 	openai,
 	tzafon,
+	xai,
 	yutori,
 } from "../src/index";
 
@@ -32,6 +33,7 @@ interface ProviderCase {
 	tools: () => ReturnType<typeof openai.computerTools>;
 	coordinateRange: readonly [number, number];
 	requireToolCalls: boolean;
+	systemPrompt?: string;
 	ciOptInEnvVar?: string;
 	extraOptions?: Record<string, unknown>;
 }
@@ -63,6 +65,16 @@ const cases: ProviderCase[] = [
 		requireToolCalls: true,
 	},
 	{
+		provider: "xai",
+		envVar: "XAI_API_KEY",
+		modelRef: "xai:grok-4.5",
+		tools: () => xai.computerTools({ actions: ["click"] }),
+		coordinateRange: [0, 1000],
+		requireToolCalls: true,
+		systemPrompt: "Coordinates are normalized from 0 to 1000 relative to the screenshot.",
+		extraOptions: { reasoningEffort: "low" },
+	},
+	{
 		provider: "tzafon",
 		envVar: "TZAFON_API_KEY",
 		modelRef: "tzafon:tzafon.northstar-cua-fast",
@@ -73,13 +85,14 @@ const cases: ProviderCase[] = [
 	},
 ];
 
-async function buildContext(tools: ProviderCase["tools"]): Promise<Context> {
+async function buildContext(c: ProviderCase): Promise<Context> {
 	const screenshot = await readFile(screenshotPath);
 	return {
 		systemPrompt: [
 			"You are controlling a browser from a screenshot.",
 			"Call the available click tool for the sign in / up link.",
-		].join("\n"),
+			c.systemPrompt,
+		].filter(Boolean).join("\n"),
 		messages: [
 			{
 				role: "user",
@@ -90,7 +103,7 @@ async function buildContext(tools: ProviderCase["tools"]): Promise<Context> {
 				timestamp: Date.now(),
 			},
 		],
-		tools: tools(),
+		tools: c.tools(),
 	};
 }
 
@@ -123,7 +136,7 @@ describe("individual computer action integration", () => {
 
 		(ciEnabled ? test : it.skip)(`${c.provider} returns a canonical click tool call`, async () => {
 			const model = getCuaModel(c.modelRef as never);
-			const context = await buildContext(c.tools);
+			const context = await buildContext(c);
 			const response = await cuaModels().complete(model, context, {
 				apiKey: apiKeyForCase(c),
 				maxTokens: 1024,
@@ -212,6 +225,66 @@ describe("individual computer action integration", () => {
 			expect(payload?.store).toBe(true);
 			expect(payload?.parallel_tool_calls).toBe(false);
 			expect(payload?.include).toBeUndefined();
+		},
+		90_000,
+	);
+
+	const xaiApiKey = getCuaEnvApiKey("xai");
+	(xaiApiKey ? it : it.skip)(
+		"xai continues a screenshot tool loop with previous_response_id",
+		async () => {
+			const screenshot = await readFile(screenshotPath);
+			const model = getCuaModel("xai:grok-4.5");
+			const tools = xai.computerTools({ actions: ["click"] });
+			const context: Context = {
+				systemPrompt: "Use normalized 0-1000 coordinates. Call click exactly once, then answer in text after its result.",
+				messages: [
+					{
+						role: "user",
+						content: [
+							{ type: "text", text: "Click the sign in / up link. After the tool result, report that the click completed without calling another tool." },
+							{ type: "image", data: screenshot.toString("base64"), mimeType: "image/png" },
+						],
+						timestamp: Date.now(),
+					},
+				],
+				tools,
+			};
+			const first = await cuaModels().complete(model, context, {
+				apiKey: xaiApiKey,
+				maxTokens: 1024,
+				reasoningEffort: "low",
+			});
+			const click = first.content.find((part) => part.type === "toolCall" && part.name === "click");
+			expect(click).toBeDefined();
+			expect(first.responseId).toBeTruthy();
+			context.messages.push(first, {
+				role: "toolResult",
+				toolCallId: click!.id,
+				toolName: click!.name,
+				content: [
+					{ type: "text", text: "Click executed successfully." },
+					{ type: "image", data: screenshot.toString("base64"), mimeType: "image/png" },
+				],
+				isError: false,
+				timestamp: Date.now(),
+			});
+
+			let payload: Record<string, unknown> | undefined;
+			const second = await cuaModels().complete(model, context, {
+				apiKey: xaiApiKey,
+				maxTokens: 1024,
+				reasoningEffort: "low",
+				onPayload: (value) => {
+					payload = value as Record<string, unknown>;
+				},
+			});
+			expect(second.stopReason).not.toBe("error");
+			expect(second.responseId).toBeTruthy();
+			expect(payload?.previous_response_id).toBe(first.responseId);
+			expect(payload?.store).toBe(true);
+			expect(payload?.parallel_tool_calls).toBe(false);
+			expect(payload?.include).toEqual(["reasoning.encrypted_content"]);
 		},
 		90_000,
 	);

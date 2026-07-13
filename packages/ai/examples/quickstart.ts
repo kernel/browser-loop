@@ -11,6 +11,7 @@ import {
 //   anthropic:claude-opus-4-7        ANTHROPIC_API_KEY
 //   google:gemini-3-flash-preview    GOOGLE_API_KEY
 //   meta:muse-spark-1.1              META_API_KEY
+//   xai:grok-4.5                     XAI_API_KEY
 //   tzafon:tzafon.northstar-cua-fast TZAFON_API_KEY
 //   yutori:n1.5-latest               YUTORI_API_KEY
 const modelRef = (process.env.CUA_MODEL ?? "openai:gpt-5.5") as CuaModelRef;
@@ -34,9 +35,9 @@ const response = await models.complete(
 	model,
 	{
 		systemPrompt: [
-			"You are controlling a browser from a screenshot.",
+			spec.defaultSystemPrompt,
 			"Call the computer tool with the coordinates of the target. Do not describe the click in prose unless you cannot identify the target.",
-		].join("\n"),
+		].filter(Boolean).join("\n"),
 		messages: [
 			{
 				role: "user",

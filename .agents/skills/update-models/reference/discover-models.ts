@@ -6,7 +6,7 @@ import { join } from "node:path";
 import process from "node:process";
 import { parse as parseToml } from "smol-toml";
 
-type Provider = "openai" | "anthropic" | "gemini" | "meta" | "tzafon" | "yutori";
+type Provider = "openai" | "anthropic" | "gemini" | "meta" | "xai" | "tzafon" | "yutori";
 
 interface Args {
 	provider: Provider | "all";
@@ -39,7 +39,7 @@ interface ModelResult {
 	cua?: Record<string, unknown>;
 }
 
-const PROVIDERS: Provider[] = ["openai", "anthropic", "gemini", "meta", "tzafon", "yutori"];
+const PROVIDERS: Provider[] = ["openai", "anthropic", "gemini", "meta", "xai", "tzafon", "yutori"];
 const TZAFON_KNOWN_MODELS = [
 	"tzafon.northstar-cua-fast",
 ];
@@ -110,7 +110,7 @@ function usage(): never {
   npx tsx .agents/skills/update-models/reference/discover-models.ts --provider openai --models gpt-5.5,gpt-5.4
 
 Options:
-  --provider <all|openai|anthropic|gemini|meta|tzafon|yutori>
+  --provider <all|openai|anthropic|gemini|meta|xai|tzafon|yutori>
   --models <comma-separated model ids>    Smoke-test explicit models instead of inferred candidates.
   --candidate-limit <n>                  Max inferred candidates per provider. Default: 20.
   --no-smoke                             Only list metadata.
@@ -139,6 +139,7 @@ async function runProvider(provider: Provider, args: Args): Promise<Record<strin
 		if (provider === "anthropic") return await discoverAnthropic(args);
 		if (provider === "gemini") return await discoverGemini(args);
 		if (provider === "meta") return await discoverMeta(args);
+		if (provider === "xai") return await discoverXai(args);
 		if (provider === "tzafon") return await discoverTzafon(args);
 		if (provider === "yutori") return await discoverYutori(args);
 		throw new Error(`unknown provider ${provider satisfies never}`);
@@ -203,12 +204,7 @@ async function discoverMeta(args: Args): Promise<Record<string, unknown>> {
 
 async function smokeMeta(client: any, model: string): Promise<SmokeResult> {
 	try {
-		const screenshotPath = [
-			join(process.cwd(), "examples", "screenshot.png"),
-			join(process.cwd(), "packages", "ai", "examples", "screenshot.png"),
-		].find(existsSync);
-		if (!screenshotPath) throw new Error("could not find packages/ai/examples/screenshot.png");
-		const screenshot = await readFile(screenshotPath);
+		const screenshot = await readFile(fixtureScreenshotPath());
 		const response = await client.responses.create({
 			model,
 			store: false,
@@ -248,6 +244,100 @@ async function smokeMeta(client: any, model: string): Promise<SmokeResult> {
 	} catch (err) {
 		return smokeError(err, { tool_name: "function_tools" });
 	}
+}
+
+async function discoverXai(args: Args): Promise<Record<string, unknown>> {
+	const OpenAI = await importDefault("openai", "OpenAI");
+	const client = new OpenAI({ apiKey: process.env.XAI_API_KEY, baseURL: "https://api.x.ai/v1" });
+	const rawModels = await collectAsync(client.models.list());
+	const models: ModelResult[] = rawModels.map((m) => ({
+		id: String(m.id),
+		display_name: String(m.id),
+		created_at: typeof m.created === "number" && m.created > 0 ? new Date(m.created * 1000).toISOString() : null,
+		raw: m,
+		supports_generation: likelyXaiGenerationModel(String(m.id)),
+		model_docs: {
+			url: String(m.id) === "grok-4.5" ? "https://docs.x.ai/developers/grok-4-5" : "https://docs.x.ai/developers/models",
+			responses_endpoint: "supported",
+			function_calling: "supported",
+			image_input: "verify-per-model",
+			coordinate_space: "CUA-defined 0-1000",
+		},
+	}));
+	const candidates = explicitOrCandidates(
+		args,
+		models
+			.filter((model) => model.supports_generation)
+			.sort(compareXaiCandidates)
+			.map((model) => model.id),
+	);
+	if (args.smoke) {
+		await Promise.all(candidates.map(async (id) => {
+			const model = models.find((candidate) => candidate.id === id) ?? { id, display_name: id, supports_generation: true };
+			model.computer_use = await smokeXai(client, id);
+			if (!models.find((candidate) => candidate.id === id)) models.unshift(model);
+		}));
+	}
+	await annotateCuaSupport("xai", models);
+	return { provider: "xai", metadata_source: "xAI models.list()", models, candidates };
+}
+
+async function smokeXai(client: any, model: string): Promise<SmokeResult> {
+	try {
+		const screenshot = await readFile(fixtureScreenshotPath());
+		const response = await client.responses.create({
+			model,
+			store: true,
+			parallel_tool_calls: false,
+			max_output_tokens: 768,
+			reasoning: { effort: "low" },
+			instructions: "Coordinates are normalized from 0 to 1000 relative to the screenshot.",
+			input: [{
+				role: "user",
+				content: [
+					{ type: "input_text", text: "Call the click tool for the sign in link. Do not answer only in text." },
+					{ type: "input_image", image_url: `data:image/png;base64,${screenshot.toString("base64")}`, detail: "high" },
+				],
+			}],
+			tools: [{
+				type: "function",
+				name: "click",
+				description: "Click at normalized 0-1000 screen coordinates.",
+				parameters: {
+					type: "object",
+					properties: { x: { type: "number" }, y: { type: "number" } },
+					required: ["x", "y"],
+					additionalProperties: false,
+				},
+			}],
+		});
+		const output: any[] = response.output ?? [];
+		const calls = output.filter((item) => item?.type === "function_call");
+		return {
+			status: calls.length > 0 ? "pass" : "inconclusive",
+			tool_name: "function_tools",
+			tool_version: null,
+			beta_header: null,
+			observed_actions: unique(calls.map((call) => call?.name).filter(Boolean)),
+			response_item_types: unique(output.map((item) => item?.type).filter(Boolean)),
+			reasoning_effort: "low",
+			coordinate_space: "0-1000",
+			error: null,
+		};
+	} catch (err) {
+		return smokeError(err, { tool_name: "function_tools" });
+	}
+}
+
+function likelyXaiGenerationModel(id: string): boolean {
+	const lower = id.toLowerCase();
+	return lower.startsWith("grok-") && !lower.includes("imagine");
+}
+
+function compareXaiCandidates(a: ModelResult, b: ModelResult): number {
+	if (a.id === "grok-4.5") return -1;
+	if (b.id === "grok-4.5") return 1;
+	return String(b.created_at ?? "").localeCompare(String(a.created_at ?? ""));
 }
 
 function likelyOpenAIGenerationModel(id: string): boolean {
@@ -887,6 +977,15 @@ function publicError(err: unknown): string {
 
 function unique<T>(values: T[]): T[] {
 	return [...new Set(values)];
+}
+
+function fixtureScreenshotPath(): string {
+	const path = [
+		join(process.cwd(), "examples", "screenshot.png"),
+		join(process.cwd(), "packages", "ai", "examples", "screenshot.png"),
+	].find(existsSync);
+	if (!path) throw new Error("could not find packages/ai/examples/screenshot.png");
+	return path;
 }
 
 async function emitJson(value: unknown, outPath: string): Promise<void> {

@@ -2,9 +2,10 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import { getBuiltinModel, getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
 import { META_RESPONSES_API } from "./providers/meta/provider";
 import { OPENAI_CUA_RESPONSES_API } from "./providers/openai/provider";
+import { XAI_CUA_RESPONSES_API } from "./providers/xai/provider";
 
 /** Providers with curated computer-use model support. */
-export type CuaProvider = "openai" | "anthropic" | "google" | "meta" | "tzafon" | "yutori";
+export type CuaProvider = "openai" | "anthropic" | "google" | "meta" | "xai" | "tzafon" | "yutori";
 
 /** Provider-qualified model reference, e.g. `"openai:gpt-5.5"` or `"google:gemini-3-flash-preview"`. */
 export type CuaModelRef = `${CuaProvider}:${string}`;
@@ -21,7 +22,7 @@ export interface CuaModelInfo {
 }
 
 /** All providers this package curates computer-use models for. */
-export const CUA_PROVIDERS: readonly CuaProvider[] = ["openai", "anthropic", "google", "meta", "tzafon", "yutori"];
+export const CUA_PROVIDERS: readonly CuaProvider[] = ["openai", "anthropic", "google", "meta", "xai", "tzafon", "yutori"];
 
 /**
  * How a {@link CuaModelAnnotation} matches model ids.
@@ -82,6 +83,9 @@ export const CUA_MODEL_ANNOTATIONS: Record<CuaProvider, readonly CuaModelAnnotat
 	meta: [
 		{ match: { kind: "exact", id: "muse-spark-1.1" }, source: "https://dev.meta.ai/docs/getting-started/cookbook/computer-use-macos" },
 	],
+	xai: [
+		{ match: { kind: "exact", id: "grok-4.5" }, source: "https://docs.x.ai/developers/grok-4-5" },
+	],
 	tzafon: [
 		{ match: { kind: "exact", id: "tzafon.northstar-cua-fast" }, source: "https://huggingface.co/Tzafon/Northstar-CUA-Fast" },
 		{ match: { kind: "exact", id: "tzafon.northstar-cua-fast-1.6" }, source: "https://huggingface.co/Tzafon/Northstar-CUA-Fast" },
@@ -104,8 +108,9 @@ const CUA_MODEL_OVERRIDES: Record<CuaProvider, readonly Model<Api>[]> = {
 	openai: [],
 	anthropic: [],
 	google: [],
-	// pi-ai 0.80.3 predates Meta's models.dev catalog entry.
+	// pi-ai 0.80.3 predates these providers' current models.dev catalog entries.
 	meta: [cuaModel("meta", "muse-spark-1.1", "Muse Spark 1.1")],
+	xai: [cuaModel("xai", "grok-4.5", "Grok 4.5")],
 	tzafon: [
 		cuaModel("tzafon", "tzafon.northstar-cua-fast", "Tzafon Northstar CUA Fast"),
 		cuaModel("tzafon", "tzafon.northstar-cua-fast-1.6", "Tzafon Northstar CUA Fast 1.6"),
@@ -201,13 +206,16 @@ export function getCuaModel(ref: CuaModelRef): Model<Api> {
 
 // Route OpenAI-compatible CUA models to provider-specific Responses transports
 // that thread previous_response_id. Registry-resolved models otherwise carry
-// pi-ai's builtin "openai-responses" api.
+// pi-ai's builtin API ids.
 export function routeCuaApi(model: Model<Api>): Model<Api> {
 	if (model.provider === "openai" && model.api !== OPENAI_CUA_RESPONSES_API) {
 		return { ...model, api: OPENAI_CUA_RESPONSES_API };
 	}
 	if (model.provider === "meta" && model.api !== META_RESPONSES_API) {
 		return { ...model, api: META_RESPONSES_API };
+	}
+	if (model.provider === "xai" && model.api !== XAI_CUA_RESPONSES_API) {
+		return { ...model, api: XAI_CUA_RESPONSES_API };
 	}
 	return model;
 }
@@ -261,7 +269,7 @@ function cuaModel(provider: CuaProvider, id: string, name: string): Model<Api> {
 		id,
 		name,
 		provider,
-		reasoning: provider === "openai" || provider === "anthropic" || provider === "google" || provider === "meta",
+		reasoning: provider === "openai" || provider === "anthropic" || provider === "google" || provider === "meta" || provider === "xai",
 		input: ["text", "image"],
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 	} satisfies Partial<Model<Api>>;
@@ -285,6 +293,19 @@ function cuaModel(provider: CuaProvider, id: string, name: string): Model<Api> {
 				contextWindow: 1_048_576,
 				maxTokens: 128_000,
 				compat: { supportsDeveloperRole: true, sendSessionIdHeader: false, supportsLongCacheRetention: true },
+			} as Model<Api>;
+		case "xai":
+			// xAI doubles token prices above 200k input tokens; pi's flat Model
+			// cost fields record the standard-context rates.
+			return {
+				...base,
+				api: XAI_CUA_RESPONSES_API,
+				baseUrl: "https://api.x.ai/v1",
+				thinkingLevelMap: { off: null, minimal: "low", xhigh: "high" },
+				cost: { input: 2, output: 6, cacheRead: 0.5, cacheWrite: 0 },
+				contextWindow: 500_000,
+				maxTokens: 500_000,
+				compat: { supportsDeveloperRole: false, sendSessionIdHeader: false, supportsLongCacheRetention: false },
 			} as Model<Api>;
 		case "tzafon":
 			return { ...base, api: "tzafon-responses", baseUrl: "https://api.lightcone.ai", contextWindow: 128_000, maxTokens: 4_096 } as Model<Api>;

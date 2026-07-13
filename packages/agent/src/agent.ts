@@ -157,7 +157,7 @@ export type CuaAgentOptions = Omit<AgentOptions, "initialState"> & {
 	/** Maximum tool-result images included from message history per provider request. Defaults to 4; false disables projection. */
 	toolResultImageReplayLimit?: ToolResultImageReplayLimit;
 	/**
-	 * Chain OpenAI, Meta, and Tzafon requests through provider-stored response state. Defaults to true.
+	 * Chain OpenAI, Meta, xAI, and Tzafon requests through provider-stored response state. Defaults to true.
 	 */
 	responseThreading?: boolean;
 	/** Optional CUA-level retries around each provider request. Disabled by default. */
@@ -205,7 +205,7 @@ export type CuaAgentHarnessOptions<
 	/** Maximum tool-result images included from message history per provider request. Defaults to 4; false disables projection. */
 	toolResultImageReplayLimit?: ToolResultImageReplayLimit;
 	/**
-	 * Chain OpenAI, Meta, and Tzafon requests through provider-stored response state. Defaults to true.
+	 * Chain OpenAI, Meta, xAI, and Tzafon requests through provider-stored response state. Defaults to true.
 	 */
 	responseThreading?: boolean;
 	/** Optional CUA-level retries around each provider request. Disabled by default. */

@@ -5,7 +5,7 @@ import { basename, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import process from "node:process";
 
-type Provider = "openai" | "anthropic" | "gemini" | "meta" | "yutori";
+type Provider = "openai" | "anthropic" | "gemini" | "meta" | "xai" | "yutori";
 
 interface ExampleRepo {
 	provider: Provider;
@@ -60,6 +60,14 @@ const EXAMPLES: ExampleRepo[] = [
 		patterns: ["muse-spark-1.1", "function_call", "function_call_output", "previous_response_id", "reasoning.encrypted_content", "parallel_tool_calls"],
 	},
 	{
+		provider: "xai",
+		name: "xai-sdk-python",
+		repo: "https://github.com/xai-org/xai-sdk-python.git",
+		confidence: "provider-owned",
+		pathHint: "examples",
+		patterns: ["grok-4.5", "function_call", "tool_call", "previous_response_id", "reasoning_effort", "parallel_tool_calls"],
+	},
+	{
 		provider: "yutori",
 		name: "kernel-cli-yutori-template",
 		repo: "https://github.com/kernel/cli.git",
@@ -74,6 +82,7 @@ const ACTION_REGEXES: Record<Provider, RegExp[]> = {
 	anthropic: [/\b(screenshot|left_click|right_click|middle_click|double_click|triple_click|left_click_drag|mouse_move|key|type|scroll|hold_key|wait|left_mouse_down|left_mouse_up|cursor_position|zoom)\b/g],
 	gemini: [/\b(open_web_browser|open_web|wait_5_seconds|go_back|go_forward|search|navigate|click_at|hover_at|type_text_at|key_combination|scroll_document|scroll_at|drag_and_drop)\b/g],
 	meta: [/\b(screenshot|left_click|right_click|middle_click|double_click|triple_click|left_click_drag|mouse_move|key|type|scroll|hold_key|wait|left_mouse_down|left_mouse_up)\b/g],
+	xai: [/\b(screenshot|click|double_click|mouse_down|mouse_up|scroll|type|keypress|drag|move|wait)\b/g],
 	yutori: [/\b(left_click|double_click|triple_click|right_click|scroll|type|key_press|hover|drag|wait|refresh|go_back|goto_url|mouse_move|middle_click|mouse_down|mouse_up|go_forward|hold_key|extract_elements|find|set_element_value|execute_js)\b/g],
 };
 
@@ -156,7 +165,7 @@ async function auditRepo(example: ExampleRepo, cacheDir: string, args: Args): Pr
 		for (const regex of ACTION_REGEXES[example.provider] ?? []) {
 			extractAll(text, regex).forEach((v) => actionNames.add(v));
 		}
-		for (const field of ["computer_call", "actions", "action", "pending_safety_checks", "tool_use", "tool_result", "tool_calls", "function_call", "functionCall", "FunctionResponse", "safety_decision"]) {
+		for (const field of ["computer_call", "actions", "action", "pending_safety_checks", "tool_use", "tool_result", "tool_calls", "function_call", "functionCall", "FunctionResponse", "safety_decision", "previous_response_id", "parallel_tool_calls", "reasoning_effort"]) {
 			if (text.includes(field)) responseFields.add(field);
 		}
 

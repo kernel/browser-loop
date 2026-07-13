@@ -8,6 +8,7 @@ import { providerModule as gemini } from "./providers/gemini/index";
 import { providerModule as meta } from "./providers/meta/index";
 import { providerModule as openai } from "./providers/openai/index";
 import { providerModule as tzafon } from "./providers/tzafon/index";
+import { providerModule as xai } from "./providers/xai/index";
 import { providerModule as yutori } from "./providers/yutori/index";
 import type {
 	ComputerToolsOptions,
@@ -22,6 +23,7 @@ const PROVIDERS = {
 	anthropic,
 	google: gemini,
 	meta,
+	xai,
 	tzafon,
 	yutori,
 } satisfies Record<CuaProvider, CuaProviderModule>;
