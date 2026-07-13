@@ -28,6 +28,7 @@ const SNAPSHOT_CHAR_LIMIT = 50_000;
 const DEFAULT_SNAPSHOT_DEPTH = 15;
 const FIND_MATCH_LIMIT = 20;
 const REF_LIMIT_PER_TARGET = 1000;
+const FRAME_STATE_LIMIT = 1000;
 const SCROLL_NOTCH_PX = 120;
 const EXPECTATION_TIMEOUT_MS = 2_000;
 const EXPECTATION_POLL_MS = 50;
@@ -414,7 +415,9 @@ export class BrowserExecutor {
 		if ([...generations].some(([frameKey, generation]) => this.generation(frameKey) !== generation)) {
 			throw new ObservationChangedError();
 		}
-		this.pruneFrameState(targetId, new Set(generations.keys()));
+		const observedFrames = new Set(generations.keys());
+		if (complete) this.pruneFrameState(targetId, observedFrames);
+		else this.boundFrameState(observedFrames);
 		return {
 			targetId,
 			tree,
@@ -1343,6 +1346,36 @@ export class BrowserExecutor {
 		this.invalidateFrame(targetId);
 		for (const [ref, entry] of this.refs) {
 			if (entry.targetId === targetId) this.refs.delete(ref);
+		}
+	}
+
+	private boundFrameState(observed: ReadonlySet<string>): void {
+		const protectedFrames = new Set(observed);
+		for (const frameId of this.frameSessions.keys()) protectedFrames.add(frameId);
+		for (const entry of this.refs.values()) {
+			protectedFrames.add(entry.frameId);
+			if (entry.sessionTargetId) protectedFrames.add(entry.sessionTargetId);
+		}
+		let added = true;
+		while (added) {
+			added = false;
+			for (const [child, parent] of this.frameParents) {
+				if (protectedFrames.has(child) && !protectedFrames.has(parent)) {
+					protectedFrames.add(parent);
+					added = true;
+				}
+			}
+		}
+		for (const frameId of this.frameParents.keys()) {
+			if (this.frameParents.size <= FRAME_STATE_LIMIT) break;
+			if (!protectedFrames.has(frameId)) {
+				this.frameParents.delete(frameId);
+				this.generations.delete(frameId);
+			}
+		}
+		for (const frameId of this.generations.keys()) {
+			if (this.generations.size <= FRAME_STATE_LIMIT) break;
+			if (!protectedFrames.has(frameId)) this.generations.delete(frameId);
 		}
 	}
 

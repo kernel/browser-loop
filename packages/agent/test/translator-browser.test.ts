@@ -368,7 +368,7 @@ describe("BrowserExecutor ref lifecycle", () => {
 		await expect(executor.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction)).rejects.toThrow(/stale/);
 	});
 
-	it("prunes rotated iframe state when another iframe is incomplete", async () => {
+	it("preserves incomplete frame state while bounding stale metadata", async () => {
 		const fake = createFakeCdp([
 			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "3"] }),
 			ax({ nodeId: "2", role: "Iframe", backendDOMNodeId: 50, parentId: "1" }),
@@ -385,10 +385,26 @@ describe("BrowserExecutor ref lifecycle", () => {
 			}
 		}
 
-		const generations = (executor as unknown as { generations: Map<string, number> }).generations;
-		const frameParents = (executor as unknown as { frameParents: Map<string, string> }).frameParents;
-		expect([...generations.keys()].filter((key) => key.startsWith("FRAME-"))).toEqual(["FRAME-4"]);
-		expect([...frameParents.keys()]).toEqual(["FRAME-4"]);
+		const internal = executor as unknown as {
+			generations: Map<string, number>;
+			frameParents: Map<string, string>;
+			boundFrameState: (observed: ReadonlySet<string>) => void;
+		};
+		expect([...internal.generations.keys()].filter((key) => key.startsWith("FRAME-"))).toEqual([
+			"FRAME-0",
+			"FRAME-1",
+			"FRAME-2",
+			"FRAME-3",
+			"FRAME-4",
+		]);
+		for (let index = 0; index < 1100; index += 1) {
+			internal.frameParents.set(`STALE-${index}`, "TARGET-1");
+			internal.generations.set(`STALE-${index}`, 0);
+		}
+		internal.boundFrameState(new Set(["TARGET-1", "FRAME-4"]));
+		expect(internal.frameParents.size).toBeLessThanOrEqual(1000);
+		expect(internal.generations.size).toBeLessThanOrEqual(1000);
+		expect(internal.frameParents.has("FRAME-4")).toBe(true);
 	});
 
 	it("drops generation state when a target detaches", async () => {
