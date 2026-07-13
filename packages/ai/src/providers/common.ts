@@ -29,7 +29,9 @@ export const CUA_ACTION_TYPES = CUA_DEFAULT_COMPUTER_ACTION_TYPES;
 
 export const DEFAULT_COMPUTER_INSTRUCTIONS = `You control a Kernel cloud browser through individual browser tools. Base each action on the latest observed state and request a screenshot when you need a fresh view.`;
 
-/** Build the provider-neutral system prompt for canonical computer tools. */
+/**
+ * Build the provider-neutral system prompt for canonical computer tools.
+ */
 export function buildDefaultComputerSystemPrompt(opts: { suffix?: string } = {}): string {
 	return [DEFAULT_COMPUTER_INSTRUCTIONS, opts.suffix].filter(Boolean).join("\n\n");
 }
@@ -286,7 +288,9 @@ export interface ResponseThreadingOptions {
 
 type ResponsesOnPayload = NonNullable<StreamOptions["onPayload"]>;
 
-/** Options shared by OpenAI-compatible Responses transports that support threading. */
+/**
+ * Options shared by OpenAI-compatible Responses transports that support threading.
+ */
 export interface ResponsesThreadingOptions extends ResponseThreadingOptions {
 	onPayload?: ResponsesOnPayload;
 }

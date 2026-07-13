@@ -45,7 +45,9 @@ export interface BuildCuaHarnessOptions {
 	models?: Models;
 	/** Maximum tool-result images included from message history per provider request. */
 	toolResultImageReplayLimit?: CuaAgentHarnessOptions["toolResultImageReplayLimit"];
-	/** Chain OpenAI, Meta, and Tzafon requests through provider-stored response state. Defaults to true. */
+	/**
+	 * Chain OpenAI, Meta, and Tzafon requests through provider-stored response state. Defaults to true.
+	 */
 	responseThreading?: CuaAgentHarnessOptions["responseThreading"];
 	/** Optional CUA-level retries around each provider request. Disabled by default. */
 	retry?: CuaAgentHarnessOptions["retry"];

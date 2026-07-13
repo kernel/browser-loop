@@ -15,10 +15,14 @@ import {
 
 export const META_RESPONSES_API = "meta-responses";
 
-/** Stream options for Meta's OpenAI-compatible Responses API. */
+/**
+ * Stream options for Meta's OpenAI-compatible Responses API.
+ */
 export interface MetaResponsesOptions extends PiOpenAIResponsesOptions, ResponsesThreadingOptions {}
 
-/** Apply Meta's computer-use payload constraints on top of shared Responses threading. */
+/**
+ * Apply Meta's computer-use payload constraints on top of shared Responses threading.
+ */
 export function threadMetaRequest(context: Context, options: ResponsesThreadingOptions | undefined) {
 	const callerOnPayload = options?.onPayload;
 	const threaded = threadResponsesRequest(context, META_RESPONSES_API, {

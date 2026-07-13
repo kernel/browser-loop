@@ -18,7 +18,9 @@ export const OPENAI_CUA_RESPONSES_API = "openai-cua-responses";
 /** Stream options for the cua OpenAI Responses provider: pi-ai's options plus threading control. */
 export interface OpenAIResponsesOptions extends PiOpenAIResponsesOptions, ResponsesThreadingOptions {}
 
-/** Prepare a request for the OpenAI Responses transport with stored response state. */
+/**
+ * Prepare a request for the OpenAI Responses transport with stored response state.
+ */
 export function threadRequest(context: Context, options: ResponsesThreadingOptions | undefined) {
 	const { context: threadedContext, onPayload } = threadResponsesRequest(context, OPENAI_CUA_RESPONSES_API, options);
 	return { context: threadedContext, onPayload };
