@@ -221,6 +221,11 @@ export class BrowserExecutor {
 				if (targetId && frameId === targetId) this.selfNavigations.delete(targetId);
 				return;
 			}
+			case "Page.frameDetached": {
+				const { frameId } = event.params as { frameId?: string };
+				if (frameId) this.invalidateFrame(frameId);
+				return;
+			}
 			case "Target.attachedToTarget": {
 				const { sessionId, targetInfo } = event.params as { sessionId?: string; targetInfo?: { targetId?: string; type?: string } };
 				if (!sessionId || !targetInfo?.targetId || targetInfo.type !== "iframe") return;

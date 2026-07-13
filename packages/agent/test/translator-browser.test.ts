@@ -1058,7 +1058,7 @@ describe("BrowserExecutor browser_act", () => {
 		expect(result.steps).toHaveLength(1);
 	});
 
-	it("stops after a navigated iframe disappears from the successor observation", async () => {
+	it("stops after an iframe detaches from the successor observation", async () => {
 		const fake = createFakeCdp([
 			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "3"] }),
 			ax({ nodeId: "2", role: "button", name: "Save", backendDOMNodeId: 42, parentId: "1" }),
@@ -1072,7 +1072,7 @@ describe("BrowserExecutor browser_act", () => {
 			send: async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
 				const result = await inner.send(method, params, sessionId);
 				if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased") {
-					fake.emit({ method: "Page.frameNavigated", params: { frame: { id: "FRAME-SP", parentId: "TARGET-1" } }, sessionId: "session-1" });
+					fake.emit({ method: "Page.frameDetached", params: { frameId: "FRAME-SP" }, sessionId: "session-1" });
 					fake.setNodes(BUTTON_TREE);
 				}
 				return result;
