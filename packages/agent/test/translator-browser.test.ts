@@ -941,10 +941,12 @@ describe("BrowserExecutor browser_act", () => {
 
 		const result = await actResult(executor, {
 			steps: [{ type: "click", ref: "e1", expect: { type: "url", contains: "/next", changed: true } }],
+			expect: { type: "url", contains: "/next", changed: true },
 		});
 
 		expect(result).toMatchObject({ outcome: "worked", stopped_at: 0, stop_reason: "navigation" });
 		expect(result.steps[0]).toMatchObject({ outcome: "worked", expectation: { status: "newly_verified" } });
+		expect(result.final_expectation?.status).toBe("newly_verified");
 	});
 
 	it("does not treat a final step skipped by navigation as completed", async () => {
@@ -1206,6 +1208,37 @@ describe("BrowserExecutor browser_act", () => {
 		const result = await actResult(executor, { steps: [{ type: "click", ref: "e1" }, { type: "click", ref: "e2" }] });
 		expect(result).toMatchObject({ outcome: "unknown", stopped_at: 0, stop_reason: "navigation" });
 		expect(result.steps).toHaveLength(1);
+	});
+
+	it("continues when a lazy iframe appears without invalidating existing refs", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		const inner = fake.cdp as unknown as { send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown> };
+		const wrapped = {
+			...fake.cdp,
+			send: async (method: string, params?: Record<string, unknown>, sessionId?: string) => {
+				const result = await inner.send(method, params, sessionId);
+				if (method === "Input.dispatchMouseEvent" && params?.type === "mouseReleased") {
+					fake.setNodes([
+						ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "3"] }),
+						ax({ nodeId: "2", role: "button", name: "Save", backendDOMNodeId: 42, parentId: "1" }),
+						ax({ nodeId: "3", role: "Iframe", backendDOMNodeId: 50, parentId: "1" }),
+					]);
+					fake.setIframeFrame(50, "FRAME-LAZY");
+					fake.setFrameTree("FRAME-LAZY", [ax({ nodeId: "f1", role: "RootWebArea", name: "Lazy frame" })]);
+				}
+				return result;
+			},
+		} as unknown as CdpConnection;
+		const executor = new BrowserExecutor(wrapped);
+		await snapshotText(executor);
+
+		const result = await actResult(executor, {
+			steps: [{ type: "click", ref: "e1" }, { type: "type", text: "continued" }],
+		});
+
+		expect(result.stop_reason).toBeUndefined();
+		expect(result.steps).toHaveLength(2);
+		expect(fake.sent).toContainEqual(expect.objectContaining({ method: "Input.insertText", params: { text: "continued" } }));
 	});
 
 	it("stops when an action opens a new page target", async () => {
@@ -1479,6 +1512,10 @@ describe("BrowserExecutor iframe stitching", () => {
 		fake.emit({ method: "Page.frameNavigated", params: { frame: { id: "FRAME-1", parentId: "TARGET-1" } }, sessionId: "session-1" });
 		await expect(executor.execute({ type: "browser_click", ref: "e3" } as CuaBrowserAction)).rejects.toThrow(/stale/);
 		await executor.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction);
+
+		fake.emit({ method: "Page.frameNavigated", params: { frame: { id: "TARGET-1" } }, sessionId: "session-1" });
+		expect((executor as unknown as { frameParents: Map<string, string> }).frameParents.size).toBe(0);
+		expect((executor as unknown as { generations: Map<string, number> }).generations.has("FRAME-1")).toBe(false);
 	});
 
 	it("invalidates nested same-process refs when their OOPIF session navigates", async () => {
@@ -1678,6 +1715,39 @@ describe("BrowserExecutor ref state export/import", () => {
 		await second.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction);
 		const pressed = sent.find((cmd) => cmd.method === "Input.dispatchMouseEvent" && cmd.params.type === "mousePressed");
 		expect(pressed).toBeDefined();
+	});
+
+	it("rebinds legacy same-process iframe refs to the page session", async () => {
+		const firstFake = createFakeCdp([
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),
+			ax({ nodeId: "2", role: "Iframe", backendDOMNodeId: 50, parentId: "1" }),
+		]);
+		firstFake.setIframeFrame(50, "FRAME-SP");
+		firstFake.setFrameTree("FRAME-SP", [
+			ax({ nodeId: "f1", role: "RootWebArea", name: "Frame", childIds: ["f2"] }),
+			ax({ nodeId: "f2", role: "button", name: "Inside", backendDOMNodeId: 60, parentId: "f1" }),
+		]);
+		const first = new BrowserExecutor(firstFake.cdp);
+		await snapshotText(first);
+		const state = first.exportRefState();
+		for (const [, entry] of state.refs) delete entry.sessionTargetId;
+		delete state.frameParents;
+
+		const secondFake = createFakeCdp([
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),
+			ax({ nodeId: "2", role: "Iframe", backendDOMNodeId: 50, parentId: "1" }),
+		]);
+		secondFake.setIframeFrame(50, "FRAME-SP");
+		secondFake.setFrameTree("FRAME-SP", [
+			ax({ nodeId: "f1", role: "RootWebArea", name: "Frame", childIds: ["f2"] }),
+			ax({ nodeId: "f2", role: "button", name: "Inside", backendDOMNodeId: 60, parentId: "f1" }),
+		]);
+		const second = new BrowserExecutor(secondFake.cdp);
+		second.importRefState(state);
+		await second.execute({ type: "browser_click", ref: "e2" } as CuaBrowserAction);
+
+		const resolved = secondFake.sent.find((command) => command.method === "DOM.getBoxModel" && command.params.backendNodeId === 60);
+		expect(resolved?.sessionId).toBe("session-1");
 	});
 
 	it("keeps minting unique refs after import and invalidates imported refs on navigation", async () => {

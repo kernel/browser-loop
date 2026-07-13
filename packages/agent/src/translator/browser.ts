@@ -673,9 +673,13 @@ export class BrowserExecutor {
 					break;
 				}
 			}
-			if (!stopReason && finalExpectation?.status === "failed") stopReason = "expectation_failed";
-			else if (!stopReason && finalExpectation?.status === "unverifiable") stopReason = "control_flow";
-			if (stopReason) stoppedAt = action.steps.length;
+			if (finalExpectation?.status === "failed") {
+				stopReason = "expectation_failed";
+				stoppedAt = action.steps.length;
+			} else if (finalExpectation?.status === "unverifiable") {
+				stopReason ??= "control_flow";
+				stoppedAt = action.steps.length;
+			}
 		}
 
 		let successor: BrowserActResult["successor"] | undefined;
@@ -1294,13 +1298,16 @@ export class BrowserExecutor {
 	 */
 	private async refSession(entry: RefEntry): Promise<string> {
 		if (!entry.sessionId) {
-			await this.attach(entry.targetId);
-			const sessionTargetId = entry.sessionTargetId ?? entry.frameId;
-			const frameSession = this.frameSessions.get(sessionTargetId);
-			if (sessionTargetId !== entry.targetId && !frameSession) {
+			const pageSession = await this.attach(entry.targetId);
+			if (entry.sessionTargetId === undefined) {
+				entry.sessionId = this.frameSessions.get(entry.frameId) ?? pageSession;
+				return entry.sessionId;
+			}
+			const frameSession = this.frameSessions.get(entry.sessionTargetId);
+			if (entry.sessionTargetId !== entry.targetId && !frameSession) {
 				throw new Error("owning frame session is unavailable; the element ref is stale");
 			}
-			entry.sessionId = frameSession ?? (await this.attach(entry.targetId));
+			entry.sessionId = frameSession ?? pageSession;
 		}
 		return entry.sessionId;
 	}
@@ -1320,7 +1327,7 @@ export class BrowserExecutor {
 	}
 
 	private invalidateRefs(targetId: string): void {
-		this.generations.set(targetId, this.generation(targetId) + 1);
+		this.invalidateFrame(targetId);
 		for (const [ref, entry] of this.refs) {
 			if (entry.targetId === targetId) this.refs.delete(ref);
 		}
@@ -1339,8 +1346,11 @@ export class BrowserExecutor {
 			}
 		}
 		for (const invalidatedFrame of invalidated) {
-			this.generations.set(invalidatedFrame, this.generation(invalidatedFrame) + 1);
-			if (invalidatedFrame !== frameKey) this.frameParents.delete(invalidatedFrame);
+			if (invalidatedFrame === frameKey) this.generations.set(invalidatedFrame, this.generation(invalidatedFrame) + 1);
+			else {
+				this.generations.delete(invalidatedFrame);
+				this.frameParents.delete(invalidatedFrame);
+			}
 		}
 		for (const [ref, entry] of this.refs) {
 			if (invalidated.has(entry.frameId)) this.refs.delete(ref);
@@ -1457,12 +1467,12 @@ function observationGenerationsChanged(
 	after: BrowserObservation,
 	live: ReadonlyMap<string, number>,
 ): boolean {
-	const keys = new Set([...before.generations.keys(), ...after.generations.keys()]);
-	return [...keys].some(
-		(key) =>
-			before.generations.get(key) !== after.generations.get(key) ||
-			(after.generations.has(key) && after.generations.get(key) !== (live.get(key) ?? 0)),
-	);
+	for (const [key, generation] of after.generations) {
+		if (generation !== (live.get(key) ?? 0)) return true;
+		const previous = before.generations.get(key);
+		if (previous !== undefined && previous !== generation) return true;
+	}
+	return false;
 }
 
 function browserControlChange(
