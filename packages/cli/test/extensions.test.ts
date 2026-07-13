@@ -95,6 +95,16 @@ describe("HarnessExtensionHost", () => {
 		expect(fx!.harness.getActiveTools().map((tool) => tool.name)).toContain("click_visual");
 	});
 
+	it("keeps the extension tool active across a mode switch", async () => {
+		await loadHost();
+		expect(fx!.harness.getActiveTools().map((tool) => tool.name)).toContain("click_visual");
+
+		await fx!.harness.setMode("browser");
+
+		expect(fx!.harness.getTools().map((tool) => tool.name)).toContain("click_visual");
+		expect(fx!.harness.getActiveTools().map((tool) => tool.name)).toContain("click_visual");
+	});
+
 	it("re-registers extension tools after reload", async () => {
 		const created = await loadHost();
 		expect(fx!.harness.getTools().map((tool) => tool.name)).toContain("click_visual");
