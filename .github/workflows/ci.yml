@@ -155,7 +155,6 @@ jobs:
       - name: Agent live smoke tests (all providers)
         env:
           CUA_E2E_LIVE: "1"
-          CUA_E2E_META: "1"
           KERNEL_API_KEY: ${{ secrets.KERNEL_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

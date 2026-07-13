@@ -92,7 +92,6 @@ const cases: ProviderCase[] = [
 		].join("\n"),
 		expectToolCalls: true,
 		timeoutMs: 180_000,
-		ciOptInEnvVar: "CUA_E2E_META",
 	},
 	{
 		name: "tzafon",
