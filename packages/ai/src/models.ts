@@ -301,7 +301,7 @@ function cuaModel(provider: CuaProvider, id: string, name: string): Model<Api> {
 				...base,
 				api: XAI_CUA_RESPONSES_API,
 				baseUrl: "https://api.x.ai/v1",
-				thinkingLevelMap: { off: null, minimal: "low", xhigh: "high" },
+				thinkingLevelMap: { off: "low", minimal: "low", xhigh: "high" },
 				cost: { input: 2, output: 6, cacheRead: 0.5, cacheWrite: 0 },
 				contextWindow: 500_000,
 				maxTokens: 500_000,

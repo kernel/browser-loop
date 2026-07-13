@@ -67,7 +67,7 @@ describe("CUA model refs", () => {
 		expect(grok.baseUrl).toBe("https://api.x.ai/v1");
 		expect(grok.contextWindow).toBe(500_000);
 		expect(grok.maxTokens).toBe(500_000);
-		expect(grok.thinkingLevelMap?.off).toBeNull();
+		expect(grok.thinkingLevelMap?.off).toBe("low");
 		expect(grok.thinkingLevelMap?.minimal).toBe("low");
 		expect(grok.thinkingLevelMap?.xhigh).toBe("high");
 	});

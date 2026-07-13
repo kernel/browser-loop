@@ -72,7 +72,7 @@ const cases: ProviderCase[] = [
 		coordinateRange: [0, 1000],
 		requireToolCalls: true,
 		systemPrompt: "Coordinates are normalized from 0 to 1000 relative to the screenshot.",
-		extraOptions: { reasoningEffort: "low" },
+		extraOptions: { reasoningEffort: "off" },
 	},
 	{
 		provider: "tzafon",
@@ -253,7 +253,7 @@ describe("individual computer action integration", () => {
 			const first = await cuaModels().complete(model, context, {
 				apiKey: xaiApiKey,
 				maxTokens: 1024,
-				reasoningEffort: "low",
+				reasoningEffort: "off",
 			});
 			const click = first.content.find((part) => part.type === "toolCall" && part.name === "click");
 			expect(click).toBeDefined();
@@ -274,7 +274,7 @@ describe("individual computer action integration", () => {
 			const second = await cuaModels().complete(model, context, {
 				apiKey: xaiApiKey,
 				maxTokens: 1024,
-				reasoningEffort: "low",
+				reasoningEffort: "off",
 				onPayload: (value) => {
 					payload = value as Record<string, unknown>;
 				},
@@ -284,6 +284,7 @@ describe("individual computer action integration", () => {
 			expect(payload?.previous_response_id).toBe(first.responseId);
 			expect(payload?.store).toBe(true);
 			expect(payload?.parallel_tool_calls).toBe(false);
+			expect(payload?.reasoning).toEqual({ effort: "low", summary: "auto" });
 			expect(payload?.include).toEqual(["reasoning.encrypted_content"]);
 		},
 		90_000,
