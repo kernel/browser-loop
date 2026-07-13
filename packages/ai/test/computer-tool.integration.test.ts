@@ -1,6 +1,6 @@
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	CUA_ACTION_TYPES,
@@ -10,14 +10,20 @@ import {
 	anthropic,
 	cuaModels,
 	gemini,
+	getCuaEnvApiKey,
 	getCuaModel,
+	meta,
 	openai,
 	tzafon,
 	yutori,
 } from "../src/index";
 
-const here = dirname(fileURLToPath(import.meta.url));
-const screenshotPath = join(here, "..", "examples", "screenshot.png");
+const screenshotPath = [
+	join(process.cwd(), "examples", "screenshot.png"),
+	join(process.cwd(), "packages", "ai", "examples", "screenshot.png"),
+].find(existsSync);
+
+if (!screenshotPath) throw new Error("could not find packages/ai/examples/screenshot.png");
 
 interface ProviderCase {
 	provider: CuaProvider;
@@ -105,9 +111,13 @@ async function buildYutoriContext(): Promise<Context> {
 	};
 }
 
+function apiKeyForCase(c: ProviderCase): string | undefined {
+	return c.provider === "meta" ? getCuaEnvApiKey("meta") : process.env[c.envVar];
+}
+
 describe("individual computer action integration", () => {
 	for (const c of cases) {
-		const hasKey = !!process.env[c.envVar];
+		const hasKey = !!apiKeyForCase(c);
 		const ciEnabled = !c.ciOptInEnvVar || !process.env.CI || process.env[c.ciOptInEnvVar] === "1";
 		const test = hasKey ? it : it.skip;
 
@@ -115,7 +125,7 @@ describe("individual computer action integration", () => {
 			const model = getCuaModel(c.modelRef as never);
 			const context = await buildContext(c.tools);
 			const response = await cuaModels().complete(model, context, {
-				apiKey: process.env[c.envVar],
+				apiKey: apiKeyForCase(c),
 				maxTokens: 1024,
 				...c.extraOptions,
 			});
@@ -141,6 +151,70 @@ describe("individual computer action integration", () => {
 			expect(response.usage.totalTokens, `${c.provider} usage tokens not reported`).toBeGreaterThan(0);
 		}, 60_000);
 	}
+
+	const metaApiKey = getCuaEnvApiKey("meta");
+	(metaApiKey ? it : it.skip)(
+		"meta continues a screenshot tool loop with previous_response_id",
+		async () => {
+			const screenshot = await readFile(screenshotPath);
+			const model = getCuaModel("meta:muse-spark-1.1");
+			const tools = meta.computerTools({ actions: ["click"] });
+			const context: Context = {
+				systemPrompt: "Use normalized 0-1000 coordinates. Call click exactly once, then answer in text after its result.",
+				messages: [
+					{
+						role: "user",
+						content: [
+							{ type: "text", text: "Click the sign in / up link. After the tool result, report that the click completed without calling another tool." },
+							{ type: "image", data: screenshot.toString("base64"), mimeType: "image/png" },
+						],
+						timestamp: Date.now(),
+					},
+				],
+				tools,
+			};
+			const first = await cuaModels().complete(model, context, {
+				apiKey: metaApiKey,
+				maxTokens: 1024,
+			});
+			const click = first.content.find((part) => part.type === "toolCall" && part.name === "click");
+			expect(click).toBeDefined();
+			expect(typeof click!.arguments.x).toBe("number");
+			expect(typeof click!.arguments.y).toBe("number");
+			expect(click!.arguments.x as number).toBeGreaterThanOrEqual(0);
+			expect(click!.arguments.x as number).toBeLessThanOrEqual(1000);
+			expect(click!.arguments.y as number).toBeGreaterThanOrEqual(0);
+			expect(click!.arguments.y as number).toBeLessThanOrEqual(1000);
+			expect(first.responseId).toBeTruthy();
+			context.messages.push(first, {
+				role: "toolResult",
+				toolCallId: click!.id,
+				toolName: click!.name,
+				content: [
+					{ type: "text", text: "Click executed successfully." },
+					{ type: "image", data: screenshot.toString("base64"), mimeType: "image/png" },
+				],
+				isError: false,
+				timestamp: Date.now(),
+			});
+
+			let payload: Record<string, unknown> | undefined;
+			const second = await cuaModels().complete(model, context, {
+				apiKey: metaApiKey,
+				maxTokens: 1024,
+				onPayload: (value) => {
+					payload = value as Record<string, unknown>;
+				},
+			});
+			expect(second.stopReason).not.toBe("error");
+			expect(second.responseId).toBeTruthy();
+			expect(payload?.previous_response_id).toBe(first.responseId);
+			expect(payload?.store).toBe(true);
+			expect(payload?.parallel_tool_calls).toBe(false);
+			expect(payload?.include).toBeUndefined();
+		},
+		90_000,
+	);
 
 	const yutoriHasKey = !!process.env.YUTORI_API_KEY;
 	(yutoriHasKey ? it : it.skip)(

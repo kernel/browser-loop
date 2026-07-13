@@ -156,7 +156,9 @@ export type CuaAgentOptions = Omit<AgentOptions, "initialState"> & {
 	emptyResponseRecovery?: CuaEmptyResponseRecoveryOptions;
 	/** Maximum tool-result images included from message history per provider request. Defaults to 4; false disables projection. */
 	toolResultImageReplayLimit?: ToolResultImageReplayLimit;
-	/** Chain OpenAI and Tzafon requests through provider-stored response state. Defaults to true. */
+	/**
+	 * Chain OpenAI, Meta, and Tzafon requests through provider-stored response state. Defaults to true.
+	 */
 	responseThreading?: boolean;
 	/** Optional CUA-level retries around each provider request. Disabled by default. */
 	retry?: CuaRetryOptions;
@@ -202,7 +204,9 @@ export type CuaAgentHarnessOptions<
 	emptyResponseRecovery?: CuaEmptyResponseRecoveryOptions;
 	/** Maximum tool-result images included from message history per provider request. Defaults to 4; false disables projection. */
 	toolResultImageReplayLimit?: ToolResultImageReplayLimit;
-	/** Chain OpenAI and Tzafon requests through provider-stored response state. Defaults to true. */
+	/**
+	 * Chain OpenAI, Meta, and Tzafon requests through provider-stored response state. Defaults to true.
+	 */
 	responseThreading?: boolean;
 	/** Optional CUA-level retries around each provider request. Disabled by default. */
 	retry?: CuaRetryOptions;

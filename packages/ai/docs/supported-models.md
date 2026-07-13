@@ -17,7 +17,7 @@ with CUA-only entries that pi-ai does not ship yet.
 
 ## `openai`
 
-API: `openai-responses` · coordinates: pixel
+Coordinates: pixel
 
 Family matches (root + numeric revision/dated-snapshot suffixes):
 
@@ -27,7 +27,7 @@ Family matches (root + numeric revision/dated-snapshot suffixes):
 
 ## `anthropic`
 
-API: `anthropic-messages` · coordinates: pixel
+Coordinates: pixel
 
 Family matches (root + numeric revision/dated-snapshot suffixes):
 
@@ -42,7 +42,7 @@ Source: [Anthropic computer use docs](https://docs.anthropic.com/en/docs/build-w
 
 ## `google`
 
-API: `google-generative-ai` · coordinates: normalized 0–999
+Coordinates: normalized 0–999
 
 Model refs use the `google:` prefix; `gemini:` is accepted as an alias.
 
@@ -58,9 +58,22 @@ Google's native `tools.computer_use` request wrapper instead.
 
 Source: [Gemini computer use docs](https://ai.google.dev/gemini-api/docs/computer-use).
 
+## `meta`
+
+Coordinates: normalized 0–1000
+
+Exact IDs:
+
+- `muse-spark-1.1`
+
+Muse Spark uses Meta's OpenAI-compatible Responses API with ordinary function
+tools. CUA continues tool loops through `previous_response_id`.
+
+Source: [Meta computer-use cookbook](https://dev.meta.ai/docs/getting-started/cookbook/computer-use-macos).
+
 ## `tzafon`
 
-API: `tzafon-responses` · coordinates: normalized 0–999
+Coordinates: normalized 0–999
 
 Exact IDs:
 
@@ -70,7 +83,7 @@ Exact IDs:
 
 ## `yutori`
 
-API: `yutori-chat-completions` · coordinates: normalized 0–1000
+Coordinates: normalized 0–1000
 
 Exact IDs:
 

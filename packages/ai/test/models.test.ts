@@ -6,6 +6,7 @@ import {
 	formatCuaModelRef,
 	getCuaModel,
 	listCuaModels,
+	meta,
 	openai,
 	parseCuaModelRef,
 } from "../src/index";
@@ -24,7 +25,7 @@ describe("CUA model refs", () => {
 
 	it("names the valid providers in the unsupported-provider error", () => {
 		expect(() => parseCuaModelRef("bogus:model")).toThrow(
-			'unsupported CUA provider "bogus" (expected one of: openai, anthropic, google, tzafon, yutori)',
+			'unsupported CUA provider "bogus" (expected one of: openai, anthropic, google, meta, tzafon, yutori)',
 		);
 	});
 
@@ -50,6 +51,14 @@ describe("CUA model refs", () => {
 		const model = getCuaModel("yutori:n1.5-latest");
 		expect(model.provider).toBe("yutori");
 		expect(model.api).toBe("yutori-chat-completions");
+
+		const muse = getCuaModel("meta:muse-spark-1.1");
+		expect(muse.provider).toBe("meta");
+		expect(muse.api).toBe(meta.META_RESPONSES_API);
+		expect(muse.baseUrl).toBe("https://api.meta.ai/v1");
+		expect(muse.contextWindow).toBe(1_048_576);
+		expect(muse.maxTokens).toBe(128_000);
+		expect(muse.thinkingLevelMap?.off).toBeNull();
 	});
 
 	it("loads supported custom provider models without explicit registration", () => {
@@ -57,11 +66,12 @@ describe("CUA model refs", () => {
 		expect(getCuaModel("yutori:n1.5-latest").api).toBe("yutori-chat-completions");
 	});
 
-	it("routes OpenAI CUA models to the threading-aware openai-cua-responses api", () => {
+	it("routes Responses models to provider-specific threading APIs", () => {
 		// Registry models carry pi-ai's builtin "openai-responses" api and must
-		// be routed to cua's own previous_response_id-threading provider.
+		// be routed to provider-specific previous_response_id transports.
 		expect(getCuaModel("openai:gpt-5.5").api).toBe(openai.OPENAI_CUA_RESPONSES_API);
 		expect(getCuaModel("openai:gpt-5.4-mini").api).toBe(openai.OPENAI_CUA_RESPONSES_API);
+		expect(getCuaModel("meta:muse-spark-1.1").api).toBe(meta.META_RESPONSES_API);
 	});
 
 	it("rejects supported model IDs that are not in pi-ai or overrides", () => {
@@ -115,6 +125,7 @@ describe("CUA support annotations", () => {
 
 	it("matches exact-id annotations", () => {
 		expect(findCuaAnnotation("google", "gemini-3-flash-preview")).toBeDefined();
+		expect(findCuaAnnotation("meta", "muse-spark-1.1")).toBeDefined();
 		expect(findCuaAnnotation("google", "gemini-3.1-flash-lite")).toBeDefined();
 		expect(findCuaAnnotation("yutori", "n1.5-latest")).toBeDefined();
 		expect(findCuaAnnotation("tzafon", "tzafon.northstar-cua-fast")).toBeDefined();

@@ -20,6 +20,7 @@ check these environment variables, in order:
 | `openai`    | `OPENAI_API_KEY`                            |
 | `anthropic` | `ANTHROPIC_OAUTH_TOKEN`, `ANTHROPIC_API_KEY` |
 | `google`    | `GOOGLE_API_KEY`, `GEMINI_API_KEY`          |
+| `meta`      | `META_API_KEY`                              |
 | `tzafon`    | `TZAFON_API_KEY`                            |
 | `yutori`    | `YUTORI_API_KEY`                            |
 
@@ -210,6 +211,7 @@ provider/tool metadata.
 getCuaModel("openai:gpt-5.5");
 getCuaModel("anthropic:claude-opus-4-7");
 getCuaModel("google:gemini-3-flash-preview");
+getCuaModel("meta:muse-spark-1.1");
 getCuaModel("tzafon:tzafon.northstar-cua-fast");
 getCuaModel("yutori:n1.5-latest");
 ```
@@ -226,7 +228,7 @@ list of CUA-supporting models per provider.
 `CuaProvider` is the string union of provider IDs this package targets:
 
 ```ts
-type CuaProvider = "openai" | "anthropic" | "google" | "tzafon" | "yutori";
+type CuaProvider = "openai" | "anthropic" | "google" | "meta" | "tzafon" | "yutori";
 ```
 
 The IDs match pi-ai's `Model.provider` values exactly. `providerForModel(model)`
@@ -332,7 +334,7 @@ definitions and executors; it is forwarded to the provider module's
   with pi's builtin providers plus CUA's adjustments: OpenAI models route
   through cua's `openai-cua-responses` stream (threads
   `previous_response_id`), Google resolves `GOOGLE_API_KEY` or
-  `GEMINI_API_KEY`, and the Tzafon/Yutori providers are registered. Each call
+  `GEMINI_API_KEY`, and the Meta/Tzafon/Yutori providers are registered. Each call
   returns an independent collection.
 - `cuaModels(): MutableModels` — the shared default collection, created on
   first use. `CuaAgent` and `CuaAgentHarness` stream through it unless given
@@ -370,6 +372,7 @@ Per-provider canonical action subsets (each namespace exports its list as
 | `openai`    | all 16                                                                              |
 | `anthropic` | 13 — everything except `back`, `forward`, `url`; adds `computer_batch` by default  |
 | `gemini`    | all 16                                                                              |
+| `meta`      | all 16                                                                              |
 | `tzafon`    | all 16 (replaced on the wire by Tzafon's native `computer_use` tool)                |
 | `yutori`    | 13 — everything except `screenshot`, `url`, `cursor_position` (local mirrors only)  |
 
@@ -404,6 +407,7 @@ Current coordinate contracts:
 - `openai`: pixel coordinates
 - `anthropic`: pixel coordinates, matching Anthropic's computer-use quickstart
 - `gemini`: normalized coordinates in the 0-999 range ([source](https://ai.google.dev/gemini-api/docs/computer-use))
+- `meta`: normalized coordinates in the 0-1000 range ([source](https://dev.meta.ai/docs/getting-started/cookbook/computer-use-macos))
 - `yutori`: normalized coordinates in the 0-1000 range ([source](https://docs.yutori.com/reference/navigator), [SDK helper](https://github.com/yutori-ai/yutori-sdk-python/blob/main/yutori/navigator/coordinates.py))
 - `tzafon`: normalized coordinates in the 0-999 range ([source](https://docs.lightcone.ai/guides/coordinates/), [model card](https://huggingface.co/Tzafon/Northstar-CUA-Fast))
 
@@ -480,7 +484,7 @@ type CuaNavigationInput = {
 
 ## Provider Namespaces
 
-Every provider namespace (`openai`, `anthropic`, `gemini`, `tzafon`,
+Every provider namespace (`openai`, `anthropic`, `gemini`, `meta`, `tzafon`,
 `yutori`) follows one convention:
 
 - `computerTools(options?)` and `computerToolExecutors(options?)`
@@ -504,6 +508,9 @@ Provider-specific extras:
   `computer_use_extra` navigation aliases `OPENAI_EXTRA_TOOL_NAME`,
   `OPENAI_EXTRA_TOOL_DESCRIPTION`, `OpenAIExtraSchema`, `OpenAIExtraInput`
 - `anthropic`: `ANTHROPIC_BATCH_TOOL_NAME` (`"computer_batch"`)
+- `meta`: the `meta-responses` stream adapter (`META_RESPONSES_API`,
+  `streamMetaResponses`, `streamSimpleMetaResponses`, `MetaResponsesOptions`),
+  with `previous_response_id` threading and Meta-compatible reasoning payloads
 - `tzafon`: the `tzafon-responses` stream adapter (`TZAFON_RESPONSES_API`,
   `streamTzafonResponses`, `streamSimpleTzafonResponses`,
   `TzafonResponsesOptions` with `keepToolNames`), `tzafonComputerUseOnPayload`

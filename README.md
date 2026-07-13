@@ -12,7 +12,7 @@ cua "go to news.ycombinator.com and tell me the top 3 story titles"
 
 ## Why this exists
 
-Every frontier model now ships its own first-party "computer use" tool:
+Frontier models expose computer use through different tool protocols:
 
 - **OpenAI gpt-5.5**: a built-in `computer` tool that emits actions like
   `{type:"click", x, y}`, `{type:"scroll", x, y, scroll_x, scroll_y}`,
@@ -23,6 +23,8 @@ Every frontier model now ships its own first-party "computer use" tool:
 - **Google gemini-2.5-pro / gemini-3.x**: a set of predefined
   computer-use functions (`click_at`, `type_text_at`, `scroll_at`,
   `navigate`, `go_back`, …) with 0-1000 normalized coordinates.
+- **Meta Muse Spark 1.1**: OpenAI-compatible Responses API function calls
+  paired with screenshot inputs and 0-1000 normalized coordinates.
 - **Yutori Navigator n1 / n1.5**: OpenAI-compatible `chat.completions`
   responses with built-in browser action `tool_calls` like `left_click`,
   `goto_url`, `type`, and `scroll` in 0-1000 normalized coordinates.
@@ -100,6 +102,7 @@ npx tsx packages/cli/src/cli.ts --help
 export OPENAI_API_KEY=sk-...                 # for gpt-5.5
 export ANTHROPIC_API_KEY=sk-ant-...          # for claude-opus-4-7
 export GOOGLE_API_KEY=...                    # for gemini-3-flash-preview
+export META_API_KEY=...                      # for muse-spark-1.1
 export YUTORI_API_KEY=yt_...                 # for n1.5-latest
 export KERNEL_API_KEY=sk_...                 # always required
 
@@ -114,6 +117,9 @@ cua -p --model claude-opus-4-7 "Same prompt"
 
 # Gemini 3 Flash (built-in computer use)
 cua -p --model gemini-3-flash-preview "Same prompt"
+
+# Meta Muse Spark
+cua -p --model meta:muse-spark-1.1 "Same prompt"
 
 # Yutori Navigator
 cua -p --model n1.5-latest "Same prompt"

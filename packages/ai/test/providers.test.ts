@@ -8,7 +8,7 @@ const YUTORI_CHAT_COMPLETIONS_API = yutori.YUTORI_CHAT_COMPLETIONS_API;
 describe("createCuaModels", () => {
 	it("registers the CUA-only providers alongside pi's builtins", () => {
 		const models = createCuaModels();
-		for (const id of ["openai", "anthropic", "google", "tzafon", "yutori"]) {
+		for (const id of ["openai", "anthropic", "google", "meta", "tzafon", "yutori"]) {
 			const provider = models.getProvider(id);
 			expect(provider, id).toBeDefined();
 			expect(provider?.stream).toBeTypeOf("function");
@@ -16,8 +16,9 @@ describe("createCuaModels", () => {
 		}
 	});
 
-	it("lists the tzafon and yutori catalogs on their providers", () => {
+	it("lists the CUA-only provider catalogs", () => {
 		const models = createCuaModels();
+		expect(models.getModel("meta", "muse-spark-1.1")?.api).toBe("meta-responses");
 		const tzafonIds = models.getModels("tzafon").map((m) => m.id);
 		expect(tzafonIds).toContain("tzafon.northstar-cua-fast");
 		const yutoriIds = models.getModels("yutori").map((m) => m.id);

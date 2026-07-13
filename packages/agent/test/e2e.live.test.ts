@@ -20,6 +20,7 @@ type ProviderCase = {
 		| "openai:gpt-5.5"
 		| "anthropic:claude-opus-4-7"
 		| "google:gemini-3-flash-preview"
+		| "meta:muse-spark-1.1"
 		| "tzafon:tzafon.northstar-cua-fast"
 		| "yutori:n1.5-latest";
 	prompt: string;
@@ -80,6 +81,19 @@ const cases: ProviderCase[] = [
 		ciOptInEnvVar: "CUA_E2E_GEMINI",
 	},
 	{
+		name: "meta",
+		apiKeyEnvVar: "META_API_KEY",
+		modelRef: "meta:muse-spark-1.1",
+		prompt: [
+			"Use the tool named `screenshot` exactly once to inspect the browser.",
+			"Pass empty arguments (`{}`).",
+			"Do not call any other tools.",
+			"After the tool result, provide a one-sentence summary.",
+		].join("\n"),
+		expectToolCalls: true,
+		timeoutMs: 180_000,
+	},
+	{
 		name: "tzafon",
 		apiKeyEnvVar: "TZAFON_API_KEY",
 		modelRef: "tzafon:tzafon.northstar-cua-fast",
@@ -125,11 +139,15 @@ type RunStats = {
 	assistantErrors: string[];
 };
 
+function apiKeyForCase(c: ProviderCase): string | undefined {
+	return process.env[c.apiKeyEnvVar];
+}
+
 function shouldRunCase(c: ProviderCase): boolean {
 	if (!LIVE) return false;
 	if (!KERNEL_API_KEY) return false;
 	if (c.ciOptInEnvVar && process.env.CI && process.env[c.ciOptInEnvVar] !== "1") return false;
-	return Boolean(process.env[c.apiKeyEnvVar]);
+	return Boolean(apiKeyForCase(c));
 }
 
 function shouldRunSwitchCase(c: ModelSwitchCase): boolean {
@@ -229,7 +247,7 @@ describe("Cua live e2e", () => {
 					const agent = new CuaAgent({
 						browser,
 						client,
-						getApiKey: () => process.env[c.apiKeyEnvVar],
+						getApiKey: () => apiKeyForCase(c),
 						afterToolCall: async () => ({ terminate: true }),
 						initialState: {
 							model: c.modelRef,
@@ -257,7 +275,7 @@ describe("Cua live e2e", () => {
 						client,
 						model: c.modelRef,
 						getApiKeyAndHeaders: async () => {
-							const apiKey = process.env[c.apiKeyEnvVar];
+							const apiKey = apiKeyForCase(c);
 							return apiKey ? { apiKey } : undefined;
 						},
 					});
@@ -287,8 +305,8 @@ describe("Cua live e2e", () => {
 						browser,
 						client,
 						getApiKey: (provider) => {
-							if (provider === c.from.modelRef.split(":")[0]) return process.env[c.from.apiKeyEnvVar];
-							if (provider === c.to.modelRef.split(":")[0]) return process.env[c.to.apiKeyEnvVar];
+							if (provider === c.from.modelRef.split(":")[0]) return apiKeyForCase(c.from);
+							if (provider === c.to.modelRef.split(":")[0]) return apiKeyForCase(c.to);
 							return undefined;
 						},
 						initialState: {
@@ -323,11 +341,11 @@ describe("Cua live e2e", () => {
 						model: c.from.modelRef,
 						getApiKeyAndHeaders: async (model) => {
 							if (model.provider === c.from.modelRef.split(":")[0]) {
-								const apiKey = process.env[c.from.apiKeyEnvVar];
+								const apiKey = apiKeyForCase(c.from);
 								return apiKey ? { apiKey } : undefined;
 							}
 							if (model.provider === c.to.modelRef.split(":")[0]) {
-								const apiKey = process.env[c.to.apiKeyEnvVar];
+								const apiKey = apiKeyForCase(c.to);
 								return apiKey ? { apiKey } : undefined;
 							}
 							return undefined;

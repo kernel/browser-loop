@@ -12,6 +12,7 @@ const ENV_KEYS = [
 	"ANTHROPIC_API_KEY",
 	"GOOGLE_API_KEY",
 	"GEMINI_API_KEY",
+	"META_API_KEY",
 	"TZAFON_API_KEY",
 	"YUTORI_API_KEY",
 ] as const;
@@ -31,10 +32,12 @@ describe("cua api key helpers", () => {
 		expect(cuaApiKeyEnvVarsForProvider("openai")).toEqual(["OPENAI_API_KEY"]);
 		expect(cuaApiKeyEnvVarsForProvider("google")).toEqual(["GOOGLE_API_KEY", "GEMINI_API_KEY"]);
 		expect(cuaApiKeyEnvVarsForProvider("gemini")).toEqual(["GOOGLE_API_KEY", "GEMINI_API_KEY"]);
+		expect(cuaApiKeyEnvVarsForProvider("meta")).toEqual(["META_API_KEY"]);
 		expect(cuaApiKeyEnvVarsForProvider("unknown")).toEqual([]);
 	});
 
 	it("resolves provider api keys with fallback order", () => {
+		delete process.env.GOOGLE_API_KEY;
 		process.env.GEMINI_API_KEY = "gemini";
 		expect(getCuaEnvApiKey("google")).toBe("gemini");
 		process.env.GOOGLE_API_KEY = "google";
@@ -44,6 +47,8 @@ describe("cua api key helpers", () => {
 	it("resolves keys from model refs", () => {
 		process.env.OPENAI_API_KEY = "openai";
 		expect(getCuaEnvApiKeyForModel("openai:gpt-5.5")).toBe("openai");
+		process.env.META_API_KEY = "meta";
+		expect(getCuaEnvApiKeyForModel("meta:muse-spark-1.1")).toBe("meta");
 	});
 
 	it("throws readable errors when missing", () => {

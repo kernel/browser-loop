@@ -5,7 +5,7 @@ import { basename, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import process from "node:process";
 
-type Provider = "openai" | "anthropic" | "gemini" | "yutori";
+type Provider = "openai" | "anthropic" | "gemini" | "meta" | "yutori";
 
 interface ExampleRepo {
 	provider: Provider;
@@ -52,6 +52,14 @@ const EXAMPLES: ExampleRepo[] = [
 		patterns: ["computer_use", "ComputerUse", "function_call", "functionCall", "FunctionResponse", "safety_decision"],
 	},
 	{
+		provider: "meta",
+		name: "meta-model-cookbook",
+		repo: "https://github.com/meta-models/meta-model-cookbook.git",
+		confidence: "provider-owned",
+		pathHint: "03_use_cases/13_macos_cua",
+		patterns: ["muse-spark-1.1", "function_call", "function_call_output", "previous_response_id", "reasoning.encrypted_content", "parallel_tool_calls"],
+	},
+	{
 		provider: "yutori",
 		name: "kernel-cli-yutori-template",
 		repo: "https://github.com/kernel/cli.git",
@@ -65,6 +73,7 @@ const ACTION_REGEXES: Record<Provider, RegExp[]> = {
 	openai: [/\b(click|double_click|scroll|type|wait|keypress|drag|move|screenshot)\b/g],
 	anthropic: [/\b(screenshot|left_click|right_click|middle_click|double_click|triple_click|left_click_drag|mouse_move|key|type|scroll|hold_key|wait|left_mouse_down|left_mouse_up|cursor_position|zoom)\b/g],
 	gemini: [/\b(open_web_browser|open_web|wait_5_seconds|go_back|go_forward|search|navigate|click_at|hover_at|type_text_at|key_combination|scroll_document|scroll_at|drag_and_drop)\b/g],
+	meta: [/\b(screenshot|left_click|right_click|middle_click|double_click|triple_click|left_click_drag|mouse_move|key|type|scroll|hold_key|wait|left_mouse_down|left_mouse_up)\b/g],
 	yutori: [/\b(left_click|double_click|triple_click|right_click|scroll|type|key_press|hover|drag|wait|refresh|go_back|goto_url|mouse_move|middle_click|mouse_down|mouse_up|go_forward|hold_key|extract_elements|find|set_element_value|execute_js)\b/g],
 };
 
