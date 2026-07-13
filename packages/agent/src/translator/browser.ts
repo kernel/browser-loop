@@ -15,14 +15,26 @@ import {
 	type CuaActionBrowserSnapshot,
 	type CuaBrowserAction,
 } from "@onkernel/cua-ai";
+import { runBrowserAct, type ExpectationEvaluation } from "./browser-act";
+import {
+	buildNthIndex,
+	cohortKey,
+	frameStitchKey,
+	MissingFrameObservationError,
+	ObservationChangedError,
+	REF_PLACEHOLDER,
+	staticTextRun,
+	type AXNode,
+	type BrowserObservation,
+	type BrowserPresentation,
+	type FrameStitch,
+	type FrameStitchResult,
+	type ObservationLine,
+	type ObservedNode,
+	type RenderContext,
+} from "./browser-observation";
 import { CdpConnection, type CdpEventMessage } from "./cdp";
-import type {
-	BatchReadResult,
-	BrowserActResult,
-	BrowserActStepResult,
-	BrowserExpectationEvidence,
-	BrowserObservationDiff,
-} from "./types";
+import type { BatchReadResult, BrowserActResult } from "./types";
 
 const SNAPSHOT_CHAR_LIMIT = 50_000;
 const DEFAULT_SNAPSHOT_DEPTH = 15;
@@ -30,24 +42,9 @@ const FIND_MATCH_LIMIT = 20;
 const REF_LIMIT_PER_TARGET = 1000;
 const FRAME_STATE_LIMIT = 1000;
 const SCROLL_NOTCH_PX = 120;
-const EXPECTATION_TIMEOUT_MS = 2_000;
-const EXPECTATION_POLL_MS = 50;
 
 const STALE_REF_HINT = "Call snapshot (or find) to get fresh element references.";
-const REF_PLACEHOLDER = "\u0000";
 const UNCHANGED_SNAPSHOT = "Page unchanged since the last snapshot; previous element refs are still valid.";
-
-interface AXNode {
-	nodeId: string;
-	ignored?: boolean;
-	role?: { value?: string };
-	name?: { value?: string };
-	value?: { value?: unknown };
-	properties?: Array<{ name: string; value?: { value?: unknown } }>;
-	backendDOMNodeId?: number;
-	parentId?: string;
-	childIds?: string[];
-}
 
 interface RefEntry {
 	backendNodeId: number;
@@ -64,62 +61,6 @@ interface RefEntry {
 	nth: number;
 	/** Size of the (role, name) cohort in the tree the ref was minted from. */
 	cohort: number;
-}
-
-interface NthIndex {
-	index: Map<string, number>;
-	cohorts: Map<string, number>;
-}
-
-interface RenderContext {
-	targetId: string;
-	frameKey: string;
-	sessionTargetId: string;
-	sessionId: string;
-	generation: number;
-	nthIndex: NthIndex;
-	cursorIds?: ReadonlySet<number>;
-}
-
-interface ObservationLine {
-	text: string;
-	refNode?: AXNode;
-	ctx: RenderContext;
-}
-
-interface ObservedNode {
-	node: AXNode;
-	ctx: RenderContext;
-}
-
-interface BrowserObservation {
-	targetId: string;
-	navigationEpoch: number;
-	tree: FrameStitch;
-	stitches: Map<string, FrameStitch>;
-	nodes: ObservedNode[];
-	url: string;
-	title: string;
-	generations: Map<string, number>;
-	complete: boolean;
-}
-
-interface BrowserPresentation {
-	observation: BrowserObservation;
-	key: string;
-	lines: ObservationLine[];
-	shape: string;
-}
-
-interface FrameStitch {
-	byId: Map<string, AXNode>;
-	roots: string[];
-	ctx: RenderContext;
-}
-
-interface FrameStitchResult {
-	frames: Map<string, FrameStitch>;
-	complete: boolean;
 }
 
 export interface BrowserFindCandidate {
@@ -599,259 +540,20 @@ export class BrowserExecutor {
 		return text || "(empty accessibility tree)";
 	}
 
-	private async act(action: CuaActionBrowserAct): Promise<BrowserActResult> {
-		const observationAction: CuaActionBrowserSnapshot = { type: "browser_snapshot", tab_id: action.tab_id, ...action.successor };
-		const completeObservationAction: CuaActionBrowserSnapshot = {
-			type: "browser_snapshot",
-			tab_id: action.tab_id,
-			depth: Number.MAX_SAFE_INTEGER,
-		};
-		let baseline: BrowserObservation;
-		let currentTargets: string[];
-		try {
-			baseline = await this.observe(action.tab_id);
-			currentTargets = await this.pageTargetIds();
-		} catch (err) {
-			return {
-				outcome: "unknown",
-				steps: [],
-				stopped_at: 0,
-				stop_reason: "control_flow",
-				successor: { status: "unavailable", error: errorMessage(err) },
-			};
-		}
-		let current = baseline;
-		let currentDialogCount = this.dialogNotes.length;
-		const steps: BrowserActStepResult[] = [];
-		let stoppedAt: number | undefined;
-		let stopReason: BrowserActResult["stop_reason"];
-
-		for (let index = 0; index < action.steps.length; index += 1) {
-			const step = action.steps[index]!;
-			const evidence: string[] = [];
-			let beforeObservation: BrowserObservation;
-			let beforeTargets: string[];
-			try {
-				beforeObservation = await this.observe(action.tab_id);
-				beforeTargets = await this.pageTargetIds();
-			} catch (err) {
-				evidence.push(`pre-action observation failed: ${errorMessage(err)}`);
-				steps.push({ index, type: step.type, outcome: "unknown", evidence });
-				stoppedAt = index;
-				stopReason = "control_flow";
-				break;
-			}
-
-			const boundary = browserControlChange(
-				current,
-				beforeObservation,
-				this.generations,
-				currentTargets,
-				beforeTargets,
-				currentDialogCount,
-				this.dialogNotes.length,
-			);
-			current = beforeObservation;
-			currentTargets = beforeTargets;
-			currentDialogCount = this.dialogNotes.length;
-			if (boundary) {
-				evidence.push(`${boundary} detected before input delivery`);
-				steps.push({ index, type: step.type, outcome: "unknown", evidence });
-				stoppedAt = index;
-				stopReason = boundary;
-				break;
-			}
-
-			const before = step.expect ? this.evaluateExpectation(step.expect, beforeObservation, baseline) : undefined;
-			const dialogCount = currentDialogCount;
-			let actionError: unknown;
-			try {
-				await this.executeActStep(step, action.tab_id);
-				evidence.push("input delivered");
-			} catch (err) {
-				actionError = err;
-				evidence.push(errorMessage(err));
-			}
-
-			let expectation: BrowserExpectationEvidence | undefined;
-			let observationError: unknown;
-			let boundaryAfter: BrowserActResult["stop_reason"];
-			const deadline = Date.now() + EXPECTATION_TIMEOUT_MS;
-			while (true) {
-				try {
-					await delay(0);
-					const afterObservation = await this.observe(action.tab_id);
-					await delay(0);
-					const afterTargets = await this.pageTargetIds();
-					boundaryAfter = browserControlChange(
-						beforeObservation,
-						afterObservation,
-						this.generations,
-						beforeTargets,
-						afterTargets,
-						dialogCount,
-						this.dialogNotes.length,
-					);
-					current = afterObservation;
-					currentTargets = afterTargets;
-					currentDialogCount = this.dialogNotes.length;
-					if (step.expect) expectation = expectationEvidence(before!, this.evaluateExpectation(step.expect, current, baseline));
-					if (boundaryAfter && expectation?.status === "failed") {
-						expectation = { ...expectation, status: "unverifiable", details: [...expectation.details, `${boundaryAfter} interrupted verification`] };
-					}
-					if (boundaryAfter || !step.expect || expectation?.status !== "failed" || Date.now() >= deadline) break;
-					await delay(EXPECTATION_POLL_MS);
-				} catch (err) {
-					observationError = err;
-					if (step.expect) {
-						expectation = {
-							status: "unverifiable",
-							before: before?.truth,
-							details: [...(before?.details ?? []), errorMessage(err)],
-						};
-					}
-					break;
-				}
-			}
-
-			let outcome: BrowserActStepResult["outcome"] = "unknown";
-			const staleRef = actionError !== undefined && /ref .* stale/.test(errorMessage(actionError));
-			if (expectation?.status === "newly_verified" && actionError === undefined) outcome = "worked";
-			else if (expectation?.status === "failed" || staleRef) outcome = "didnt";
-			if (expectation) evidence.push(`expectation ${expectation.status}`);
-			if (observationError) evidence.push(`post-action observation failed: ${errorMessage(observationError)}`);
-			steps.push({ index, type: step.type, outcome, evidence, ...(expectation ? { expectation } : {}) });
-
-			if (boundaryAfter) {
-				stopReason = boundaryAfter;
-			} else if (staleRef) {
-				stopReason = "stale_ref";
-			} else if (observationError || expectation?.status === "unverifiable") {
-				stopReason = "control_flow";
-			} else if (actionError) {
-				stopReason = "action_failed";
-			} else if (expectation?.status === "failed") {
-				stopReason = "expectation_failed";
-			}
-			if (stopReason) {
-				stoppedAt = index;
-				break;
-			}
-		}
-
-		let finalExpectation: BrowserExpectationEvidence | undefined;
-		const terminalNavigation =
-			stopReason === "navigation" &&
-			stoppedAt === action.steps.length - 1 &&
-			steps.length === action.steps.length &&
-			steps.at(-1)?.evidence.includes("input delivered") === true;
-		if (action.expect && (!stopReason || terminalNavigation)) {
-			const before = this.evaluateExpectation(action.expect, baseline, baseline);
-			const deadline = Date.now() + EXPECTATION_TIMEOUT_MS;
-			while (true) {
-				try {
-					const afterObservation = await this.observe(action.tab_id);
-					await delay(0);
-					const afterTargets = await this.pageTargetIds();
-					const boundary = browserControlChange(
-						current,
-						afterObservation,
-						this.generations,
-						currentTargets,
-						afterTargets,
-						currentDialogCount,
-						this.dialogNotes.length,
-					);
-					current = afterObservation;
-					currentTargets = afterTargets;
-					currentDialogCount = this.dialogNotes.length;
-					if (boundary) {
-						finalExpectation = {
-							status: "unverifiable",
-							before: before.truth,
-							details: [...(finalExpectation?.details ?? before.details), `${boundary} interrupted verification`],
-						};
-						stopReason = boundary;
-						break;
-					}
-					finalExpectation = expectationEvidence(before, this.evaluateExpectation(action.expect, current, baseline));
-					if (finalExpectation.status !== "failed" || Date.now() >= deadline) break;
-					await delay(EXPECTATION_POLL_MS);
-				} catch (err) {
-					finalExpectation = { status: "unverifiable", before: before.truth, details: [...before.details, errorMessage(err)] };
-					stopReason = "control_flow";
-					break;
-				}
-			}
-			if (finalExpectation?.status === "failed") {
-				stopReason = "expectation_failed";
-				stoppedAt = action.steps.length;
-			} else if (finalExpectation?.status === "unverifiable") {
-				stopReason ??= "control_flow";
-				stoppedAt = action.steps.length;
-			}
-		}
-
-		const completed = steps.length === action.steps.length && (!stopReason || terminalNavigation);
-		let successor: BrowserActResult["successor"] | undefined;
-		let successorError: unknown;
-		for (let attempt = 0; attempt < 3 && !successor; attempt += 1) {
-			try {
-				const successorObservation = await this.observe(action.tab_id);
-				await delay(0);
-				const successorTargets = await this.pageTargetIds();
-				const lateBoundary = browserControlChange(
-					current,
-					successorObservation,
-					this.generations,
-					currentTargets,
-					successorTargets,
-					currentDialogCount,
-					this.dialogNotes.length,
-				);
-				current = successorObservation;
-				currentTargets = successorTargets;
-				currentDialogCount = this.dialogNotes.length;
-				if (lateBoundary) {
-					if (!stopReason || stopReason === "control_flow") stopReason = lateBoundary;
-					stoppedAt ??= action.steps.length;
-					successorError = new ObservationChangedError();
-					continue;
-				}
-				const baselineComplete = this.presentObservation(baseline, completeObservationAction);
-				const currentComplete = this.presentObservation(current, completeObservationAction);
-				const currentPresentation = this.presentObservation(current, observationAction);
-				successor = {
-					status: "observed",
-					text: this.renderObservation(currentPresentation),
-					url: current.url,
-					title: current.title,
-					diff: diffObservations(baselineComplete, currentComplete),
-				};
-				this.lastSnapshots.set(current.targetId, currentPresentation);
-			} catch (err) {
-				successorError = err;
-			}
-		}
-		if (!successor) {
-			successor = { status: "unavailable", error: errorMessage(successorError ?? new ObservationChangedError()) };
-			stopReason ??= "control_flow";
-			stoppedAt ??= action.steps.length;
-		}
-
-		const definitiveFailure = steps.some((step) => step.outcome === "didnt") || finalExpectation?.status === "failed";
-		const semanticallyVerified = action.expect
-			? finalExpectation?.status === "newly_verified"
-			: steps.length > 0 && steps.every((step) => step.outcome === "worked");
-		const outcome = definitiveFailure ? "didnt" : completed && semanticallyVerified ? "worked" : "unknown";
-		return {
-			outcome,
-			steps,
-			...(stoppedAt !== undefined ? { stopped_at: stoppedAt } : {}),
-			...(stopReason ? { stop_reason: stopReason } : {}),
-			...(finalExpectation ? { final_expectation: finalExpectation } : {}),
-			successor,
-		};
+	private act(action: CuaActionBrowserAct): Promise<BrowserActResult> {
+		return runBrowserAct(action, {
+			observe: (tabId) => this.observe(tabId),
+			targetIds: () => this.pageTargetIds(),
+			dialogCount: () => this.dialogNotes.length,
+			generations: () => this.generations,
+			executeStep: (step, tabId) => this.executeActStep(step, tabId),
+			evaluateRefExpectation: (expectation, observation) => this.evaluateRefExpectation(expectation, observation),
+			presentObservation: (observation, snapshot) => this.presentObservation(observation, snapshot),
+			renderObservation: (presentation) => this.renderObservation(presentation),
+			rememberPresentation: (presentation) => {
+				this.lastSnapshots.set(presentation.observation.targetId, presentation);
+			},
+		});
 	}
 
 	private async executeActStep(step: CuaBrowserActStep, tabId?: string): Promise<void> {
@@ -883,77 +585,10 @@ export class BrowserExecutor {
 		}
 	}
 
-	private expectationNodes(observation: BrowserObservation): AXNode[] {
-		const nodes = observation.nodes.map(({ node }) => node);
-		for (const tree of [observation.tree, ...observation.stitches.values()]) {
-			for (const node of tree.byId.values()) {
-				const childIds = node.childIds ?? [];
-				for (let index = 0; index < childIds.length; index += 1) {
-					const run = staticTextRun(tree.byId, childIds, index);
-					if (run) {
-						nodes.push(run.node);
-						index = run.end;
-					}
-				}
-			}
-		}
-		return nodes;
-	}
-
-	private evaluateExpectation(
-		expectation: CuaBrowserExpectation,
+	private evaluateRefExpectation(
+		expectation: Extract<CuaBrowserExpectation, { type: "ref" }>,
 		observation: BrowserObservation,
-		baseline: BrowserObservation,
 	): ExpectationEvaluation {
-		if ("all" in expectation) {
-			const children = expectation.all.map((child) => this.evaluateExpectation(child, observation, baseline));
-			const truth = children.some((child) => child.truth === false)
-				? false
-				: children.some((child) => child.truth === undefined)
-					? undefined
-					: true;
-			return { truth, details: children.flatMap((child) => child.details) };
-		}
-		if ("any" in expectation) {
-			const children = expectation.any.map((child) => this.evaluateExpectation(child, observation, baseline));
-			const truth = children.some((child) => child.truth === true)
-				? true
-				: children.some((child) => child.truth === undefined)
-					? undefined
-					: false;
-			return { truth, details: children.flatMap((child) => child.details) };
-		}
-		if (expectation.type === "text") {
-			const found = this.expectationNodes(observation).some(
-				(node) => !node.ignored && (node.name?.value ?? "").toLowerCase().includes(expectation.text.toLowerCase()),
-			);
-			const truth = !found && !observation.complete ? undefined : found === (expectation.exists ?? true);
-			const completeness = observation.complete ? "" : "; observation incomplete";
-			return { truth, details: [`text ${JSON.stringify(expectation.text)} ${found ? "present" : "absent"}${completeness}`] };
-		}
-		if (expectation.type === "role_name") {
-			const found = this.expectationNodes(observation).some(
-				(node) =>
-					!node.ignored &&
-					(expectation.role === undefined || (node.role?.value ?? "") === expectation.role) &&
-					(expectation.name === undefined || (node.name?.value ?? "") === expectation.name),
-			);
-			const truth = !found && !observation.complete ? undefined : found === (expectation.exists ?? true);
-			const completeness = observation.complete ? "" : "; observation incomplete";
-			return { truth, details: [`role/name ${found ? "present" : "absent"}${completeness}`] };
-		}
-		if (expectation.type === "url" || expectation.type === "title") {
-			const value = observation[expectation.type];
-			const initial = baseline[expectation.type];
-			const checks = [
-				expectation.equals === undefined || value === expectation.equals,
-				expectation.contains === undefined || value.includes(expectation.contains),
-				expectation.changed === undefined || (value !== initial) === expectation.changed,
-			];
-			return { truth: checks.every(Boolean), details: [`${expectation.type}=${JSON.stringify(value)}`] };
-		}
-		if (expectation.type !== "ref") return { truth: undefined, details: ["unsupported expectation"] };
-
 		const entry = this.refs.get(expectation.ref);
 		if (!entry || entry.targetId !== observation.targetId || entry.generation !== this.generation(entry.frameId)) {
 			return { truth: undefined, details: [`ref ${expectation.ref} is stale`] };
@@ -1671,103 +1306,11 @@ export class BrowserExecutor {
 	}
 }
 
-class ObservationChangedError extends Error {
-	constructor() {
-		super("page changed while collecting the browser observation");
-	}
-}
-
-class MissingFrameObservationError extends Error {}
-
-interface ExpectationEvaluation {
-	truth?: boolean;
-	details: string[];
-}
-
-function expectationEvidence(before: ExpectationEvaluation, after: ExpectationEvaluation): BrowserExpectationEvidence {
-	const details = [...before.details.map((detail) => `before: ${detail}`), ...after.details.map((detail) => `after: ${detail}`)];
-	if (before.truth === undefined || after.truth === undefined) {
-		return { status: "unverifiable", before: before.truth, after: after.truth, details };
-	}
-	if (before.truth && after.truth) return { status: "preexisting", before: true, after: true, details };
-	if (!before.truth && after.truth) return { status: "newly_verified", before: false, after: true, details };
-	return { status: "failed", before: before.truth, after: after.truth, details };
-}
-
 function normalizeState(value: unknown): boolean | "mixed" | undefined {
 	if (value === true || value === "true") return true;
 	if (value === false || value === "false") return false;
 	if (value === "mixed") return "mixed";
 	return undefined;
-}
-
-function observationGenerationsChanged(
-	before: BrowserObservation,
-	after: BrowserObservation,
-	live: ReadonlyMap<string, number>,
-): boolean {
-	if (before.navigationEpoch !== after.navigationEpoch) return true;
-	for (const [key, generation] of after.generations) {
-		if (generation !== (live.get(key) ?? 0)) return true;
-		const previous = before.generations.get(key);
-		if (previous !== undefined && previous !== generation) return true;
-	}
-	return false;
-}
-
-function browserControlChange(
-	before: BrowserObservation,
-	after: BrowserObservation,
-	liveGenerations: ReadonlyMap<string, number>,
-	beforeTargets: readonly string[],
-	afterTargets: readonly string[],
-	beforeDialogCount: number,
-	afterDialogCount: number,
-): BrowserActResult["stop_reason"] {
-	if (afterDialogCount > beforeDialogCount) return "dialog";
-	if (observationGenerationsChanged(before, after, liveGenerations)) return "navigation";
-	if (targetsChanged(beforeTargets, afterTargets)) return "control_flow";
-	return undefined;
-}
-
-function targetsChanged(before: readonly string[], after: readonly string[]): boolean {
-	return before.length !== after.length || before.some((targetId, index) => targetId !== after[index]);
-}
-
-function delay(ms: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function diffObservations(before: BrowserPresentation, after: BrowserPresentation): BrowserObservationDiff {
-	const oldLines = before.lines.map((line) => line.text.replace(REF_PLACEHOLDER, "ref"));
-	const newLines = after.lines.map((line) => line.text.replace(REF_PLACEHOLDER, "ref"));
-	const remaining = new Map<string, number>();
-	for (const line of oldLines) remaining.set(line, (remaining.get(line) ?? 0) + 1);
-	const added: string[] = [];
-	for (const line of newLines) {
-		const count = remaining.get(line) ?? 0;
-		if (count === 0) added.push(line);
-		else remaining.set(line, count - 1);
-	}
-	const removed: string[] = [];
-	for (const [line, count] of remaining) {
-		for (let index = 0; index < count; index += 1) removed.push(line);
-	}
-	const url =
-		before.observation.url === after.observation.url
-			? undefined
-			: { before: before.observation.url, after: after.observation.url };
-	const title =
-		before.observation.title === after.observation.title
-			? undefined
-			: { before: before.observation.title, after: after.observation.title };
-	return {
-		changed: added.length > 0 || removed.length > 0 || url !== undefined || title !== undefined,
-		added,
-		removed,
-		...(url ? { url } : {}),
-		...(title ? { title } : {}),
-	};
 }
 
 function errorMessage(err: unknown): string {
@@ -1780,44 +1323,6 @@ function tabOf(action: { tab_id?: string }): string | undefined {
 
 function staleRefError(ref: string, cause?: unknown): Error {
 	return new Error(`ref ${ref} is stale or not on the current page. ${STALE_REF_HINT}`, cause === undefined ? undefined : { cause });
-}
-
-/** Index each ref-eligible node by its position among nodes with the same role and name, in tree order. */
-function buildNthIndex(nodes: AXNode[]): NthIndex {
-	const cohorts = new Map<string, number>();
-	const index = new Map<string, number>();
-	for (const node of nodes) {
-		if (node.ignored || node.backendDOMNodeId === undefined) continue;
-		const key = cohortKey(node.role?.value ?? "", node.name?.value ?? "");
-		const nth = cohorts.get(key) ?? 0;
-		cohorts.set(key, nth + 1);
-		index.set(node.nodeId, nth);
-	}
-	return { index, cohorts };
-}
-
-function cohortKey(role: string, name: string): string {
-	return `${role}\u0000${name}`;
-}
-
-function frameStitchKey(parentFrameKey: string, backendNodeId: number): string {
-	return `${parentFrameKey}\u0000${backendNodeId}`;
-}
-
-/** Merge a run of two or more consecutive StaticText siblings (text split by inline markup) into one node. */
-function staticTextRun(tree: Map<string, AXNode>, childIds: string[], start: number): { node: AXNode; end: number } | undefined {
-	let end = start;
-	const parts: string[] = [];
-	while (end < childIds.length) {
-		const node = tree.get(childIds[end]!);
-		if (!node || node.ignored || node.role?.value !== "StaticText") break;
-		const text = node.name?.value ?? "";
-		if (text) parts.push(text);
-		end += 1;
-	}
-	if (end - start < 2) return undefined;
-	const first = tree.get(childIds[start]!)!;
-	return { node: { ...first, name: { value: parts.join(" ") }, childIds: [] }, end: end - 1 };
 }
 
 function collectStates(node: AXNode): string[] {
