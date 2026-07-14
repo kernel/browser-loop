@@ -1,3 +1,4 @@
+import { validateToolArguments } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import {
 	CUA_ACTION_TYPES,
@@ -85,6 +86,38 @@ describe("mode tool schemas", () => {
 		for (const action of CUA_BROWSER_ACTION_TYPES) {
 			expect(names).toContain(action.slice("browser_".length));
 		}
+		expect(names).toContain("wait_for");
+	});
+
+	it("registers semantic waits in hybrid mode with bounded polling", () => {
+		const wait = computerTools({ mode: "hybrid" }).find((tool) => tool.name === "browser_wait_for")!;
+		expect(wait.parameters.properties.timeout_ms).toMatchObject({ minimum: 0, maximum: 30_000 });
+		expect(wait.parameters.properties.poll_ms).toMatchObject({ minimum: 10, maximum: 1_000 });
+	});
+
+	it.each([
+		{ type: "text", text: "Ready" },
+		{ type: "role_name", role: "button" },
+		{ type: "ref", ref: "e1", checked: true },
+		{ type: "url", changed: true },
+		{ all: [{ type: "text", text: "Ready" }] },
+		{ any: [{ type: "title", contains: "Done" }] },
+	])("accepts semantic expectation %#", (condition) => {
+		const tool = computerTools({ mode: "hybrid" }).find((candidate) => candidate.name === "browser_wait_for")!;
+		expect(() => validateToolArguments(tool, { type: "toolCall", id: "1", name: tool.name, arguments: { expect: condition } })).not.toThrow();
+	});
+
+	it.each([
+		{},
+		{ type: "text" },
+		{ type: "role_name" },
+		{ type: "ref", ref: "e1" },
+		{ type: "url" },
+		{ all: [] },
+		{ all: [{ any: [{ type: "text", text: "nested" }] }] },
+	])("rejects malformed semantic expectation %#", (condition) => {
+		const tool = computerTools({ mode: "hybrid" }).find((candidate) => candidate.name === "browser_wait_for")!;
+		expect(() => validateToolArguments(tool, { type: "toolCall", id: "1", name: tool.name, arguments: { expect: condition } })).toThrow();
 	});
 });
 

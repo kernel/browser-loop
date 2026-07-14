@@ -21,6 +21,8 @@ export interface NthIndex {
 export interface RenderContext {
 	targetId: string;
 	frameKey: string;
+	/** Target whose CDP session owns this frame (page target or OOPIF target). */
+	sessionTargetId: string;
 	sessionId: string;
 	generation: number;
 	interactiveOnly: boolean;
@@ -51,12 +53,14 @@ export interface ObservedNode {
 /** Stable structured browser state collected before presentation filtering. */
 export interface BrowserObservation {
 	targetId: string;
+	navigationEpoch: number;
 	tree: FrameStitch;
-	stitches: Map<number, FrameStitch>;
+	stitches: Map<string, FrameStitch>;
 	nodes: ObservedNode[];
 	url: string;
 	title: string;
 	generations: Map<string, number>;
+	complete: boolean;
 }
 
 /** Render-ready projection of one structured browser observation. */
@@ -65,6 +69,11 @@ export interface BrowserPresentation {
 	cacheKey: string;
 	lines: ObservationLine[];
 	shape: string;
+}
+
+/** Build the lookup key for an iframe node's stitched child tree. */
+export function frameStitchKey(parentFrameKey: string, backendNodeId: number): string {
+	return `${parentFrameKey}\u0000${backendNodeId}`;
 }
 
 /** Signals that browser state changed while an observation was collected. */
