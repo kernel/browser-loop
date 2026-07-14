@@ -10,4 +10,5 @@ export * as gemini from "./providers/gemini/index";
 export * as meta from "./providers/meta/index";
 export * as openai from "./providers/openai/index";
 export * as tzafon from "./providers/tzafon/index";
+export * as xai from "./providers/xai/index";
 export * as yutori from "./providers/yutori/index";

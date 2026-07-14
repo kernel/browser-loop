@@ -13,6 +13,7 @@ const CUA_PROVIDER_API_KEY_ENV_VARS: Record<CuaProvider, readonly string[]> = {
 	anthropic: ["ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY"],
 	google: ["GOOGLE_API_KEY", "GEMINI_API_KEY"],
 	meta: ["META_API_KEY"],
+	xai: ["XAI_API_KEY"],
 	tzafon: ["TZAFON_API_KEY"],
 	yutori: ["YUTORI_API_KEY"],
 };

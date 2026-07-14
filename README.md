@@ -25,6 +25,8 @@ Frontier models expose computer use through different tool protocols:
   `navigate`, `go_back`, …) with 0-1000 normalized coordinates.
 - **Meta Muse Spark 1.1**: OpenAI-compatible Responses API function calls
   paired with screenshot inputs and 0-1000 normalized coordinates.
+- **xAI Grok 4.5**: OpenAI-compatible Responses API function calls with
+  screenshot inputs, reasoning controls, and 0-1000 normalized coordinates.
 - **Yutori Navigator n1 / n1.5**: OpenAI-compatible `chat.completions`
   responses with built-in browser action `tool_calls` like `left_click`,
   `goto_url`, `type`, and `scroll` in 0-1000 normalized coordinates.
@@ -103,6 +105,7 @@ export OPENAI_API_KEY=sk-...                 # for gpt-5.5
 export ANTHROPIC_API_KEY=sk-ant-...          # for claude-opus-4-7
 export GOOGLE_API_KEY=...                    # for gemini-3-flash-preview
 export META_API_KEY=...                      # for muse-spark-1.1
+export XAI_API_KEY=xai-...                   # for grok-4.5
 export YUTORI_API_KEY=yt_...                 # for n1.5-latest
 export KERNEL_API_KEY=sk_...                 # always required
 
@@ -120,6 +123,9 @@ cua -p --model gemini-3-flash-preview "Same prompt"
 
 # Meta Muse Spark
 cua -p --model meta:muse-spark-1.1 "Same prompt"
+
+# xAI Grok 4.5
+cua -p --model xai:grok-4.5 "Same prompt"
 
 # Yutori Navigator
 cua -p --model n1.5-latest "Same prompt"

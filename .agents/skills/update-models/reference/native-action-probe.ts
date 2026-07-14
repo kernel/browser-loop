@@ -1,11 +1,12 @@
 #!/usr/bin/env tsx
+import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 import { parse as parseToml } from "smol-toml";
 
-type Provider = "openai" | "anthropic" | "gemini" | "tzafon" | "yutori";
+type Provider = "openai" | "anthropic" | "gemini" | "xai" | "tzafon" | "yutori";
 
 interface ProbePrompt {
 	id: string;
@@ -63,8 +64,8 @@ function parseArgs(argv: string[]): Args {
 			throw new Error(`unknown argument: ${arg}`);
 		}
 	}
-	if (!["openai", "anthropic", "gemini", "tzafon", "yutori"].includes(out.provider)) {
-		throw new Error("--provider is required: openai | anthropic | gemini | tzafon | yutori");
+	if (!["openai", "anthropic", "gemini", "xai", "tzafon", "yutori"].includes(out.provider)) {
+		throw new Error("--provider is required: openai | anthropic | gemini | xai | tzafon | yutori");
 	}
 	if (!out.model) throw new Error("--model is required");
 	return out;
@@ -74,6 +75,7 @@ function usage(): never {
 	console.log(`Usage:
   npx tsx .agents/skills/update-models/reference/native-action-probe.ts --provider openai --model gpt-5.5 --out /tmp/actions.json
   npx tsx .agents/skills/update-models/reference/native-action-probe.ts --provider anthropic --model claude-opus-4-7 --limit 3
+  npx tsx .agents/skills/update-models/reference/native-action-probe.ts --provider xai --model grok-4.5 --limit 3
   npx tsx .agents/skills/update-models/reference/native-action-probe.ts --provider tzafon --model tzafon.northstar-cua-fast --limit 3
   npx tsx .agents/skills/update-models/reference/native-action-probe.ts --provider yutori --model n1.5-latest --limit 3
 `);
@@ -102,6 +104,7 @@ async function runProbe(provider: Provider, model: string, prompt: ProbePrompt):
 		if (provider === "openai") return await probeOpenAI(model, prompt);
 		if (provider === "anthropic") return await probeAnthropic(model, prompt);
 		if (provider === "gemini") return await probeGemini(model, prompt);
+		if (provider === "xai") return await probeXai(model, prompt);
 		if (provider === "tzafon") return await probeTzafon(model, prompt);
 		if (provider === "yutori") return await probeYutori(model, prompt);
 		throw new Error(`unknown provider ${provider satisfies never}`);
@@ -215,6 +218,46 @@ async function probeGemini(model: string, prompt: ProbePrompt): Promise<ProbeRes
 	return { id: prompt.id, status: "fail", actions: [], item_types: [], attempts };
 }
 
+async function probeXai(model: string, prompt: ProbePrompt): Promise<ProbeResult> {
+	const OpenAI = await importDefault("openai", "OpenAI");
+	const client = new OpenAI({ apiKey: process.env.XAI_API_KEY, baseURL: "https://api.x.ai/v1" });
+	const screenshot = await readFixtureScreenshot();
+	const response = await client.responses.create({
+		model,
+		store: true,
+		parallel_tool_calls: false,
+		max_output_tokens: 768,
+		reasoning: { effort: "low" },
+		instructions: "The available browser tools use normalized 0-1000 screenshot coordinates. Call one tool instead of answering in text.",
+		input: [{
+			role: "user",
+			content: [
+				{ type: "input_text", text: prompt.text },
+				{ type: "input_image", image_url: `data:image/png;base64,${screenshot.toString("base64")}`, detail: "high" },
+			],
+		}],
+		tools: XAI_FUNCTION_TOOLS,
+	});
+	const output: any[] = response.output ?? [];
+	const calls = output.filter((item) => item?.type === "function_call");
+	return {
+		id: prompt.id,
+		status: calls.length ? "pass" : "inconclusive",
+		actions: unique(calls.map((call) => call?.name).filter(Boolean)),
+		item_types: unique(output.map((item) => item?.type).filter(Boolean)),
+		raw_tool_calls: calls.map(redactLargeFields),
+	};
+}
+
+async function readFixtureScreenshot(): Promise<Buffer> {
+	const path = [
+		join(process.cwd(), "examples", "screenshot.png"),
+		join(process.cwd(), "packages", "ai", "examples", "screenshot.png"),
+	].find(existsSync);
+	if (!path) throw new Error("could not find packages/ai/examples/screenshot.png");
+	return readFile(path);
+}
+
 async function probeYutori(model: string, prompt: ProbePrompt): Promise<ProbeResult> {
 	const OpenAI = await importDefault("openai", "OpenAI");
 	const client = new OpenAI({
@@ -295,6 +338,19 @@ async function probeTzafon(model: string, prompt: ProbePrompt): Promise<ProbeRes
 		raw_tool_calls: [...functionCalls, ...computerCalls].map(redactLargeFields),
 	};
 }
+
+const XAI_FUNCTION_TOOLS = [
+	{ type: "function", name: "screenshot", description: "Capture the current browser screenshot.", parameters: { type: "object", properties: {}, additionalProperties: false } },
+	{ type: "function", name: "goto", description: "Navigate to a URL.", parameters: { type: "object", properties: { url: { type: "string" } }, required: ["url"], additionalProperties: false } },
+	{ type: "function", name: "click", description: "Click at normalized 0-1000 coordinates.", parameters: { type: "object", properties: { x: { type: "number" }, y: { type: "number" } }, required: ["x", "y"], additionalProperties: false } },
+	{ type: "function", name: "type", description: "Type text into the active field.", parameters: { type: "object", properties: { text: { type: "string" } }, required: ["text"], additionalProperties: false } },
+	{ type: "function", name: "keypress", description: "Press one or more keyboard keys.", parameters: { type: "object", properties: { keys: { type: "array", items: { type: "string" } } }, required: ["keys"], additionalProperties: false } },
+	{ type: "function", name: "scroll", description: "Scroll at normalized 0-1000 coordinates.", parameters: { type: "object", properties: { x: { type: "number" }, y: { type: "number" }, scroll_y: { type: "number" } }, required: ["scroll_y"], additionalProperties: false } },
+	{ type: "function", name: "drag", description: "Drag through normalized 0-1000 coordinates.", parameters: { type: "object", properties: { path: { type: "array", items: { type: "object", properties: { x: { type: "number" }, y: { type: "number" } }, required: ["x", "y"], additionalProperties: false } } }, required: ["path"], additionalProperties: false } },
+	{ type: "function", name: "move", description: "Move the pointer to normalized 0-1000 coordinates.", parameters: { type: "object", properties: { x: { type: "number" }, y: { type: "number" } }, required: ["x", "y"], additionalProperties: false } },
+	{ type: "function", name: "wait", description: "Wait briefly.", parameters: { type: "object", properties: {}, additionalProperties: false } },
+	{ type: "function", name: "back", description: "Go back in browser history.", parameters: { type: "object", properties: {}, additionalProperties: false } },
+];
 
 const TZAFON_FUNCTION_TOOLS = [
 	{ type: "function", name: "click", description: "Single click at (x, y) in 0-999 grid.", parameters: { type: "object", properties: { x: { type: "integer" }, y: { type: "integer" }, button: { type: "string", enum: ["left", "right"] } }, required: ["x", "y"] } },

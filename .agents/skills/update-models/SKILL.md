@@ -1,6 +1,6 @@
 ---
 name: update-models
-description: Discover latest OpenAI, Anthropic, Google/Gemini, Meta, Tzafon, and Yutori models and verify computer-use support. Use when updating CUA model defaults, checking new model releases, auditing provider-native computer tool actions, or comparing provider metadata, official examples, and smoke-test results.
+description: Discover latest OpenAI, Anthropic, Google/Gemini, Meta, xAI, Tzafon, and Yutori models and verify computer-use support. Use when updating CUA model defaults, checking new model releases, auditing provider-native computer tool actions, or comparing provider metadata, official examples, and smoke-test results.
 ---
 
 # Update Models
@@ -9,14 +9,14 @@ Use this workflow to keep CUA current with provider model releases and computer-
 
 ## Quick Start
 
-1. Verify credentials are available: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY` or `GEMINI_API_KEY`, `META_API_KEY`, `TZAFON_API_KEY`, and `YUTORI_API_KEY`.
+1. Verify credentials are available: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY` or `GEMINI_API_KEY`, `META_API_KEY`, `XAI_API_KEY`, `TZAFON_API_KEY`, and `YUTORI_API_KEY`.
 2. If credentials live in `~/AGENTS.md`, load them into the current shell without printing them:
 
 ```bash
 eval "$(python3 - <<'PY'
 import pathlib, re, shlex
 text = pathlib.Path('~/AGENTS.md').expanduser().read_text()
-for key in ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GOOGLE_API_KEY', 'META_API_KEY', 'TZAFON_API_KEY', 'YUTORI_API_KEY']:
+for key in ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GOOGLE_API_KEY', 'META_API_KEY', 'XAI_API_KEY', 'TZAFON_API_KEY', 'YUTORI_API_KEY']:
     m = re.search(r'export\s+' + re.escape(key) + r'=(?:"([^"]+)"|([^\s\n]+))', text)
     if m:
         print(f'export {key}={shlex.quote(m.group(1) or m.group(2))}')
@@ -61,7 +61,7 @@ Treat example repos as strongest when they are provider-owned or linked from off
 
 There are two enumeration layers:
 
-- Live provider availability: `reference/discover-models.ts` uses provider APIs and docs (`OpenAI().models.list()`, `Anthropic().models.list({ limit: 1000 })`, `GoogleGenAI().models.list()` / documented Gemini computer-use IDs, Tzafon's `Lightcone().models.list()` with known-model fallback, and Yutori OpenAPI/docs model enums) to discover what the current API key can access.
+- Live provider availability: `reference/discover-models.ts` uses provider APIs and docs (`OpenAI().models.list()`, `Anthropic().models.list({ limit: 1000 })`, `GoogleGenAI().models.list()` / documented Gemini computer-use IDs, xAI's OpenAI-compatible `models.list()`, Tzafon's `Lightcone().models.list()` with known-model fallback, and Yutori OpenAPI/docs model enums) to discover what the current API key can access.
 - CUA-supported refs: `listCuaModels(provider?)` from `@onkernel/cua-ai` reads `packages/ai/src/models.ts` and returns the provider-qualified refs CUA accepts (e.g. `anthropic:claude-opus-4-7`). The `CUA_MODEL_ANNOTATIONS` table there is also what `getCuaModel()` and runtime provider routing use.
 
 When live discovery finds a new model with passing smoke tests, update `packages/ai/src/models.ts`; then verify it appears in `listCuaModels("<provider>")`.
@@ -104,6 +104,16 @@ Google/Gemini:
 - Pass condition: response contains provider-native `functionCall.name` values such as `open_web_browser`, `click_at`, or `type_text_at`.
 - Do not infer official computer-use support from CUA's custom Gemini `functionDeclarations`; those are a separate compatibility path.
 
+xAI:
+
+- Discover with the OpenAI SDK against `https://api.x.ai/v1` using `XAI_API_KEY`.
+- Record aliases, context length, standard and long-context token prices, and the 200k long-context threshold returned by `models.list()`.
+- Smoke-test the Responses API with screenshot input and explicit function tools matching CUA's canonical actions.
+- Pass condition: response output contains a `function_call` for one of the supplied browser actions.
+- Treat Grok computer use as custom-function-tool support, not a provider-native computer tool. xAI currently documents image understanding and function calling but no native coordinate protocol.
+- Use CUA's normalized 0-1000 coordinate instructions, `parallel_tool_calls: false`, `store: true`, and `previous_response_id` for browser loops. xAI accepts encrypted reasoning replay in these requests.
+- Use `reasoning: { effort: "low" }` for low-latency smoke tests; Grok 4.5 also supports `medium` and `high`, cannot disable reasoning, and defaults to `high`.
+
 Tzafon:
 
 - Discover with `new Lightcone({ apiKey }).models.list()` from `@tzafon/lightcone` when available.
@@ -126,9 +136,11 @@ Run action probes when updating adapters or when docs/examples show drift:
 
 ```bash
 npx tsx .agents/skills/update-models/reference/discover-models.ts --provider meta --models muse-spark-1.1
+npx tsx .agents/skills/update-models/reference/discover-models.ts --provider xai --models grok-4.5
 npx tsx .agents/skills/update-models/reference/native-action-probe.ts --provider openai --model gpt-5.5
 npx tsx .agents/skills/update-models/reference/native-action-probe.ts --provider anthropic --model claude-opus-4-7
 npx tsx .agents/skills/update-models/reference/native-action-probe.ts --provider gemini --model gemini-3-flash-preview
+npx tsx .agents/skills/update-models/reference/native-action-probe.ts --provider xai --model grok-4.5
 npx tsx .agents/skills/update-models/reference/native-action-probe.ts --provider tzafon --model tzafon.northstar-cua-fast
 npx tsx .agents/skills/update-models/reference/native-action-probe.ts --provider yutori --model n1.5-latest
 ```
@@ -147,7 +159,7 @@ Recommend a model as CUA-supported only if:
 
 - It appears in the provider metadata API for the available key.
 - Its model-specific docs do not rule out required CUA runtime features such as streaming.
-- Its provider-native computer-use smoke test passes.
+- Its provider-appropriate computer-use smoke test passes: native tools where offered, or supplied function tools for Meta and xAI.
 - Its local cua-ai smoke test emits a computer tool call: `CUA_MODEL=<provider>:<model> npm run example:quickstart --workspace @onkernel/cua-ai` returns a `toolCall` block.
 - Official docs or examples support the same tool mechanism, or the smoke result clearly supersedes stale docs.
 - The model is annotated in `CUA_MODEL_ANNOTATIONS` in `packages/ai/src/models.ts`, resolved from `pi-ai`'s registry or backed by a `CUA_MODEL_OVERRIDES` entry.
@@ -174,6 +186,7 @@ All CUA model and adapter support lives in `packages/ai` (`@onkernel/cua-ai`). W
   - OpenAI: update `packages/ai/src/providers/openai/index.ts` and its action vocabulary, plus the shared canonical types in `packages/ai/src/providers/common.ts` if the action set changes.
   - Anthropic: update the `ANTHROPIC_CUA_ACTION_TYPES` set in `packages/ai/src/providers/anthropic/actions.ts` and `index.ts`. The computer tool version and `computer-use-*` beta header are selected by `pi-ai` per model, so a new dated tool version usually means bumping `@earendil-works/pi-ai`, not editing this package.
   - Gemini: update `packages/ai/src/providers/gemini/index.ts`, including coordinate handling if needed.
+  - xAI: update `packages/ai/src/providers/xai/index.ts` and `provider.ts`, including normalized coordinate instructions, Responses threading, and reasoning compatibility.
   - Tzafon: update `packages/ai/src/providers/tzafon/index.ts` and `provider.ts`, including coordinate/action handling.
   - Yutori: update `packages/ai/src/providers/yutori/actions.ts`, `index.ts`, and `provider.ts`, including payload filtering and coordinate/action handling.
   - Shared canonical action semantics go in `packages/ai/src/providers/common.ts`.

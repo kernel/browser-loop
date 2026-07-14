@@ -17,6 +17,7 @@ import { ANTHROPIC_NATIVE_API_BETA_HEADERS, withAnthropicBetaHeader } from "./pr
 import { META_RESPONSES_API, streamMetaResponses, streamSimpleMetaResponses } from "./providers/meta/provider";
 import { OPENAI_CUA_RESPONSES_API, streamOpenAIResponses, streamSimpleOpenAIResponses } from "./providers/openai/provider";
 import { streamSimpleTzafonResponses, streamTzafonResponses, TZAFON_RESPONSES_API } from "./providers/tzafon/provider";
+import { streamSimpleXaiResponses, streamXaiResponses, XAI_CUA_RESPONSES_API } from "./providers/xai/provider";
 import { streamSimpleYutori, streamYutori, YUTORI_CHAT_COMPLETIONS_API } from "./providers/yutori/provider";
 
 /**
@@ -33,6 +34,8 @@ import { streamSimpleYutori, streamYutori, YUTORI_CHAT_COMPLETIONS_API } from ".
  *   `anthropic-beta` header merged in.
  * - `google` resolves its API key from `GOOGLE_API_KEY` or `GEMINI_API_KEY`
  *   (pi's builtin only reads `GEMINI_API_KEY`).
+ * - `xai` intercepts `xai-cua-responses` so Grok can use stateful Responses
+ *   tool loops while preserving pi's builtin xAI auth and catalog.
  * - `meta`, `tzafon`, and `yutori` are CUA-only providers pi does not ship.
  *
  * Each call returns an independent collection; register additional providers
@@ -46,6 +49,8 @@ export function createCuaModels(options?: CreateModelsOptions): MutableModels {
 	if (anthropic) models.setProvider(withAnthropicNativeTools(anthropic));
 	const google = models.getProvider("google");
 	if (google) models.setProvider(withGoogleEnvKeys(google));
+	const xai = models.getProvider("xai");
+	if (xai) models.setProvider(withXaiCuaResponses(xai));
 	models.setProvider(metaProvider());
 	models.setProvider(tzafonProvider());
 	models.setProvider(yutoriProvider());
@@ -108,6 +113,20 @@ function withGoogleEnvKeys(base: Provider): Provider {
 	return { ...base, auth: { ...base.auth, apiKey: envApiKeyAuth("Google API key", cuaApiKeyEnvVarsForProvider("google")) } };
 }
 
+function withXaiCuaResponses(base: Provider): Provider {
+	return {
+		...base,
+		stream: (model: Model<Api>, context: Context, options?: StreamOptions) =>
+			model.api === XAI_CUA_RESPONSES_API
+				? streamXaiResponses(model as never, context, options)
+				: base.stream(model, context, options),
+		streamSimple: (model: Model<Api>, context: Context, options?: SimpleStreamOptions) =>
+			model.api === XAI_CUA_RESPONSES_API
+				? streamSimpleXaiResponses(model as never, context, options)
+				: base.streamSimple(model, context, options),
+	};
+}
+
 function metaProvider(): Provider {
 	return createProvider({
 		id: "meta",
@@ -144,4 +163,5 @@ function yutoriProvider(): Provider {
 export { META_RESPONSES_API, streamMetaResponses, streamSimpleMetaResponses };
 export { OPENAI_CUA_RESPONSES_API, streamOpenAIResponses, streamSimpleOpenAIResponses };
 export { TZAFON_RESPONSES_API, streamSimpleTzafonResponses, streamTzafonResponses };
+export { XAI_CUA_RESPONSES_API, streamSimpleXaiResponses, streamXaiResponses };
 export { YUTORI_CHAT_COMPLETIONS_API, streamSimpleYutori, streamYutori };

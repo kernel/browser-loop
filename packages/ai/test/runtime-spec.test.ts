@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CUA_NAVIGATION_TOOL_NAME, CUA_PROVIDERS, getCuaModel, listCuaModels, meta, openai, resolveCuaRuntimeSpec } from "../src/index";
+import { CUA_NAVIGATION_TOOL_NAME, CUA_PROVIDERS, getCuaModel, listCuaModels, meta, openai, resolveCuaRuntimeSpec, xai } from "../src/index";
 
 describe("resolveCuaRuntimeSpec", () => {
 	it("resolves a runtime spec for every CUA provider", () => {
@@ -34,14 +34,16 @@ describe("resolveCuaRuntimeSpec", () => {
 	it("only sets payload middleware for providers that need it", () => {
 		const yutoriSpec = resolveCuaRuntimeSpec("yutori:n1.5-latest");
 		const openaiSpec = resolveCuaRuntimeSpec("openai:gpt-5.5");
+		const xaiSpec = resolveCuaRuntimeSpec("xai:grok-4.5");
 		const tzafonSpec = resolveCuaRuntimeSpec("tzafon:tzafon.northstar-cua-fast");
 		const anthropicSpec = resolveCuaRuntimeSpec("anthropic:claude-opus-4-7");
 		expect(yutoriSpec.onPayload).toBeTypeOf("function");
 		expect(tzafonSpec.onPayload).toBeTypeOf("function");
-		// OpenAI needs no payload middleware: openai-cua-responses sets store:true
-		// in its own request builder. Anthropic uses middleware to adapt newer
-		// adaptive-thinking models without changing callers.
+		// OpenAI and xAI need no runtime payload middleware: their Responses
+		// transports apply threading constraints. Anthropic uses middleware to
+		// adapt newer adaptive-thinking models without changing callers.
 		expect(openaiSpec.onPayload).toBeUndefined();
+		expect(xaiSpec.onPayload).toBeUndefined();
 		expect(anthropicSpec.onPayload).toBeTypeOf("function");
 	});
 
@@ -51,6 +53,9 @@ describe("resolveCuaRuntimeSpec", () => {
 
 		const metaModel = { ...getCuaModel("meta:muse-spark-1.1"), api: "openai-responses" } as Parameters<typeof resolveCuaRuntimeSpec>[0];
 		expect(resolveCuaRuntimeSpec(metaModel).model.api).toBe(meta.META_RESPONSES_API);
+
+		const xaiModel = { ...getCuaModel("xai:grok-4.5"), api: "openai-completions" } as Parameters<typeof resolveCuaRuntimeSpec>[0];
+		expect(resolveCuaRuntimeSpec(xaiModel).model.api).toBe(xai.XAI_CUA_RESPONSES_API);
 	});
 
 	it("threads tool options through to the provider module", () => {
