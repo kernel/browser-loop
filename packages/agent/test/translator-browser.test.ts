@@ -111,6 +111,10 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 	const iframeFrameIds = new Map<number, string>();
 	const autoAttachFrames: Array<{ targetId: string; sessionId: string }> = [];
 	const failMethods = new Set<string>();
+	let axRead = 0;
+	let targetRead = 0;
+	let onAxRead: ((read: number, params: Record<string, unknown>, sessionId?: string) => void) | undefined;
+	let targetProvider: ((read: number) => Array<{ targetId: string; type: string; title: string; url: string }>) | undefined;
 	const emit = (event: FakeCdpEvent) => {
 		for (const listener of listeners) listener(event);
 	};
@@ -131,8 +135,11 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 			sent.push({ method, params, sessionId });
 			if (failMethods.has(method)) throw new Error(`${method} rejected`);
 			switch (method) {
-				case "Accessibility.getFullAXTree":
-					return { nodes: treeFor(sessionId, params.frameId) };
+				case "Accessibility.getFullAXTree": {
+					const tree = treeFor(sessionId, params.frameId);
+					onAxRead?.(++axRead, params, sessionId);
+					return { nodes: tree };
+				}
 				case "Target.setAutoAttach":
 					for (const frame of autoAttachFrames.splice(0)) {
 						emit({
@@ -170,7 +177,8 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 					return {};
 			}
 		},
-		pageTargets: async () => [{ targetId: "TARGET-1", type: "page", title: "Page", url: "https://a.test/" }],
+		pageTargets: async () =>
+			targetProvider?.(++targetRead) ?? [{ targetId: "TARGET-1", type: "page", title: "Page", url: "https://a.test/" }],
 		attachToTarget: async () => "session-1",
 		createTarget: async () => "TARGET-2",
 		close: () => {},
@@ -196,6 +204,12 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 	const failOn = (method: string) => {
 		failMethods.add(method);
 	};
+	const setAxReadHook = (hook: typeof onAxRead) => {
+		onAxRead = hook;
+	};
+	const setTargetProvider = (provider: typeof targetProvider) => {
+		targetProvider = provider;
+	};
 	return {
 		sent,
 		emit,
@@ -206,6 +220,8 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 		setIframeFrame,
 		addAutoAttachFrame,
 		failOn,
+		setAxReadHook,
+		setTargetProvider,
 		cdp: fake as unknown as CdpConnection,
 	};
 }
@@ -587,6 +603,15 @@ describe("BrowserExecutor cursor-pointer hints", () => {
 		expect(sent.some((cmd) => cmd.method === "DOM.describeNode")).toBe(true);
 		expect(sent.some((cmd) => cmd.method === "Runtime.releaseObjectGroup")).toBe(true);
 	});
+
+	it("does not scan cursor metadata for find", async () => {
+		const { cdp, failOn, sent } = createFakeCdp(BUTTON_TREE);
+		failOn("Runtime.evaluate");
+		const executor = new BrowserExecutor(cdp);
+		const results = await executor.execute({ type: "browser_find", query: "save button" } as CuaBrowserAction);
+		expect((results[0] as { text: string }).text).toContain('button "Save" [e1]');
+		expect(sent.some((command) => command.method === "Runtime.evaluate")).toBe(false);
+	});
 });
 
 describe("BrowserExecutor dialog guard", () => {
@@ -735,6 +760,119 @@ describe("BrowserExecutor iframe stitching", () => {
 
 		const text = await snapshotText(executor);
 		expect(text).toContain('button "Pay" [e');
+	});
+
+	it("rejects a scoped frame ref when its owning frame is missing from the observation", async () => {
+		const root = [
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "3"] }),
+			ax({ nodeId: "2", role: "button", name: "Pay", backendDOMNodeId: 40, parentId: "1" }),
+			ax({ nodeId: "3", role: "Iframe", backendDOMNodeId: 50, parentId: "1" }),
+		];
+		const fake = createFakeCdp(root);
+		fake.setIframeFrame(50, "FRAME-SP");
+		fake.setFrameTree("FRAME-SP", [ax({ nodeId: "f1", role: "button", name: "Pay", backendDOMNodeId: 70 })]);
+		const executor = new BrowserExecutor(fake.cdp);
+		await snapshotText(executor);
+
+		fake.failOn("DOM.describeNode");
+		await expect(snapshotText(executor, { ref: "e3" })).rejects.toThrow(/stale/);
+	});
+});
+
+describe("BrowserExecutor observation fencing", () => {
+	const STALE_TREE = [
+		ax({ nodeId: "1", role: "RootWebArea", name: "Old", childIds: ["2"] }),
+		ax({ nodeId: "2", role: "button", name: "Stale", backendDOMNodeId: 41, parentId: "1" }),
+	];
+	const STABLE_TREE = [
+		ax({ nodeId: "1", role: "RootWebArea", name: "New", childIds: ["2"] }),
+		ax({ nodeId: "2", role: "button", name: "Stable", backendDOMNodeId: 42, parentId: "1" }),
+	];
+
+	it.each(["browser_snapshot", "browser_find"] as const)("discards a navigated AX collection for %s before minting refs", async (type) => {
+		const fake = createFakeCdp(STALE_TREE);
+		fake.setAxReadHook((read, params) => {
+			if (read !== 1 || params.frameId) return;
+			fake.setNodes(STABLE_TREE);
+			fake.emit({ method: "Page.frameNavigated", params: { frame: { id: "TARGET-1" } }, sessionId: "session-1" });
+		});
+		const executor = new BrowserExecutor(fake.cdp);
+		const results = await executor.execute(
+			(type === "browser_snapshot" ? { type } : { type, query: "stable button" }) as CuaBrowserAction,
+		);
+		const text = (results[0] as { text: string }).text;
+		expect(text).toContain('button "Stable" [e1]');
+		expect(text).not.toContain("Stale");
+		expect([...refsOf(executor).keys()]).toEqual(["e1"]);
+	});
+
+	it.each([
+		["url", { title: "Page", url: "https://b.test/" }],
+		["title", { title: "Changed", url: "https://a.test/" }],
+	] as const)("retries when target %s changes across collection", async (_field, changed) => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		fake.setTargetProvider((read) => [
+			{ targetId: "TARGET-1", type: "page", ...(read < 3 ? { title: "Page", url: "https://a.test/" } : changed) },
+		]);
+		const executor = new BrowserExecutor(fake.cdp);
+		expect(await snapshotText(executor)).toContain('button "Save" [e1]');
+		expect(fake.sent.filter((command) => command.method === "Accessibility.getFullAXTree")).toHaveLength(2);
+	});
+
+	it("retries when a stitched frame changes during its AX read", async () => {
+		const root = [
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),
+			ax({ nodeId: "2", role: "Iframe", backendDOMNodeId: 50, parentId: "1" }),
+		];
+		const oldChild = [ax({ nodeId: "f1", role: "button", name: "Old child", backendDOMNodeId: 60 })];
+		const newChild = [ax({ nodeId: "f1", role: "button", name: "New child", backendDOMNodeId: 61 })];
+		const fake = createFakeCdp(root);
+		fake.setIframeFrame(50, "FRAME-SP");
+		fake.setFrameTree("FRAME-SP", oldChild);
+		fake.setAxReadHook((_read, params) => {
+			if (params.frameId !== "FRAME-SP") return;
+			fake.setAxReadHook(undefined);
+			fake.setFrameTree("FRAME-SP", newChild);
+			fake.emit({ method: "Page.frameNavigated", params: { frame: { id: "FRAME-SP", parentId: "TARGET-1" } }, sessionId: "session-1" });
+		});
+		const executor = new BrowserExecutor(fake.cdp);
+		const text = await snapshotText(executor);
+		expect(text).toContain('button "New child"');
+		expect(text).not.toContain("Old child");
+	});
+
+	it("retries when a generation-zero OOPIF detaches after its AX read", async () => {
+		const root = [
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),
+			ax({ nodeId: "2", role: "Iframe", backendDOMNodeId: 50, parentId: "1" }),
+		];
+		const fake = createFakeCdp(root);
+		fake.setIframeFrame(50, "FRAME-OOP");
+		fake.addAutoAttachFrame({ targetId: "FRAME-OOP", sessionId: "session-oop" });
+		fake.setSessionTree("session-oop", [ax({ nodeId: "f1", role: "button", name: "Detached", backendDOMNodeId: 60 })]);
+		fake.setFrameTree("FRAME-OOP", [ax({ nodeId: "f1", role: "button", name: "Current", backendDOMNodeId: 61 })]);
+		fake.setAxReadHook((_read, _params, sessionId) => {
+			if (sessionId !== "session-oop") return;
+			fake.setAxReadHook(undefined);
+			fake.emit({ method: "Target.detachedFromTarget", params: { sessionId: "session-oop" } });
+		});
+		const executor = new BrowserExecutor(fake.cdp);
+		const text = await snapshotText(executor);
+		expect(text).toContain('button "Current"');
+		expect(text).not.toContain("Detached");
+	});
+
+	it.each(["browser_snapshot", "browser_find"] as const)("fails %s after three changed collections without minting refs", async (type) => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		fake.setAxReadHook((_read, params) => {
+			if (!params.frameId) fake.emit({ method: "Page.frameNavigated", params: { frame: { id: "TARGET-1" } }, sessionId: "session-1" });
+		});
+		const executor = new BrowserExecutor(fake.cdp);
+		await expect(
+			executor.execute((type === "browser_snapshot" ? { type } : { type, query: "save" }) as CuaBrowserAction),
+		).rejects.toThrow(/observation changed/i);
+		expect(fake.sent.filter((command) => command.method === "Accessibility.getFullAXTree")).toHaveLength(3);
+		expect(refsOf(executor).size).toBe(0);
 	});
 });
 
