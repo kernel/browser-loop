@@ -84,6 +84,12 @@ export function evaluateBrowserExpectation(
 	return { truth: undefined, details: ["unsupported expectation"] };
 }
 
+/**
+ * Poll browser observations until an expectation is satisfied, interrupted, unverifiable, or timed out.
+ *
+ * Returns both the initial and last-evaluated evidence so callers can distinguish preexisting matches
+ * from newly verified matches and report why a wait stopped.
+ */
 export async function waitForBrowserExpectation(runtime: BrowserWaitRuntime, options: BrowserWaitOptions): Promise<BrowserWaitForResult> {
 	const now = runtime.now ?? Date.now;
 	const sleep = runtime.delay ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
@@ -149,6 +155,10 @@ async function beforeDeadline<T>(operation: () => Promise<T>, remaining: number)
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	try {
 		return await Promise.race([pending, new Promise<T>((_, reject) => { timer = setTimeout(() => reject(new WaitDeadlineError()), remaining); })]);
+	} catch (error) {
+		if (!(error instanceof WaitDeadlineError)) throw error;
+		try { await pending; } catch { /* Preserve timeout result once deadline has elapsed. */ }
+		throw error;
 	} finally { if (timer) clearTimeout(timer); }
 }
 
