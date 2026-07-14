@@ -65,7 +65,7 @@ Usage:
   cua models --json
 
 Options:
-  -p, --provider <id>  Filter by provider: openai | anthropic | google | gemini | meta | tzafon | yutori
+  -p, --provider <id>  Filter by provider: openai | anthropic | google | gemini | meta | xai | tzafon | yutori
       --json           Output JSON
   -h, --help           Show this help
 `;

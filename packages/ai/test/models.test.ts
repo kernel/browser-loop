@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	CUA_MODEL_ANNOTATIONS,
 	CUA_PROVIDERS,
+	cuaOverrideModels,
 	findCuaAnnotation,
 	formatCuaModelRef,
 	getCuaModel,
@@ -9,6 +10,7 @@ import {
 	meta,
 	openai,
 	parseCuaModelRef,
+	xai,
 } from "../src/index";
 
 describe("CUA model refs", () => {
@@ -25,7 +27,7 @@ describe("CUA model refs", () => {
 
 	it("names the valid providers in the unsupported-provider error", () => {
 		expect(() => parseCuaModelRef("bogus:model")).toThrow(
-			'unsupported CUA provider "bogus" (expected one of: openai, anthropic, google, meta, tzafon, yutori)',
+			'unsupported CUA provider "bogus" (expected one of: openai, anthropic, google, meta, xai, tzafon, yutori)',
 		);
 	});
 
@@ -61,6 +63,20 @@ describe("CUA model refs", () => {
 		expect(muse.thinkingLevelMap?.off).toBeNull();
 	});
 
+	it("uses pi-ai's Grok catalog entry with CUA routing overrides", () => {
+		expect(cuaOverrideModels("xai")).toEqual([]);
+		const grok = getCuaModel("xai:grok-4.5");
+		expect(grok.provider).toBe("xai");
+		expect(grok.api).toBe(xai.XAI_CUA_RESPONSES_API);
+		expect(grok.baseUrl).toBe("https://api.x.ai/v1");
+		expect(grok.contextWindow).toBe(500_000);
+		expect(grok.maxTokens).toBe(500_000);
+		expect(grok.thinkingLevelMap).toEqual({ off: "low", minimal: "low", xhigh: "high" });
+		expect(grok.cost.tiers).toEqual([
+			{ inputTokensAbove: 200_000, input: 4, output: 12, cacheRead: 1, cacheWrite: 0 },
+		]);
+	});
+
 	it("loads supported custom provider models without explicit registration", () => {
 		expect(getCuaModel("tzafon:tzafon.northstar-cua-fast").api).toBe("tzafon-responses");
 		expect(getCuaModel("yutori:n1.5-latest").api).toBe("yutori-chat-completions");
@@ -72,6 +88,7 @@ describe("CUA model refs", () => {
 		expect(getCuaModel("openai:gpt-5.5").api).toBe(openai.OPENAI_CUA_RESPONSES_API);
 		expect(getCuaModel("openai:gpt-5.4-mini").api).toBe(openai.OPENAI_CUA_RESPONSES_API);
 		expect(getCuaModel("meta:muse-spark-1.1").api).toBe(meta.META_RESPONSES_API);
+		expect(getCuaModel("xai:grok-4.5").api).toBe(xai.XAI_CUA_RESPONSES_API);
 	});
 
 	it("rejects supported model IDs that are not in pi-ai or overrides", () => {
@@ -126,6 +143,9 @@ describe("CUA support annotations", () => {
 	it("matches exact-id annotations", () => {
 		expect(findCuaAnnotation("google", "gemini-3-flash-preview")).toBeDefined();
 		expect(findCuaAnnotation("meta", "muse-spark-1.1")).toBeDefined();
+		expect(findCuaAnnotation("xai", "grok-4.5")).toBeDefined();
+		expect(findCuaAnnotation("xai", "grok-4.5-latest")).toBeUndefined();
+		expect(findCuaAnnotation("xai", "grok-4.3")).toBeUndefined();
 		expect(findCuaAnnotation("google", "gemini-3.1-flash-lite")).toBeDefined();
 		expect(findCuaAnnotation("yutori", "n1.5-latest")).toBeDefined();
 		expect(findCuaAnnotation("tzafon", "tzafon.northstar-cua-fast")).toBeDefined();

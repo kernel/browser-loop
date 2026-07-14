@@ -2,9 +2,10 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import { getBuiltinModel, getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
 import { META_RESPONSES_API } from "./providers/meta/provider";
 import { OPENAI_CUA_RESPONSES_API } from "./providers/openai/provider";
+import { XAI_CUA_RESPONSES_API } from "./providers/xai/provider";
 
 /** Providers with curated computer-use model support. */
-export type CuaProvider = "openai" | "anthropic" | "google" | "meta" | "tzafon" | "yutori";
+export type CuaProvider = "openai" | "anthropic" | "google" | "meta" | "xai" | "tzafon" | "yutori";
 
 /** Provider-qualified model reference, e.g. `"openai:gpt-5.5"` or `"google:gemini-3-flash-preview"`. */
 export type CuaModelRef = `${CuaProvider}:${string}`;
@@ -21,7 +22,7 @@ export interface CuaModelInfo {
 }
 
 /** All providers this package curates computer-use models for. */
-export const CUA_PROVIDERS: readonly CuaProvider[] = ["openai", "anthropic", "google", "meta", "tzafon", "yutori"];
+export const CUA_PROVIDERS: readonly CuaProvider[] = ["openai", "anthropic", "google", "meta", "xai", "tzafon", "yutori"];
 
 /**
  * How a {@link CuaModelAnnotation} matches model ids.
@@ -82,6 +83,9 @@ export const CUA_MODEL_ANNOTATIONS: Record<CuaProvider, readonly CuaModelAnnotat
 	meta: [
 		{ match: { kind: "exact", id: "muse-spark-1.1" }, source: "https://dev.meta.ai/docs/getting-started/cookbook/computer-use-macos" },
 	],
+	xai: [
+		{ match: { kind: "exact", id: "grok-4.5" }, source: "https://docs.x.ai/developers/grok-4-5" },
+	],
 	tzafon: [
 		{ match: { kind: "exact", id: "tzafon.northstar-cua-fast" }, source: "https://huggingface.co/Tzafon/Northstar-CUA-Fast" },
 		{ match: { kind: "exact", id: "tzafon.northstar-cua-fast-1.6" }, source: "https://huggingface.co/Tzafon/Northstar-CUA-Fast" },
@@ -104,8 +108,9 @@ const CUA_MODEL_OVERRIDES: Record<CuaProvider, readonly Model<Api>[]> = {
 	openai: [],
 	anthropic: [],
 	google: [],
-	// pi-ai 0.80.3 predates Meta's models.dev catalog entry.
+	// pi-ai 0.80.6 predates Meta's models.dev catalog entry.
 	meta: [cuaModel("meta", "muse-spark-1.1", "Muse Spark 1.1")],
+	xai: [],
 	tzafon: [
 		cuaModel("tzafon", "tzafon.northstar-cua-fast", "Tzafon Northstar CUA Fast"),
 		cuaModel("tzafon", "tzafon.northstar-cua-fast-1.6", "Tzafon Northstar CUA Fast 1.6"),
@@ -201,13 +206,25 @@ export function getCuaModel(ref: CuaModelRef): Model<Api> {
 
 // Route OpenAI-compatible CUA models to provider-specific Responses transports
 // that thread previous_response_id. Registry-resolved models otherwise carry
-// pi-ai's builtin "openai-responses" api.
+// pi-ai's builtin API ids.
 export function routeCuaApi(model: Model<Api>): Model<Api> {
 	if (model.provider === "openai" && model.api !== OPENAI_CUA_RESPONSES_API) {
 		return { ...model, api: OPENAI_CUA_RESPONSES_API };
 	}
 	if (model.provider === "meta" && model.api !== META_RESPONSES_API) {
 		return { ...model, api: META_RESPONSES_API };
+	}
+	if (model.provider === "xai" && model.id === "grok-4.5") {
+		return {
+			...model,
+			api: XAI_CUA_RESPONSES_API,
+			thinkingLevelMap: { off: "low", minimal: "low", xhigh: "high" },
+			cost: {
+				...model.cost,
+				tiers: [{ inputTokensAbove: 200_000, input: 4, output: 12, cacheRead: 1, cacheWrite: 0 }],
+			},
+			compat: { supportsDeveloperRole: false, sendSessionIdHeader: false, supportsLongCacheRetention: false },
+		};
 	}
 	return model;
 }
@@ -256,7 +273,7 @@ function isCuaFamilyMatch(id: string, family: string): boolean {
 		.every((segment) => /^\d+$/.test(segment));
 }
 
-function cuaModel(provider: CuaProvider, id: string, name: string): Model<Api> {
+function cuaModel(provider: Exclude<CuaProvider, "xai">, id: string, name: string): Model<Api> {
 	const base = {
 		id,
 		name,

@@ -71,6 +71,23 @@ tools. CUA continues tool loops through `previous_response_id`.
 
 Source: [Meta computer-use cookbook](https://dev.meta.ai/docs/getting-started/cookbook/computer-use-macos).
 
+## `xai`
+
+Coordinates: normalized 0–1000 (CUA function-tool contract)
+
+Exact IDs:
+
+- `grok-4.5`
+
+Grok 4.5 uses xAI's OpenAI-compatible Responses API with screenshot input and
+ordinary function tools. xAI does not define a native computer tool or
+coordinate protocol, so CUA supplies the browser actions and normalized
+coordinate instructions. Tool loops continue through `previous_response_id`.
+CUA adds xAI's doubled token-price tier above 200k input tokens to pi-ai's
+Grok 4.5 model metadata.
+
+Source: [Grok 4.5 docs](https://docs.x.ai/developers/grok-4-5), [function calling](https://docs.x.ai/developers/tools/function-calling), and [image understanding](https://docs.x.ai/developers/model-capabilities/images/understanding).
+
 ## `tzafon`
 
 Coordinates: normalized 0–999

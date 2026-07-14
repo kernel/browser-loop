@@ -127,8 +127,8 @@ Both classes mirror pi constructor shapes and behavior, with minimal additions:
   live browser session
 - `toolResultImageReplayLimit` to control how many recent tool-result images
   are included in each model request
-- `responseThreading` to choose whether OpenAI, Meta, and Tzafon continue from
-  provider-stored response state or receive the full request context each time
+- `responseThreading` to choose whether OpenAI, Meta, xAI, and Tzafon continue
+  from provider-stored response state or receive the full request context each time
 
 ### Context management
 
@@ -177,7 +177,7 @@ pi provides several context-management layers with different lifetimes:
   It is broader than the image limit and is not called automatically by this
   package.
 
-`responseThreading` defaults to `true`. For OpenAI, Meta, and Tzafon Responses APIs,
+`responseThreading` defaults to `true`. For OpenAI, Meta, xAI, and Tzafon Responses APIs,
 that means each request can continue from `previous_response_id`; the provider
 keeps earlier response state and CUA sends only messages added since that
 response. Because the provider retains that state, removing an older image from
@@ -193,6 +193,7 @@ If auth callbacks are omitted, both classes default to CUA env var conventions:
 - Anthropic: `ANTHROPIC_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`
 - Gemini: `GOOGLE_API_KEY` or `GEMINI_API_KEY`
 - Meta: `META_API_KEY`
+- xAI: `XAI_API_KEY`
 - Tzafon: `TZAFON_API_KEY`
 - Yutori: `YUTORI_API_KEY`
 
@@ -224,8 +225,8 @@ browser session does carry over. No screenshot is returned automatically;
 request one on a follow-up turn when the model needs to see the page.
 Playwright-level failures come back as tool content (so the model can adapt)
 rather than thrown errors. Verified e2e
-against Anthropic, Meta, Tzafon, and Yutori CUA models; OpenAI and Google are
-unit-tested.
+against Anthropic, Meta, xAI, Tzafon, and Yutori CUA models; OpenAI and Google
+are unit-tested.
 
 ### Model Switching
 

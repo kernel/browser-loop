@@ -54,6 +54,7 @@ Options:
                                    anthropic: anthropic:claude-opus-4-8
                                    google:    google:gemini-3-flash-preview
                                    meta:      meta:muse-spark-1.1
+                                   xai:       xai:grok-4.5
                                    tzafon:    tzafon:tzafon.northstar-cua-fast
                                    yutori:    yutori:n1.5-latest
       --thinking <level>         Thinking level: off | minimal | low | medium | high | xhigh
@@ -108,6 +109,7 @@ Environment:
   GOOGLE_API_KEY        Google API key (required when -m google:…)
   GEMINI_API_KEY        Alias for GOOGLE_API_KEY
   META_API_KEY          Meta Model API key (required when -m meta:…)
+  XAI_API_KEY           xAI API key (required when -m xai:…)
   TZAFON_API_KEY        Tzafon API key (required when -m tzafon:…)
   YUTORI_API_KEY        Yutori API key (required when -m yutori:…)
   KERNEL_BASE_URL       Override Kernel base URL
@@ -115,6 +117,7 @@ Environment:
   ANTHROPIC_BASE_URL    Override Anthropic base URL
   GOOGLE_BASE_URL       Override Google base URL
   META_BASE_URL         Override Meta Model API base URL
+  XAI_BASE_URL          Override xAI API base URL
   TZAFON_BASE_URL       Override Tzafon base URL
   YUTORI_BASE_URL       Override Yutori base URL
   XDG_DATA_HOME         Sessions are stored under \$XDG_DATA_HOME/cua/sessions
