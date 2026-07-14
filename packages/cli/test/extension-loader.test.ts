@@ -1,0 +1,117 @@
+import { afterEach, describe, expect, it } from "vitest";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import {
+	loadHarnessExtensions,
+	type HarnessExtensions,
+} from "../src/extensions/setup";
+import { buildTestHarness, type TestHarnessFixture } from "./fixtures/harness";
+
+let fx: TestHarnessFixture | undefined;
+let host: HarnessExtensions | undefined;
+
+afterEach(async () => {
+	await host?.dispose();
+	host = undefined;
+	fx = undefined;
+});
+
+/** A minimal, import-free extension that registers a single named tool. */
+function makeToolExtension(toolName: string): string {
+	return [
+		"export default function (pi) {",
+		"  pi.registerTool({",
+		`    name: ${JSON.stringify(toolName)},`,
+		`    label: ${JSON.stringify(toolName)},`,
+		`    description: ${JSON.stringify(toolName)},`,
+		'    parameters: { type: "object", properties: {}, additionalProperties: false },',
+		'    async execute() { return { content: [{ type: "text", text: "ok" }], details: {} }; },',
+		"  });",
+		"}",
+		"",
+	].join("\n");
+}
+
+function tempAgentDir(): string {
+	return mkdtempSync(join(tmpdir(), "cua-agentdir-"));
+}
+
+describe("loadHarnessExtensions", () => {
+	it("loads a configured extension onto the harness", async () => {
+		fx = await buildTestHarness({ turns: [{ steps: [{ type: "text", text: "ok" }] }] });
+		const extDir = mkdtempSync(join(tmpdir(), "cua-ext-"));
+		writeFileSync(join(extDir, "probe.ts"), makeToolExtension("loader_probe"));
+
+		host = await loadHarnessExtensions({
+			harness: fx.harness,
+			session: fx.session,
+			cwd: fx.cwd,
+			noExtensions: false,
+			agentDir: tempAgentDir(),
+			configuredPaths: [extDir],
+		});
+
+		expect(host).toBeDefined();
+		expect(fx.harness.getTools().map((t) => t.name)).toContain("loader_probe");
+	});
+
+	it("returns undefined when extensions are disabled", async () => {
+		fx = await buildTestHarness({ turns: [{ steps: [{ type: "text", text: "ok" }] }] });
+		const extDir = mkdtempSync(join(tmpdir(), "cua-ext-"));
+		writeFileSync(join(extDir, "probe.ts"), makeToolExtension("loader_probe"));
+
+		host = await loadHarnessExtensions({
+			harness: fx.harness,
+			session: fx.session,
+			cwd: fx.cwd,
+			noExtensions: true,
+			agentDir: tempAgentDir(),
+			configuredPaths: [extDir],
+		});
+
+		expect(host).toBeUndefined();
+		expect(fx.harness.getTools().map((t) => t.name)).not.toContain("loader_probe");
+	});
+
+	it("loads the implicit project <cwd>/.pi/extensions scan by default", async () => {
+		fx = await buildTestHarness({ turns: [{ steps: [{ type: "text", text: "ok" }] }] });
+		// Unique per run so the whole-harness tool assertion can't collide with
+		// another worker registering the same name under pool concurrency.
+		const probe = `pi_probe_${randomUUID().replace(/-/g, "")}`;
+		const projectExtDir = join(fx.cwd, ".pi", "extensions");
+		mkdirSync(projectExtDir, { recursive: true });
+		writeFileSync(join(projectExtDir, "probe.ts"), makeToolExtension(probe));
+
+		host = await loadHarnessExtensions({
+			harness: fx.harness,
+			session: fx.session,
+			cwd: fx.cwd,
+			noExtensions: false,
+			agentDir: tempAgentDir(),
+		});
+
+		expect(host).toBeDefined();
+		expect(fx.harness.getTools().map((t) => t.name)).toContain(probe);
+	});
+
+	it("loads project <cwd>/.agents/extensions by default", async () => {
+		fx = await buildTestHarness({ turns: [{ steps: [{ type: "text", text: "ok" }] }] });
+		const probe = `agents_probe_${randomUUID().replace(/-/g, "")}`;
+		const projectExtDir = join(fx.cwd, ".agents", "extensions");
+		mkdirSync(projectExtDir, { recursive: true });
+		writeFileSync(join(projectExtDir, "probe.ts"), makeToolExtension(probe));
+
+		host = await loadHarnessExtensions({
+			harness: fx.harness,
+			session: fx.session,
+			cwd: fx.cwd,
+			noExtensions: false,
+			agentDir: tempAgentDir(),
+		});
+
+		expect(host).toBeDefined();
+		expect(fx.harness.getTools().map((t) => t.name)).toContain(probe);
+	});
+});

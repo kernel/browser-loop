@@ -41,7 +41,7 @@
     "test:integration": "vitest --run --config vitest.integration.config.ts"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "0.80.6",
+    "@earendil-works/pi-ai": "https://raw.githubusercontent.com/kernel/cua/eac28f9f4992c648d0d046dfe62550bce643ff85/vendor/pi/earendil-works-pi-ai-0.80.7-anchor.3d8f743.tgz",
     "@tzafon/lightcone": "^0.7.0",
     "openai": "^6.26.0"
   },

@@ -1820,6 +1820,23 @@ describe("CuaAgentHarness", () => {
 		expect(names).toContain("browser_snapshot");
 	});
 
+	it("setMode keeps tools registered after construction", async () => {
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "anthropic:claude-opus-4-5",
+		});
+		const extensionTool = createCustomTool("extension_custom");
+		const tools = [...harness.getTools(), extensionTool];
+		await harness.setTools(tools, tools.map((tool) => tool.name));
+
+		await harness.setMode("browser");
+
+		expect(harness.getTools().map((tool) => tool.name)).toContain("extension_custom");
+		expect(harness.getActiveTools().map((tool) => tool.name)).toContain("extension_custom");
+	});
+
 	it("setMode keeps the requested activation state of surviving tools", async () => {
 		const harness = new CuaAgentHarness({
 			...(await createHarnessServices()),

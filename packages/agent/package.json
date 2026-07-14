@@ -40,8 +40,8 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.80.6",
-    "@earendil-works/pi-ai": "0.80.6",
+    "@earendil-works/pi-agent-core": "https://raw.githubusercontent.com/kernel/cua/eac28f9f4992c648d0d046dfe62550bce643ff85/vendor/pi/earendil-works-pi-agent-core-0.80.7-anchor.3d8f743.tgz",
+    "@earendil-works/pi-ai": "https://raw.githubusercontent.com/kernel/cua/eac28f9f4992c648d0d046dfe62550bce643ff85/vendor/pi/earendil-works-pi-ai-0.80.7-anchor.3d8f743.tgz",
     "@onkernel/cua-ai": "0.6.0",
     "@onkernel/sdk": "0.49.0",
     "sharp": "^0.34.5"

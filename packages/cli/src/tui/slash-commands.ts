@@ -8,8 +8,8 @@ import { listCuaModels } from "@onkernel/cua-ai";
 
 /**
  * Build an autocomplete provider for the TUI editor with the slash commands
- * the interactive app supports: `/model`, `/thinking`, `/compact`, plus a
- * `/skill:<name>` entry per loaded skill.
+ * the interactive app supports: `/model`, `/thinking`, `/compact`, `/reload`,
+ * plus a `/skill:<name>` entry per loaded skill.
  *
  * Model and thinking values are exposed as `getArgumentCompletions` so
  * users can tab through CUA refs and reasoning levels.
@@ -44,6 +44,11 @@ export function buildAutocompleteProvider(
 	commands.push({
 		name: "compact",
 		description: "Summarize older turns to free context budget",
+	});
+
+	commands.push({
+		name: "reload",
+		description: "Reload pi extensions from disk",
 	});
 
 	for (const skill of skills) {
@@ -97,6 +102,7 @@ export type ParsedSlashCommand =
 	| { command: "mode"; argument: string }
 	| { command: "thinking"; argument: string }
 	| { command: "compact"; argument: string }
+	| { command: "reload"; argument: string }
 	| { command: "skill"; name: string; remainder: string };
 
 /**
@@ -111,11 +117,11 @@ export function parseSlashCommand(text: string): ParsedSlashCommand | undefined 
 		const [, name, rest] = skillMatch;
 		return { command: "skill", name: name ?? "", remainder: (rest ?? "").trim() };
 	}
-	const builtinMatch = trimmed.match(/^\/(model|mode|thinking|compact)\s*(.*)$/);
+	const builtinMatch = trimmed.match(/^\/(model|mode|thinking|compact|reload)\s*(.*)$/);
 	if (builtinMatch) {
 		const [, name, rest] = builtinMatch;
 		return {
-			command: name as "model" | "mode" | "thinking" | "compact",
+			command: name as "model" | "mode" | "thinking" | "compact" | "reload",
 			argument: (rest ?? "").trim(),
 		};
 	}

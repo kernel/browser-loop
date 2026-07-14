@@ -51,7 +51,7 @@ Options:
                                  match exactly one entry in \`cua models\`.
                                  Recommended:
                                    openai:    openai:gpt-5.5
-                                   anthropic: anthropic:claude-opus-4-7
+                                   anthropic: anthropic:claude-opus-4-8
                                    google:    google:gemini-3-flash-preview
                                    meta:      meta:muse-spark-1.1
                                    xai:       xai:grok-4.5
@@ -74,6 +74,8 @@ Options:
       --native-tool <type>       Drive an Anthropic model through its native tool schema:
                                  computer_20260701 (requires --mode computer) or
                                  browser_20260701 (requires --mode browser)
+      --self-extend              Expose add_tool for adding one durable project tool;
+                                 the tool is active on the next model turn in the same run
       --out <file|->             Output file for screenshot subcommand
       --filter <interactive>     Restrict \`cua snapshot\` to interactive elements
   -o, --output <fmt>             Output format for --print: text (default) | jsonl
@@ -93,6 +95,9 @@ Options:
                                  <cwd>/.agents/skills/, the pi agent dir
                                  (~/.pi/agent/), and pi-installed packages.
   -ns, --no-skills               Disable skill discovery entirely
+      --no-extensions            Disable pi extensions, which otherwise load from
+                                 <cwd>/.agents/extensions, <cwd>/.pi/extensions,
+                                 and the pi agent dir (~/.pi/agent/extensions/)
       --debug-tui                Enable TUI render diagnostics for manual repros
   -v, --verbose                  Verbose progress output to stderr
   -h, --help                     Show this help
@@ -129,12 +134,14 @@ interface CliFlags {
 	resumePicker: boolean;
 	noSession: boolean;
 	noSkills: boolean;
+	noExtensions: boolean;
 	debugTui: boolean;
 	jsonlIncludeDeltas: boolean;
 	jsonlIncludeImages: boolean;
 	playwright: boolean;
 	mode?: string;
 	nativeTool?: string;
+	selfExtend: boolean;
 	model?: string;
 	thinking?: string;
 	browserProfile?: string;
@@ -183,6 +190,7 @@ function parseCliArgs(argv: string[]): CliFlags {
 				"no-session": { type: "boolean", default: false },
 				skill: { type: "string", multiple: true, default: [] },
 				"no-skills": { type: "boolean", default: false },
+				"no-extensions": { type: "boolean", default: false },
 				"debug-tui": { type: "boolean", default: false },
 				output: { type: "string", short: "o" },
 				"jsonl-include-deltas": { type: "boolean", default: false },
@@ -190,6 +198,7 @@ function parseCliArgs(argv: string[]): CliFlags {
 				playwright: { type: "boolean", default: false },
 				mode: { type: "string" },
 				"native-tool": { type: "string" },
+				"self-extend": { type: "boolean", default: false },
 			},
 			allowPositionals: true,
 			strict: true,
@@ -229,6 +238,7 @@ function parseCliArgs(argv: string[]): CliFlags {
 		resumePicker: !!parsed.values.resume,
 		noSession: !!parsed.values["no-session"],
 		noSkills: !!parsed.values["no-skills"],
+		noExtensions: !!parsed.values["no-extensions"],
 		debugTui: !!parsed.values["debug-tui"],
 		model: parsed.values.model as string | undefined,
 		thinking: parsed.values.thinking as string | undefined,
@@ -249,6 +259,7 @@ function parseCliArgs(argv: string[]): CliFlags {
 		playwright: !!parsed.values.playwright,
 		mode: parsed.values.mode as string | undefined,
 		nativeTool: parsed.values["native-tool"] as string | undefined,
+		selfExtend: !!parsed.values["self-extend"],
 		positionals: parsed.positionals,
 	};
 }
@@ -261,12 +272,14 @@ function toHarnessFlags(flags: CliFlags): HarnessCliFlags {
 		resumePicker: flags.resumePicker,
 		noSession: flags.noSession,
 		noSkills: flags.noSkills,
+		noExtensions: flags.noExtensions,
 		debugTui: flags.debugTui,
 		jsonlIncludeDeltas: flags.jsonlIncludeDeltas,
 		jsonlIncludeImages: flags.jsonlIncludeImages,
 		playwright: flags.playwright,
 		mode: flags.mode,
 		nativeTool: flags.nativeTool,
+		selfExtend: flags.selfExtend,
 		model: flags.model,
 		thinking: flags.thinking,
 		browserProfile: flags.browserProfile,

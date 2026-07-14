@@ -24,6 +24,7 @@ import { initTheme } from "@earendil-works/pi-coding-agent";
 import { homedir } from "node:os";
 import type { ImageContent, Model } from "@onkernel/cua-ai";
 import { captureScreenshot, type CuaBrowserHandle } from "../harness-browser";
+import type { HarnessExtensions } from "../extensions/setup";
 import { resolveCuaModelRef } from "../harness-models";
 import { updateNamedSessionRuntime } from "../harness-named-sessions";
 import type { ContextFile } from "../harness-skills";
@@ -61,6 +62,8 @@ export interface InteractiveOptions {
 	namedSession?: string;
 	/** Enable extra TUI render diagnostics for manual repros. */
 	debugTui?: boolean;
+	/** Loaded pi-extension host for /reload. Absent in fixture/headless and --no-extensions/untrusted paths, so /reload no-ops with a notice. */
+	host?: HarnessExtensions;
 }
 
 /**
@@ -318,6 +321,11 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 				await applyCompactCommand(opts, messages);
 				return;
 			}
+			if (parsed?.command === "reload") {
+				await applyReloadCommand(opts, messages);
+				requestRender("reload");
+				return;
+			}
 			if (parsed?.command === "skill") {
 				const skill = (opts.skills ?? []).find((s) => s.name === parsed.name);
 				if (!skill) {
@@ -449,24 +457,15 @@ async function maybeInitialScreenshot(
 	firstPromptSent: boolean,
 ): Promise<ImageContent[] | undefined> {
 	if (firstPromptSent) return undefined;
+	// `skipInitialScreenshot` is decided once at startup (before extensions load),
+	// so an extension's startup message can't suppress the user's first-turn frame.
 	if (opts.skipInitialScreenshot) return undefined;
 	// Browser mode's only frame is the viewport; skip the OS-display capture
 	// rather than mix coordinate frames on the first turn.
 	if (opts.harness.getMode() === "browser") return undefined;
-	if (await sessionHasPriorTurn(opts.session)) return undefined;
 	const png = await captureScreenshot(opts.browserHandle.client, opts.browserHandle.browser.session_id);
 	if (!png) return undefined;
 	return [{ type: "image", data: png.toString("base64"), mimeType: "image/png" }];
-}
-
-async function sessionHasPriorTurn(session: Session): Promise<boolean> {
-	const entries = await session.getBranch();
-	for (const entry of entries) {
-		if (entry.type === "message" && (entry.message.role === "user" || entry.message.role === "assistant")) {
-			return true;
-		}
-	}
-	return false;
 }
 
 async function applyModelCommand(
@@ -562,6 +561,33 @@ async function applyCompactCommand(opts: InteractiveOptions, messages: MessageLi
 		// The `session_compact` harness event posts the final
 		// "compacted N tokens" notice; emitting it here too would duplicate.
 		await opts.harness.compact();
+	} catch (err) {
+		messages.addError((err as Error).message);
+	}
+}
+
+export async function applyReloadCommand(opts: InteractiveOptions, messages: MessageList): Promise<void> {
+	if (!opts.host) {
+		messages.addNotice("extensions are disabled");
+		return;
+	}
+	messages.addNotice("reloading extensions…");
+	try {
+		// reload() emits no harness event, so this helper is the only source of
+		// feedback; surface loadErrors so a broken edited extension isn't silently
+		// dropped with its tool missing.
+		const outcome = await opts.host.reload();
+		if (outcome === "disposed" || opts.host.isDisposed()) {
+			// An extension calling ctx.shutdown() during the reload tears the host
+			// down; don't claim a successful reload.
+			messages.addNotice("session is shutting down; extensions were not reloaded");
+		} else if (outcome === "coalesced") {
+			messages.addNotice("a reload is already in progress");
+		} else if (opts.host.loadErrors.length > 0) {
+			for (const { path, error } of opts.host.loadErrors) messages.addError(`${path}: ${error}`);
+		} else {
+			messages.addNotice("extensions reloaded");
+		}
 	} catch (err) {
 		messages.addError((err as Error).message);
 	}

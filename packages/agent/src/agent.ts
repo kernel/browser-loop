@@ -650,6 +650,7 @@ export class CuaAgentHarness<
 	private requestedActiveToolNames?: string[];
 	private emptyResponseRecoveryAttempts = 0;
 	private hasPendingActiveQueue = false;
+	private toolMutation = Promise.resolve();
 
 	constructor(options: CuaAgentHarnessOptions<TSkill, TPromptTemplate>) {
 		const {
@@ -734,6 +735,16 @@ export class CuaAgentHarness<
 		this.emptyResponseRecoveryAttempts += 1;
 	}
 
+	/** Serialize runtime and extension tool-list changes. */
+	async mutateTools<T>(mutation: () => Promise<T>): Promise<T> {
+		const result = this.toolMutation.then(mutation);
+		this.toolMutation = result.then(
+			() => {},
+			() => {},
+		);
+		return result;
+	}
+
 	/**
 	 * Mirror pi `AgentHarness.setModel()` while accepting CUA model refs.
 	 *
@@ -744,16 +755,20 @@ export class CuaAgentHarness<
 	override async setModel(model: CuaRuntimeInput): Promise<void> {
 		this.runtime.setModel(model);
 		const tools = this.runtime.tools();
-		try {
-			await super.setTools(tools, this.requestedActiveToolNames ?? tools.map((tool) => tool.name));
-		} catch (err) {
-			// The pre-switch tools stay exposed, so restore the runtime they are
-			// bound to — including its still-live translator.
-			this.runtime.rollbackSwitch();
-			throw err;
-		}
-		this.runtime.commitSwitch();
-		await super.setModel(this.runtime.model);
+		const resolvedModel = this.runtime.model;
+		await this.mutateTools(async () => {
+			try {
+				await super.setTools(
+					tools,
+					this.requestedActiveToolNames ?? tools.map((tool) => tool.name),
+				);
+			} catch (err) {
+				this.runtime.rollbackSwitch();
+				throw err;
+			}
+			this.runtime.commitSwitch();
+		});
+		await super.setModel(resolvedModel);
 	}
 
 	override async setActiveTools(toolNames: string[]): Promise<void> {
@@ -767,28 +782,39 @@ export class CuaAgentHarness<
 	 * plane conflicts with the requested mode.
 	 */
 	async setMode(mode: CuaMode): Promise<void> {
-		if (mode === this.runtime.mode) return;
-		const previousNames = new Set(this.getTools().map((tool) => tool.name));
-		this.runtime.setMode(mode);
-		const tools = this.runtime.tools();
-		// Tools that survive the mode switch (extraTools, shared names) keep
-		// their requested activation state; names new in this mode activate.
-		const requested = this.requestedActiveToolNames;
-		const active = requested
-			? tools.map((tool) => tool.name).filter((name) => !previousNames.has(name) || requested.includes(name))
-			: tools.map((tool) => tool.name);
-		try {
-			await super.setTools(tools, active);
-		} catch (err) {
-			// The pre-switch tools stay exposed, so restore the runtime they are
-			// bound to — including its still-live translator.
-			this.runtime.rollbackSwitch();
-			throw err;
-		}
-		this.runtime.commitSwitch();
-		// The requested subset now reflects this mode's toolset; without this a
-		// later setModel would restore the pre-switch names.
-		if (requested) this.requestedActiveToolNames = active;
+		await this.mutateTools(async () => {
+			if (mode === this.runtime.mode) return;
+			const previousTools = this.getTools();
+			const previousNames = new Set(previousTools.map((tool) => tool.name));
+			const previousRuntimeNames = new Set(this.runtime.tools().map((tool) => tool.name));
+			const previousActiveNames = new Set(this.getActiveTools().map((tool) => tool.name));
+			this.runtime.setMode(mode);
+			const runtimeTools = this.runtime.tools();
+			const runtimeNames = new Set(runtimeTools.map((tool) => tool.name));
+			const tools = [
+				...runtimeTools,
+				...previousTools.filter(
+					(tool) => !previousRuntimeNames.has(tool.name) && !runtimeNames.has(tool.name),
+				),
+			];
+			// Tools that survive the mode switch keep their active state; names new
+			// in this mode activate.
+			const active = tools
+				.map((tool) => tool.name)
+				.filter((name) => !previousNames.has(name) || previousActiveNames.has(name));
+			try {
+				await super.setTools(tools, active);
+			} catch (err) {
+				// The pre-switch tools stay exposed, so restore the runtime they are
+				// bound to — including its still-live translator.
+				this.runtime.rollbackSwitch();
+				throw err;
+			}
+			this.runtime.commitSwitch();
+			// The requested subset now reflects this mode's toolset; without this a
+			// later setModel would restore the pre-switch names.
+			if (this.requestedActiveToolNames) this.requestedActiveToolNames = active;
+		});
 	}
 
 	/** The action plane(s) currently exposed to the model. */

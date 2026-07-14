@@ -10,13 +10,18 @@ import {
 	type CuaMode,
 	type CuaModelRef,
 	type CuaNativeToolSpec,
+	type ImageContent,
 	parseCuaModelRef,
 	requireCuaEnvApiKey,
 	resolveCuaRuntimeSpec,
 } from "@onkernel/cua-ai";
 import { parseArgs } from "node:util";
 import { stderr, stdout } from "node:process";
-import type { CuaBrowserHandle } from "./harness-browser";
+import { captureScreenshot, type CuaBrowserHandle } from "./harness-browser";
+import {
+	loadHarnessExtensions,
+	type HarnessExtensions,
+} from "./extensions/setup";
 import {
 	type ActionRequest,
 	type ModelActionType,
@@ -178,12 +183,14 @@ export interface HarnessCliFlags {
 	resumePicker: boolean;
 	noSession: boolean;
 	noSkills: boolean;
+	noExtensions: boolean;
 	debugTui: boolean;
 	jsonlIncludeDeltas: boolean;
 	jsonlIncludeImages: boolean;
 	playwright: boolean;
 	mode?: string;
 	nativeTool?: string;
+	selfExtend: boolean;
 	model?: string;
 	thinking?: string;
 	browserProfile?: string;
@@ -359,6 +366,15 @@ interface HarnessRuntime {
 	harness: ReturnType<typeof buildCuaHarness>;
 	provider: string;
 	modelRef: CuaModelRef;
+	/**
+	 * Whether the first prompt should skip the initial browser screenshot.
+	 * Decided once here, before extensions load, so an extension that sends a
+	 * user message during startup can't flip the live prior-turn check and leave
+	 * the user's real first prompt without the screenshot.
+	 */
+	skipInitialScreenshot: boolean;
+	/** Loaded pi-extension host. Undefined with --no-extensions or an untrusted project + no global extensions. */
+	host?: HarnessExtensions;
 }
 
 export interface SetupHarnessRuntimeOptions {
@@ -482,6 +498,39 @@ async function finishHarnessRuntime(
 		modelBaseUrl: baseUrlOverride,
 	});
 
+	const handle = provisioned.handle;
+	// Raw capture: the host gates this behind the session's prior-turn state, so
+	// it must not re-apply the CLI's own first-prompt guard.
+	const initialScreenshot = async (): Promise<ImageContent[] | undefined> => {
+		const png = await captureScreenshot(handle.client, handle.browser.session_id);
+		return png ? [{ type: "image", data: png.toString("base64"), mimeType: "image/png" }] : undefined;
+	};
+	// A throwing extension load (e.g. a tool name colliding with a base tool) must
+	// not leak the already-provisioned browser handle: the caller's finally only
+	// runs once this returns, so close the handle here before rethrowing. The
+	// first-turn screenshot decision reads the session, so keep it inside the same
+	// guard.
+	let host: HarnessExtensions | undefined;
+	let skipInitialScreenshot: boolean;
+	try {
+		// Decide the first-turn screenshot before extensions load: a resumed session
+		// already has turns, and capturing it now (rather than re-reading the live
+		// transcript at prompt time) keeps an extension's startup sendUserMessage from
+		// flipping the check and leaving the user's real first prompt without it.
+		skipInitialScreenshot = resolved?.resumed === true || (await sessionHasPriorTurn(session));
+		host = await loadHarnessExtensions({
+			harness,
+			session,
+			cwd,
+			noExtensions: flags.noExtensions,
+			initialScreenshot,
+			selfExtend: flags.selfExtend,
+		});
+	} catch (err) {
+		await provisioned.handle.close().catch(() => {});
+		throw err;
+	}
+
 	return {
 		handle: provisioned.handle,
 		resolved,
@@ -491,7 +540,18 @@ async function finishHarnessRuntime(
 		harness,
 		provider,
 		modelRef: auth.modelRef,
+		skipInitialScreenshot,
+		host,
 	};
+}
+
+async function sessionHasPriorTurn(session: Session): Promise<boolean> {
+	const entries = await session.getBranch();
+	return entries.some(
+		(entry) =>
+			entry.type === "message" &&
+			(entry.message.role === "user" || entry.message.role === "assistant"),
+	);
 }
 
 function hasExplicitSessionFlag(flags: HarnessCliFlags): boolean {
@@ -563,13 +623,21 @@ export async function runPrintCommand(prompt: string, flags: HarnessCliFlags): P
 			provider: runtime.provider,
 			prompt,
 			skills: runtime.skills,
-			skipInitialScreenshot: runtime.resolved?.resumed === true,
+			skipInitialScreenshot: runtime.skipInitialScreenshot,
 			verbose: flags.verbose,
 			jsonlMode,
 			jsonlIncludeDeltas: flags.jsonlIncludeDeltas,
 			jsonlIncludeImages: flags.jsonlIncludeImages,
 		});
 	} finally {
+		// Dispose before closing the handle: extensions receive session_shutdown
+		// during dispose and may call back into the harness while the browser lives.
+		// Separate try blocks so a throwing extension shutdown never skips close().
+		try {
+			await runtime.host?.dispose();
+		} catch (err) {
+			stderr.write(`[cua] cleanup warning: ${(err as Error).message}\n`);
+		}
 		try {
 			await runtime.handle.close();
 		} catch (err) {
@@ -600,10 +668,16 @@ export async function runInteractiveCommand(
 			debugTui: flags.debugTui,
 			resumed: runtime.resolved?.resumed === true,
 			transcriptPath: runtime.resolved?.transcriptPath,
-			skipInitialScreenshot: runtime.resolved?.resumed === true,
+			skipInitialScreenshot: runtime.skipInitialScreenshot,
 			namedSession: flags.namedSession,
+			host: runtime.host,
 		});
 	} finally {
+		try {
+			await runtime.host?.dispose();
+		} catch (err) {
+			stderr.write(`[cua] cleanup warning: ${(err as Error).message}\n`);
+		}
 		try {
 			await runtime.handle.close();
 		} catch (err) {
@@ -626,10 +700,15 @@ export async function runActionCommand(
 			harness: runtime.harness,
 			browserHandle: runtime.handle,
 			session: runtime.session,
-			skipInitialScreenshot: runtime.resolved?.resumed === true,
+			skipInitialScreenshot: runtime.skipInitialScreenshot,
 		});
 		return emitCompact(res);
 	} finally {
+		try {
+			await runtime.host?.dispose();
+		} catch (err) {
+			stderr.write(`[cua] cleanup warning: ${(err as Error).message}\n`);
+		}
 		try {
 			await runtime.handle.close();
 		} catch (err) {
