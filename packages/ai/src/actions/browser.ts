@@ -17,6 +17,7 @@ import { Type, type TSchema } from "@earendil-works/pi-ai";
  */
 export const CUA_BROWSER_ACTION_TYPES = [
 	"browser_snapshot",
+	"browser_act",
 	"browser_wait_for",
 	"browser_text",
 	"browser_find",
@@ -78,6 +79,35 @@ export interface CuaActionBrowserWaitFor {
 	tab_id?: string;
 }
 
+type CuaBrowserActStepOptions = {
+	/** Timeout for performing this step and verifying its expectation, capped by the plan deadline. */
+	timeout_ms?: number;
+	expect?: CuaBrowserExpectation;
+};
+
+/** Ref- or focus-based operation with an optional per-step semantic expectation. */
+export type CuaBrowserActStep = (
+	| { type: "click"; ref: string; button?: "left" | "right" | "middle"; num_clicks?: 1 | 2 | 3; modifiers?: string[] }
+	| { type: "hover"; ref: string }
+	| { type: "fill"; ref: string; value: string | number | boolean }
+	| { type: "type"; text: string }
+	| { type: "key"; text: string; repeat?: number }
+	| { type: "scroll_to"; ref: string }
+	| { type: "wait"; ms?: number }
+) & CuaBrowserActStepOptions;
+
+/** Dependent action plan whose optional `expect` verifies the complete plan result. */
+export interface CuaActionBrowserAct {
+	type: "browser_act";
+	steps: NonEmptyArray<CuaBrowserActStep>;
+	expect?: CuaBrowserExpectation;
+	/** Global timeout for performing every step and verifying the plan expectation. */
+	timeout_ms?: number;
+	poll_ms?: number;
+	successor?: { filter?: "all" | "interactive"; depth?: number };
+	tab_id?: string;
+}
+
 export interface CuaActionBrowserText {
 	type: "browser_text";
 	tab_id?: string;
@@ -95,7 +125,7 @@ export interface CuaActionBrowserClick {
 	x?: number;
 	y?: number;
 	button?: "left" | "right" | "middle";
-	num_clicks?: number;
+	num_clicks?: 1 | 2 | 3;
 	modifiers?: string[];
 	tab_id?: string;
 }
@@ -180,6 +210,7 @@ export interface CuaActionBrowserEvaluate {
 
 export type CuaBrowserAction =
 	| CuaActionBrowserSnapshot
+	| CuaActionBrowserAct
 	| CuaActionBrowserWaitFor
 	| CuaActionBrowserText
 	| CuaActionBrowserFind
@@ -289,6 +320,19 @@ export function createCuaBrowserActionSchemaByType(options: CuaBrowserSchemaOpti
 		],
 		{ description: "Semantic condition evaluated from structured browser observations." },
 	);
+	const actStepOptions = {
+		timeout_ms: Type.Optional(Type.Number({ minimum: 1, maximum: 30_000, description: "Timeout for performing this step and verifying its expectation, capped by the plan deadline." })),
+		expect: Type.Optional(expectation),
+	};
+	const actStep = Type.Union([
+		Type.Object({ type: Type.Literal("click"), ref: RefProperty(), button: Type.Optional(Type.Union([Type.Literal("left"), Type.Literal("right"), Type.Literal("middle")])), num_clicks: Type.Optional(Type.Integer({ minimum: 1, maximum: 3 })), modifiers: Type.Optional(Type.Array(Type.String())), ...actStepOptions }, { additionalProperties: false }),
+		Type.Object({ type: Type.Literal("hover"), ref: RefProperty(), ...actStepOptions }, { additionalProperties: false }),
+		Type.Object({ type: Type.Literal("fill"), ref: RefProperty(), value: Type.Union([Type.String(), Type.Number(), Type.Boolean()]), ...actStepOptions }, { additionalProperties: false }),
+		Type.Object({ type: Type.Literal("type"), text: Type.String(), ...actStepOptions }, { additionalProperties: false }),
+		Type.Object({ type: Type.Literal("key"), text: Type.String(), repeat: Type.Optional(Type.Number()), ...actStepOptions }, { additionalProperties: false }),
+		Type.Object({ type: Type.Literal("scroll_to"), ref: RefProperty(), ...actStepOptions }, { additionalProperties: false }),
+		Type.Object({ type: Type.Literal("wait"), ms: Type.Optional(Type.Number({ minimum: 0, maximum: 30_000 })), ...actStepOptions }, { additionalProperties: false }),
+	]);
 
 	const clickTarget: Record<string, TSchema> = options.coordinates
 		? {
@@ -313,6 +357,18 @@ export function createCuaBrowserActionSchemaByType(options: CuaBrowserSchemaOpti
 			{ type: Type.Literal("browser_wait_for"), expect: expectation, timeout_ms: Type.Optional(Type.Number({ minimum: 1, maximum: 30_000, description: "Semantic polling timeout in milliseconds (default 2000); in-flight browser reads settle before timeout is reported." })), poll_ms: Type.Optional(Type.Number({ minimum: 10, maximum: 1_000, description: "Polling interval in milliseconds (default 50)." })), tab_id: TabId() },
 			{ additionalProperties: false },
 		),
+		browser_act: Type.Object(
+			{
+				type: Type.Literal("browser_act"),
+				steps: Type.Array(actStep, { minItems: 1, maxItems: 20 }),
+				expect: Type.Optional(expectation),
+				timeout_ms: Type.Optional(Type.Number({ minimum: 1, maximum: 30_000, description: "Global timeout for performing all steps and verifying the plan expectation (default 30000)." })),
+				poll_ms: Type.Optional(Type.Number({ minimum: 10, maximum: 1_000 })),
+				successor: Type.Optional(Type.Object({ filter: Type.Optional(Type.Union([Type.Literal("all"), Type.Literal("interactive")])), depth: Type.Optional(Type.Number()) }, { additionalProperties: false })),
+				tab_id: TabId(),
+			},
+			{ additionalProperties: false },
+		),
 		browser_text: Type.Object(
 			{
 				type: Type.Literal("browser_text"),
@@ -333,7 +389,7 @@ export function createCuaBrowserActionSchemaByType(options: CuaBrowserSchemaOpti
 				type: Type.Literal("browser_click"),
 				...clickTarget,
 				button: Type.Optional(Type.Union([Type.Literal("left"), Type.Literal("right"), Type.Literal("middle")])),
-				num_clicks: Type.Optional(Type.Number()),
+				num_clicks: Type.Optional(Type.Integer({ minimum: 1, maximum: 3 })),
 				modifiers: Type.Optional(Type.Array(Type.String())),
 				tab_id: TabId(),
 			},

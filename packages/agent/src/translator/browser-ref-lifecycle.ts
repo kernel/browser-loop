@@ -193,6 +193,11 @@ export class RefGenerationLifecycle {
 		this.deleteUnusedFrame(frame);
 	}
 
+	/** Current generation for an observation frame key, defaulting to zero before registration. */
+	currentGeneration(frameKey: string): number {
+		return this.frames.get(frameKey)?.generation ?? this.targets.get(frameKey)?.generation ?? 0;
+	}
+
 	isRefCurrent(entry: RefEntry): boolean {
 		if (entry.frameId === entry.targetId) return this.targets.get(entry.targetId)?.generation === entry.generation;
 		const frame = this.frames.get(entry.frameId);

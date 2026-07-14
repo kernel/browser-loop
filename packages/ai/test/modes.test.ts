@@ -65,11 +65,13 @@ describe("mode tool naming", () => {
 });
 
 describe("mode tool schemas", () => {
-	it("browser mode click accepts refs or viewport coordinates", () => {
+	it("browser mode click accepts refs or viewport coordinates and bounds click count", () => {
 		const tools = computerTools({ mode: "browser" });
 		const click = tools.find((tool) => tool.name === "click")!;
 		expect(click.parameters.properties.ref).toBeDefined();
 		expect(click.parameters.properties.x).toBeDefined();
+		expect(click.parameters.properties.num_clicks).toMatchObject({ type: "integer", minimum: 1, maximum: 3 });
+		for (const num_clicks of [0, 4]) expect(() => validateToolArguments(click, { type: "toolCall", id: "1", name: "click", arguments: { ref: "e1", num_clicks } })).toThrow();
 	});
 
 	it("hybrid mode browser_click is ref-only, keeping one coordinate frame", () => {
@@ -87,6 +89,30 @@ describe("mode tool schemas", () => {
 			expect(names).toContain(action.slice("browser_".length));
 		}
 		expect(names).toContain("wait_for");
+	});
+
+	it("exposes dependent action plans with bounded steps", () => {
+		const browserAct = computerTools({ mode: "browser" }).find((tool) => tool.name === "act")!;
+		const hybridAct = computerTools({ mode: "hybrid" }).find((tool) => tool.name === "browser_act")!;
+		expect(browserAct.parameters.properties.steps).toMatchObject({ minItems: 1, maxItems: 20 });
+		expect(browserAct.parameters.properties.timeout_ms).toMatchObject({ minimum: 1, maximum: 30_000 });
+		expect(browserAct.parameters.properties.poll_ms).toMatchObject({ minimum: 10, maximum: 1_000 });
+		const clickStep = (browserAct.parameters.properties.steps.items as { anyOf: Array<{ properties: Record<string, unknown> }> }).anyOf[0]!;
+		expect(clickStep.properties.num_clicks).toMatchObject({ type: "integer", minimum: 1, maximum: 3 });
+		expect(clickStep.properties.timeout_ms).toMatchObject({ minimum: 1, maximum: 30_000 });
+		expect(hybridAct).toBeDefined();
+		for (const arguments_ of [
+			{ steps: [] },
+			{ steps: [{ type: "wait" }], timeout_ms: 0 },
+			{ steps: [{ type: "wait", timeout_ms: 0 }] },
+			{ steps: [{ type: "wait", ms: 30_001 }] },
+			{ steps: [{ type: "click", ref: "e1", num_clicks: 0 }] },
+			{ steps: [{ type: "click", ref: "e1", num_clicks: 4 }] },
+		]) expect(() => validateToolArguments(browserAct, { type: "toolCall", id: "1", name: "act", arguments: arguments_ })).toThrow();
+		for (const arguments_ of [
+			{ steps: [{ type: "click", ref: "e1", timeout_ms: 1_000, expect: { type: "text", text: "Done" } }] },
+			{ steps: [{ type: "wait" }], expect: { all: [{ type: "url", changed: true }] } },
+		]) expect(() => validateToolArguments(browserAct, { type: "toolCall", id: "1", name: "act", arguments: arguments_ })).not.toThrow();
 	});
 
 	it("registers semantic waits in hybrid mode with bounded polling", () => {
