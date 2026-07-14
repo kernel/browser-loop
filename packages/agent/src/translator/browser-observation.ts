@@ -1,3 +1,5 @@
+import type { BrowserObservationDiff } from "./types";
+
 /** Minimal CDP accessibility node used by browser observations. */
 export interface AXNode {
 	nodeId: string;
@@ -69,6 +71,27 @@ export interface BrowserPresentation {
 	cacheKey: string;
 	lines: ObservationLine[];
 	shape: string;
+}
+
+/** Compare complete presentations while normalizing away snapshot-scoped refs. */
+export function diffObservations(before: BrowserPresentation, after: BrowserPresentation): BrowserObservationDiff {
+	const normalize = (line: string) => line.replace(/\u0000/g, "ref");
+	const counts = new Map<string, number>();
+	for (const { text } of before.lines) {
+		const line = normalize(text);
+		counts.set(line, (counts.get(line) ?? 0) + 1);
+	}
+	const added: string[] = [];
+	for (const entry of after.lines) {
+		const line = normalize(entry.text);
+		const count = counts.get(line) ?? 0;
+		if (count === 0) added.push(line);
+		else counts.set(line, count - 1);
+	}
+	const removed = [...counts].flatMap(([line, count]) => Array.from({ length: count }, () => line));
+	const url = before.observation.url === after.observation.url ? undefined : { before: before.observation.url, after: after.observation.url };
+	const title = before.observation.title === after.observation.title ? undefined : { before: before.observation.title, after: after.observation.title };
+	return { changed: added.length > 0 || removed.length > 0 || !!url || !!title, added, removed, ...(url ? { url } : {}), ...(title ? { title } : {}) };
 }
 
 /** Build the lookup key for an iframe node's stitched child tree. */
