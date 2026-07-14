@@ -105,11 +105,13 @@ export async function waitForBrowserExpectation(runtime: BrowserWaitRuntime, opt
 		return failedObservation(started, now(), error);
 	}
 	const initial = evaluateBrowserExpectation(options.expect, baseline, baseline, runtime.resolveRef);
+	const initialObservationComplete = baseline.complete;
 	if (expired()) return timedOut(started, now());
 	if (initial.reason === "stale_ref") return terminal("interrupted", "unverifiable", initial, initial, started, now(), initial.reason);
-	if (initial.truth === true) return terminal("satisfied", "preexisting", initial, initial, started, now());
+	if (initial.truth === true && initialObservationComplete) return terminal("satisfied", "preexisting", initial, initial, started, now());
 	const dialogs = runtime.dialogCount();
 	let final = initial;
+	let finalObservationComplete = initialObservationComplete;
 	while (!expired()) {
 		await sleep(Math.min(poll, remaining()));
 		if (expired()) break;
@@ -125,6 +127,7 @@ export async function waitForBrowserExpectation(runtime: BrowserWaitRuntime, opt
 		if (runtime.dialogCount() > dialogs) return terminal("interrupted", "unverifiable", initial, final, started, now(), "dialog");
 		if (!observation.complete) {
 			final = evaluateBrowserExpectation(options.expect, observation, baseline, runtime.resolveRef);
+			finalObservationComplete = false;
 			continue;
 		}
 		const removedFrame = [...baseline.generations.keys()].some((key) => !observation.generations.has(key));
@@ -139,11 +142,12 @@ export async function waitForBrowserExpectation(runtime: BrowserWaitRuntime, opt
 		}
 		if (expired()) break;
 		final = evaluateBrowserExpectation(options.expect, observation, baseline, runtime.resolveRef);
+		finalObservationComplete = true;
 		if (expired()) break;
 		if (final.reason === "stale_ref") return terminal("interrupted", "unverifiable", initial, final, started, now(), final.reason);
 		if (final.truth === true) return terminal("satisfied", "newly_verified", initial, final, started, now());
 	}
-	if (final.truth === undefined) return terminal("unverifiable", "unverifiable", initial, final, started, now(), final.reason ?? "incomplete_observation");
+	if (!finalObservationComplete || final.truth === undefined) return terminal("unverifiable", "unverifiable", initial, final, started, now(), final.reason ?? "incomplete_observation");
 	return terminal("timed_out", "failed", initial, final, started, now());
 }
 

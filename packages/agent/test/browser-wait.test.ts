@@ -135,6 +135,23 @@ describe("waitForBrowserExpectation", () => {
 		expect(result).toMatchObject({ status: "unverifiable", reason: "incomplete_observation" });
 	});
 
+	it("does not mark incomplete preexisting matches as satisfied", async () => {
+		let time = 0;
+		const result = await waitForBrowserExpectation({ selectTarget: async () => "page", observeTarget: async () => observation(["Ready"], false), dialogCount: () => 0, targetExists: async () => true, liveGeneration: () => 0, resolveRef: missingRef, now: () => time, delay: async (ms) => { time += ms; } }, { expect: { type: "text", text: "Ready" }, timeoutMs: 10, pollMs: 10 });
+		expect(result).toMatchObject({ status: "unverifiable", evidence: "unverifiable", reason: "incomplete_observation" });
+	});
+
+	it("returns incomplete matches at timeout as unverifiable", async () => {
+		let time = 0, reads = 0;
+		const states = [observation(), observation(["Ready"], false)];
+		const result = await waitForBrowserExpectation({
+			selectTarget: async () => "page", observeTarget: async () => states[Math.min(reads++, states.length - 1)]!,
+			dialogCount: () => 0, targetExists: async () => true, liveGeneration: () => 0,
+			resolveRef: missingRef, now: () => time, delay: async (ms) => { time += ms; },
+		}, { expect: { type: "text", text: "Ready" }, timeoutMs: 20, pollMs: 10 });
+		expect(result).toMatchObject({ status: "unverifiable", reason: "incomplete_observation" });
+	});
+
 	it("allows location expectations to be satisfied by navigation", async () => {
 		let time = 0, reads = 0;
 		const result = await waitForBrowserExpectation({ selectTarget: async () => "page", observeTarget: async () => reads++ === 0 ? observation() : observation([], true, { url: "https://a.test/done", navigationEpoch: 1 }), dialogCount: () => 0, targetExists: async () => true, liveGeneration: () => 0, resolveRef: missingRef, now: () => time, delay: async (ms) => { time += ms; } }, { expect: { type: "url", contains: "/done" }, timeoutMs: 20, pollMs: 10 });
