@@ -285,6 +285,29 @@ describe("HarnessExtensionHost", () => {
 		expect(screenshotCalls).toBe(0);
 	});
 
+	it("skips extension startup screenshot capture in browser mode", async () => {
+		const extDir = mkdtempSync(join(tmpdir(), "cua-ext-"));
+		writeFileSync(join(extDir, "startup-msg.ts"), SEND_ON_STARTUP_EXTENSION);
+		fx = await buildTestHarness({ turns: [{ steps: [{ type: "text", text: "ok" }] }] });
+		await fx.harness.setMode("browser");
+		let screenshotCalls = 0;
+		const created = new HarnessExtensionHost({
+			harness: fx.harness,
+			session: fx.session,
+			cwd: fx.cwd,
+			configuredPaths: [extDir],
+			agentDir: mkdtempSync(join(tmpdir(), "cua-agentdir-")),
+			initialScreenshot: async () => {
+				screenshotCalls += 1;
+				return [{ type: "image", data: "x", mimeType: "image/png" }];
+			},
+		});
+		host = created;
+		await created.load();
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(screenshotCalls).toBe(0);
+	});
+
 	it("captures a failing extension sendUserMessage instead of an unhandled rejection", async () => {
 		const extDir = mkdtempSync(join(tmpdir(), "cua-ext-"));
 		writeFileSync(join(extDir, "startup-msg.ts"), SEND_ON_STARTUP_EXTENSION);

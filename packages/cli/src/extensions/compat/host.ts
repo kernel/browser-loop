@@ -338,6 +338,9 @@ export class HarnessExtensionHost {
 
 	private async maybeInitialScreenshot(): Promise<ImageContent[] | undefined> {
 		if (!this.initialScreenshot || !this.startedUp) return undefined;
+		// Browser mode's only frame is the viewport; skip OS-display capture
+		// rather than mix coordinate frames on the first turn.
+		if (this.harness.getMode() === "browser") return undefined;
 		if (await sessionHasPriorTurn(this.session)) return undefined;
 		return this.initialScreenshot();
 	}
