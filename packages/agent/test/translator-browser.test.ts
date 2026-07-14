@@ -1074,6 +1074,20 @@ describe("BrowserExecutor ref state export/import", () => {
 		expect(pressed).toBeDefined();
 	});
 
+	it("persists navigation epochs across ref-state export/import", async () => {
+		const { cdp, emit } = createFakeCdp(BUTTON_TREE);
+		const first = new BrowserExecutor(cdp);
+		await snapshotText(first);
+		emit({ method: "Page.frameNavigated", params: { frame: { id: "TARGET-1" } }, sessionId: "session-1" });
+		const state = first.exportRefState();
+		expect(state.navigationEpochs).toEqual([["TARGET-1", 1]]);
+
+		const second = new BrowserExecutor(createFakeCdp(BUTTON_TREE).cdp);
+		second.importRefState(state);
+		const importedEpochs = (second as unknown as { navigationEpochs: Map<string, number> }).navigationEpochs;
+		expect(importedEpochs.get("TARGET-1")).toBe(1);
+	});
+
 	it("keeps minting unique refs after import and invalidates imported refs on navigation", async () => {
 		const first = new BrowserExecutor(createFakeCdp(BUTTON_TREE).cdp);
 		await snapshotText(first);

@@ -78,6 +78,7 @@ export interface BrowserRefState {
 	refCounter: number;
 	activeTargetId?: string;
 	generations: Array<[string, number]>;
+	navigationEpochs?: Array<[string, number]>;
 	refs: Array<[string, Omit<RefEntry, "sessionId">]>;
 	frameParents?: Array<[string, string]>;
 	frameOwners?: Array<[string, string]>;
@@ -226,6 +227,7 @@ export class BrowserExecutor {
 			refCounter: this.refCounter,
 			...(this.activeTargetId ? { activeTargetId: this.activeTargetId } : {}),
 			generations: [...this.generations],
+			navigationEpochs: [...this.navigationEpochs],
 			refs: [...this.refs].map(([ref, { sessionId: _sessionId, ...entry }]) => [ref, entry]),
 			frameParents: [...this.frameParents],
 			frameOwners: [...this.frameOwners],
@@ -238,6 +240,7 @@ export class BrowserExecutor {
 		this.refCounter = Math.max(this.refCounter, state.refCounter);
 		this.activeTargetId = state.activeTargetId ?? this.activeTargetId;
 		for (const [frameId, generation] of state.generations) this.generations.set(frameId, generation);
+		for (const [targetId, epoch] of state.navigationEpochs ?? []) this.navigationEpochs.set(targetId, epoch);
 		for (const [ref, entry] of state.refs) this.refs.set(ref, { ...entry, sessionId: "" });
 		for (const [frame, parent] of state.frameParents ?? []) this.frameParents.set(frame, parent);
 		for (const [frame, owner] of state.frameOwners ?? []) this.frameOwners.set(frame, owner);
