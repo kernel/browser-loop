@@ -88,13 +88,14 @@ export async function runBrowserAct(action: CuaActionBrowserAct, runtime: Browse
 
 		const postBoundary = after && afterTargets ? boundary(before, after, targets, afterTargets, dialogs, runtime) : undefined;
 		if (after && afterTargets) { current = after; targets = afterTargets; dialogs = runtime.dialogCount(); }
-		stopReason = (!after?.complete ? "control_flow" : undefined)
-			?? postBoundary
+		stopReason = postBoundary
 			?? waitStopReason(waitResult)
 			?? (stale ? "stale_ref"
 				: actionError ? "action_failed"
 					: expectation?.status === "failed" ? "expectation_failed"
-						: expectation?.status === "preexisting" || expectation?.status === "unverifiable" || !after ? "control_flow" : undefined);
+						: undefined)
+			?? (!after?.complete ? "control_flow" : undefined)
+			?? (expectation?.status === "preexisting" || expectation?.status === "unverifiable" || !after ? "control_flow" : undefined);
 		if (stopReason) { stoppedAt = index; break; }
 	}
 
@@ -123,7 +124,6 @@ export async function runBrowserAct(action: CuaActionBrowserAct, runtime: Browse
 			current = observed; targets = successorTargets; dialogs = runtime.dialogCount();
 			if (lateBoundary) {
 				stopReason ??= lateBoundary;
-				stoppedAt ??= finalStepIndex;
 				successorError = new Error(`${lateBoundary} changed successor observation`);
 				continue;
 			}

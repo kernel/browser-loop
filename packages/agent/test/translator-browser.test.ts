@@ -156,6 +156,13 @@ describe("browser_act orchestration", () => {
 		expect(rt.dispatched).toEqual(["click"]);
 	});
 
+	it("keeps expectation_failed when post-action observation fails", async () => {
+		const result = await runBrowserAct({ type: "browser_act", steps: [{ type: "click", ref: "e1", expect: { type: "text", text: "Missing" } }] }, runtime([
+			observation("before"), observation("before"), observation("after"),
+		], [waitResult("failed")], { failObservationAt: 2 }));
+		expect(result).toMatchObject({ outcome: "didnt", stopped_at: 0, stop_reason: "expectation_failed", steps: [{ outcome: "didnt", expectation: { status: "failed" } }] });
+	});
+
 	it("stops on a stale ref without dispatching later steps", async () => {
 		const rt = runtime([observation("before"), observation("before"), observation("successor")], [], { dispatchError: new Error("ref e1 is stale") });
 		const result = await runBrowserAct({ type: "browser_act", steps: [{ type: "click", ref: "e1" }, { type: "type", text: "no" }] }, rt);
@@ -190,6 +197,7 @@ describe("browser_act orchestration", () => {
 			observation("before"), observation("before"), observation("after"), observation("stale"), observation("stable"),
 		], [waitResult("newly_verified")], { targets: [["target-1"], ["target-1"], ["target-1"], ["target-1", "target-2"], ["target-1", "target-2"]] }));
 		expect(result).toMatchObject({ stop_reason: "control_flow", successor: { status: "observed", title: "stable", text: "stable" } });
+		expect(result).not.toHaveProperty("stopped_at");
 	});
 
 	it("preserves a timed-out final expectation when the successor satisfies it", async () => {
