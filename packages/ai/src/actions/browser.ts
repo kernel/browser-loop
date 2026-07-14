@@ -17,6 +17,7 @@ import { Type, type TSchema } from "@earendil-works/pi-ai";
  */
 export const CUA_BROWSER_ACTION_TYPES = [
 	"browser_snapshot",
+	"browser_wait_for",
 	"browser_text",
 	"browser_find",
 	"browser_click",
@@ -41,6 +42,39 @@ export interface CuaActionBrowserSnapshot {
 	filter?: "all" | "interactive";
 	ref?: string;
 	depth?: number;
+	tab_id?: string;
+}
+
+type RoleNameExpectation =
+	| { type: "role_name"; role: string; name?: string; exists?: boolean }
+	| { type: "role_name"; role?: string; name: string; exists?: boolean };
+type RefExpectationState = { value?: string; checked?: boolean | "mixed"; selected?: boolean; expanded?: boolean };
+type RefExpectation = { type: "ref"; ref: string } & (
+	| (RefExpectationState & { value: string })
+	| (RefExpectationState & { checked: boolean | "mixed" })
+	| (RefExpectationState & { selected: boolean })
+	| (RefExpectationState & { expanded: boolean })
+);
+type LocationExpectation = { type: "url" | "title" } & (
+	| { equals: string; contains?: string; changed?: boolean }
+	| { equals?: string; contains: string; changed?: boolean }
+	| { equals?: string; contains?: string; changed: boolean }
+);
+type CuaBrowserExpectationLeaf =
+	| { type: "text"; text: string; exists?: boolean }
+	| RoleNameExpectation
+	| RefExpectation
+	| LocationExpectation;
+type NonEmptyArray<T> = [T, ...T[]];
+/** Semantic condition over accessible content, ref state, location, or all/any leaf groups. */
+export type CuaBrowserExpectation = CuaBrowserExpectationLeaf | { all: NonEmptyArray<CuaBrowserExpectationLeaf> } | { any: NonEmptyArray<CuaBrowserExpectationLeaf> };
+
+export interface CuaActionBrowserWaitFor {
+	type: "browser_wait_for";
+	expect: CuaBrowserExpectation;
+	/** Semantic polling timeout; an in-flight browser read settles before timeout is reported. */
+	timeout_ms?: number;
+	poll_ms?: number;
 	tab_id?: string;
 }
 
@@ -146,6 +180,7 @@ export interface CuaActionBrowserEvaluate {
 
 export type CuaBrowserAction =
 	| CuaActionBrowserSnapshot
+	| CuaActionBrowserWaitFor
 	| CuaActionBrowserText
 	| CuaActionBrowserFind
 	| CuaActionBrowserClick
@@ -179,6 +214,13 @@ const TabId = () => Type.Optional(Type.String({ description: "Tab to act on. Def
 const RefProperty = () => Type.String({ description: "Element reference from browser_snapshot or browser_find, e.g. \"e12\"." });
 
 export function createCuaBrowserActionSchemaByType(options: CuaBrowserSchemaOptions): Record<CuaBrowserActionType, TSchema> {
+	const roleName = (required: "role" | "name") => Type.Object({ type: Type.Literal("role_name"), role: required === "role" ? Type.String() : Type.Optional(Type.String()), name: required === "name" ? Type.String() : Type.Optional(Type.String()), exists: Type.Optional(Type.Boolean()) }, { additionalProperties: false });
+	const refState = (required: "value" | "checked" | "selected" | "expanded") => Type.Object({ type: Type.Literal("ref"), ref: RefProperty(), value: required === "value" ? Type.String() : Type.Optional(Type.String()), checked: required === "checked" ? Type.Union([Type.Boolean(), Type.Literal("mixed")]) : Type.Optional(Type.Union([Type.Boolean(), Type.Literal("mixed")])), selected: required === "selected" ? Type.Boolean() : Type.Optional(Type.Boolean()), expanded: required === "expanded" ? Type.Boolean() : Type.Optional(Type.Boolean()) }, { additionalProperties: false });
+	const location = (required: "equals" | "contains" | "changed") => Type.Object({ type: Type.Union([Type.Literal("url"), Type.Literal("title")]), equals: required === "equals" ? Type.String() : Type.Optional(Type.String()), contains: required === "contains" ? Type.String() : Type.Optional(Type.String()), changed: required === "changed" ? Type.Boolean() : Type.Optional(Type.Boolean()) }, { additionalProperties: false });
+	const leaves = [Type.Object({ type: Type.Literal("text"), text: Type.String(), exists: Type.Optional(Type.Boolean()) }, { additionalProperties: false }), roleName("role"), roleName("name"), refState("value"), refState("checked"), refState("selected"), refState("expanded"), location("equals"), location("contains"), location("changed")];
+	const leaf = Type.Union(leaves);
+	const expectation = Type.Union([leaf, Type.Object({ all: Type.Array(leaf, { minItems: 1 }) }, { additionalProperties: false }), Type.Object({ any: Type.Array(leaf, { minItems: 1 }) }, { additionalProperties: false })]);
+
 	const clickTarget: Record<string, TSchema> = options.coordinates
 		? {
 				ref: Type.Optional(RefProperty()),
@@ -196,6 +238,10 @@ export function createCuaBrowserActionSchemaByType(options: CuaBrowserSchemaOpti
 				depth: Type.Optional(Type.Number({ description: "Maximum tree depth (default 15)." })),
 				tab_id: TabId(),
 			},
+			{ additionalProperties: false },
+		),
+		browser_wait_for: Type.Object(
+			{ type: Type.Literal("browser_wait_for"), expect: expectation, timeout_ms: Type.Optional(Type.Number({ minimum: 0, maximum: 30_000, description: "Semantic polling timeout; in-flight browser reads settle before timeout is reported." })), poll_ms: Type.Optional(Type.Number({ minimum: 10, maximum: 1_000 })), tab_id: TabId() },
 			{ additionalProperties: false },
 		),
 		browser_text: Type.Object(
