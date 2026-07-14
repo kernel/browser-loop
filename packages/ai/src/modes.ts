@@ -56,6 +56,7 @@ export const CUA_HYBRID_COMPUTER_ACTION_TYPES: readonly CuaComputerActionType[] 
  */
 export const CUA_HYBRID_BROWSER_ACTION_TYPES: readonly CuaBrowserActionType[] = [
 	"browser_snapshot",
+	"browser_act",
 	"browser_wait_for",
 	"browser_text",
 	"browser_find",
@@ -110,6 +111,11 @@ export function cuaToolNameForAction(action: CuaActionType, mode: CuaMode): stri
 }
 
 const BROWSER_ACTION_DESCRIPTIONS: Record<CuaBrowserActionType, string> = {
+	browser_act:
+		"Run 1–20 dependent browser actions after grounding the page. Before using click, hover, fill, or scroll_to, call snapshot or find to obtain current element refs unless you already have refs from an unchanged page. " +
+		"Never invent refs; re-snapshot after navigation or when told a ref is stale. Use this tool when later steps depend on earlier ones or when you need semantic verification of each step or the complete plan. " +
+		"Each step can have its own timeout, while the plan timeout covers all steps and the final expectation. " +
+		"Stops at failed or unverifiable boundaries and returns worked, did-not-work, or unknown outcomes plus a stable successor snapshot and normalized diff.",
 	browser_wait_for:
 		"Poll the page without delivering input until accessible text or an element role/name appears or disappears, an element ref reaches a value/state, or the URL/title matches or changes. " +
 		"Supports all/any leaf groups and returns structured satisfied, timed-out, interrupted, or unverifiable evidence. Defaults to a 2-second timeout and 50ms polling.",
