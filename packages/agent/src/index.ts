@@ -6,7 +6,12 @@ export { InternalComputerTranslator } from "./translator/translator";
 export { CdpConnection } from "./translator/cdp";
 export { BrowserExecutor } from "./translator/browser";
 export type { BrowserFindCandidate, BrowserRefState } from "./translator/browser";
-export type { BatchExecutionResult, BatchReadResult } from "./translator/types";
+export type {
+	BatchExecutionResult,
+	BatchReadResult,
+	BrowserExpectationEvidence,
+	BrowserWaitForResult,
+} from "./translator/types";
 export { createCuaComputerTools } from "./tools";
 export type {
 	BatchDetails,

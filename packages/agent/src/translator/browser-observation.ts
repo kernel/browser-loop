@@ -18,6 +18,8 @@ export interface NthIndex {
 export interface RenderContext {
 	targetId: string;
 	frameKey: string;
+	/** Target whose CDP session owns this frame (page target or OOPIF target). */
+	sessionTargetId: string;
 	sessionId: string;
 	generation: number;
 	interactiveOnly: boolean;
@@ -44,12 +46,14 @@ export interface ObservedNode {
 
 export interface BrowserObservation {
 	targetId: string;
+	navigationEpoch: number;
 	tree: FrameStitch;
-	stitches: Map<number, FrameStitch>;
+	stitches: Map<string, FrameStitch>;
 	nodes: ObservedNode[];
 	url: string;
 	title: string;
 	generations: Map<string, number>;
+	complete: boolean;
 }
 
 export interface BrowserPresentation {
@@ -57,6 +61,10 @@ export interface BrowserPresentation {
 	cacheKey: string;
 	lines: ObservationLine[];
 	shape: string;
+}
+
+export function frameStitchKey(parentFrameKey: string, backendNodeId: number): string {
+	return `${parentFrameKey}\u0000${backendNodeId}`;
 }
 
 export class ObservationChangedError extends Error {
