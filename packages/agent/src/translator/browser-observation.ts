@@ -1,3 +1,4 @@
+/** Minimal accessibility node shape consumed by browser observation rendering. */
 export interface AXNode {
 	nodeId: string;
 	ignored?: boolean;
@@ -10,11 +11,13 @@ export interface AXNode {
 	childIds?: string[];
 }
 
+/** Indexes node ref ordinals within role/name cohorts for stable references. */
 export interface NthIndex {
 	index: Map<string, number>;
 	cohorts: Map<string, number>;
 }
 
+/** Carries frame/session metadata needed to render and trace an observed node. */
 export interface RenderContext {
 	targetId: string;
 	frameKey: string;
@@ -25,23 +28,27 @@ export interface RenderContext {
 	cursorIds?: ReadonlySet<number>;
 }
 
+/** One rendered observation line plus source node and render context. */
 export interface ObservationLine {
 	text: string;
 	refNode?: AXNode;
 	ctx: RenderContext;
 }
 
+/** Stitched frame tree with node lookup and per-frame render context. */
 export interface FrameStitch {
 	byId: Map<string, AXNode>;
 	roots: string[];
 	ctx: RenderContext;
 }
 
+/** Flattened observed node entry paired with the context it came from. */
 export interface ObservedNode {
 	node: AXNode;
 	ctx: RenderContext;
 }
 
+/** Full browser observation snapshot assembled from stitched frame trees. */
 export interface BrowserObservation {
 	targetId: string;
 	tree: FrameStitch;
@@ -52,6 +59,7 @@ export interface BrowserObservation {
 	generations: Map<string, number>;
 }
 
+/** Cached presentation artifact derived from a browser observation snapshot. */
 export interface BrowserPresentation {
 	observation: BrowserObservation;
 	cacheKey: string;
@@ -59,6 +67,7 @@ export interface BrowserPresentation {
 	shape: string;
 }
 
+/** Signals that observation data changed mid-collection and must be retried. */
 export class ObservationChangedError extends Error {
 	constructor(message = "Browser observation changed during collection") {
 		super(message);
@@ -80,6 +89,7 @@ export function buildNthIndex(nodes: AXNode[]): NthIndex {
 	return { index, cohorts };
 }
 
+/** Builds a stable cohort identifier from a node's role/name pair. */
 export function cohortKey(role: string, name: string): string {
 	return `${role}\u0000${name}`;
 }
