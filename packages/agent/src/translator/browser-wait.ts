@@ -124,13 +124,6 @@ export async function waitForBrowserExpectation(runtime: BrowserWaitRuntime, opt
 		catch (error) { return failedObservation(started, now(), error, initial, final); }
 		if (observation.targetId !== targetId) return terminal("interrupted", "unverifiable", initial, final, started, now(), "target_changed");
 		if (runtime.dialogCount() > dialogs) return terminal("interrupted", "unverifiable", initial, final, started, now(), "dialog");
-		if (!observation.complete) {
-			const partial = evaluateBrowserExpectation(options.expect, observation, baseline, runtime.resolveRef);
-			final = { ...partial, truth: undefined, reason: "incomplete_observation" };
-			continue;
-		}
-		const removedFrame = [...baseline.generations.keys()].some((key) => !observation.generations.has(key));
-		if (removedFrame) return terminal("unverifiable", "unverifiable", initial, final, started, now(), "incomplete_observation");
 		const navigated = observation.navigationEpoch !== baseline.navigationEpoch;
 		if (navigated) {
 			if (isLocationExpectation(options.expect)) {
@@ -139,6 +132,13 @@ export async function waitForBrowserExpectation(runtime: BrowserWaitRuntime, opt
 			}
 			return terminal("interrupted", "unverifiable", initial, final, started, now(), "navigation");
 		}
+		if (!observation.complete) {
+			const partial = evaluateBrowserExpectation(options.expect, observation, baseline, runtime.resolveRef);
+			final = { ...partial, truth: undefined, reason: "incomplete_observation" };
+			continue;
+		}
+		const removedFrame = [...baseline.generations.keys()].some((key) => !observation.generations.has(key));
+		if (removedFrame) return terminal("unverifiable", "unverifiable", initial, final, started, now(), "incomplete_observation");
 		if (expired()) break;
 		final = evaluateBrowserExpectation(options.expect, observation, baseline, runtime.resolveRef);
 		if (expired()) break;

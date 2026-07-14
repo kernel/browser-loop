@@ -66,6 +66,12 @@ type CuaBrowserExpectationLeaf =
 	| RefExpectation
 	| LocationExpectation;
 type NonEmptyArray<T> = [T, ...T[]];
+/**
+ * Semantic condition used by `browser_wait_for`.
+ *
+ * Leaves match text, role/name, element ref state, or URL/title state, while
+ * `all` and `any` compose one or more leaf expectations with logical AND/OR.
+ */
 export type CuaBrowserExpectation = CuaBrowserExpectationLeaf | { all: NonEmptyArray<CuaBrowserExpectationLeaf> } | { any: NonEmptyArray<CuaBrowserExpectationLeaf> };
 
 export interface CuaActionBrowserWaitFor {

@@ -129,6 +129,17 @@ describe("waitForBrowserExpectation", () => {
 		expect(result).toMatchObject({ status: "satisfied", evidence: "newly_verified" });
 	});
 
+	it("reports navigation even when follow-up observations are incomplete", async () => {
+		let time = 0, reads = 0;
+		const states = [observation(), observation([], false, { navigationEpoch: 1 })];
+		const result = await waitForBrowserExpectation({
+			selectTarget: async () => "page", observeTarget: async () => states[Math.min(reads++, states.length - 1)]!,
+			dialogCount: () => 0, targetExists: async () => true, liveGeneration: () => 0,
+			resolveRef: missingRef, now: () => time, delay: async (ms) => { time += ms; },
+		}, { expect: { type: "text", text: "Ready" }, timeoutMs: 30, pollMs: 10 });
+		expect(result).toMatchObject({ status: "interrupted", reason: "navigation" });
+	});
+
 	it("returns incomplete observations as unverifiable", async () => {
 		let time = 0;
 		const result = await waitForBrowserExpectation({ selectTarget: async () => "page", observeTarget: async () => observation([], false), dialogCount: () => 0, targetExists: async () => true, liveGeneration: () => 0, resolveRef: missingRef, now: () => time, delay: async (ms) => { time += ms; } }, { expect: { type: "text", text: "Gone", exists: false }, timeoutMs: 10, pollMs: 10 });
