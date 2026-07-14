@@ -171,6 +171,11 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 		const transcript = opts.transcriptPath ? ` ${opts.transcriptPath}` : "";
 		messages.addNotice(`resumed${transcript} · fresh browser`);
 	}
+	if (opts.host?.loadErrors.length) {
+		for (const { path, error } of opts.host.loadErrors) {
+			messages.addError(`${path}: ${error}`);
+		}
+	}
 
 	let assistantBuffer: AssistantBuffer | undefined;
 	let inflight = 0;

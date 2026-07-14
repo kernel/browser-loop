@@ -615,6 +615,11 @@ export async function runPrintCommand(prompt: string, flags: HarnessCliFlags): P
 	const runtime = await setupHarnessRuntime(flags);
 	const jsonlMode = (flags.output ?? "text").toLowerCase() === "jsonl";
 	try {
+		if (runtime.host?.loadErrors.length) {
+			for (const { path, error } of runtime.host.loadErrors) {
+				stderr.write(`[cua] extension load error ${path}: ${error}\n`);
+			}
+		}
 		return await runPrint({
 			harness: runtime.harness,
 			browserHandle: runtime.handle,
