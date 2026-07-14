@@ -199,6 +199,15 @@ describe("browser_act orchestration", () => {
 		expect(result).toMatchObject({ outcome: "didnt", stop_reason: "expectation_failed", final_expectation: { status: "failed", after: false }, successor: { status: "observed", title: "after" } });
 	});
 
+	it("clears an unverifiable final stop reason when successor verification succeeds", async () => {
+		const result = await runBrowserAct({ type: "browser_act", steps: [{ type: "wait" }], expect: { type: "url", contains: "after" } }, runtime([
+			observation("before"), observation("before"), observation("after"), observation("after"),
+		], [waitResult("unverifiable")]));
+		expect(result).toMatchObject({ outcome: "worked", final_expectation: { status: "newly_verified", after: true }, successor: { status: "observed", title: "after" } });
+		expect(result).not.toHaveProperty("stop_reason");
+		expect(result).not.toHaveProperty("stopped_at");
+	});
+
 	it("does not report incomplete successor observations as authoritative", async () => {
 		const incomplete = { ...observation("after"), complete: false };
 		const result = await runBrowserAct({ type: "browser_act", steps: [{ type: "click", ref: "e1", expect: { type: "text", text: "Done" } }] }, runtime([

@@ -131,11 +131,16 @@ export async function runBrowserAct(action: CuaActionBrowserAct, runtime: Browse
 			if (!observed.complete) throw new Error("successor observation incomplete");
 			if (action.expect && finalExpectation && finalExpectation.status !== "failed") {
 				const evaluation = runtime.evaluate(action.expect, observed, baseline);
+				const priorFinalStatus = finalExpectation.status;
 				finalExpectation = {
 					status: evaluation.truth === true ? finalExpectation.before === true ? "preexisting" : "newly_verified" : evaluation.truth === false ? "failed" : "unverifiable",
 					before: finalExpectation.before, after: evaluation.truth,
 					details: [...finalExpectation.details, ...evaluation.details.map((detail) => `successor: ${detail}`)],
 				};
+				if (evaluation.truth === true && priorFinalStatus === "unverifiable") {
+					stopReason = undefined;
+					stoppedAt = undefined;
+				}
 				if (evaluation.truth !== true) {
 					stopReason = evaluation.truth === false ? "expectation_failed" : "control_flow";
 					stoppedAt = finalStepIndex;
