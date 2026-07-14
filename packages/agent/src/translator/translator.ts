@@ -137,8 +137,14 @@ export class InternalComputerTranslator {
 				await flush();
 				const reads = await this.browser().execute(action);
 				result.readResults.push(...reads);
-				const failedWait = reads.some((read) => read.type === "browser_wait_for" && read.result.status !== "satisfied");
-				if (failedWait) {
+				// A worked plan can still end at a navigation/dialog boundary. Stop the
+				// enclosing canonical batch so trailing actions cannot reuse old-page assumptions.
+				const stopped = reads.some((read) =>
+					read.type === "browser_wait_for"
+						? read.result.status !== "satisfied"
+						: read.type === "browser_act" && read.result.stop_reason !== undefined,
+				);
+				if (stopped) {
 					const skippedActions = actions.length - index - 1;
 					if (skippedActions > 0) result.skippedActions = skippedActions;
 					break;
