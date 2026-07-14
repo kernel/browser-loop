@@ -110,6 +110,7 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 	const frameTrees = new Map<string, Array<{ backendDOMNodeId?: number }>>();
 	const iframeFrameIds = new Map<number, string>();
 	const autoAttachFrames: Array<{ targetId: string; sessionId: string }> = [];
+	const targetSessions = new Map<string, string>();
 	const failMethods = new Set<string>();
 	let axRead = 0;
 	let targetRead = 0;
@@ -179,7 +180,7 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 		},
 		pageTargets: async () =>
 			targetProvider?.(++targetRead) ?? [{ targetId: "TARGET-1", type: "page", title: "Page", url: "https://a.test/" }],
-		attachToTarget: async () => "session-1",
+		attachToTarget: async (targetId: string) => targetSessions.get(targetId) ?? "session-1",
 		createTarget: async () => "TARGET-2",
 		close: () => {},
 	};
@@ -201,6 +202,7 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 	const addAutoAttachFrame = (frame: { targetId: string; sessionId: string }) => {
 		autoAttachFrames.push(frame);
 	};
+	const setTargetSession = (targetId: string, sessionId: string) => targetSessions.set(targetId, sessionId);
 	const failOn = (method: string) => {
 		failMethods.add(method);
 	};
@@ -219,6 +221,7 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 		setFrameTree,
 		setIframeFrame,
 		addAutoAttachFrame,
+		setTargetSession,
 		failOn,
 		setAxReadHook,
 		setTargetProvider,
@@ -303,6 +306,28 @@ describe("BrowserExecutor ref lifecycle", () => {
 		emit({ method: "Page.frameNavigated", params: { frame: { id: "F1" } }, sessionId: "session-1" });
 		await expect(executor.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction)).rejects.toThrow(/stale/);
 		expect(refsOf(executor).size).toBe(0);
+	});
+
+	it("attributes unseen subframe navigation and detach to the owning page", async () => {
+		const { cdp, emit } = createFakeCdp(BUTTON_TREE);
+		const executor = new BrowserExecutor(cdp);
+		await snapshotText(executor);
+		const epochs = (executor as unknown as { navigationEpochs: Map<string, number> }).navigationEpochs;
+
+		emit({ method: "Page.frameNavigated", params: { frame: { id: "NEW-FRAME", parentId: "TARGET-1" } }, sessionId: "session-1" });
+		expect(epochs.get("TARGET-1")).toBe(1);
+
+		emit({ method: "Page.frameAttached", params: { frameId: "DETACHED-FRAME", parentFrameId: "NEW-FRAME" }, sessionId: "session-1" });
+		emit({ method: "Page.frameDetached", params: { frameId: "DETACHED-FRAME" }, sessionId: "session-1" });
+		expect(epochs.get("TARGET-1")).toBe(2);
+	});
+
+	it("invalidates refs on same-document navigation", async () => {
+		const { cdp, emit } = createFakeCdp(BUTTON_TREE);
+		const executor = new BrowserExecutor(cdp);
+		await snapshotText(executor);
+		emit({ method: "Page.navigatedWithinDocument", params: { frameId: "TARGET-1", url: "https://a.test/#section" }, sessionId: "session-1" });
+		await expect(executor.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction)).rejects.toThrow(/stale/);
 	});
 
 	it("does not let a same-document navigation suppress the next real navigation's invalidation", async () => {
@@ -674,6 +699,40 @@ describe("BrowserExecutor snapshot diffing", () => {
 	});
 });
 
+describe("BrowserExecutor semantic waits", () => {
+	it.each([
+		["selected target", "TARGET-1", "session-1", "interrupted", "navigation"],
+		["unrelated target", "TARGET-2", "session-2", "timed_out", undefined],
+	] as const)("handles same-document navigation on the %s", async (_label, frameId, sessionId, status, reason) => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		fake.setTargetSession("TARGET-2", "session-2");
+		fake.setTargetProvider(() => [
+			{ targetId: "TARGET-1", type: "page", title: "One", url: "https://a.test/" },
+			{ targetId: "TARGET-2", type: "page", title: "Two", url: "https://b.test/" },
+		]);
+		const executor = new BrowserExecutor(fake.cdp);
+		await executor.execute({ type: "browser_text", tab_id: "TARGET-2" } as CuaBrowserAction);
+		fake.setAxReadHook((read) => {
+			if (read === 2) fake.emit({ method: "Page.navigatedWithinDocument", params: { frameId }, sessionId });
+		});
+		const [read] = await executor.execute({ type: "browser_wait_for", tab_id: "TARGET-1", expect: { type: "text", text: "Ready" }, timeout_ms: 20, poll_ms: 1 } as CuaBrowserAction);
+		expect(read).toMatchObject({ type: "browser_wait_for", result: { status, ...(reason ? { reason } : {}) } });
+	});
+
+	it.each([
+		["missing value", {}, { value: "" }, "unverifiable"],
+		["empty value", { value: "" }, { value: "" }, "satisfied"],
+		["missing false state", {}, { checked: false }, "unverifiable"],
+		["actual false state", { properties: [{ name: "checked", value: false }] }, { checked: false }, "satisfied"],
+	] as const)("treats %s distinctly", async (_label, metadata, expected, status) => {
+		const tree = [ax({ nodeId: "1", role: "RootWebArea", childIds: ["2"] }), ax({ nodeId: "2", role: "checkbox", name: "Option", backendDOMNodeId: 42, parentId: "1", ...metadata })];
+		const executor = new BrowserExecutor(createFakeCdp(tree).cdp);
+		await snapshotText(executor);
+		const [read] = await executor.execute({ type: "browser_wait_for", expect: { type: "ref", ref: "e1", ...expected }, timeout_ms: 2, poll_ms: 1 } as CuaBrowserAction);
+		expect(read).toMatchObject({ type: "browser_wait_for", result: { status } });
+	});
+});
+
 describe("BrowserExecutor iframe stitching", () => {
 	it("stitches a same-process iframe subtree indented under its iframe node", async () => {
 		const tree = [
@@ -726,6 +785,44 @@ describe("BrowserExecutor iframe stitching", () => {
 		expect(pressed?.sessionId).toBe("session-1");
 	});
 
+	it("rebinds an imported OOPIF ref after auto-attach", async () => {
+		const first = new BrowserExecutor(setupOopif().cdp);
+		await snapshotText(first);
+		const state = first.exportRefState();
+		const secondCdp = setupOopif();
+		const second = new BrowserExecutor(secondCdp.cdp);
+		second.importRefState(state);
+		await second.execute({ type: "browser_click", ref: "e3" } as CuaBrowserAction);
+		expect(secondCdp.sent.find((cmd) => cmd.method === "DOM.scrollIntoViewIfNeeded" && cmd.params.backendNodeId === 70)?.sessionId).toBe("session-oop");
+	});
+
+	it("uses the OOPIF session for a nested same-process frame, including imported refs", async () => {
+		const nestedSetup = () => {
+			const fake = createFakeCdp(OOPIF_PAGE);
+			fake.setIframeFrame(50, "FRAME-OOP");
+			fake.setIframeFrame(80, "FRAME-INNER");
+			fake.addAutoAttachFrame({ targetId: "FRAME-OOP", sessionId: "session-oop" });
+			fake.setSessionTree("session-oop", [
+				ax({ nodeId: "o1", role: "RootWebArea", childIds: ["o2"] }),
+				ax({ nodeId: "o2", role: "Iframe", backendDOMNodeId: 80, parentId: "o1" }),
+				ax({ nodeId: "hidden", role: "button", name: "Nested", backendDOMNodeId: 90, parentId: "unrendered" }),
+			]);
+			fake.setFrameTree("FRAME-INNER", [ax({ nodeId: "i1", role: "RootWebArea", childIds: ["i2"] }), ax({ nodeId: "i2", role: "button", name: "Nested", backendDOMNodeId: 90, parentId: "i1" })]);
+			return fake;
+		};
+		const firstCdp = nestedSetup();
+		const first = new BrowserExecutor(firstCdp.cdp);
+		expect(await snapshotText(first)).toContain('button "Nested" [e4]');
+		await first.execute({ type: "browser_click", ref: "e4" } as CuaBrowserAction);
+		expect(firstCdp.sent.find((cmd) => cmd.method === "DOM.scrollIntoViewIfNeeded" && cmd.params.backendNodeId === 90)?.sessionId).toBe("session-oop");
+
+		const secondCdp = nestedSetup();
+		const second = new BrowserExecutor(secondCdp.cdp);
+		second.importRefState(first.exportRefState());
+		await second.execute({ type: "browser_click", ref: "e4" } as CuaBrowserAction);
+		expect(secondCdp.sent.find((cmd) => cmd.method === "DOM.scrollIntoViewIfNeeded" && cmd.params.backendNodeId === 90)?.sessionId).toBe("session-oop");
+	});
+
 	it("invalidates a frame target's refs when a subframe inside it navigates", async () => {
 		const { cdp, emit } = setupOopif();
 		const executor = new BrowserExecutor(cdp);
@@ -733,6 +830,31 @@ describe("BrowserExecutor iframe stitching", () => {
 
 		emit({ method: "Page.frameNavigated", params: { frame: { id: "FRAME-INNER", parentId: "FRAME-OOP" } }, sessionId: "session-oop" });
 		await expect(executor.execute({ type: "browser_click", ref: "e3" } as CuaBrowserAction)).rejects.toThrow(/stale/);
+	});
+
+	it("keeps attached OOPIF sessions when a complete observation temporarily omits the frame", async () => {
+		const fake = setupOopif();
+		const executor = new BrowserExecutor(fake.cdp);
+		expect(await snapshotText(executor)).toContain('button "Pay"');
+		fake.setNodes(BUTTON_TREE);
+		await snapshotText(executor);
+		fake.setNodes(OOPIF_PAGE);
+		expect(await snapshotText(executor)).toContain('button "Pay"');
+	});
+
+	it("treats a page-target iframe stub as complete", async () => {
+		const fake = createFakeCdp(OOPIF_PAGE);
+		fake.setIframeFrame(50, "TARGET-1");
+		const executor = new BrowserExecutor(fake.cdp);
+		const [read] = await executor.execute({ type: "browser_wait_for", expect: { type: "text", text: "Missing", exists: false }, timeout_ms: 20 } as CuaBrowserAction);
+		expect(read).toMatchObject({ type: "browser_wait_for", result: { status: "satisfied", evidence: "preexisting" } });
+	});
+
+	it("waits on semantic content inside stitched iframes", async () => {
+		const { cdp } = setupOopif();
+		const executor = new BrowserExecutor(cdp);
+		const [read] = await executor.execute({ type: "browser_wait_for", expect: { type: "text", text: "Pay" }, timeout_ms: 20 } as CuaBrowserAction);
+		expect(read).toMatchObject({ type: "browser_wait_for", result: { status: "satisfied", evidence: "preexisting" } });
 	});
 
 	it("finds elements inside stitched iframes", async () => {
