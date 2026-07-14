@@ -191,7 +191,12 @@ async function executeBatchTool(
 		throw new Error(`Actions failed: ${errorMessage(err)}`, { cause: err });
 	}
 	const waits = readResults.flatMap((read) => read.type === "browser_wait_for" ? [read.result] : []);
-	const statusText = waits.length === 0 ? "Actions executed successfully." : waits.every((wait) => wait.status === "satisfied") ? "Browser condition satisfied." : `Browser condition ${waits.at(-1)!.status}.`;
+	const firstUnsatisfiedWait = waits.find((wait) => wait.status !== "satisfied");
+	const statusText = waits.length === 0
+		? "Actions executed successfully."
+		: firstUnsatisfiedWait
+			? `Browser condition ${firstUnsatisfiedWait.status}.`
+			: "Browser condition satisfied.";
 	return { content, details: { statusText, readResults } };
 }
 

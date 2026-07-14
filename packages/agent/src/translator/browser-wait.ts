@@ -119,11 +119,11 @@ export async function waitForBrowserExpectation(runtime: BrowserWaitRuntime, opt
 		if (expired()) break;
 		if (observation.targetId !== targetId) return terminal("interrupted", "unverifiable", initial, final, started, now(), "target_changed");
 		if (runtime.dialogCount() > dialogs) return terminal("interrupted", "unverifiable", initial, final, started, now(), "dialog");
-		const navigated = observation.navigationEpoch !== baseline.navigationEpoch || [...observation.generations].some(([key, generation]) => generation !== runtime.liveGeneration(key) || (baseline.generations.has(key) && baseline.generations.get(key) !== generation));
+		const navigated = observation.navigationEpoch !== baseline.navigationEpoch ||
+			[...observation.generations].some(([key, generation]) => baseline.generations.has(key) && baseline.generations.get(key) !== generation);
 		if (navigated) {
 			if (isLocationExpectation(options.expect)) {
 				final = evaluateBrowserExpectation(options.expect, observation, baseline, runtime.resolveRef);
-				if (expired()) break;
 				if (final.truth === true) return terminal("satisfied", "newly_verified", initial, final, started, now());
 			}
 			return terminal("interrupted", "unverifiable", initial, final, started, now(), "navigation");

@@ -118,6 +118,45 @@ describe("waitForBrowserExpectation", () => {
 		expect(result).toMatchObject({ status: "satisfied", evidence: "newly_verified" });
 	});
 
+	it("returns location-navigation outcomes even when the deadline is reached during that branch", async () => {
+		let reads = 0;
+		let tick = 0;
+		const result = await waitForBrowserExpectation({
+			selectTarget: async () => "page",
+			observeTarget: async () => reads++ === 0
+				? observation([], true, { url: "https://a.test/start" })
+				: observation([], true, { url: "https://a.test/done", navigationEpoch: 1 }),
+			dialogCount: () => 0,
+			targetExists: async () => true,
+			liveGeneration: () => 0,
+			resolveRef: missingRef,
+			now: () => tick++,
+			delay: async () => {},
+		}, { expect: { type: "url", contains: "/done" }, timeoutMs: 13, pollMs: 1 });
+		expect(result).toMatchObject({ status: "satisfied", evidence: "newly_verified" });
+	});
+
+	it("does not treat a post-observation live-generation bump as navigation", async () => {
+		let time = 0;
+		let reads = 0;
+		let liveGeneration = 0;
+		const result = await waitForBrowserExpectation({
+			selectTarget: async () => "page",
+			observeTarget: async () => {
+				if (reads++ === 0) return observation();
+				liveGeneration = 1;
+				return observation(["Ready"], true, { generations: new Map([["page", 0]]) });
+			},
+			dialogCount: () => 0,
+			targetExists: async () => true,
+			liveGeneration: () => liveGeneration,
+			resolveRef: missingRef,
+			now: () => time,
+			delay: async (ms) => { time += ms; },
+		}, { expect: { type: "text", text: "Ready" }, timeoutMs: 20, pollMs: 10 });
+		expect(result).toMatchObject({ status: "satisfied", evidence: "newly_verified" });
+	});
+
 	it("does not accept a condition completed after the deadline", async () => {
 		let time = 0, reads = 0;
 		const result = await waitForBrowserExpectation({ selectTarget: async () => "page", observeTarget: async () => { if (reads++ > 0) time += 20; return observation(reads > 1 ? ["Ready"] : []); }, dialogCount: () => 0, targetExists: async () => true, liveGeneration: () => 0, resolveRef: missingRef, now: () => time, delay: async (ms) => { time += ms; } }, { expect: { type: "text", text: "Ready" }, timeoutMs: 20, pollMs: 10 });

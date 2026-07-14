@@ -2,6 +2,8 @@ import { CUA_PROVIDERS, listCuaModels, resolveCuaRuntimeSpec } from "@onkernel/c
 import type Kernel from "@onkernel/sdk";
 import { describe, expect, it } from "vitest";
 import { createCuaComputerTools, type KernelBrowser } from "../src/index";
+import { buildCuaComputerTools } from "../src/tools";
+import type { InternalComputerTranslator } from "../src/translator/translator";
 
 const browser = { session_id: "browser_123" } as KernelBrowser;
 const client = {} as Kernel;
@@ -160,5 +162,47 @@ describe("Cua tool executor coverage", () => {
 		expect(result.content.some((block) => block.type === "text" && block.text === "stderr:\nstack")).toBe(true);
 		expect(result.content.every((block) => block.type !== "image")).toBe(true);
 		expect(result.details).toMatchObject({ success: false });
+	});
+
+	it("reports batch wait status from the first unsatisfied browser wait", async () => {
+		const runtime = resolveCuaRuntimeSpec("anthropic:claude-opus-4-7");
+		const batchExecutor = runtime.toolExecutors.find((tool) => tool.definition.name === ANTHROPIC_BATCH_TOOL_NAME);
+		expect(batchExecutor).toBeDefined();
+		const translator = {
+			executeBatch: async () => ({
+				readResults: [
+					{
+						type: "browser_wait_for",
+						result: {
+							status: "interrupted",
+							evidence: "unverifiable",
+							initial: { truth: false, details: ["initial false"] },
+							final: { truth: undefined, details: ["navigation"] },
+							elapsed_ms: 10,
+							reason: "navigation",
+							details: ["initial: initial false", "final: navigation"],
+						},
+					},
+					{
+						type: "browser_wait_for",
+						result: {
+							status: "satisfied",
+							evidence: "newly_verified",
+							initial: { truth: false, details: ["missing"] },
+							final: { truth: true, details: ["present"] },
+							elapsed_ms: 12,
+							details: ["initial: missing", "final: present"],
+						},
+					},
+				],
+			}),
+		} as unknown as InternalComputerTranslator;
+		const tools = buildCuaComputerTools({ toolExecutors: [batchExecutor!], mode: "computer" }, translator);
+		const batch = tools.find((tool) => tool.name === ANTHROPIC_BATCH_TOOL_NAME);
+		expect(batch).toBeDefined();
+
+		const result = await batch!.execute("call_1", { actions: [] });
+
+		expect(result.details.statusText).toBe("Browser condition interrupted.");
 	});
 });
