@@ -13,6 +13,18 @@ import {
 	type CuaBrowserAction,
 } from "@onkernel/cua-ai";
 import { CdpConnection, type CdpEventMessage } from "./cdp";
+import {
+	ObservationChangedError,
+	buildNthIndex,
+	cohortKey,
+	staticTextRun,
+	type AXNode,
+	type BrowserObservation,
+	type BrowserPresentation,
+	type FrameStitch,
+	type ObservationLine,
+	type RenderContext,
+} from "./browser-observation";
 import type { BatchReadResult } from "./types";
 
 const SNAPSHOT_CHAR_LIMIT = 50_000;
@@ -24,18 +36,6 @@ const SCROLL_NOTCH_PX = 120;
 const STALE_REF_HINT = "Call snapshot (or find) to get fresh element references.";
 const REF_PLACEHOLDER = "\u0000";
 const UNCHANGED_SNAPSHOT = "Page unchanged since the last snapshot; previous element refs are still valid.";
-
-interface AXNode {
-	nodeId: string;
-	ignored?: boolean;
-	role?: { value?: string };
-	name?: { value?: string };
-	value?: { value?: unknown };
-	properties?: Array<{ name: string; value?: { value?: unknown } }>;
-	backendDOMNodeId?: number;
-	parentId?: string;
-	childIds?: string[];
-}
 
 interface RefEntry {
 	backendNodeId: number;
@@ -50,33 +50,6 @@ interface RefEntry {
 	nth: number;
 	/** Size of the (role, name) cohort in the tree the ref was minted from. */
 	cohort: number;
-}
-
-interface NthIndex {
-	index: Map<string, number>;
-	cohorts: Map<string, number>;
-}
-
-interface RenderContext {
-	targetId: string;
-	frameKey: string;
-	sessionId: string;
-	generation: number;
-	interactiveOnly: boolean;
-	nthIndex: NthIndex;
-	cursorIds?: ReadonlySet<number>;
-}
-
-interface RenderedLine {
-	text: string;
-	refNode?: AXNode;
-	ctx: RenderContext;
-}
-
-interface FrameStitch {
-	byId: Map<string, AXNode>;
-	roots: string[];
-	ctx: RenderContext;
 }
 
 export interface BrowserFindCandidate {
@@ -306,72 +279,126 @@ export class BrowserExecutor {
 	}
 
 	private async snapshot(action: CuaActionBrowserSnapshot): Promise<string> {
-		const targetId = await this.resolveTarget(action.tab_id);
+		return this.renderObservation(this.presentObservation(await this.observe(action.tab_id), action));
+	}
+
+	private async observe(tabId?: string, includeCursor = true): Promise<BrowserObservation> {
+		for (let attempt = 0; ; attempt += 1) {
+			try {
+				return await this.collectObservation(tabId, includeCursor);
+			} catch (error) {
+				if (!(error instanceof ObservationChangedError) || attempt === 2) throw error;
+			}
+		}
+	}
+
+	private async collectObservation(tabId: string | undefined, includeCursor: boolean): Promise<BrowserObservation> {
+		const targetId = await this.resolveTarget(tabId);
 		const pageSession = await this.attach(targetId);
-		const refEntry = action.ref ? this.resolveRef(action.ref, targetId) : undefined;
-		const frameKey = refEntry?.frameId ?? targetId;
-		const { nodes, sessionId } = await this.frameAxTree(frameKey, targetId, pageSession);
-		const byId = new Map(nodes.map((node) => [node.nodeId, node]));
-		let rootIds = nodes.filter((node) => !node.parentId).map((node) => node.nodeId);
+		const before = (await this.cdp.pageTargets()).find((target) => target.targetId === targetId);
+		if (!before) throw new ObservationChangedError("Browser target disappeared during observation");
+
+		const generations = new Map<string, number>();
+		const rootGeneration = this.trackGeneration(targetId);
+		generations.set(targetId, rootGeneration);
+		const { nodes, sessionId } = await this.frameAxTree(targetId, targetId, pageSession);
+		const rootCtx: RenderContext = {
+			targetId,
+			frameKey: targetId,
+			sessionId,
+			generation: rootGeneration,
+			interactiveOnly: false,
+			nthIndex: buildNthIndex(nodes),
+			...(includeCursor ? { cursorIds: await this.cursorPointerIds(pageSession) } : {}),
+		};
+		const tree = this.frameStitch(nodes, rootCtx);
+		const stitches = await this.stitchFrames(nodes, targetId, pageSession, generations);
+		const after = (await this.cdp.pageTargets()).find((target) => target.targetId === targetId);
+		if (!after || before.url !== after.url || before.title !== after.title) {
+			throw new ObservationChangedError("Browser target metadata changed during observation");
+		}
+		for (const [frameKey, generation] of generations) {
+			if (this.generations.get(frameKey) !== generation) throw new ObservationChangedError();
+		}
+		return {
+			targetId,
+			tree,
+			stitches,
+			nodes: [
+				...nodes.map((node) => ({ node, ctx: rootCtx })),
+				...[...stitches.values()].flatMap((stitch) => [...stitch.byId.values()].map((node) => ({ node, ctx: stitch.ctx }))),
+			],
+			url: before.url,
+			title: before.title,
+			generations,
+		};
+	}
+
+	private presentObservation(observation: BrowserObservation, action: CuaActionBrowserSnapshot): BrowserPresentation {
+		const refEntry = action.ref ? this.resolveRef(action.ref, observation.targetId) : undefined;
+		let tree = observation.tree;
+		let rootIds = tree.roots;
 		if (action.ref && refEntry) {
+			if (refEntry.frameId === observation.targetId) {
+				tree = observation.tree;
+			} else {
+				const frameTree = [...observation.stitches.values()].find((stitch) => stitch.ctx.frameKey === refEntry.frameId);
+				if (!frameTree) throw staleRefError(action.ref);
+				tree = frameTree;
+			}
+			const treeNodes = [...tree.byId.values()];
 			const rootNode =
-				nodes.find((node) => node.backendDOMNodeId === refEntry.backendNodeId) ?? this.healEntry(action.ref, refEntry, nodes);
+				treeNodes.find((node) => node.backendDOMNodeId === refEntry.backendNodeId) ?? this.healEntry(action.ref, refEntry, treeNodes);
 			rootIds = [rootNode.nodeId];
 		}
-
 		const interactiveOnly = action.filter === "interactive";
-		const ctx: RenderContext = {
-			targetId,
-			frameKey,
-			sessionId,
-			generation: this.generation(frameKey),
-			interactiveOnly,
-			nthIndex: buildNthIndex(nodes),
-			cursorIds: frameKey === targetId ? await this.cursorPointerIds(pageSession) : undefined,
-		};
-		const stitches = frameKey === targetId ? await this.stitchFrames(nodes, targetId, pageSession, interactiveOnly) : new Map<number, FrameStitch>();
-		const lines: RenderedLine[] = [];
+		const lines: ObservationLine[] = [];
 		const maxDepth = action.depth ?? DEFAULT_SNAPSHOT_DEPTH;
-		const walk = (tree: Map<string, AXNode>, treeCtx: RenderContext, nodeId: string, depth: number, parentName: string): void => {
-			const node = tree.get(nodeId);
+		const walk = (current: FrameStitch, nodeId: string, depth: number, parentName: string): void => {
+			const node = current.byId.get(nodeId);
 			if (!node) return;
+			const ctx = current.ctx.interactiveOnly === interactiveOnly ? current.ctx : { ...current.ctx, interactiveOnly };
 			let childDepth = depth;
 			if (!node.ignored) {
-				const rendered = this.renderNode(node, depth, parentName, treeCtx);
+				const rendered = this.renderNode(node, depth, parentName, ctx);
 				if (rendered) {
-					lines.push({ ...rendered, ctx: treeCtx });
+					lines.push({ ...rendered, ctx });
 					childDepth = depth + 1;
 				}
 			}
 			if (childDepth > maxDepth) return;
-			const stitch = treeCtx === ctx && node.backendDOMNodeId !== undefined ? stitches.get(node.backendDOMNodeId) : undefined;
+			const stitch = current === observation.tree && node.backendDOMNodeId !== undefined ? observation.stitches.get(node.backendDOMNodeId) : undefined;
 			if (stitch) {
-				for (const frameRootId of stitch.roots) walk(stitch.byId, stitch.ctx, frameRootId, childDepth, "");
+				for (const frameRootId of stitch.roots) walk(stitch, frameRootId, childDepth, "");
 				return;
 			}
-			const name = node.name?.value ?? "";
-			const childName = name || parentName;
+			const childName = node.name?.value || parentName;
 			const childIds = node.childIds ?? [];
 			for (let i = 0; i < childIds.length; i += 1) {
-				const run = staticTextRun(tree, childIds, i);
+				const run = staticTextRun(current.byId, childIds, i);
 				if (run) {
-					const rendered = this.renderNode(run.node, childDepth, childName, treeCtx);
-					if (rendered) lines.push({ ...rendered, ctx: treeCtx });
+					const rendered = this.renderNode(run.node, childDepth, childName, ctx);
+					if (rendered) lines.push({ ...rendered, ctx });
 					i = run.end;
-					continue;
-				}
-				walk(tree, treeCtx, childIds[i]!, childDepth, childName);
+				} else walk(current, childIds[i]!, childDepth, childName);
 			}
 		};
-		for (const rootId of rootIds) walk(byId, ctx, rootId, 0, "");
-
+		for (const rootId of rootIds) walk(tree, rootId, 0, "");
 		const shape = lines.map((line) => line.text).join("\n");
-		const frameGenerations = [...stitches.values()].map((stitch) => `${stitch.ctx.frameKey}:${stitch.ctx.generation}`);
-		const key = [action.ref ?? "", action.depth ?? "", action.filter ?? "", `${frameKey}:${ctx.generation}`, ...frameGenerations].join("|");
-		const cached = this.lastSnapshots.get(targetId);
-		this.lastSnapshots.set(targetId, { key, shape });
-		if (cached && cached.key === key && cached.shape === shape) return UNCHANGED_SNAPSHOT;
+		const generationKey = [...observation.generations].map(([frameKey, generation]) => `${frameKey}:${generation}`).join("|");
+		return {
+			observation,
+			cacheKey: [action.ref ?? "", action.depth ?? "", action.filter ?? "", generationKey].join("|"),
+			lines,
+			shape,
+		};
+	}
 
+	private renderObservation(presentation: BrowserPresentation): string {
+		const { observation, cacheKey, lines, shape } = presentation;
+		const cached = this.lastSnapshots.get(observation.targetId);
+		this.lastSnapshots.set(observation.targetId, { key: cacheKey, shape });
+		if (cached?.key === cacheKey && cached.shape === shape) return UNCHANGED_SNAPSHOT;
 		let text = "";
 		for (const line of lines) {
 			if (text.length > SNAPSHOT_CHAR_LIMIT) break;
@@ -381,7 +408,7 @@ export class BrowserExecutor {
 		if (text.length > SNAPSHOT_CHAR_LIMIT) {
 			text = `${text.slice(0, SNAPSHOT_CHAR_LIMIT)}\n… truncated at ${SNAPSHOT_CHAR_LIMIT} characters. Re-request with a smaller depth, filter: "interactive", or a ref to narrow the subtree.`;
 		}
-		this.pruneRefs(targetId);
+		this.pruneRefs(observation.targetId);
 		return text || "(empty accessibility tree)";
 	}
 
@@ -418,12 +445,20 @@ export class BrowserExecutor {
 		return { nodes, sessionId: pageSession };
 	}
 
+	private frameStitch(nodes: AXNode[], ctx: RenderContext): FrameStitch {
+		return {
+			byId: new Map(nodes.map((node) => [node.nodeId, node])),
+			roots: nodes.filter((node) => !node.parentId).map((node) => node.nodeId),
+			ctx,
+		};
+	}
+
 	/** Resolve each iframe node's child frame and fetch its AX tree for stitching. One nesting level only. */
 	private async stitchFrames(
 		nodes: AXNode[],
 		targetId: string,
 		pageSession: string,
-		interactiveOnly: boolean,
+		generations: Map<string, number>,
 	): Promise<Map<number, FrameStitch>> {
 		const stitches = new Map<number, FrameStitch>();
 		for (const node of nodes) {
@@ -436,19 +471,20 @@ export class BrowserExecutor {
 				);
 				const frameId = dom.contentDocument?.frameId ?? dom.frameId;
 				if (!frameId || frameId === targetId) continue;
+				const generation = this.trackGeneration(frameId);
+				generations.set(frameId, generation);
 				const { nodes: frameNodes, sessionId } = await this.frameAxTree(frameId, targetId, pageSession);
-				stitches.set(node.backendDOMNodeId, {
-					byId: new Map(frameNodes.map((frameNode) => [frameNode.nodeId, frameNode])),
-					roots: frameNodes.filter((frameNode) => !frameNode.parentId).map((frameNode) => frameNode.nodeId),
-					ctx: {
+				stitches.set(
+					node.backendDOMNodeId,
+					this.frameStitch(frameNodes, {
 						targetId,
 						frameKey: frameId,
 						sessionId,
-						generation: this.generation(frameId),
-						interactiveOnly,
+						generation,
+						interactiveOnly: false,
 						nthIndex: buildNthIndex(frameNodes),
-					},
-				});
+					}),
+				);
 			} catch {
 				// Cross-origin or already-detached frames can refuse the fetch; the iframe renders without children.
 			}
@@ -499,35 +535,13 @@ export class BrowserExecutor {
 	 * matches, best first. Structured counterpart of the `browser_find` action.
 	 */
 	async findCandidates(query: string, tabId?: string, roles?: ReadonlySet<string>): Promise<BrowserFindCandidate[]> {
-		const targetId = await this.resolveTarget(tabId);
-		const session = await this.attach(targetId);
-		const { nodes } = await this.cdp.send<{ nodes: AXNode[] }>("Accessibility.getFullAXTree", {}, session);
-		const pools: Array<{ nodes: AXNode[]; ctx: RenderContext }> = [
-			{
-				nodes,
-				ctx: {
-					targetId,
-					frameKey: targetId,
-					sessionId: session,
-					generation: this.generation(targetId),
-					interactiveOnly: false,
-					nthIndex: buildNthIndex(nodes),
-				},
-			},
-		];
-		// Search stitched frames too so find sees everything snapshot renders.
-		for (const stitch of (await this.stitchFrames(nodes, targetId, session, false)).values()) {
-			pools.push({ nodes: [...stitch.byId.values()], ctx: stitch.ctx });
-		}
+		const observation = await this.observe(tabId, false);
 		const queryTokens = tokenize(query);
-		const scored = pools
-			.flatMap(({ nodes: poolNodes, ctx }) =>
-				poolNodes
-					.filter(
-						(node) => !node.ignored && node.backendDOMNodeId !== undefined && (node.name?.value || INTERACTIVE_ROLES.has(node.role?.value ?? "")),
-					)
-					.map((node) => ({ node, ctx, score: overlapScore(queryTokens, tokenize(`${node.role?.value ?? ""} ${node.name?.value ?? ""}`)) })),
+		const scored = observation.nodes
+			.filter(
+				({ node }) => !node.ignored && node.backendDOMNodeId !== undefined && (node.name?.value || INTERACTIVE_ROLES.has(node.role?.value ?? "")),
 			)
+			.map(({ node, ctx }) => ({ node, ctx, score: overlapScore(queryTokens, tokenize(`${node.role?.value ?? ""} ${node.name?.value ?? ""}`)) }))
 			.filter((entry) => entry.score > 0 && (!roles || roles.has(entry.node.role?.value ?? "")))
 			.sort((a, b) => b.score - a.score)
 			.slice(0, FIND_MATCH_LIMIT);
@@ -537,7 +551,7 @@ export class BrowserExecutor {
 			name: node.name?.value ?? "",
 			score,
 		}));
-		this.pruneRefs(targetId);
+		this.pruneRefs(observation.targetId);
 		return candidates;
 	}
 
@@ -847,6 +861,11 @@ export class BrowserExecutor {
 		return this.generations.get(targetId) ?? 0;
 	}
 
+	private trackGeneration(frameKey: string): number {
+		if (!this.generations.has(frameKey)) this.generations.set(frameKey, 0);
+		return this.generation(frameKey);
+	}
+
 	private invalidateRefs(targetId: string): void {
 		this.generations.set(targetId, this.generation(targetId) + 1);
 		for (const [ref, entry] of this.refs) {
@@ -934,40 +953,6 @@ function tabOf(action: { tab_id?: string }): string | undefined {
 
 function staleRefError(ref: string, cause?: unknown): Error {
 	return new Error(`ref ${ref} is stale or not on the current page. ${STALE_REF_HINT}`, cause === undefined ? undefined : { cause });
-}
-
-/** Index each ref-eligible node by its position among nodes with the same role and name, in tree order. */
-function buildNthIndex(nodes: AXNode[]): NthIndex {
-	const cohorts = new Map<string, number>();
-	const index = new Map<string, number>();
-	for (const node of nodes) {
-		if (node.ignored || node.backendDOMNodeId === undefined) continue;
-		const key = cohortKey(node.role?.value ?? "", node.name?.value ?? "");
-		const nth = cohorts.get(key) ?? 0;
-		cohorts.set(key, nth + 1);
-		index.set(node.nodeId, nth);
-	}
-	return { index, cohorts };
-}
-
-function cohortKey(role: string, name: string): string {
-	return `${role}\u0000${name}`;
-}
-
-/** Merge a run of two or more consecutive StaticText siblings (text split by inline markup) into one node. */
-function staticTextRun(tree: Map<string, AXNode>, childIds: string[], start: number): { node: AXNode; end: number } | undefined {
-	let end = start;
-	const parts: string[] = [];
-	while (end < childIds.length) {
-		const node = tree.get(childIds[end]!);
-		if (!node || node.ignored || node.role?.value !== "StaticText") break;
-		const text = node.name?.value ?? "";
-		if (text) parts.push(text);
-		end += 1;
-	}
-	if (end - start < 2) return undefined;
-	const first = tree.get(childIds[start]!)!;
-	return { node: { ...first, name: { value: parts.join(" ") }, childIds: [] }, end: end - 1 };
 }
 
 function collectStates(node: AXNode): string[] {
