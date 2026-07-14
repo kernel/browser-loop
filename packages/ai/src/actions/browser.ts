@@ -17,6 +17,7 @@ import { Type, type TSchema } from "@earendil-works/pi-ai";
  */
 export const CUA_BROWSER_ACTION_TYPES = [
 	"browser_snapshot",
+	"browser_act",
 	"browser_wait_for",
 	"browser_text",
 	"browser_find",
@@ -77,6 +78,28 @@ export interface CuaActionBrowserWaitFor {
 	tab_id?: string;
 }
 
+/** Ref- or focus-based operation with an optional per-step semantic expectation. */
+export type CuaBrowserActStep =
+	| { type: "click"; ref: string; button?: "left" | "right" | "middle"; num_clicks?: 1 | 2 | 3; modifiers?: string[]; expect?: CuaBrowserExpectation }
+	| { type: "hover"; ref: string; expect?: CuaBrowserExpectation }
+	| { type: "fill"; ref: string; value: string | number | boolean; expect?: CuaBrowserExpectation }
+	| { type: "type"; text: string; expect?: CuaBrowserExpectation }
+	| { type: "key"; text: string; repeat?: number; expect?: CuaBrowserExpectation }
+	| { type: "scroll_to"; ref: string; expect?: CuaBrowserExpectation }
+	| { type: "wait"; ms?: number; expect?: CuaBrowserExpectation };
+
+/** Dependent action plan whose optional `expect` verifies the complete plan result. */
+export interface CuaActionBrowserAct {
+	type: "browser_act";
+	steps: NonEmptyArray<CuaBrowserActStep>;
+	expect?: CuaBrowserExpectation;
+	/** Timeout applied independently to each step or plan expectation. */
+	timeout_ms?: number;
+	poll_ms?: number;
+	successor?: { filter?: "all" | "interactive"; depth?: number };
+	tab_id?: string;
+}
+
 export interface CuaActionBrowserText {
 	type: "browser_text";
 	tab_id?: string;
@@ -94,7 +117,7 @@ export interface CuaActionBrowserClick {
 	x?: number;
 	y?: number;
 	button?: "left" | "right" | "middle";
-	num_clicks?: number;
+	num_clicks?: 1 | 2 | 3;
 	modifiers?: string[];
 	tab_id?: string;
 }
@@ -179,6 +202,7 @@ export interface CuaActionBrowserEvaluate {
 
 export type CuaBrowserAction =
 	| CuaActionBrowserSnapshot
+	| CuaActionBrowserAct
 	| CuaActionBrowserWaitFor
 	| CuaActionBrowserText
 	| CuaActionBrowserFind
@@ -219,6 +243,16 @@ export function createCuaBrowserActionSchemaByType(options: CuaBrowserSchemaOpti
 	const leaves = [Type.Object({ type: Type.Literal("text"), text: Type.String(), exists: Type.Optional(Type.Boolean()) }, { additionalProperties: false }), roleName("role"), roleName("name"), refState("value"), refState("checked"), refState("selected"), refState("expanded"), location("equals"), location("contains"), location("changed")];
 	const leaf = Type.Union(leaves);
 	const expectation = Type.Union([leaf, Type.Object({ all: Type.Array(leaf, { minItems: 1 }) }, { additionalProperties: false }), Type.Object({ any: Type.Array(leaf, { minItems: 1 }) }, { additionalProperties: false })]);
+	const stepExpectation = { expect: Type.Optional(expectation) };
+	const actStep = Type.Union([
+		Type.Object({ type: Type.Literal("click"), ref: RefProperty(), button: Type.Optional(Type.Union([Type.Literal("left"), Type.Literal("right"), Type.Literal("middle")])), num_clicks: Type.Optional(Type.Integer({ minimum: 1, maximum: 3 })), modifiers: Type.Optional(Type.Array(Type.String())), ...stepExpectation }, { additionalProperties: false }),
+		Type.Object({ type: Type.Literal("hover"), ref: RefProperty(), ...stepExpectation }, { additionalProperties: false }),
+		Type.Object({ type: Type.Literal("fill"), ref: RefProperty(), value: Type.Union([Type.String(), Type.Number(), Type.Boolean()]), ...stepExpectation }, { additionalProperties: false }),
+		Type.Object({ type: Type.Literal("type"), text: Type.String(), ...stepExpectation }, { additionalProperties: false }),
+		Type.Object({ type: Type.Literal("key"), text: Type.String(), repeat: Type.Optional(Type.Number()), ...stepExpectation }, { additionalProperties: false }),
+		Type.Object({ type: Type.Literal("scroll_to"), ref: RefProperty(), ...stepExpectation }, { additionalProperties: false }),
+		Type.Object({ type: Type.Literal("wait"), ms: Type.Optional(Type.Number({ minimum: 0, maximum: 30_000 })), ...stepExpectation }, { additionalProperties: false }),
+	]);
 
 	const clickTarget: Record<string, TSchema> = options.coordinates
 		? {
@@ -243,6 +277,18 @@ export function createCuaBrowserActionSchemaByType(options: CuaBrowserSchemaOpti
 			{ type: Type.Literal("browser_wait_for"), expect: expectation, timeout_ms: Type.Optional(Type.Number({ minimum: 0, maximum: 30_000, description: "Semantic polling timeout; in-flight browser reads settle before timeout is reported." })), poll_ms: Type.Optional(Type.Number({ minimum: 10, maximum: 1_000 })), tab_id: TabId() },
 			{ additionalProperties: false },
 		),
+		browser_act: Type.Object(
+			{
+				type: Type.Literal("browser_act"),
+				steps: Type.Array(actStep, { minItems: 1, maxItems: 20 }),
+				expect: Type.Optional(expectation),
+				timeout_ms: Type.Optional(Type.Number({ minimum: 0, maximum: 30_000, description: "Timeout applied independently to each semantic expectation." })),
+				poll_ms: Type.Optional(Type.Number({ minimum: 10, maximum: 1_000 })),
+				successor: Type.Optional(Type.Object({ filter: Type.Optional(Type.Union([Type.Literal("all"), Type.Literal("interactive")])), depth: Type.Optional(Type.Number()) }, { additionalProperties: false })),
+				tab_id: TabId(),
+			},
+			{ additionalProperties: false },
+		),
 		browser_text: Type.Object(
 			{
 				type: Type.Literal("browser_text"),
@@ -263,7 +309,7 @@ export function createCuaBrowserActionSchemaByType(options: CuaBrowserSchemaOpti
 				type: Type.Literal("browser_click"),
 				...clickTarget,
 				button: Type.Optional(Type.Union([Type.Literal("left"), Type.Literal("right"), Type.Literal("middle")])),
-				num_clicks: Type.Optional(Type.Number()),
+				num_clicks: Type.Optional(Type.Integer({ minimum: 1, maximum: 3 })),
 				modifiers: Type.Optional(Type.Array(Type.String())),
 				tab_id: TabId(),
 			},
