@@ -10,6 +10,7 @@ interface RegistrySnapshot {
 	hostTool: AgentTool | undefined;
 	extensionTools: AgentTool[];
 	runtimeTools: Map<string, AgentTool>;
+	inactiveExtensionTools: Set<string>;
 }
 
 /** Tool registry kept beside hooks, matching Pi's planned harness split. */
@@ -44,6 +45,7 @@ export class HarnessToolRegistry {
 			...this.runtimeTools.values(),
 		];
 		this.runtimeTools.clear();
+		this.inactiveExtensionTools.clear();
 		return snapshot;
 	}
 
@@ -51,6 +53,10 @@ export class HarnessToolRegistry {
 		this.hostTool = snapshot.hostTool;
 		this.extensionTools = snapshot.extensionTools;
 		this.runtimeTools = new Map(snapshot.runtimeTools);
+		this.inactiveExtensionTools.clear();
+		for (const name of snapshot.inactiveExtensionTools) {
+			this.inactiveExtensionTools.add(name);
+		}
 	}
 
 	async installRuntimeTool(
@@ -129,6 +135,7 @@ export class HarnessToolRegistry {
 			hostTool: this.hostTool,
 			extensionTools: this.extensionTools,
 			runtimeTools: new Map(this.runtimeTools),
+			inactiveExtensionTools: new Set(this.inactiveExtensionTools),
 		};
 	}
 

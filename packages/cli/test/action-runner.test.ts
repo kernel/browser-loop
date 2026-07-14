@@ -129,6 +129,26 @@ describe("action harness-runner", () => {
 		expect(abortCalls).toBeGreaterThanOrEqual(1);
 	});
 
+	it("skips the display screenshot in browser mode", async () => {
+		fixture = await buildTestHarness({
+			turns: [{ steps: [{ type: "text", text: "ok" }] }],
+		});
+		await fixture.harness.setMode("browser");
+
+		await runAction(
+			{ action: "do", text: "look" },
+			{ harness: fixture.harness, browserHandle: handleFor(fixture), session: fixture.session, maxTurns: 3 },
+		);
+
+		expect(fixture.kernel.screenshots).toBe(0);
+		const entries = await fixture.session.getBranch();
+		const firstUser = entries.find((e) => e.type === "message" && e.message.role === "user");
+		const content = (firstUser as { message: { content: unknown[] } }).message.content as Array<{
+			type: string;
+		}>;
+		expect(content.some((item) => item.type === "image")).toBe(false);
+	});
+
 	it("attaches a screenshot to the first user message on a fresh session", async () => {
 		fixture = await buildTestHarness({
 			turns: [{ steps: [{ type: "text", text: "ok" }] }],

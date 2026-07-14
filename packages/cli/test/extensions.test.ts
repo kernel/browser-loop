@@ -116,6 +116,32 @@ describe("HarnessExtensionHost", () => {
 		expect(fx!.harness.getTools().map((tool) => tool.name)).toContain("click_visual");
 	});
 
+	it("reactivates rediscovered extension tools after reload", async () => {
+		const extDir = mkdtempSync(join(tmpdir(), "cua-ext-"));
+		writeFileSync(join(extDir, "deactivate.ts"), DEACTIVATE_SELF_EXTENSION);
+		fx = await buildTestHarness({
+			turns: [
+				{ steps: [{ type: "tool_call", toolName: "deactivate_self", args: {} }] },
+				{ steps: [{ type: "text", text: "done" }] },
+			],
+		});
+		const created = new HarnessExtensionHost({
+			harness: fx.harness,
+			session: fx.session,
+			cwd: fx.cwd,
+			configuredPaths: [extDir],
+			agentDir: mkdtempSync(join(tmpdir(), "cua-agentdir-")),
+		});
+		host = created;
+		await created.load();
+
+		await fx.harness.prompt("deactivate it");
+		expect(fx.harness.getActiveTools().map((tool) => tool.name)).not.toContain("deactivate_self");
+
+		await created.reload();
+		expect(fx.harness.getActiveTools().map((tool) => tool.name)).toContain("deactivate_self");
+	});
+
 	it("drops a renamed extension's old tool on reload", async () => {
 		// Model a meta-agent revising a learned tool: the extension file is rewritten
 		// to register a differently-named tool, and reload must reflect the on-disk
@@ -413,6 +439,22 @@ const SEND_ON_STARTUP_EXTENSION = [
 	'    description: "noop",',
 	'    parameters: { type: "object", properties: {}, additionalProperties: false },',
 	'    async execute() { return { content: [{ type: "text", text: "ok" }], details: {} }; },',
+	"  });",
+	"}",
+	"",
+].join("\n");
+
+const DEACTIVATE_SELF_EXTENSION = [
+	"export default function (pi) {",
+	"  pi.registerTool({",
+	'    name: "deactivate_self",',
+	'    label: "deactivate self",',
+	'    description: "deactivate this tool",',
+	'    parameters: { type: "object", properties: {}, additionalProperties: false },',
+	"    async execute() {",
+	'      pi.setActiveTools(pi.getActiveTools().filter((name) => name !== "deactivate_self"));',
+	'      return { content: [{ type: "text", text: "deactivated" }], details: {} };',
+	"    },",
 	"  });",
 	"}",
 	"",

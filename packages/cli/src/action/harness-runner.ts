@@ -109,7 +109,7 @@ export async function runAction(
 async function maybeInitialScreenshot(opts: HarnessRunOptions): Promise<ImageContent[] | undefined> {
 	// `skipInitialScreenshot` is decided once at startup (before extensions load),
 	// so an extension's startup message can't suppress the user's first-turn frame.
-	if (opts.skipInitialScreenshot) return undefined;
+	if (opts.skipInitialScreenshot || opts.harness.getMode() === "browser") return undefined;
 	const png = await captureScreenshot(opts.browserHandle.client, opts.browserHandle.browser.session_id);
 	if (!png) return undefined;
 	return [{ type: "image", data: png.toString("base64"), mimeType: "image/png" }];
