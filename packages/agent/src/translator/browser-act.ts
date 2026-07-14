@@ -101,7 +101,7 @@ export async function runBrowserAct(action: CuaActionBrowserAct, runtime: Browse
 	}
 
 	let finalExpectation: BrowserActExpectationEvidence | undefined;
-	const terminalNavigation = stopReason === "navigation" && stoppedAt === finalStepIndex && steps.at(-1)?.outcome === "worked";
+	const terminalNavigation = stopReason === "navigation" && stoppedAt === finalStepIndex;
 	if (action.expect && (!stopReason || terminalNavigation)) {
 		try {
 			const result = await runtime.wait(action.expect!, baseline, baseline.targetId, action.tab_id, action.timeout_ms, action.poll_ms);
@@ -163,7 +163,8 @@ export async function runBrowserAct(action: CuaActionBrowserAct, runtime: Browse
 	const verified = action.expect
 		? finalExpectation?.status === "newly_verified"
 		: steps.length === action.steps.length && steps.every((step) => step.outcome === "worked");
-	const verifiedNavigation = stopReason === "navigation" && steps.length === action.steps.length && steps.at(-1)?.outcome === "worked";
+	const verifiedNavigation = stopReason === "navigation" && steps.length === action.steps.length
+		&& (steps.at(-1)?.outcome === "worked" || finalExpectation?.status === "newly_verified");
 	return {
 		outcome: failed ? "didnt" : !timedOut && verified && (!stopReason || verifiedNavigation) ? "worked" : "unknown",
 		steps,

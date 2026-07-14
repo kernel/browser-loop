@@ -185,6 +185,17 @@ describe("browser_act orchestration", () => {
 		expect(result).toMatchObject({ outcome: "worked", stopped_at: 0, stop_reason: "navigation", final_expectation: { status: "newly_verified" } });
 	});
 
+	it("evaluates plan expectations after terminal navigation without step expectations", async () => {
+		const before = observation("before");
+		const after = observation("after", 1);
+		const result = await runBrowserAct({
+			type: "browser_act",
+			steps: [{ type: "click", ref: "e1" }],
+			expect: { type: "url", contains: "after" },
+		}, runtime([before, before, after, after], [waitResult("newly_verified")]));
+		expect(result).toMatchObject({ outcome: "worked", stopped_at: 0, stop_reason: "navigation", final_expectation: { status: "newly_verified" } });
+	});
+
 	it("recollects a successor after a raced target boundary", async () => {
 		const result = await runBrowserAct({ type: "browser_act", steps: [{ type: "click", ref: "e1", expect: { type: "text", text: "Done" } }] }, runtime([
 			observation("before"), observation("before"), observation("after"), observation("stale"), observation("stable"),
