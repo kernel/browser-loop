@@ -3,6 +3,7 @@ import { diffObservations, type BrowserObservation, type BrowserPresentation } f
 import type { BrowserExpectationEvaluation } from "./browser-wait";
 import type { BrowserActExpectationEvidence, BrowserActResult, BrowserActStepResult, BrowserWaitForResult } from "./types";
 
+/** Runtime hooks injected into `runBrowserAct` for execution and observation. */
 export interface BrowserActRuntime {
 	observe(tabId?: string): Promise<BrowserObservation>;
 	targetIds(): Promise<string[]>;
@@ -16,6 +17,13 @@ export interface BrowserActRuntime {
 	render(presentation: BrowserPresentation): string;
 }
 
+/**
+ * Executes a dependent `browser_act` plan against an injected browser runtime.
+ *
+ * The orchestrator captures per-step evidence, halts when lifecycle boundaries
+ * or semantic failures occur, and returns a structured successor snapshot for
+ * downstream formatting.
+ */
 export async function runBrowserAct(action: CuaActionBrowserAct, runtime: BrowserActRuntime): Promise<BrowserActResult> {
 	let baseline: BrowserObservation;
 	let current: BrowserObservation;
@@ -32,6 +40,7 @@ export async function runBrowserAct(action: CuaActionBrowserAct, runtime: Browse
 	let stoppedAt: number | undefined;
 	let stopReason: BrowserActResult["stop_reason"];
 	let timedOut = false;
+	const terminalStepIndex = Math.max(action.steps.length - 1, 0);
 
 	for (let index = 0; index < action.steps.length; index += 1) {
 		const step = action.steps[index]!;
@@ -102,11 +111,11 @@ export async function runBrowserAct(action: CuaActionBrowserAct, runtime: Browse
 			const result = await runtime.wait(action.expect!, baseline, baseline.targetId, action.tab_id, action.timeout_ms, action.poll_ms);
 			finalExpectation = expectationEvidence(result);
 			timedOut ||= result.status === "timed_out";
-			if (finalExpectation.status === "failed") { stopReason = "expectation_failed"; stoppedAt = action.steps.length; }
-			else if (finalExpectation.status === "unverifiable") { stopReason = waitStopReason(result) ?? "control_flow"; stoppedAt = action.steps.length; }
+			if (finalExpectation.status === "failed") { stopReason = "expectation_failed"; stoppedAt = terminalStepIndex; }
+			else if (finalExpectation.status === "unverifiable") { stopReason = waitStopReason(result) ?? "control_flow"; stoppedAt = terminalStepIndex; }
 		} catch (error) {
 			finalExpectation = { status: "unverifiable", details: [message(error)] };
-			stopReason = "control_flow"; stoppedAt = action.steps.length;
+			stopReason = "control_flow"; stoppedAt = terminalStepIndex;
 		}
 	}
 
@@ -120,7 +129,7 @@ export async function runBrowserAct(action: CuaActionBrowserAct, runtime: Browse
 			current = observed; targets = successorTargets; dialogs = runtime.dialogCount();
 			if (lateBoundary) {
 				stopReason ??= lateBoundary;
-				stoppedAt ??= action.steps.length;
+				stoppedAt ??= terminalStepIndex;
 				successorError = new Error(`${lateBoundary} changed successor observation`);
 				continue;
 			}
@@ -134,7 +143,7 @@ export async function runBrowserAct(action: CuaActionBrowserAct, runtime: Browse
 				};
 				if (evaluation.truth !== true) {
 					stopReason = evaluation.truth === false ? "expectation_failed" : "control_flow";
-					stoppedAt = action.steps.length;
+					stoppedAt = terminalStepIndex;
 				}
 			}
 			const complete: CuaActionBrowserSnapshot = { type: "browser_snapshot", tab_id: action.tab_id, depth: Number.MAX_SAFE_INTEGER };

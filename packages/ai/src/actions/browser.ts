@@ -78,6 +78,7 @@ export interface CuaActionBrowserWaitFor {
 	tab_id?: string;
 }
 
+/** One step in a dependent `browser_act` plan, with an optional per-step semantic expectation. */
 export type CuaBrowserActStep =
 	| { type: "click"; ref: string; button?: "left" | "right" | "middle"; num_clicks?: 1 | 2 | 3; modifiers?: string[]; expect?: CuaBrowserExpectation }
 	| { type: "hover"; ref: string; expect?: CuaBrowserExpectation }
@@ -87,6 +88,10 @@ export type CuaBrowserActStep =
 	| { type: "scroll_to"; ref: string; expect?: CuaBrowserExpectation }
 	| { type: "wait"; ms?: number; expect?: CuaBrowserExpectation };
 
+/**
+ * A dependent browser action plan that runs steps in order and may assert a
+ * final plan-level expectation after step execution completes.
+ */
 export interface CuaActionBrowserAct {
 	type: "browser_act";
 	steps: NonEmptyArray<CuaBrowserActStep>;

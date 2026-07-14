@@ -189,14 +189,14 @@ describe("browser_act orchestration", () => {
 		const result = await runBrowserAct({ type: "browser_act", steps: [{ type: "click", ref: "e1", expect: { type: "text", text: "Done" } }] }, runtime([
 			observation("before"), observation("before"), observation("after"), observation("stale"), observation("stable"),
 		], [waitResult("newly_verified")], { targets: [["target-1"], ["target-1"], ["target-1"], ["target-1", "target-2"], ["target-1", "target-2"]] }));
-		expect(result).toMatchObject({ stop_reason: "control_flow", successor: { status: "observed", title: "stable", text: "stable" } });
+		expect(result).toMatchObject({ stopped_at: 0, stop_reason: "control_flow", successor: { status: "observed", title: "stable", text: "stable" } });
 	});
 
 	it("preserves a timed-out final expectation when the successor satisfies it", async () => {
 		const result = await runBrowserAct({ type: "browser_act", steps: [{ type: "wait" }], expect: { type: "url", contains: "after" } }, runtime([
 			observation("before"), observation("before"), observation("after"), observation("after"),
 		], [waitResult("failed")]));
-		expect(result).toMatchObject({ outcome: "didnt", stop_reason: "expectation_failed", final_expectation: { status: "failed", after: false }, successor: { status: "observed", title: "after" } });
+		expect(result).toMatchObject({ outcome: "didnt", stopped_at: 0, stop_reason: "expectation_failed", final_expectation: { status: "failed", after: false }, successor: { status: "observed", title: "after" } });
 	});
 
 	it("does not report incomplete successor observations as authoritative", async () => {
@@ -215,7 +215,7 @@ describe("browser_act orchestration", () => {
 		}, runtime([
 			observation("before"), observation("before"), observation("after"), observation("before"),
 		], [waitResult("newly_verified"), waitResult("newly_verified")]));
-		expect(result).toMatchObject({ outcome: "didnt", stop_reason: "expectation_failed", final_expectation: { status: "failed", after: false }, successor: { status: "observed", title: "before" } });
+		expect(result).toMatchObject({ outcome: "didnt", stopped_at: 0, stop_reason: "expectation_failed", final_expectation: { status: "failed", after: false }, successor: { status: "observed", title: "before" } });
 	});
 
 

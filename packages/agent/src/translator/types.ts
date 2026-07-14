@@ -40,6 +40,7 @@ export interface BrowserObservationDiff {
 export interface BrowserActResult {
 	outcome: BrowserActOutcome;
 	steps: BrowserActStepResult[];
+	/** Zero-based index of the step where execution stopped. */
 	stopped_at?: number;
 	stop_reason?: "action_failed" | "expectation_failed" | "navigation" | "stale_ref" | "dialog" | "control_flow";
 	final_expectation?: BrowserActExpectationEvidence;
