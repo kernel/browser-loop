@@ -18,6 +18,7 @@ export interface BrowserWaitRuntime {
 	dialogCount(): number;
 	targetExists(targetId: string): Promise<boolean>;
 	liveGeneration(frameId: string): number;
+	liveNavigationEpoch(targetId: string): number;
 	resolveRef: BrowserRefResolver;
 	now?(): number;
 	delay?(ms: number): Promise<void>;
@@ -29,6 +30,9 @@ export interface BrowserWaitOptions {
 	timeoutMs?: number;
 	pollMs?: number;
 	tabId?: string;
+	/** Supply the pre-action state when verifying an action postcondition. */
+	baseline?: BrowserObservation;
+	targetId?: string;
 }
 
 function expectationNodes(observation: BrowserObservation): AXNode[] {
@@ -96,9 +100,9 @@ export async function waitForBrowserExpectation(runtime: BrowserWaitRuntime, opt
 	let targetId: string;
 	let baseline: BrowserObservation;
 	try {
-		targetId = await beforeDeadline(() => runtime.selectTarget(options.tabId), remaining(), now);
+		targetId = options.targetId ?? await beforeDeadline(() => runtime.selectTarget(options.tabId), remaining(), now);
 		if (expired()) return timedOut(started, now());
-		baseline = await runtime.observeTarget(targetId);
+		baseline = options.baseline ?? await runtime.observeTarget(targetId);
 		if (expired()) return timedOut(started, now());
 	} catch (error) {
 		if (error instanceof WaitDeadlineError) return timedOut(started, now());
@@ -106,13 +110,15 @@ export async function waitForBrowserExpectation(runtime: BrowserWaitRuntime, opt
 	}
 	const initial = evaluateBrowserExpectation(options.expect, baseline, baseline, runtime.resolveRef);
 	if (!baseline.complete) return terminal("unverifiable", "unverifiable", initial, initial, started, now(), "incomplete_observation");
+	if (!options.baseline && (runtime.liveNavigationEpoch(targetId) !== baseline.navigationEpoch || [...baseline.generations].some(([key, generation]) => runtime.liveGeneration(key) !== generation))) return terminal("interrupted", "unverifiable", initial, initial, started, now(), "navigation");
 	if (expired()) return timedOut(started, now());
 	if (initial.reason === "stale_ref") return terminal("interrupted", "unverifiable", initial, initial, started, now(), initial.reason);
-	if (initial.truth === true) return terminal("satisfied", "preexisting", initial, initial, started, now());
+	if (initial.truth === true && !options.baseline) return terminal("satisfied", "preexisting", initial, initial, started, now());
 	const dialogs = runtime.dialogCount();
 	let final = initial;
 	while (!expired()) {
-		await sleep(Math.min(poll, remaining()));
+		try { await beforeDeadline(() => sleep(Math.min(poll, remaining())), remaining(), now); }
+		catch (error) { if (error instanceof WaitDeadlineError) break; throw error; }
 		if (expired()) break;
 		let exists: boolean;
 		try { exists = await beforeDeadline(() => runtime.targetExists(targetId), remaining(), now); }
@@ -131,11 +137,13 @@ export async function waitForBrowserExpectation(runtime: BrowserWaitRuntime, opt
 		}
 		const removedFrame = [...baseline.generations.keys()].some((key) => !observation.generations.has(key));
 		if (removedFrame) return terminal("unverifiable", "unverifiable", initial, final, started, now(), "incomplete_observation");
+		const unstable = runtime.liveNavigationEpoch(targetId) !== observation.navigationEpoch || [...observation.generations].some(([key, generation]) => generation !== runtime.liveGeneration(key));
+		if (unstable) return terminal("interrupted", "unverifiable", initial, final, started, now(), "navigation");
 		const navigated = observation.navigationEpoch !== baseline.navigationEpoch;
 		if (navigated) {
 			if (isLocationExpectation(options.expect)) {
 				final = evaluateBrowserExpectation(options.expect, observation, baseline, runtime.resolveRef);
-				if (final.truth === true && !expired()) return terminal("satisfied", "newly_verified", initial, final, started, now());
+				if (final.truth === true && !expired()) return terminal("satisfied", satisfiedEvidence(initial), initial, final, started, now());
 			}
 			return terminal("interrupted", "unverifiable", initial, final, started, now(), "navigation");
 		}
@@ -143,7 +151,7 @@ export async function waitForBrowserExpectation(runtime: BrowserWaitRuntime, opt
 		final = evaluateBrowserExpectation(options.expect, observation, baseline, runtime.resolveRef);
 		if (expired()) break;
 		if (final.reason === "stale_ref") return terminal("interrupted", "unverifiable", initial, final, started, now(), final.reason);
-		if (final.truth === true) return terminal("satisfied", "newly_verified", initial, final, started, now());
+		if (final.truth === true) return terminal("satisfied", satisfiedEvidence(initial), initial, final, started, now());
 	}
 	if (final.truth === undefined) return terminal("unverifiable", "unverifiable", initial, final, started, now(), final.reason ?? "incomplete_observation");
 	return terminal("timed_out", "failed", initial, final, started, now());
@@ -162,6 +170,10 @@ async function beforeDeadline<T>(operation: () => Promise<T>, remaining: number,
 		if (error instanceof WaitDeadlineError || Number.isFinite(remaining) && now() - started >= remaining) throw new WaitDeadlineError();
 		throw error;
 	}
+}
+
+function satisfiedEvidence(initial: BrowserExpectationEvidence): BrowserWaitForResult["evidence"] {
+	return initial.truth === true ? "preexisting" : "newly_verified";
 }
 
 function isLocationExpectation(expectation: CuaBrowserExpectation): boolean {

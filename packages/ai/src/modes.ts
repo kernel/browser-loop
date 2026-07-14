@@ -56,6 +56,7 @@ export const CUA_HYBRID_COMPUTER_ACTION_TYPES: readonly CuaComputerActionType[] 
  */
 export const CUA_HYBRID_BROWSER_ACTION_TYPES: readonly CuaBrowserActionType[] = [
 	"browser_snapshot",
+	"browser_act",
 	"browser_wait_for",
 	"browser_text",
 	"browser_find",
@@ -110,6 +111,7 @@ export function cuaToolNameForAction(action: CuaActionType, mode: CuaMode): stri
 }
 
 const BROWSER_ACTION_DESCRIPTIONS: Record<CuaBrowserActionType, string> = {
+	browser_act: "Run a dependent, ref/focus-only action list and return semantic outcomes with one successor diff.",
 	browser_wait_for: "Wait for a semantic page condition without delivering input.",
 	browser_snapshot:
 		"Return an accessibility-tree snapshot of the page, including iframe content, with element references like [e12]. " +
