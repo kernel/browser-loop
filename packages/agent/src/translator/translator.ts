@@ -134,7 +134,9 @@ export class InternalComputerTranslator {
 		for (const action of actions) {
 			if (isCuaBrowserAction(action)) {
 				await flush();
-				result.readResults.push(...(await this.browser().execute(action)));
+				const reads = await this.browser().execute(action);
+				result.readResults.push(...reads);
+				if (action.type === "browser_act" && reads.some((read) => read.type === "browser_act" && read.result.stop_reason)) break;
 				continue;
 			}
 			switch (action.type) {

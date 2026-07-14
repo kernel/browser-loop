@@ -4,9 +4,12 @@ import { describe, expect, it } from "vitest";
 import type { CuaBrowserAction } from "@onkernel/cua-ai";
 import { BrowserExecutor } from "../src/translator/browser";
 import type { CdpConnection } from "../src/translator/cdp";
-import { buildCuaComputerTools } from "../src/tools";
+import { buildCuaComputerTools, formatBrowserActResult } from "../src/tools";
+import { runBrowserAct, type BrowserActRuntime } from "../src/translator/browser-act";
+import { evaluateBrowserExpectation, waitForBrowserExpectation } from "../src/translator/browser-wait";
+import type { BrowserObservation, BrowserPresentation } from "../src/translator/browser-observation";
 import { InternalComputerTranslator, type KernelBrowser } from "../src/translator/translator";
-import type { BatchReadResult } from "../src/translator/types";
+import type { BatchReadResult, BrowserActResult, BrowserWaitForResult } from "../src/translator/types";
 
 const browser = { session_id: "browser_123", cdp_ws_url: "wss://example.test/cdp" } as KernelBrowser;
 
@@ -63,6 +66,242 @@ describe("InternalComputerTranslator browser plane", () => {
 	});
 });
 
+describe("browser_act orchestration", () => {
+	const observation = (name: string, epoch = 0): BrowserObservation => ({
+		targetId: "target-1", navigationEpoch: epoch, url: `https://example.test/${name}`, title: name,
+		generations: new Map([["target-1", epoch]]), complete: true, nodes: [], stitches: new Map(),
+		tree: { byId: new Map(), roots: [], ctx: {} as never },
+	});
+	const waitResult = (evidence: BrowserWaitForResult["evidence"]): BrowserWaitForResult => ({
+		status: evidence === "failed" ? "timed_out" : evidence === "unverifiable" ? "unverifiable" : "satisfied",
+		evidence,
+		initial: { truth: evidence === "preexisting" ? true : false, details: ["before"] },
+		final: { truth: evidence === "newly_verified" || evidence === "preexisting", details: ["after"] },
+		elapsed_ms: 1, details: ["initial: before", "final: after"],
+	});
+	function runtime(states: BrowserObservation[], waits: BrowserWaitForResult[] = [], options: { dispatchError?: Error; targets?: string[][]; dialogAfterDispatch?: boolean; failObservationAt?: number | number[]; wait?: BrowserActRuntime["wait"] } = {}): BrowserActRuntime & { dispatched: string[] } {
+		let read = 0;
+		let targetRead = 0;
+		let dialogs = 0;
+		const dispatched: string[] = [];
+		return {
+			dispatched,
+			observe: async () => {
+				const failures = Array.isArray(options.failObservationAt) ? options.failObservationAt : [options.failObservationAt];
+				if (failures.includes(read)) { read += 1; throw new Error("observation unavailable"); }
+				const state = states[Math.min(read++, states.length - 1)];
+				if (!state) throw new Error("observation unavailable");
+				return state;
+			},
+			targetIds: async () => options.targets?.[Math.min(targetRead++, options.targets.length - 1)] ?? ["target-1"],
+			dialogCount: () => dialogs,
+			liveGeneration: (frame) => states[Math.max(0, Math.min(read - 1, states.length - 1))]?.generations.get(frame) ?? 0,
+			liveNavigationEpoch: () => states[Math.max(0, Math.min(read - 1, states.length - 1))]?.navigationEpoch ?? 0,
+			executeStep: async (step) => {
+				dispatched.push(step.type);
+				if (options.dialogAfterDispatch) dialogs += 1;
+				if (options.dispatchError) throw options.dispatchError;
+			},
+			wait: options.wait ?? (async () => waits.shift() ?? waitResult("newly_verified")),
+			evaluate: (expect, state, baseline) => evaluateBrowserExpectation(expect, state, baseline, () => ({ truth: undefined, details: ["ref unavailable"] })),
+			present: (state): BrowserPresentation => ({ observation: state, cacheKey: "", shape: state.title, lines: [{ text: `RootWebArea ${state.title} [\u0000]`, ctx: {} as never }] }),
+			render: (presentation) => presentation.shape,
+		};
+	}
+
+	it.each([
+		["newly_verified", "worked", undefined],
+		["preexisting", "unknown", "control_flow"],
+		["failed", "didnt", "expectation_failed"],
+	] as const)("maps %s evidence to an honest %s outcome", async (evidence, outcome, stopReason) => {
+		const states = [observation("before"), observation("before"), observation("after"), observation("after")];
+		const result = await runBrowserAct({ type: "browser_act", steps: [{ type: "click", ref: "e1", expect: { type: "text", text: "Done" } }] }, runtime(states, [waitResult(evidence)]));
+		expect(result).toMatchObject({ outcome, steps: [{ outcome, expectation: { status: evidence } }], ...(stopReason ? { stop_reason: stopReason } : {}) });
+	});
+
+	it("checks a preexisting condition after input before stopping dependent steps", async () => {
+		let tick = 0;
+		const after = observation("after");
+		const wait: BrowserActRuntime["wait"] = (expect, baseline, targetId) => waitForBrowserExpectation({
+			selectTarget: async () => targetId,
+			observeTarget: async () => after,
+			dialogCount: () => 0,
+			targetExists: async () => true,
+			liveGeneration: () => 0,
+			liveNavigationEpoch: () => 0,
+			resolveRef: () => ({ truth: undefined, details: [] }),
+			now: () => tick,
+			delay: async (ms) => { tick += ms; },
+		}, { expect, baseline, targetId, timeoutMs: 2, pollMs: 1 });
+		const rt = runtime([observation("before"), observation("before"), after, after], [], { wait });
+		const result = await runBrowserAct({ type: "browser_act", steps: [
+			{ type: "click", ref: "e1", expect: { type: "url", contains: "before" } },
+			{ type: "type", text: "no" },
+		] }, rt);
+		expect(result).toMatchObject({ outcome: "didnt", stopped_at: 0, stop_reason: "expectation_failed", steps: [{ expectation: { status: "failed", before: true, after: false } }] });
+		expect(rt.dispatched).toEqual(["click"]);
+	});
+
+	it("does not dispatch dependent steps after a preexisting expectation", async () => {
+		const rt = runtime([observation("before"), observation("before"), observation("after"), observation("after")], [waitResult("preexisting")]);
+		const result = await runBrowserAct({ type: "browser_act", steps: [{ type: "click", ref: "e1", expect: { type: "text", text: "Done" } }, { type: "type", text: "no" }] }, rt);
+		expect(result).toMatchObject({ outcome: "unknown", stopped_at: 0, stop_reason: "control_flow" });
+		expect(rt.dispatched).toEqual(["click"]);
+	});
+
+	it("does not dispatch later steps after a failed expectation", async () => {
+		const rt = runtime([observation("before"), observation("before"), observation("after"), observation("after")], [waitResult("failed")]);
+		const result = await runBrowserAct({ type: "browser_act", steps: [{ type: "click", ref: "e1", expect: { type: "text", text: "Missing" } }, { type: "type", text: "no" }] }, rt);
+		expect(result).toMatchObject({ outcome: "didnt", stopped_at: 0, stop_reason: "expectation_failed" });
+		expect(rt.dispatched).toEqual(["click"]);
+	});
+
+	it("stops on a stale ref without dispatching later steps", async () => {
+		const rt = runtime([observation("before"), observation("before"), observation("successor")], [], { dispatchError: new Error("ref e1 is stale") });
+		const result = await runBrowserAct({ type: "browser_act", steps: [{ type: "click", ref: "e1" }, { type: "type", text: "no" }] }, rt);
+		expect(result).toMatchObject({ outcome: "didnt", stopped_at: 0, stop_reason: "stale_ref" });
+		expect(rt.dispatched).toEqual(["click"]);
+	});
+
+	it.each([
+		["navigation", [observation("before"), observation("before"), observation("after", 1), observation("after", 1)], {}, "navigation"],
+		["dialog", [observation("before"), observation("before"), observation("after"), observation("after")], { dialogAfterDispatch: true }, "dialog"],
+		["target", [observation("before"), observation("before"), observation("after"), observation("after")], { targets: [["target-1"], ["target-1"], ["target-1", "target-2"]] }, "control_flow"],
+	] as const)("stops the dependent list at a %s boundary", async (_name, states, options, reason) => {
+		const rt = runtime([...states], [], options);
+		const result = await runBrowserAct({ type: "browser_act", steps: [{ type: "click", ref: "e1" }, { type: "type", text: "no" }] }, rt);
+		expect(result).toMatchObject({ outcome: "unknown", stopped_at: 0, stop_reason: reason });
+		expect(rt.dispatched).toEqual(["click"]);
+	});
+
+	it("reports a verified terminal navigation as worked", async () => {
+		const before = observation("before");
+		const after = observation("after", 1);
+		const result = await runBrowserAct({
+			type: "browser_act",
+			steps: [{ type: "click", ref: "e1", expect: { type: "url", changed: true } }],
+			expect: { type: "url", contains: "after" },
+		}, runtime([before, before, after, after, after], [waitResult("newly_verified"), waitResult("newly_verified")]));
+		expect(result).toMatchObject({ outcome: "worked", stopped_at: 0, stop_reason: "navigation", final_expectation: { status: "newly_verified" } });
+	});
+
+	it("recollects a successor after a raced target boundary", async () => {
+		const result = await runBrowserAct({ type: "browser_act", steps: [{ type: "click", ref: "e1", expect: { type: "text", text: "Done" } }] }, runtime([
+			observation("before"), observation("before"), observation("after"), observation("stale"), observation("stable"),
+		], [waitResult("newly_verified")], { targets: [["target-1"], ["target-1"], ["target-1"], ["target-1", "target-2"], ["target-1", "target-2"]] }));
+		expect(result).toMatchObject({ stop_reason: "control_flow", successor: { status: "observed", title: "stable", text: "stable" } });
+	});
+
+	it("preserves a timed-out final expectation when the successor satisfies it", async () => {
+		const result = await runBrowserAct({ type: "browser_act", steps: [{ type: "wait" }], expect: { type: "url", contains: "after" } }, runtime([
+			observation("before"), observation("before"), observation("after"), observation("after"),
+		], [waitResult("failed")]));
+		expect(result).toMatchObject({ outcome: "didnt", stop_reason: "expectation_failed", final_expectation: { status: "failed", after: false }, successor: { status: "observed", title: "after" } });
+	});
+
+	it("does not report incomplete successor observations as authoritative", async () => {
+		const incomplete = { ...observation("after"), complete: false };
+		const result = await runBrowserAct({ type: "browser_act", steps: [{ type: "click", ref: "e1", expect: { type: "text", text: "Done" } }] }, runtime([
+			observation("before"), observation("before"), observation("after"), incomplete, incomplete, incomplete,
+		], [waitResult("newly_verified")]));
+		expect(result.successor).toMatchObject({ status: "unavailable", error: "successor observation incomplete" });
+	});
+
+	it("revalidates the final expectation against the returned successor", async () => {
+		const result = await runBrowserAct({
+			type: "browser_act",
+			steps: [{ type: "click", ref: "e1", expect: { type: "url", contains: "after" } }],
+			expect: { type: "url", contains: "after" },
+		}, runtime([
+			observation("before"), observation("before"), observation("after"), observation("before"),
+		], [waitResult("newly_verified"), waitResult("newly_verified")]));
+		expect(result).toMatchObject({ outcome: "didnt", stop_reason: "expectation_failed", final_expectation: { status: "failed", after: false }, successor: { status: "observed", title: "before" } });
+	});
+
+
+	it("rejects incomplete baselines without dispatch or authoritative diffs", async () => {
+		const rt = runtime([{ ...observation("before"), complete: false }]);
+		const result = await runBrowserAct({ type: "browser_act", steps: [{ type: "click", ref: "e1" }] }, rt);
+		expect(rt.dispatched).toEqual([]);
+		expect(result).toMatchObject({ outcome: "unknown", stopped_at: 0, successor: { status: "unavailable", error: "baseline observation incomplete" } });
+	});
+
+	it("stops when an intermediate observation is incomplete", async () => {
+		const incomplete = { ...observation("after"), complete: false };
+		const rt = runtime([observation("before"), observation("before"), incomplete, observation("stable")]);
+		const result = await runBrowserAct({ type: "browser_act", steps: [{ type: "click", ref: "e1" }, { type: "type", text: "no" }] }, rt);
+		expect(rt.dispatched).toEqual(["click"]);
+		expect(result).toMatchObject({ outcome: "unknown", stopped_at: 0, stop_reason: "control_flow" });
+	});
+
+	it("stops before dispatch when the observed navigation epoch is no longer live", async () => {
+		const rt = runtime([observation("before"), observation("before")]);
+		rt.liveNavigationEpoch = () => 1;
+		const result = await runBrowserAct({ type: "browser_act", steps: [{ type: "click", ref: "e1" }] }, rt);
+		expect(rt.dispatched).toEqual([]);
+		expect(result).toMatchObject({ stopped_at: 0, stop_reason: "navigation" });
+	});
+
+	it("treats removed frames as a navigation boundary", async () => {
+		const framed = { ...observation("before"), generations: new Map([["target-1", 0], ["frame-1", 0]]) };
+		const rt = runtime([framed, framed, observation("after"), observation("after")]);
+		const result = await runBrowserAct({ type: "browser_act", steps: [{ type: "click", ref: "e1" }, { type: "type", text: "no" }] }, rt);
+		expect(rt.dispatched).toEqual(["click"]);
+		expect(result).toMatchObject({ stopped_at: 0, stop_reason: "navigation" });
+	});
+
+	it("returns a complete normalized successor diff", async () => {
+		const result = await runBrowserAct({ type: "browser_act", steps: [{ type: "wait", expect: { type: "text", text: "Done" } }] }, runtime([
+			observation("before"), observation("before"), observation("after"), observation("after"),
+		], [waitResult("newly_verified")]));
+		expect(result.successor).toMatchObject({ status: "observed", diff: { changed: true, added: ["RootWebArea after [ref]"], removed: ["RootWebArea before [ref]"] } });
+		expect(JSON.stringify(result.successor)).not.toMatch(/\be\d+\b/);
+	});
+
+	it("preserves a definitive outcome when the successor is unavailable", async () => {
+		const result = await runBrowserAct({ type: "browser_act", steps: [{ type: "click", ref: "e1", expect: { type: "text", text: "Missing" } }] }, runtime([
+			observation("before"), observation("before"), observation("after"),
+		], [waitResult("failed")], { failObservationAt: [3, 4, 5] }));
+		expect(result).toMatchObject({ outcome: "didnt", stop_reason: "expectation_failed", successor: { status: "unavailable" } });
+	});
+
+	it("preserves a verified outcome when successor collection fails", async () => {
+		const result = await runBrowserAct({ type: "browser_act", steps: [{ type: "click", ref: "e1", expect: { type: "text", text: "Done" } }] }, runtime([
+			observation("before"), observation("before"), observation("after"),
+		], [waitResult("newly_verified")], { failObservationAt: [3, 4, 5] }));
+		expect(result).toMatchObject({ outcome: "worked", successor: { status: "unavailable" } });
+		expect(result).not.toHaveProperty("stop_reason");
+	});
+
+	it("reports semantic evidence after uncertain action delivery", async () => {
+		const result = await runBrowserAct({ type: "browser_act", steps: [{ type: "click", ref: "e1", expect: { type: "text", text: "Done" } }] }, runtime([
+			observation("before"), observation("before"), observation("after"), observation("after"),
+		], [waitResult("newly_verified")], { dispatchError: new Error("input acknowledgement lost") }));
+		expect(result).toMatchObject({ outcome: "unknown", stop_reason: "action_failed", steps: [{ outcome: "unknown", expectation: { status: "newly_verified" } }], successor: { status: "observed" } });
+	});
+
+	it("bounds formatted diff output while preserving the structured diff", () => {
+		const added = Array.from({ length: 250 }, (_, index) => `line ${index}`);
+		const result = { outcome: "unknown", steps: [], successor: { status: "observed", text: "successor", url: "u", title: "t", diff: { changed: true, added, removed: [] } } } satisfies BrowserActResult;
+		const formatted = formatBrowserActResult(result);
+		expect(formatted).toContain("50 more diff lines omitted");
+		expect(formatted).not.toContain("line 249");
+		expect(result.successor.diff.added).toHaveLength(250);
+	});
+
+	it("stops a mixed batch after a plan stop reason", async () => {
+		const { client } = createClient();
+		const executed: string[] = [];
+		const executor = { execute: async (action: CuaBrowserAction) => {
+			executed.push(action.type);
+			return action.type === "browser_act" ? [{ type: "browser_act", result: { outcome: "unknown", steps: [], stopped_at: 0, stop_reason: "navigation", successor: { status: "unavailable", error: "changed" } } } as BatchReadResult] : [];
+		} } as unknown as BrowserExecutor;
+		const translator = new InternalComputerTranslator({ browser, client, createBrowserExecutor: () => executor });
+		await translator.executeBatch([{ type: "browser_act", steps: [{ type: "wait" }] }, { type: "browser_text" }]);
+		expect(executed).toEqual(["browser_act"]);
+	});
+});
+
 describe("InternalComputerTranslator computer additions", () => {
 	it("crops the OS screenshot for zoom, staying in the screenshot frame", async () => {
 		const { client } = createClient();
@@ -115,6 +354,7 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 	let axRead = 0;
 	let targetRead = 0;
 	let onAxRead: ((read: number, params: Record<string, unknown>, sessionId?: string) => void) | undefined;
+	let onSend: ((method: string, params: Record<string, unknown>, sessionId?: string) => void) | undefined;
 	let targetProvider: ((read: number) => Array<{ targetId: string; type: string; title: string; url: string }>) | undefined;
 	const emit = (event: FakeCdpEvent) => {
 		for (const listener of listeners) listener(event);
@@ -134,6 +374,7 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 		},
 		send: async (method: string, params: Record<string, unknown> = {}, sessionId?: string) => {
 			sent.push({ method, params, sessionId });
+			onSend?.(method, params, sessionId);
 			if (failMethods.has(method)) throw new Error(`${method} rejected`);
 			switch (method) {
 				case "Accessibility.getFullAXTree": {
@@ -209,6 +450,9 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 	const setAxReadHook = (hook: typeof onAxRead) => {
 		onAxRead = hook;
 	};
+	const setSendHook = (hook: typeof onSend) => {
+		onSend = hook;
+	};
 	const setTargetProvider = (provider: typeof targetProvider) => {
 		targetProvider = provider;
 	};
@@ -224,6 +468,7 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 		setTargetSession,
 		failOn,
 		setAxReadHook,
+		setSendHook,
 		setTargetProvider,
 		cdp: fake as unknown as CdpConnection,
 	};
@@ -733,6 +978,98 @@ describe("BrowserExecutor semantic waits", () => {
 	});
 });
 
+describe("BrowserExecutor action plans", () => {
+	async function act(executor: BrowserExecutor, action: Record<string, unknown>) {
+		const [read] = await executor.execute({ type: "browser_act", timeout_ms: 100, poll_ms: 10, ...action } as CuaBrowserAction);
+		if (read?.type !== "browser_act") throw new Error("expected browser_act result");
+		return read.result;
+	}
+
+	it("waits for a delayed postcondition and returns a consistent successor diff", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		const done = [ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }), ax({ nodeId: "2", role: "button", name: "Done", backendDOMNodeId: 43, parentId: "1" })];
+		fake.setSendHook((method, params) => {
+			if (method === "Input.dispatchMouseEvent" && params.type === "mousePressed") setTimeout(() => fake.setNodes(done), 15);
+		});
+		const executor = new BrowserExecutor(fake.cdp);
+		await snapshotText(executor);
+		const result = await act(executor, { steps: [{ type: "click", ref: "e1", expect: { type: "text", text: "Done" } }] });
+		expect(result).toMatchObject({ outcome: "worked", steps: [{ expectation: { status: "newly_verified" } }], successor: { status: "observed", text: expect.stringContaining('button "Done"'), diff: { added: [expect.stringContaining('button "Done"')], removed: [expect.stringContaining('button "Save"')] } } });
+	});
+
+	it.each([
+		["same-document", "Page.navigatedWithinDocument", { frameId: "TARGET-1", url: "https://a.test/#next" }],
+		["cross-document", "Page.frameNavigated", { frame: { id: "TARGET-1" } }],
+	] as const)("stops at a selected-target %s navigation", async (_label, method, params) => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		fake.setSendHook((sent, input, sessionId) => {
+			if (sent === "Input.dispatchMouseEvent" && input.type === "mousePressed") fake.emit({ method, params, sessionId });
+		});
+		const executor = new BrowserExecutor(fake.cdp);
+		await snapshotText(executor);
+		const result = await act(executor, { steps: [{ type: "click", ref: "e1" }, { type: "type", text: "no" }] });
+		expect(result).toMatchObject({ outcome: "unknown", stopped_at: 0, stop_reason: "navigation" });
+		expect(fake.sent.some((command) => command.method === "Input.insertText")).toBe(false);
+	});
+
+	it("stops at dialog and popup boundaries", async () => {
+		const dialog = createFakeCdp(BUTTON_TREE);
+		dialog.setSendHook((method, params, sessionId) => {
+			if (method === "Input.dispatchMouseEvent" && params.type === "mousePressed") dialog.emit({ method: "Page.javascriptDialogOpening", params: { type: "alert", message: "done" }, sessionId });
+		});
+		const dialogExecutor = new BrowserExecutor(dialog.cdp);
+		await snapshotText(dialogExecutor);
+		expect(await act(dialogExecutor, { steps: [{ type: "click", ref: "e1" }, { type: "type", text: "no" }] })).toMatchObject({ stopped_at: 0, stop_reason: "dialog" });
+
+		const popup = createFakeCdp(BUTTON_TREE);
+		let opened = false;
+		popup.setTargetProvider(() => [
+			{ targetId: "TARGET-1", type: "page", title: "Page", url: "https://a.test/" },
+			...(opened ? [{ targetId: "TARGET-2", type: "page", title: "Popup", url: "https://b.test/" }] : []),
+		]);
+		popup.setSendHook((method, params) => { if (method === "Input.dispatchMouseEvent" && params.type === "mousePressed") opened = true; });
+		const popupExecutor = new BrowserExecutor(popup.cdp);
+		await snapshotText(popupExecutor);
+		expect(await act(popupExecutor, { steps: [{ type: "click", ref: "e1" }, { type: "type", text: "no" }] })).toMatchObject({ stopped_at: 0, stop_reason: "control_flow" });
+	});
+
+	it("isolates navigation epochs to the selected target", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		fake.setTargetSession("TARGET-2", "session-2");
+		fake.setTargetProvider(() => [
+			{ targetId: "TARGET-1", type: "page", title: "One", url: "https://a.test/" },
+			{ targetId: "TARGET-2", type: "page", title: "Two", url: "https://b.test/" },
+		]);
+		fake.setSendHook((method, params) => {
+			if (method === "Input.dispatchMouseEvent" && params.type === "mousePressed") fake.emit({ method: "Page.navigatedWithinDocument", params: { frameId: "TARGET-2", url: "https://b.test/#next" }, sessionId: "session-2" });
+		});
+		const executor = new BrowserExecutor(fake.cdp);
+		await snapshotText(executor, { tab_id: "TARGET-1" });
+		const result = await act(executor, { tab_id: "TARGET-1", steps: [{ type: "click", ref: "e1" }, { type: "type", text: "yes" }] });
+		expect(result).toMatchObject({ outcome: "unknown", steps: [{}, {}] });
+		expect(result).not.toHaveProperty("stop_reason");
+		expect(fake.sent.some((command) => command.method === "Input.insertText")).toBe(true);
+	});
+
+	it("does not verify absence when a nested frame is incomplete", async () => {
+		const tree = [ax({ nodeId: "1", role: "RootWebArea", childIds: ["2"] }), ax({ nodeId: "2", role: "Iframe", backendDOMNodeId: 50, parentId: "1" })];
+		const result = await act(new BrowserExecutor(createFakeCdp(tree).cdp), { timeout_ms: 10, steps: [{ type: "wait", expect: { type: "text", text: "Missing", exists: false } }] });
+		expect(result).toMatchObject({ outcome: "unknown", stop_reason: "control_flow", steps: [], successor: { status: "unavailable", error: "baseline observation incomplete" } });
+	});
+
+	it("reports verified state but unknown delivery when input acknowledgement is lost", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		const done = [ax({ nodeId: "1", role: "RootWebArea", childIds: ["2"] }), ax({ nodeId: "2", role: "button", name: "Done", backendDOMNodeId: 43, parentId: "1" })];
+		fake.setSendHook((method, params) => {
+			if (method === "Input.dispatchMouseEvent" && params.type === "mouseMoved") { fake.setNodes(done); throw new Error("input acknowledgement lost"); }
+		});
+		const executor = new BrowserExecutor(fake.cdp);
+		await snapshotText(executor);
+		const result = await act(executor, { steps: [{ type: "click", ref: "e1", expect: { type: "text", text: "Done" } }] });
+		expect(result).toMatchObject({ outcome: "unknown", stop_reason: "action_failed", steps: [{ outcome: "unknown", expectation: { status: "newly_verified" } }] });
+	});
+});
+
 describe("BrowserExecutor iframe stitching", () => {
 	it("stitches a same-process iframe subtree indented under its iframe node", async () => {
 		const tree = [
@@ -821,6 +1158,36 @@ describe("BrowserExecutor iframe stitching", () => {
 		second.importRefState(first.exportRefState());
 		await second.execute({ type: "browser_click", ref: "e4" } as CuaBrowserAction);
 		expect(secondCdp.sent.find((cmd) => cmd.method === "DOM.scrollIntoViewIfNeeded" && cmd.params.backendNodeId === 90)?.sessionId).toBe("session-oop");
+	});
+
+	it("rebinds and invalidates nested OOPIF refs through action plans", async () => {
+		const nestedSetup = () => {
+			const fake = createFakeCdp(OOPIF_PAGE);
+			fake.setIframeFrame(50, "FRAME-OOP");
+			fake.setIframeFrame(80, "FRAME-INNER");
+			fake.addAutoAttachFrame({ targetId: "FRAME-OOP", sessionId: "session-oop" });
+			fake.setSessionTree("session-oop", [ax({ nodeId: "o1", role: "RootWebArea", childIds: ["o2"] }), ax({ nodeId: "o2", role: "Iframe", backendDOMNodeId: 80, parentId: "o1" }), ax({ nodeId: "hidden", role: "button", name: "Nested", backendDOMNodeId: 90, parentId: "unrendered" })]);
+			fake.setFrameTree("FRAME-INNER", [ax({ nodeId: "i1", role: "RootWebArea", childIds: ["i2"] }), ax({ nodeId: "i2", role: "button", name: "Nested", backendDOMNodeId: 90, parentId: "i1" })]);
+			return fake;
+		};
+		const source = new BrowserExecutor(nestedSetup().cdp);
+		await snapshotText(source);
+		const state = source.exportRefState();
+
+		const reboundCdp = nestedSetup();
+		const rebound = new BrowserExecutor(reboundCdp.cdp);
+		rebound.importRefState(state);
+		const [worked] = await rebound.execute({ type: "browser_act", steps: [{ type: "click", ref: "e4" }] } as CuaBrowserAction);
+		expect(worked).toMatchObject({ type: "browser_act", result: { steps: [{ evidence: ["action dispatched"] }] } });
+		expect(reboundCdp.sent.find((command) => command.method === "DOM.scrollIntoViewIfNeeded" && command.params.backendNodeId === 90)?.sessionId).toBe("session-oop");
+
+		const staleCdp = nestedSetup();
+		const stale = new BrowserExecutor(staleCdp.cdp);
+		stale.importRefState(state);
+		await snapshotText(stale);
+		staleCdp.emit({ method: "Page.frameNavigated", params: { frame: { id: "FRAME-INNER", parentId: "FRAME-OOP" } }, sessionId: "session-oop" });
+		const [failed] = await stale.execute({ type: "browser_act", steps: [{ type: "click", ref: "e4" }] } as CuaBrowserAction);
+		expect(failed).toMatchObject({ type: "browser_act", result: { outcome: "didnt", stop_reason: "stale_ref" } });
 	});
 
 	it("invalidates a frame target's refs when a subframe inside it navigates", async () => {
@@ -1043,6 +1410,14 @@ describe("navigation tool grounding frame", () => {
 });
 
 describe("BrowserExecutor multi-click", () => {
+	it("rejects invalid click counts before dispatch", async () => {
+		const { cdp, sent } = createFakeCdp(BUTTON_TREE);
+		const executor = new BrowserExecutor(cdp);
+		await snapshotText(executor);
+		for (const num_clicks of [0, 1.5, 4]) await expect(executor.execute({ type: "browser_click", ref: "e1", num_clicks } as CuaBrowserAction)).rejects.toThrow(/integer between 1 and 3/);
+		expect(sent.some((cmd) => cmd.method === "Input.dispatchMouseEvent")).toBe(false);
+	});
+
 	it("dispatches one press/release cycle per click with incrementing clickCount", async () => {
 		const { cdp, sent } = createFakeCdp(BUTTON_TREE);
 		const executor = new BrowserExecutor(cdp);
