@@ -285,6 +285,29 @@ describe("HarnessExtensionHost", () => {
 		expect(screenshotCalls).toBe(0);
 	});
 
+	it("skips display capture for extension prompts in browser mode", async () => {
+		const extDir = mkdtempSync(join(tmpdir(), "cua-ext-"));
+		writeFileSync(join(extDir, "browser-msg.ts"), SEND_AFTER_STARTUP_EXTENSION);
+		fx = await buildTestHarness({ turns: [{ steps: [{ type: "text", text: "ok" }] }] });
+		await fx.harness.setMode("browser");
+		let screenshotCalls = 0;
+		const created = new HarnessExtensionHost({
+			harness: fx.harness,
+			session: fx.session,
+			cwd: fx.cwd,
+			configuredPaths: [extDir],
+			agentDir: mkdtempSync(join(tmpdir(), "cua-agentdir-")),
+			initialScreenshot: async () => {
+				screenshotCalls += 1;
+				return [{ type: "image", data: "x", mimeType: "image/png" }];
+			},
+		});
+		host = created;
+		await created.load();
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(screenshotCalls).toBe(0);
+	});
+
 	it("captures a failing extension sendUserMessage instead of an unhandled rejection", async () => {
 		const extDir = mkdtempSync(join(tmpdir(), "cua-ext-"));
 		writeFileSync(join(extDir, "startup-msg.ts"), SEND_ON_STARTUP_EXTENSION);
@@ -390,6 +413,15 @@ const SEND_ON_STARTUP_EXTENSION = [
 	'    description: "noop",',
 	'    parameters: { type: "object", properties: {}, additionalProperties: false },',
 	'    async execute() { return { content: [{ type: "text", text: "ok" }], details: {} }; },',
+	"  });",
+	"}",
+	"",
+].join("\n");
+
+const SEND_AFTER_STARTUP_EXTENSION = [
+	"export default function (pi) {",
+	'  pi.on("session_start", (event) => {',
+	'    if (event.reason === "startup") setTimeout(() => pi.sendUserMessage("browser-msg"), 0);',
 	"  });",
 	"}",
 	"",

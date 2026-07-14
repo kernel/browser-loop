@@ -22,8 +22,12 @@ import {
 import { installExtensionHooks, type ExtensionHookState } from "./hooks";
 import { HarnessToolRegistry } from "./tool-registry";
 
+interface ModeAwareAgentHarness extends AgentHarness {
+	getMode?(): string;
+}
+
 export interface HarnessExtensionHostOptions {
-	harness: AgentHarness;
+	harness: ModeAwareAgentHarness;
 	/** The same `Session` the harness was constructed with; used for entry writes. */
 	session: Session;
 	cwd: string;
@@ -47,7 +51,7 @@ export type ReloadOutcome = "reloaded" | "coalesced" | "disposed";
  * depends only on the interface exported by `extensions/setup`.
  */
 export class HarnessExtensionHost {
-	private readonly harness: AgentHarness;
+	private readonly harness: ModeAwareAgentHarness;
 	private readonly session: Session;
 	private readonly cwd: string;
 	private readonly configuredPaths: string[];
@@ -302,7 +306,7 @@ export class HarnessExtensionHost {
 			this.harness,
 			runner,
 			this.hookState,
-			() => this.tools.reapply(runner, () => runner === this.runner),
+			() => this.tools.reapply(runner, () => runner === this.runner && !this.disposed),
 		);
 	}
 
@@ -338,6 +342,7 @@ export class HarnessExtensionHost {
 
 	private async maybeInitialScreenshot(): Promise<ImageContent[] | undefined> {
 		if (!this.initialScreenshot || !this.startedUp) return undefined;
+		if (this.harness.getMode?.() === "browser") return undefined;
 		if (await sessionHasPriorTurn(this.session)) return undefined;
 		return this.initialScreenshot();
 	}
