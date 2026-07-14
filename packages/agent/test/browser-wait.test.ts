@@ -131,6 +131,23 @@ describe("waitForBrowserExpectation", () => {
 		expect(result).toMatchObject({ status: "satisfied", evidence: "newly_verified" });
 	});
 
+	it("allows location expectations to verify when a pre-action baseline is already stale", async () => {
+		let time = 0;
+		const baseline = observation([], true, { url: "https://a.test/start", generations: new Map([["page", 0]]) });
+		const result = await waitForBrowserExpectation({
+			selectTarget: async () => "page",
+			observeTarget: async () => observation([], true, { url: "https://a.test/done", navigationEpoch: 1, generations: new Map([["page", 1]]) }),
+			dialogCount: () => 0,
+			targetExists: async () => true,
+			liveGeneration: () => 1,
+			liveNavigationEpoch: () => 1,
+			resolveRef: missingRef,
+			now: () => time,
+			delay: async (ms) => { time += ms; },
+		}, { expect: { type: "url", changed: true }, baseline, targetId: "page", timeoutMs: 20, pollMs: 10 });
+		expect(result).toMatchObject({ status: "satisfied", evidence: "newly_verified" });
+	});
+
 	it("reports navigation instead of timeout when a location change lands at the deadline", async () => {
 		let time = 0, reads = 0;
 		const result = await waitForBrowserExpectation({

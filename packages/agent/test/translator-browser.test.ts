@@ -300,6 +300,30 @@ describe("browser_act orchestration", () => {
 		await translator.executeBatch([{ type: "browser_act", steps: [{ type: "wait" }] }, { type: "browser_text" }]);
 		expect(executed).toEqual(["browser_act"]);
 	});
+
+	it.each(["interrupted", "timed_out", "unverifiable"] as const)("stops a mixed batch after a browser_wait_for %s result", async (status) => {
+		const { client } = createClient();
+		const executed: string[] = [];
+		const result: BrowserWaitForResult = {
+			status,
+			evidence: status === "timed_out" ? "failed" : "unverifiable",
+			initial: { truth: false, details: ["before"] },
+			final: { truth: false, details: ["after"] },
+			elapsed_ms: 1,
+			...(status === "interrupted" ? { reason: "navigation" } : {}),
+			details: [],
+		};
+		const executor = { execute: async (action: CuaBrowserAction) => {
+			executed.push(action.type);
+			return action.type === "browser_wait_for" ? [{ type: "browser_wait_for", result } as BatchReadResult] : [];
+		} } as unknown as BrowserExecutor;
+		const translator = new InternalComputerTranslator({ browser, client, createBrowserExecutor: () => executor });
+		await translator.executeBatch([
+			{ type: "browser_wait_for", expect: { type: "text", text: "Ready" } },
+			{ type: "browser_text" },
+		]);
+		expect(executed).toEqual(["browser_wait_for"]);
+	});
 });
 
 describe("InternalComputerTranslator computer additions", () => {

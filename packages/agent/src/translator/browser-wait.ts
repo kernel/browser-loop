@@ -109,7 +109,9 @@ export async function waitForBrowserExpectation(runtime: BrowserWaitRuntime, opt
 	}
 	const initial = evaluateBrowserExpectation(options.expect, baseline, baseline, runtime.resolveRef);
 	if (!baseline.complete) return terminal("unverifiable", "unverifiable", initial, initial, started, now(), "incomplete_observation");
-	if (runtime.liveNavigationEpoch(targetId) !== baseline.navigationEpoch || [...baseline.generations].some(([key, generation]) => runtime.liveGeneration(key) !== generation)) return terminal("interrupted", "unverifiable", initial, initial, started, now(), "navigation");
+	const baselineNavigated = runtime.liveNavigationEpoch(targetId) !== baseline.navigationEpoch || [...baseline.generations].some(([key, generation]) => runtime.liveGeneration(key) !== generation);
+	const allowLocationRecovery = !!options.baseline && isLocationExpectation(options.expect);
+	if (baselineNavigated && !allowLocationRecovery) return terminal("interrupted", "unverifiable", initial, initial, started, now(), "navigation");
 	if (expired()) return timedOut(started, now());
 	if (initial.reason === "stale_ref") return terminal("interrupted", "unverifiable", initial, initial, started, now(), initial.reason);
 	if (initial.truth === true && !options.baseline) return terminal("satisfied", "preexisting", initial, initial, started, now());

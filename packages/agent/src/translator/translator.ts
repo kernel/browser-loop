@@ -136,7 +136,10 @@ export class InternalComputerTranslator {
 				await flush();
 				const reads = await this.browser().execute(action);
 				result.readResults.push(...reads);
-				if (action.type === "browser_act" && reads.some((read) => read.type === "browser_act" && read.result.stop_reason)) break;
+				if (
+					(action.type === "browser_act" && reads.some((read) => read.type === "browser_act" && read.result.stop_reason)) ||
+					(action.type === "browser_wait_for" && reads.some((read) => read.type === "browser_wait_for" && (read.result.status === "interrupted" || read.result.status === "timed_out" || read.result.status === "unverifiable")))
+				) break;
 				continue;
 			}
 			switch (action.type) {
