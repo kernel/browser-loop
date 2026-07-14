@@ -16,7 +16,9 @@ import {
 } from "@onkernel/cua-ai";
 import { InternalComputerTranslator, type KernelBrowser } from "./translator/translator";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
-import type { BrowserWaitForResult } from "./translator/types";
+import type { BrowserActResult, BrowserWaitForResult } from "./translator/types";
+
+const BROWSER_ACT_DIFF_LINE_LIMIT = 200;
 
 export interface ComputerToolOptions {
 	browser: KernelBrowser;
@@ -39,6 +41,7 @@ export interface BatchDetails {
 		| { type: "cursor_position"; x: number; y: number }
 		| { type: "browser_text"; label: string; bytes: number }
 		| { type: "browser_wait_for"; result: BrowserWaitForResult }
+		| { type: "browser_act"; result: BrowserActResult }
 	>;
 }
 
@@ -175,6 +178,9 @@ async function executeBatchTool(
 			} else if (read.type === "browser_wait_for") {
 				readResults.push(read);
 				content.push({ type: "text", text: formatBrowserWaitResult(read.result) });
+			} else if (read.type === "browser_act") {
+				readResults.push(read);
+				content.push({ type: "text", text: formatBrowserActResult(read.result) });
 			} else {
 				readResults.push({ type: "screenshot", bytes: read.data.length });
 				content.push({ type: "image", data: read.data.toString("base64"), mimeType: read.mimeType });
@@ -190,13 +196,20 @@ async function executeBatchTool(
 	} catch (err) {
 		throw new Error(`Actions failed: ${errorMessage(err)}`, { cause: err });
 	}
+	const acts = readResults.flatMap((read) => read.type === "browser_act" ? [read.result] : []);
 	const waits = readResults.flatMap((read) => read.type === "browser_wait_for" ? [read.result] : []);
 	const failedWait = ["interrupted", "timed_out", "unverifiable"].find((status) => waits.some((wait) => wait.status === status));
-	const statusText = waits.length === 0
-		? "Actions executed successfully."
-		: failedWait
-			? `Browser condition ${failedWait}.`
-			: "Browser condition satisfied.";
+	const statusText = acts.length > 0
+		? acts.some((act) => act.outcome === "didnt")
+			? "Browser action plan did not satisfy its expectations."
+			: acts.every((act) => act.outcome === "worked")
+				? "Browser action plan worked."
+				: "Browser action plan outcome is unknown."
+		: waits.length === 0
+			? "Actions executed successfully."
+			: failedWait
+				? `Browser condition ${failedWait}.`
+				: "Browser condition satisfied.";
 	return { content, details: { statusText, readResults } };
 }
 
@@ -272,6 +285,33 @@ async function executePlaywrightTool(translator: InternalComputerTranslator, par
 function formatBrowserWaitResult(result: BrowserWaitForResult): string {
 	const reason = result.reason ? ` (${result.reason})` : "";
 	return [`wait_for: ${result.status}/${result.evidence}${reason} after ${result.elapsed_ms}ms`, ...result.details].join("\n");
+}
+
+export function formatBrowserActResult(result: BrowserActResult): string {
+	const lines = [`browser_act: ${result.outcome}`];
+	if (result.stopped_at !== undefined) lines.push(`stopped_at: ${result.stopped_at} (${result.stop_reason ?? "unknown"})`);
+	for (const step of result.steps) {
+		lines.push(`step ${step.index} ${step.type}: ${step.outcome} — ${step.evidence.join("; ")}`);
+		for (const detail of step.expectation?.details ?? []) lines.push(`  ${detail}`);
+	}
+	if (result.final_expectation) {
+		lines.push(`final expectation: ${result.final_expectation.status}`);
+		for (const detail of result.final_expectation.details) lines.push(`  ${detail}`);
+	}
+	if (result.successor.status === "unavailable") {
+		lines.push(`successor unavailable: ${result.successor.error}`);
+		return lines.join("\n");
+	}
+	const { diff } = result.successor;
+	lines.push(`successor: ${result.successor.title} (${result.successor.url})`);
+	lines.push(`diff: ${diff.changed ? `+${diff.added.length} -${diff.removed.length}` : "unchanged"}`);
+	if (diff.url) lines.push(`  url: ${diff.url.before} -> ${diff.url.after}`);
+	if (diff.title) lines.push(`  title: ${diff.title.before} -> ${diff.title.after}`);
+	const changes = [...diff.added.map((line) => `  + ${line}`), ...diff.removed.map((line) => `  - ${line}`)];
+	lines.push(...changes.slice(0, BROWSER_ACT_DIFF_LINE_LIMIT));
+	if (changes.length > BROWSER_ACT_DIFF_LINE_LIMIT) lines.push(`  … ${changes.length - BROWSER_ACT_DIFF_LINE_LIMIT} more diff lines omitted`);
+	lines.push(result.successor.text);
+	return lines.join("\n");
 }
 
 function formatPlaywrightResult(result: unknown): string {
