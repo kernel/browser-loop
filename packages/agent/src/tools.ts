@@ -199,17 +199,15 @@ async function executeBatchTool(
 	const acts = readResults.flatMap((read) => read.type === "browser_act" ? [read.result] : []);
 	const waits = readResults.flatMap((read) => read.type === "browser_wait_for" ? [read.result] : []);
 	const failedWait = ["interrupted", "timed_out", "unverifiable"].find((status) => waits.some((wait) => wait.status === status));
-	const statusText = acts.length > 0
+	const actStatusText = acts.length > 0
 		? acts.some((act) => act.outcome === "didnt")
 			? "Browser action plan did not satisfy its expectations."
 			: acts.every((act) => act.outcome === "worked")
 				? "Browser action plan worked."
 				: "Browser action plan outcome is unknown."
-		: waits.length === 0
-			? "Actions executed successfully."
-			: failedWait
-				? `Browser condition ${failedWait}.`
-				: "Browser condition satisfied.";
+		: undefined;
+	const waitStatusText = waits.length === 0 ? undefined : failedWait ? `Browser condition ${failedWait}.` : "Browser condition satisfied.";
+	const statusText = failedWait ? `Browser condition ${failedWait}.` : actStatusText ?? waitStatusText ?? "Actions executed successfully.";
 	return { content, details: { statusText, readResults } };
 }
 
@@ -287,6 +285,11 @@ function formatBrowserWaitResult(result: BrowserWaitForResult): string {
 	return [`wait_for: ${result.status}/${result.evidence}${reason} after ${result.elapsed_ms}ms`, ...result.details].join("\n");
 }
 
+/**
+ * Formats a browser action plan result for model-facing tool text output.
+ * Includes per-step outcomes and successor details while capping successor
+ * diff lines so large diffs stay in structured `readResults`, not tool text.
+ */
 export function formatBrowserActResult(result: BrowserActResult): string {
 	const lines = [`browser_act: ${result.outcome}`];
 	if (result.stopped_at !== undefined) lines.push(`stopped_at: ${result.stopped_at} (${result.stop_reason ?? "unknown"})`);
