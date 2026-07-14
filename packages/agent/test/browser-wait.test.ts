@@ -99,6 +99,52 @@ describe("waitForBrowserExpectation", () => {
 		expect(result).toMatchObject({ status: reason === "observation_failed" ? "unverifiable" : "interrupted", reason });
 	});
 
+	it("does not treat a reset frame generation as navigation when epochs match", async () => {
+		let time = 0, reads = 0;
+		const generations = new Map<string, number>();
+		const result = await waitForBrowserExpectation({
+			selectTarget: async () => "page",
+			observeTarget: async () => {
+				const current = reads++ === 0
+					? observation([], true, { generations: new Map([["page", 0], ["frame", 2]]) })
+					: observation([], true, { generations: new Map([["page", 0], ["frame", 0]]) });
+				generations.clear();
+				for (const [key, generation] of current.generations) generations.set(key, generation);
+				return current;
+			},
+			dialogCount: () => 0,
+			targetExists: async () => true,
+			liveGeneration: (key) => generations.get(key) ?? 0,
+			resolveRef: missingRef,
+			now: () => time,
+			delay: async (ms) => { time += ms; },
+		}, { expect: { type: "text", text: "Ready" }, timeoutMs: 20, pollMs: 10 });
+		expect(result).toMatchObject({ status: "timed_out", evidence: "failed" });
+	});
+
+	it("interrupts absence waits when complete observations drop baseline frames", async () => {
+		let time = 0, reads = 0;
+		const generations = new Map<string, number>();
+		const result = await waitForBrowserExpectation({
+			selectTarget: async () => "page",
+			observeTarget: async () => {
+				const current = reads++ === 0
+					? observation(["Ready"], true, { generations: new Map([["page", 0], ["frame", 1]]) })
+					: observation([], true, { generations: new Map([["page", 0]]) });
+				generations.clear();
+				for (const [key, generation] of current.generations) generations.set(key, generation);
+				return current;
+			},
+			dialogCount: () => 0,
+			targetExists: async () => true,
+			liveGeneration: (key) => generations.get(key) ?? 0,
+			resolveRef: missingRef,
+			now: () => time,
+			delay: async (ms) => { time += ms; },
+		}, { expect: { type: "text", text: "Ready", exists: false }, timeoutMs: 20, pollMs: 10 });
+		expect(result).toMatchObject({ status: "interrupted", reason: "navigation" });
+	});
+
 	it("interrupts when a ref becomes stale after the baseline", async () => {
 		let time = 0, resolves = 0;
 		const resolveRef: BrowserRefResolver = () => resolves++ === 0 ? { truth: false, details: ["not checked"] } : { truth: undefined, details: ["stale"], reason: "stale_ref" };
