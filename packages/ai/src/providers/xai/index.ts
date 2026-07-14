@@ -19,6 +19,13 @@ export {
 } from "./provider";
 export type { XaiResponsesOptions } from "./provider";
 
+/**
+ * Instructions for driving Grok through CUA's custom function tools.
+ *
+ * xAI documents {@link https://docs.x.ai/developers/model-capabilities/images/understanding | image input}
+ * and {@link https://docs.x.ai/developers/tools/function-calling | function calling},
+ * but does not define a native computer tool or coordinate space.
+ */
 export const XAI_COMPUTER_INSTRUCTIONS = `You control a Kernel cloud browser through individual browser tools. Coordinates are normalized from 0 to 1000 relative to the most recent screenshot, with (0, 0) at the top left and (1000, 1000) at the bottom right. Base each action on the latest observed state and request a screenshot when you need a fresh view.`;
 
 /**
@@ -30,6 +37,10 @@ export function buildXaiSystemPrompt(opts: { suffix?: string } = {}): string {
 
 /**
  * Return the normalized coordinate contract CUA supplies to Grok function tools.
+ *
+ * This is a CUA-defined contract because xAI's documented
+ * {@link https://docs.x.ai/developers/tools/function-calling | function tools}
+ * do not prescribe browser coordinates.
  */
 export function coordinateSystem(): ComputerToolCoordinateSystem {
 	return { type: "normalized", range: [0, 1000] };
