@@ -10,13 +10,16 @@ import {
 	type CuaActionBrowserScroll,
 	type CuaActionBrowserScrollTo,
 	type CuaActionBrowserSnapshot,
+	type CuaActionBrowserWaitFor,
 	type CuaBrowserAction,
+	type CuaBrowserExpectation,
 } from "@onkernel/cua-ai";
 import { CdpConnection, type CdpEventMessage } from "./cdp";
 import {
 	ObservationChangedError,
 	buildNthIndex,
 	cohortKey,
+	frameStitchKey,
 	staticTextRun,
 	type AXNode,
 	type BrowserObservation,
@@ -25,12 +28,14 @@ import {
 	type ObservationLine,
 	type RenderContext,
 } from "./browser-observation";
-import type { BatchReadResult } from "./types";
+import { waitForBrowserExpectation, type BrowserExpectationEvaluation } from "./browser-wait";
+import type { BatchReadResult, BrowserWaitForResult } from "./types";
 
 const SNAPSHOT_CHAR_LIMIT = 50_000;
 const DEFAULT_SNAPSHOT_DEPTH = 15;
 const FIND_MATCH_LIMIT = 20;
 const REF_LIMIT_PER_TARGET = 1000;
+const FRAME_STATE_LIMIT = 1000;
 const SCROLL_NOTCH_PX = 120;
 
 const STALE_REF_HINT = "Call snapshot (or find) to get fresh element references.";
@@ -42,6 +47,8 @@ interface RefEntry {
 	targetId: string;
 	/** Generation key: the owning page target id for main-frame refs, the frame id for iframe refs. */
 	frameId: string;
+	/** Page or OOPIF target whose session owns the frame. */
+	sessionTargetId?: string;
 	/** Session to route DOM/Input calls through: the frame's own session for OOPIFs, the page session otherwise. */
 	sessionId: string;
 	generation: number;
@@ -72,6 +79,10 @@ export interface BrowserRefState {
 	activeTargetId?: string;
 	generations: Array<[string, number]>;
 	refs: Array<[string, Omit<RefEntry, "sessionId">]>;
+	frameParents?: Array<[string, string]>;
+	frameOwners?: Array<[string, string]>;
+	framePages?: Array<[string, string]>;
+	navigationEpochs?: Array<[string, number]>;
 }
 
 /**
@@ -108,6 +119,10 @@ export class BrowserExecutor {
 	private readonly targetsBySession = new Map<string, string>();
 	private readonly frameSessions = new Map<string, string>();
 	private readonly frameTargets = new Set<string>();
+	private readonly frameParents = new Map<string, string>();
+	private readonly frameOwners = new Map<string, string>();
+	private readonly framePages = new Map<string, string>();
+	private readonly navigationEpochs = new Map<string, number>();
 	private readonly lastSnapshots = new Map<string, { key: string; shape: string }>();
 	private readonly selfNavigations = new Set<string>();
 	private readonly dialogNotes: string[] = [];
@@ -122,37 +137,54 @@ export class BrowserExecutor {
 
 	private handleCdpEvent(event: CdpEventMessage): void {
 		switch (event.method) {
+			case "Page.frameAttached": {
+				const { frameId, parentFrameId } = event.params as { frameId?: string; parentFrameId?: string };
+				if (!frameId || !parentFrameId) return;
+				this.frameParents.set(frameId, parentFrameId);
+				const sessionTarget = event.sessionId ? this.targetsBySession.get(event.sessionId) : undefined;
+				const page = this.pageForFrame(parentFrameId, sessionTarget);
+				if (page) this.framePages.set(frameId, page);
+				return;
+			}
 			case "Page.frameNavigated": {
 				const frame = event.params.frame as { id?: string; parentId?: string } | undefined;
-				if (!event.sessionId || !frame) return;
-				const targetId = this.targetsBySession.get(event.sessionId);
-				if (!targetId) return;
-				if (this.frameTargets.has(targetId)) {
-					// Refs from a frame target's tree (its root and any same-process
-					// subframes inlined in it) are all minted against the target's key,
-					// so any navigation observed in its session stales them.
-					this.invalidateFrame(targetId);
-					return;
-				}
+				if (!event.sessionId || !frame?.id) return;
+				const sessionTarget = this.targetsBySession.get(event.sessionId);
+				if (!sessionTarget) return;
+				const knownFrame = this.generations.has(frame.id) || this.frameParents.has(frame.id);
 				if (frame.parentId) {
-					if (frame.id) this.invalidateFrame(frame.id);
-					return;
+					this.frameParents.set(frame.id, frame.parentId);
+					const page = this.pageForFrame(frame.parentId, sessionTarget);
+					if (page) this.framePages.set(frame.id, page);
 				}
-				if (!this.selfNavigations.delete(targetId)) this.invalidateRefs(targetId);
+				if (!frame.parentId && !this.frameTargets.has(sessionTarget) && this.selfNavigations.delete(sessionTarget)) return;
+				this.invalidateFrame(frame.parentId && (knownFrame || !this.frameTargets.has(sessionTarget)) ? frame.id : sessionTarget);
+				return;
+			}
+			case "Page.frameDetached": {
+				const { frameId } = event.params as { frameId?: string };
+				if (frameId) {
+					const page = this.pageForFrame(frameId);
+					if (page) this.navigationEpochs.set(page, this.navigationEpoch(page) + 1);
+					this.removeFrames(this.descendants(frameId));
+				}
 				return;
 			}
 			case "Page.navigatedWithinDocument": {
-				// A navigate() that turns out same-document never fires frameNavigated;
-				// consume the pending flag here so it can't swallow the next real navigation.
 				if (!event.sessionId) return;
 				const targetId = this.targetsBySession.get(event.sessionId);
 				const { frameId } = event.params as { frameId?: string };
-				if (targetId && frameId === targetId) this.selfNavigations.delete(targetId);
+				if (!targetId || !frameId) return;
+				if (frameId === targetId) this.selfNavigations.delete(targetId);
+				this.invalidateFrame(frameId);
 				return;
 			}
 			case "Target.attachedToTarget": {
 				const { sessionId, targetInfo } = event.params as { sessionId?: string; targetInfo?: { targetId?: string; type?: string } };
 				if (!sessionId || !targetInfo?.targetId || targetInfo.type !== "iframe") return;
+				const parentTarget = event.sessionId ? this.targetsBySession.get(event.sessionId) : undefined;
+				const page = parentTarget ? this.pageForFrame(parentTarget, parentTarget) : undefined;
+				if (page) this.framePages.set(targetInfo.targetId, page);
 				this.frameSessions.set(targetInfo.targetId, sessionId);
 				this.frameTargets.add(targetInfo.targetId);
 				this.targetsBySession.set(sessionId, targetInfo.targetId);
@@ -196,6 +228,10 @@ export class BrowserExecutor {
 			...(this.activeTargetId ? { activeTargetId: this.activeTargetId } : {}),
 			generations: [...this.generations],
 			refs: [...this.refs].map(([ref, { sessionId: _sessionId, ...entry }]) => [ref, entry]),
+			frameParents: [...this.frameParents],
+			frameOwners: [...this.frameOwners],
+			framePages: [...this.framePages],
+			navigationEpochs: [...this.navigationEpochs],
 		};
 	}
 
@@ -205,6 +241,10 @@ export class BrowserExecutor {
 		this.activeTargetId = state.activeTargetId ?? this.activeTargetId;
 		for (const [frameId, generation] of state.generations) this.generations.set(frameId, generation);
 		for (const [ref, entry] of state.refs) this.refs.set(ref, { ...entry, sessionId: "" });
+		for (const [frame, parent] of state.frameParents ?? []) this.frameParents.set(frame, parent);
+		for (const [frame, owner] of state.frameOwners ?? []) this.frameOwners.set(frame, owner);
+		for (const [frame, page] of state.framePages ?? []) this.framePages.set(frame, page);
+		for (const [target, epoch] of state.navigationEpochs ?? []) this.navigationEpochs.set(target, epoch);
 	}
 
 	async execute(action: CuaBrowserAction): Promise<BatchReadResult[]> {
@@ -218,6 +258,8 @@ export class BrowserExecutor {
 		switch (action.type) {
 			case "browser_snapshot":
 				return [{ type: "browser_text", label: "snapshot", text: await this.snapshot(action) }];
+			case "browser_wait_for":
+				return [{ type: "browser_wait_for", result: await this.waitFor(action) }];
 			case "browser_text":
 				return [{ type: "browser_text", label: "text", text: await this.pageText(tabOf(action)) }];
 			case "browser_find":
@@ -279,7 +321,52 @@ export class BrowserExecutor {
 	}
 
 	private async snapshot(action: CuaActionBrowserSnapshot): Promise<string> {
-		return this.renderObservation(this.presentObservation(await this.observe(action.tab_id), action));
+		const observation = await this.observe(action.tab_id);
+		try {
+			return this.renderObservation(this.presentObservation(observation, action));
+		} catch (error) {
+			if (!action.ref || !/stale/.test(error instanceof Error ? error.message : "")) throw error;
+			return this.renderObservation(this.presentObservation(await this.observeReferencedFrame(action.ref, observation.targetId), action));
+		}
+	}
+
+	private waitFor(action: CuaActionBrowserWaitFor): Promise<BrowserWaitForResult> {
+		return waitForBrowserExpectation({
+			selectTarget: (tabId) => this.resolveTarget(tabId),
+			observeTarget: (targetId) => this.observe(targetId, false),
+			dialogCount: () => this.dialogNotes.length,
+			targetExists: async (targetId) => (await this.cdp.pageTargets()).some((target) => target.targetId === targetId),
+			liveGeneration: (frameId) => this.generation(frameId),
+			resolveRef: (expectation, observation) => this.evaluateRefExpectation(expectation, observation),
+		}, { expect: action.expect, timeoutMs: action.timeout_ms, pollMs: action.poll_ms, tabId: action.tab_id });
+	}
+
+	private evaluateRefExpectation(expectation: Extract<CuaBrowserExpectation, { type: "ref" }>, observation: BrowserObservation): BrowserExpectationEvaluation {
+		const entry = this.refs.get(expectation.ref);
+		if (!entry || entry.targetId !== observation.targetId || entry.generation !== this.generation(entry.frameId)) {
+			return { truth: undefined, details: [`ref ${expectation.ref} is stale`], reason: "stale_ref" };
+		}
+		const nodes = observation.nodes.filter(({ ctx }) => ctx.frameKey === entry.frameId).map(({ node }) => node);
+		let node = nodes.find((candidate) => candidate.backendDOMNodeId === entry.backendNodeId);
+		if (!node) {
+			try { node = this.healEntry(expectation.ref, entry, nodes); }
+			catch { return { truth: undefined, details: [`ref ${expectation.ref} is not observable`], reason: observation.complete ? "stale_ref" : "incomplete_observation" }; }
+		}
+		const checks: boolean[] = [];
+		let missing = false;
+		if (expectation.value !== undefined) {
+			if (node.value?.value === undefined) missing = true;
+			else checks.push(String(node.value.value) === expectation.value);
+		}
+		for (const state of ["checked", "selected", "expanded"] as const) {
+			if (expectation[state] === undefined) continue;
+			const property = node.properties?.find((candidate) => candidate.name === state)?.value?.value;
+			if (property === undefined) missing = true;
+			else checks.push(normalizeState(property) === expectation[state]);
+		}
+		if (missing) return { truth: undefined, details: [`ref ${expectation.ref} lacks requested value/state metadata`], reason: "incomplete_observation" };
+		const truth = checks.every(Boolean);
+		return { truth, details: [`ref ${expectation.ref} value/state ${truth ? "matched" : "did not match"}`] };
 	}
 
 	private async observe(tabId?: string, includeCursor = true): Promise<BrowserObservation> {
@@ -300,11 +387,13 @@ export class BrowserExecutor {
 
 		const generations = new Map<string, number>();
 		const rootGeneration = this.trackGeneration(targetId);
+		const navigationEpoch = this.navigationEpoch(targetId);
 		generations.set(targetId, rootGeneration);
 		const { nodes, sessionId } = await this.frameAxTree(targetId, targetId, pageSession);
 		const rootCtx: RenderContext = {
 			targetId,
 			frameKey: targetId,
+			sessionTargetId: targetId,
 			sessionId,
 			generation: rootGeneration,
 			interactiveOnly: false,
@@ -312,16 +401,19 @@ export class BrowserExecutor {
 			...(includeCursor ? { cursorIds: await this.cursorPointerIds(pageSession) } : {}),
 		};
 		const tree = this.frameStitch(nodes, rootCtx);
-		const stitches = await this.stitchFrames(nodes, targetId, pageSession, generations);
+		const { stitches, complete } = await this.stitchFrames(nodes, targetId, pageSession, generations);
 		const after = (await this.cdp.pageTargets()).find((target) => target.targetId === targetId);
-		if (!after || before.url !== after.url || before.title !== after.title) {
-			throw new ObservationChangedError("Browser target metadata changed during observation");
+		if (!after || before.url !== after.url || before.title !== after.title || navigationEpoch !== this.navigationEpoch(targetId)) {
+			throw new ObservationChangedError("Browser observation changed: target metadata changed during collection");
 		}
 		for (const [frameKey, generation] of generations) {
 			if (this.generations.get(frameKey) !== generation) throw new ObservationChangedError();
 		}
+		if (complete) this.pruneFrameState(targetId, new Set(generations.keys()));
+		this.boundFrameState(new Set(generations.keys()));
 		return {
 			targetId,
+			navigationEpoch,
 			tree,
 			stitches,
 			nodes: [
@@ -331,7 +423,33 @@ export class BrowserExecutor {
 			url: before.url,
 			title: before.title,
 			generations,
+			complete,
 		};
+	}
+
+	private async observeReferencedFrame(ref: string, targetId: string): Promise<BrowserObservation> {
+		for (let attempt = 0; ; attempt += 1) {
+			try { return await this.collectReferencedFrame(ref, targetId); }
+			catch (error) { if (!(error instanceof ObservationChangedError) || attempt === 2) throw error; }
+		}
+	}
+
+	private async collectReferencedFrame(ref: string, targetId: string): Promise<BrowserObservation> {
+		const entry = this.resolveRef(ref, targetId);
+		const pageSession = await this.attach(targetId);
+		const before = (await this.cdp.pageTargets()).find((candidate) => candidate.targetId === targetId);
+		if (!before) throw new ObservationChangedError();
+		const frameGeneration = this.trackGeneration(entry.frameId);
+		const navigationEpoch = this.navigationEpoch(targetId);
+		const { nodes, sessionId } = await this.frameAxTree(entry.frameId, targetId, pageSession);
+		const owner = entry.sessionTargetId ?? this.frameOwners.get(entry.frameId) ?? targetId;
+		const generations = new Map<string, number>([[targetId, this.trackGeneration(targetId)], [entry.frameId, frameGeneration]]);
+		const ctx: RenderContext = { targetId, frameKey: entry.frameId, sessionTargetId: owner, sessionId, generation: frameGeneration, interactiveOnly: false, nthIndex: buildNthIndex(nodes) };
+		const { stitches, complete } = await this.stitchFrames(nodes, targetId, sessionId, generations, entry.frameId, owner);
+		const after = (await this.cdp.pageTargets()).find((candidate) => candidate.targetId === targetId);
+		if (!after || before.url !== after.url || before.title !== after.title || navigationEpoch !== this.navigationEpoch(targetId) || [...generations].some(([key, generation]) => this.generation(key) !== generation)) throw new ObservationChangedError();
+		this.boundFrameState(new Set(generations.keys()));
+		return { targetId, navigationEpoch, tree: this.frameStitch(nodes, ctx), stitches, nodes: [...nodes.map((node) => ({ node, ctx })), ...[...stitches.values()].flatMap((stitch) => [...stitch.byId.values()].map((node) => ({ node, ctx: stitch.ctx })))], url: before.url, title: before.title, generations, complete };
 	}
 
 	private presentObservation(observation: BrowserObservation, action: CuaActionBrowserSnapshot): BrowserPresentation {
@@ -367,7 +485,7 @@ export class BrowserExecutor {
 				}
 			}
 			if (childDepth > maxDepth) return;
-			const stitch = current === observation.tree && node.backendDOMNodeId !== undefined ? observation.stitches.get(node.backendDOMNodeId) : undefined;
+			const stitch = node.backendDOMNodeId !== undefined ? observation.stitches.get(frameStitchKey(current.ctx.frameKey, node.backendDOMNodeId)) : undefined;
 			if (stitch) {
 				for (const frameRootId of stitch.roots) walk(stitch, frameRootId, childDepth, "");
 				return;
@@ -453,43 +571,44 @@ export class BrowserExecutor {
 		};
 	}
 
-	/** Resolve each iframe node's child frame and fetch its AX tree for stitching. One nesting level only. */
+	/** Recursively stitch same-process frames and OOPIFs. A failed child fetch makes absence unverifiable. */
 	private async stitchFrames(
-		nodes: AXNode[],
-		targetId: string,
-		pageSession: string,
-		generations: Map<string, number>,
-	): Promise<Map<number, FrameStitch>> {
-		const stitches = new Map<number, FrameStitch>();
-		for (const node of nodes) {
-			if (node.ignored || !FRAME_ROLES.has(node.role?.value ?? "") || node.backendDOMNodeId === undefined) continue;
-			try {
-				const { node: dom } = await this.cdp.send<{ node: { frameId?: string; contentDocument?: { frameId?: string } } }>(
-					"DOM.describeNode",
-					{ backendNodeId: node.backendDOMNodeId, depth: 1 },
-					pageSession,
-				);
-				const frameId = dom.contentDocument?.frameId ?? dom.frameId;
-				if (!frameId || frameId === targetId) continue;
-				const generation = this.trackGeneration(frameId);
-				generations.set(frameId, generation);
-				const { nodes: frameNodes, sessionId } = await this.frameAxTree(frameId, targetId, pageSession);
-				stitches.set(
-					node.backendDOMNodeId,
-					this.frameStitch(frameNodes, {
-						targetId,
-						frameKey: frameId,
-						sessionId,
-						generation,
-						interactiveOnly: false,
-						nthIndex: buildNthIndex(frameNodes),
-					}),
-				);
-			} catch {
-				// Cross-origin or already-detached frames can refuse the fetch; the iframe renders without children.
+		nodes: AXNode[], targetId: string, pageSession: string, generations: Map<string, number>,
+		rootFrame = targetId, rootOwner = targetId,
+	): Promise<{ stitches: Map<string, FrameStitch>; complete: boolean }> {
+		const stitches = new Map<string, FrameStitch>();
+		const visited = new Set([rootFrame]);
+		let complete = true;
+		const visit = async (parentNodes: AXNode[], parentFrame: string, session: string, owner: string): Promise<void> => {
+			for (const node of parentNodes) {
+				if (node.ignored || !FRAME_ROLES.has(node.role?.value ?? "") || node.backendDOMNodeId === undefined) continue;
+				try {
+					const { node: dom } = await this.cdp.send<{ node: { frameId?: string; contentDocument?: { frameId?: string } } }>("DOM.describeNode", { backendNodeId: node.backendDOMNodeId, depth: 1 }, session);
+					const frameId = dom.contentDocument?.frameId ?? dom.frameId;
+					if (frameId === targetId) continue;
+					if (!frameId || visited.has(frameId)) { complete = false; continue; }
+					visited.add(frameId);
+					this.frameParents.set(frameId, parentFrame);
+					const frameOwner = this.frameSessions.has(frameId) ? frameId : owner;
+					this.frameOwners.set(frameId, frameOwner);
+					this.framePages.set(frameId, targetId);
+					const generation = this.trackGeneration(frameId);
+					const { nodes: children, sessionId } = await this.frameAxTree(frameId, targetId, session);
+					if (generation !== this.generation(frameId)) throw new ObservationChangedError();
+					generations.set(frameId, generation);
+					stitches.set(frameStitchKey(parentFrame, node.backendDOMNodeId), this.frameStitch(children, {
+						targetId, frameKey: frameId, sessionTargetId: frameOwner, sessionId, generation,
+						interactiveOnly: false, nthIndex: buildNthIndex(children),
+					}));
+					await visit(children, frameId, sessionId, frameOwner);
+				} catch (error) {
+					if (error instanceof ObservationChangedError) throw error;
+					complete = false;
+				}
 			}
-		}
-		return stitches;
+		};
+		await visit(nodes, rootFrame, pageSession, rootOwner);
+		return { stitches, complete };
 	}
 
 	/** Resolve backend node ids for elements whose own computed cursor is "pointer", without touching the DOM. */
@@ -824,6 +943,7 @@ export class BrowserExecutor {
 			backendNodeId: node.backendDOMNodeId!,
 			targetId: ctx.targetId,
 			frameId: ctx.frameKey,
+			sessionTargetId: ctx.sessionTargetId,
 			sessionId: ctx.sessionId,
 			generation: ctx.generation,
 			role,
@@ -842,7 +962,10 @@ export class BrowserExecutor {
 	 */
 	private async refSession(entry: RefEntry): Promise<string> {
 		if (!entry.sessionId) {
-			entry.sessionId = this.frameSessions.get(entry.frameId) ?? (await this.attach(entry.targetId));
+			const pageSession = await this.attach(entry.targetId);
+			const owner = entry.sessionTargetId ?? this.frameOwners.get(entry.frameId) ?? entry.targetId;
+			entry.sessionId = owner === entry.targetId ? pageSession : (this.frameSessions.get(owner) ?? "");
+			if (!entry.sessionId) throw staleRefError("owning frame session");
 		}
 		return entry.sessionId;
 	}
@@ -866,38 +989,79 @@ export class BrowserExecutor {
 		return this.generation(frameKey);
 	}
 
-	private invalidateRefs(targetId: string): void {
-		this.generations.set(targetId, this.generation(targetId) + 1);
-		for (const [ref, entry] of this.refs) {
-			if (entry.targetId === targetId) this.refs.delete(ref);
+	private navigationEpoch(targetId: string): number { return this.navigationEpochs.get(targetId) ?? 0; }
+
+	private pageForFrame(frameId: string, sessionTarget?: string): string | undefined {
+		let current: string | undefined = frameId;
+		const seen = new Set<string>();
+		while (current && !seen.has(current)) {
+			seen.add(current);
+			const page = this.framePages.get(current);
+			if (page) return page;
+			if (!this.frameTargets.has(current) && [...this.targetsBySession.values()].includes(current)) return current;
+			current = this.frameParents.get(current);
 		}
+		if (!sessionTarget) return undefined;
+		return this.framePages.get(sessionTarget) ?? (!this.frameTargets.has(sessionTarget) ? sessionTarget : undefined);
 	}
 
-	private invalidateFrame(frameKey: string): void {
-		let tracked = this.generations.has(frameKey) || this.frameSessions.has(frameKey);
-		for (const [ref, entry] of this.refs) {
-			if (entry.frameId === frameKey) {
-				this.refs.delete(ref);
-				tracked = true;
-			}
+	/** Cycle-safe descendant closure, deepest descendants first. */
+	private descendants(frameKey: string): string[] {
+		const found = new Set([frameKey]);
+		for (let changed = true; changed;) {
+			changed = false;
+			for (const [child, parent] of this.frameParents) if (found.has(parent) && !found.has(child)) { found.add(child); changed = true; }
 		}
-		// Frames we never referenced don't get a generation entry, or pages with
-		// rotating ad iframes would grow the map without bound.
-		if (tracked) this.generations.set(frameKey, this.generation(frameKey) + 1);
+		const depth = (frame: string) => { let value = 0, current = frame; const seen = new Set<string>(); while (!seen.has(current) && this.frameParents.has(current)) { seen.add(current); current = this.frameParents.get(current)!; value += 1; } return value; };
+		return [...found].sort((a, b) => depth(b) - depth(a));
+	}
+
+	private removeFrames(frames: readonly string[]): void {
+		const removed = new Set(frames);
+		for (const [ref, entry] of this.refs) if (removed.has(entry.frameId) || (entry.sessionTargetId && removed.has(entry.sessionTargetId))) this.refs.delete(ref);
+		for (const frame of frames) { this.generations.delete(frame); this.frameParents.delete(frame); this.frameOwners.delete(frame); this.framePages.delete(frame); this.frameSessions.delete(frame); this.frameTargets.delete(frame); }
+	}
+
+	private invalidateRefs(targetId: string): void { this.invalidateFrame(targetId); }
+
+	private invalidateFrame(frameKey: string): void {
+		const frames = this.descendants(frameKey);
+		const page = this.pageForFrame(frameKey) ?? this.frameOwners.get(frameKey) ?? frameKey;
+		this.navigationEpochs.set(page, this.navigationEpoch(page) + 1);
+		for (const [ref, entry] of this.refs) if (frames.includes(entry.frameId) || (entry.sessionTargetId && frames.includes(entry.sessionTargetId))) this.refs.delete(ref);
+		this.generations.set(frameKey, this.generation(frameKey) + 1);
+		this.removeFrames(frames.filter((frame) => frame !== frameKey));
+	}
+
+	private pruneFrameState(targetId: string, observed: ReadonlySet<string>): void {
+		const stale = this.descendants(targetId).filter((frame) => frame !== targetId && !observed.has(frame) && !this.frameSessions.has(frame));
+		this.removeFrames(stale);
+	}
+
+	private boundFrameState(observed: ReadonlySet<string>): void {
+		const protectedFrames = new Set(observed);
+		for (const frame of this.frameSessions.keys()) protectedFrames.add(frame);
+		for (const entry of this.refs.values()) protectedFrames.add(entry.frameId);
+		for (const frame of [...protectedFrames]) {
+			let parent = this.frameParents.get(frame);
+			const seen = new Set<string>();
+			while (parent && !seen.has(parent)) { seen.add(parent); protectedFrames.add(parent); parent = this.frameParents.get(parent); }
+		}
+		for (const frame of this.frameParents.keys()) {
+			if (this.frameParents.size <= FRAME_STATE_LIMIT) break;
+			if (!protectedFrames.has(frame)) this.removeFrames(this.descendants(frame));
+		}
 	}
 
 	private dropTarget(targetId: string): void {
-		this.generations.delete(targetId);
+		const page = this.framePages.get(targetId);
+		if (page) this.navigationEpochs.set(page, this.navigationEpoch(page) + 1);
+		const owned = [...this.framePages].filter(([, page]) => page === targetId).flatMap(([frame]) => this.descendants(frame));
+		this.removeFrames([...new Set([...this.descendants(targetId), ...owned])]);
 		this.selfNavigations.delete(targetId);
 		this.lastSnapshots.delete(targetId);
-		this.frameSessions.delete(targetId);
-		this.frameTargets.delete(targetId);
-		for (const [ref, entry] of this.refs) {
-			if (entry.targetId === targetId || entry.frameId === targetId) {
-				if (entry.frameId !== targetId) this.generations.delete(entry.frameId);
-				this.refs.delete(ref);
-			}
-		}
+		this.navigationEpochs.delete(targetId);
+		for (const [ref, entry] of this.refs) if (entry.targetId === targetId) this.refs.delete(ref);
 	}
 
 	/** SPAs can mint refs indefinitely without ever navigating; bound per-target growth by evicting the oldest. */
@@ -953,6 +1117,11 @@ function tabOf(action: { tab_id?: string }): string | undefined {
 
 function staleRefError(ref: string, cause?: unknown): Error {
 	return new Error(`ref ${ref} is stale or not on the current page. ${STALE_REF_HINT}`, cause === undefined ? undefined : { cause });
+}
+
+function normalizeState(value: unknown): boolean | "mixed" {
+	if (value === "mixed") return "mixed";
+	return value === true || value === "true";
 }
 
 function collectStates(node: AXNode): string[] {
