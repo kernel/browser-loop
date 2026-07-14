@@ -111,6 +111,22 @@ describe("waitForBrowserExpectation", () => {
 		expect(result).toMatchObject({ status: "unverifiable", reason: "incomplete_observation" });
 	});
 
+	it("keeps polling when a baseline frame is missing from an incomplete observation", async () => {
+		let time = 0, reads = 0;
+		const baseline = observation([]);
+		baseline.generations.set("frame", 1);
+		const pending = observation([], false);
+		const settled = observation(["Ready"]);
+		settled.generations.set("frame", 1);
+		const result = await waitForBrowserExpectation({
+			selectTarget: async () => "page",
+			observeTarget: async () => reads++ === 0 ? baseline : reads === 2 ? pending : settled,
+			dialogCount: () => 0, targetExists: async () => true, liveGeneration: () => 0,
+			resolveRef: missingRef, now: () => time, delay: async (ms) => { time += ms; },
+		}, { expect: { type: "text", text: "Ready" }, timeoutMs: 30, pollMs: 10 });
+		expect(result).toMatchObject({ status: "satisfied", evidence: "newly_verified" });
+	});
+
 	it("interrupts when a ref becomes stale after the baseline", async () => {
 		let time = 0, resolves = 0;
 		const resolveRef: BrowserRefResolver = () => resolves++ === 0 ? { truth: false, details: ["not checked"] } : { truth: undefined, details: ["stale"], reason: "stale_ref" };

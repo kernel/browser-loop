@@ -124,7 +124,7 @@ export async function waitForBrowserExpectation(runtime: BrowserWaitRuntime, opt
 		if (observation.targetId !== targetId) return terminal("interrupted", "unverifiable", initial, final, started, now(), "target_changed");
 		if (runtime.dialogCount() > dialogs) return terminal("interrupted", "unverifiable", initial, final, started, now(), "dialog");
 		const removedFrame = [...baseline.generations.keys()].some((key) => !observation.generations.has(key));
-		if (removedFrame) return terminal("unverifiable", "unverifiable", initial, final, started, now(), "incomplete_observation");
+		if (removedFrame && observation.complete) return terminal("unverifiable", "unverifiable", initial, final, started, now(), "incomplete_observation");
 		const navigated = observation.navigationEpoch !== baseline.navigationEpoch;
 		if (navigated) {
 			if (isLocationExpectation(options.expect)) {
