@@ -1,6 +1,6 @@
 {
   "name": "@onkernel/cua-agent",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Kernel browser computer-use Agent and AgentHarness classes built on pi-agent-core",
   "license": "MIT",
   "type": "module",
@@ -42,7 +42,7 @@
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.80.10",
     "@earendil-works/pi-ai": "0.80.10",
-    "@onkernel/cua-ai": "0.6.0",
+    "@onkernel/cua-ai": "0.7.0",
     "@onkernel/sdk": "0.49.0",
     "sharp": "^0.34.5"
   },

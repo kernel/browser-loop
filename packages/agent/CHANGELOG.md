@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.0 - 2026-07-17
+
+- `CuaAgent` and `CuaAgentHarness` support Moonshot Kimi K3
+  (`moonshotai:kimi-k3`) via `@onkernel/cua-ai` 0.7.0, resolving auth from
+  `MOONSHOT_API_KEY`. Kimi's fractional coordinates are scaled to viewport
+  pixels by the existing translator.
+- Bumped `@earendil-works/pi-ai` and `@earendil-works/pi-agent-core` to
+  0.80.10; the wrapped `Models` collections forward the new
+  `checkAuth`/`getAvailable`/`login`/`logout` methods.
+
 ## 0.6.0 - 2026-07-10
 
 Adds explicit request-recovery and context-management policies while keeping

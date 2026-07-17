@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.0 - 2026-07-17
+
+- Added Moonshot Kimi K3 computer-use support: `moonshotai:kimi-k3`
+  (`moonshot:` accepted as a ref alias), authenticated with
+  `MOONSHOT_API_KEY`. Kimi streams through the OpenAI-compatible chat
+  completions transport with ordinary function tools.
+- New `moonshot` provider namespace following the standard conventions
+  (`computerTools`, `coordinateSystem`, `buildMoonshotSystemPrompt`,
+  `providerModule`, …). Kimi's coordinate contract is normalized 0–1
+  width/height fractions, matching the model's native visual grounding;
+  payload middleware disables parallel tool calls.
+- Bumped `@earendil-works/pi-ai` to 0.80.10 (carries the Kimi K3 registry
+  entry). Grok 4.5's registry api id is now `openai-responses`; CUA routing
+  behavior is unchanged.
+
 ## 0.6.0 - 2026-07-10
 
 Breaking: response threading is now configured per request instead of through
