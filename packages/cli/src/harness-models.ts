@@ -39,12 +39,13 @@ export function resolveCuaModelRef(input: string | undefined): CuaModelRef {
 }
 
 /**
- * List supported models, optionally filtered to a provider. Accepts either
- * the canonical `"google"` or the CLI-friendly `"gemini"` alias.
+ * List supported models, optionally filtered to a provider. Accepts the
+ * canonical `"google"`/`"moonshotai"` ids or the CLI-friendly `"gemini"`/
+ * `"moonshot"` aliases.
  */
 export function listSupportedModels(provider?: string): CuaModelInfo[] {
 	if (!provider) return listCuaModels();
-	const normalized = provider === "gemini" ? "google" : provider;
+	const normalized = provider === "gemini" ? "google" : provider === "moonshot" ? "moonshotai" : provider;
 	if (!isCuaProvider(normalized)) {
 		throw new Error(`unknown provider "${provider}"`);
 	}

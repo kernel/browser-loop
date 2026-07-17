@@ -12,6 +12,7 @@ import {
 //   google:gemini-3-flash-preview    GOOGLE_API_KEY
 //   meta:muse-spark-1.1              META_API_KEY
 //   xai:grok-4.5                     XAI_API_KEY
+//   moonshotai:kimi-k3               MOONSHOT_API_KEY
 //   tzafon:tzafon.northstar-cua-fast TZAFON_API_KEY
 //   yutori:n1.5-latest               YUTORI_API_KEY
 const modelRef = (process.env.CUA_MODEL ?? "openai:gpt-5.5") as CuaModelRef;

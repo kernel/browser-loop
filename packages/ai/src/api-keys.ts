@@ -14,18 +14,23 @@ const CUA_PROVIDER_API_KEY_ENV_VARS: Record<CuaProvider, readonly string[]> = {
 	google: ["GOOGLE_API_KEY", "GEMINI_API_KEY"],
 	meta: ["META_API_KEY"],
 	xai: ["XAI_API_KEY"],
+	moonshotai: ["MOONSHOT_API_KEY"],
 	tzafon: ["TZAFON_API_KEY"],
 	yutori: ["YUTORI_API_KEY"],
 };
 
 /**
  * List the environment variables checked for a provider's API key, in
- * precedence order. Accepts `"gemini"` as an alias for `"google"`; returns an
- * empty list for unknown providers.
+ * precedence order. Accepts `"gemini"` as an alias for `"google"` and
+ * `"moonshot"` as an alias for `"moonshotai"`; returns an empty list for
+ * unknown providers.
  */
 export function cuaApiKeyEnvVarsForProvider(provider: string): readonly string[] {
 	if (provider === "gemini") {
 		return CUA_PROVIDER_API_KEY_ENV_VARS.google;
+	}
+	if (provider === "moonshot") {
+		return CUA_PROVIDER_API_KEY_ENV_VARS.moonshotai;
 	}
 	return CUA_PROVIDER_API_KEY_ENV_VARS[provider as keyof typeof CUA_PROVIDER_API_KEY_ENV_VARS] ?? [];
 }

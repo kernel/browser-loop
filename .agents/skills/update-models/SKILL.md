@@ -1,6 +1,6 @@
 ---
 name: update-models
-description: Discover latest OpenAI, Anthropic, Google/Gemini, Meta, xAI, Tzafon, and Yutori models and verify computer-use support. Use when updating CUA model defaults, checking new model releases, auditing provider-native computer tool actions, or comparing provider metadata, official examples, and smoke-test results.
+description: Discover latest OpenAI, Anthropic, Google/Gemini, Meta, xAI, Moonshot, Tzafon, and Yutori models and verify computer-use support. Use when updating CUA model defaults, checking new model releases, auditing provider-native computer tool actions, or comparing provider metadata, official examples, and smoke-test results.
 ---
 
 # Update Models
@@ -9,14 +9,14 @@ Use this workflow to keep CUA current with provider model releases and computer-
 
 ## Quick Start
 
-1. Verify credentials are available: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY` or `GEMINI_API_KEY`, `META_API_KEY`, `XAI_API_KEY`, `TZAFON_API_KEY`, and `YUTORI_API_KEY`.
+1. Verify credentials are available: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY` or `GEMINI_API_KEY`, `META_API_KEY`, `XAI_API_KEY`, `MOONSHOT_API_KEY`, `TZAFON_API_KEY`, and `YUTORI_API_KEY`.
 2. If credentials live in `~/AGENTS.md`, load them into the current shell without printing them:
 
 ```bash
 eval "$(python3 - <<'PY'
 import pathlib, re, shlex
 text = pathlib.Path('~/AGENTS.md').expanduser().read_text()
-for key in ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GOOGLE_API_KEY', 'META_API_KEY', 'XAI_API_KEY', 'TZAFON_API_KEY', 'YUTORI_API_KEY']:
+for key in ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GOOGLE_API_KEY', 'META_API_KEY', 'XAI_API_KEY', 'MOONSHOT_API_KEY', 'TZAFON_API_KEY', 'YUTORI_API_KEY']:
     m = re.search(r'export\s+' + re.escape(key) + r'=(?:"([^"]+)"|([^\s\n]+))', text)
     if m:
         print(f'export {key}={shlex.quote(m.group(1) or m.group(2))}')
@@ -114,6 +114,16 @@ xAI:
 - Use CUA's normalized 0-1000 coordinate instructions, `parallel_tool_calls: false`, `store: true`, and `previous_response_id` for browser loops. xAI accepts encrypted reasoning replay in these requests.
 - Use `reasoning: { effort: "low" }` for low-latency smoke tests; Grok 4.5 also supports `medium` and `high`, cannot disable reasoning, and defaults to `high`.
 
+Moonshot:
+
+- Discover with the OpenAI SDK against `https://api.moonshot.ai/v1` using `MOONSHOT_API_KEY`.
+- Smoke-test the chat completions API with screenshot input and explicit function tools matching CUA's canonical actions.
+- Pass condition: response `choices[0].message.tool_calls[]` contains one of the supplied browser actions.
+- Treat Kimi computer use as custom-function-tool support, not a provider-native computer tool. Moonshot documents vision input and function calling but no coordinate protocol.
+- Kimi grounding emits width/height fractions from 0 to 1 regardless of prompt or schema wording; keep CUA's fractional coordinate contract and verify emitted values stay in 0-1.
+- Set `parallel_tool_calls: false` because browser actions mutate shared state. There is no response threading; the full context replays each turn.
+- Kimi K3 launched with max-only thinking effort. pi-ai's registry entry clamps other levels away; re-check `thinkingLevelMap` when Moonshot ships low/high modes.
+
 Tzafon:
 
 - Discover with `new Lightcone({ apiKey }).models.list()` from `@tzafon/lightcone` when available.
@@ -187,6 +197,7 @@ All CUA model and adapter support lives in `packages/ai` (`@onkernel/cua-ai`). W
   - Anthropic: update the `ANTHROPIC_CUA_ACTION_TYPES` set in `packages/ai/src/providers/anthropic/actions.ts` and `index.ts`. The computer tool version and `computer-use-*` beta header are selected by `pi-ai` per model, so a new dated tool version usually means bumping `@earendil-works/pi-ai`, not editing this package.
   - Gemini: update `packages/ai/src/providers/gemini/index.ts`, including coordinate handling if needed.
   - xAI: update `packages/ai/src/providers/xai/index.ts` and `provider.ts`, including normalized coordinate instructions, Responses threading, and reasoning compatibility.
+  - Moonshot: update `packages/ai/src/providers/moonshot/index.ts`, including the fractional coordinate instructions and payload middleware. Streaming rides pi-ai's builtin `openai-completions` transport, so wire-format changes usually mean bumping `@earendil-works/pi-ai`.
   - Tzafon: update `packages/ai/src/providers/tzafon/index.ts` and `provider.ts`, including coordinate/action handling.
   - Yutori: update `packages/ai/src/providers/yutori/actions.ts`, `index.ts`, and `provider.ts`, including payload filtering and coordinate/action handling.
   - Shared canonical action semantics go in `packages/ai/src/providers/common.ts`.

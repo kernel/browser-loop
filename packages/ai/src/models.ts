@@ -5,7 +5,7 @@ import { OPENAI_CUA_RESPONSES_API } from "./providers/openai/provider";
 import { XAI_CUA_RESPONSES_API } from "./providers/xai/provider";
 
 /** Providers with curated computer-use model support. */
-export type CuaProvider = "openai" | "anthropic" | "google" | "meta" | "xai" | "tzafon" | "yutori";
+export type CuaProvider = "openai" | "anthropic" | "google" | "meta" | "xai" | "moonshotai" | "tzafon" | "yutori";
 
 /** Provider-qualified model reference, e.g. `"openai:gpt-5.5"` or `"google:gemini-3-flash-preview"`. */
 export type CuaModelRef = `${CuaProvider}:${string}`;
@@ -22,7 +22,7 @@ export interface CuaModelInfo {
 }
 
 /** All providers this package curates computer-use models for. */
-export const CUA_PROVIDERS: readonly CuaProvider[] = ["openai", "anthropic", "google", "meta", "xai", "tzafon", "yutori"];
+export const CUA_PROVIDERS: readonly CuaProvider[] = ["openai", "anthropic", "google", "meta", "xai", "moonshotai", "tzafon", "yutori"];
 
 /**
  * How a {@link CuaModelAnnotation} matches model ids.
@@ -86,6 +86,12 @@ export const CUA_MODEL_ANNOTATIONS: Record<CuaProvider, readonly CuaModelAnnotat
 	xai: [
 		{ match: { kind: "exact", id: "grok-4.5" }, source: "https://docs.x.ai/developers/grok-4-5" },
 	],
+	// Kimi computer use is custom-function-tool support over Moonshot's
+	// OpenAI-compatible API, not a provider-native computer tool. K3 ships
+	// native vision plus screenshot-grounded agentic tool use.
+	moonshotai: [
+		{ match: { kind: "exact", id: "kimi-k3" }, source: "https://www.kimi.com/blog/kimi-k3" },
+	],
 	tzafon: [
 		{ match: { kind: "exact", id: "tzafon.northstar-cua-fast" }, source: "https://huggingface.co/Tzafon/Northstar-CUA-Fast" },
 		{ match: { kind: "exact", id: "tzafon.northstar-cua-fast-1.6" }, source: "https://huggingface.co/Tzafon/Northstar-CUA-Fast" },
@@ -108,9 +114,10 @@ const CUA_MODEL_OVERRIDES: Record<CuaProvider, readonly Model<Api>[]> = {
 	openai: [],
 	anthropic: [],
 	google: [],
-	// pi-ai 0.80.6 predates Meta's models.dev catalog entry.
+	// pi-ai 0.80.10 still lacks Meta's models.dev catalog entry.
 	meta: [cuaModel("meta", "muse-spark-1.1", "Muse Spark 1.1")],
 	xai: [],
+	moonshotai: [],
 	tzafon: [
 		cuaModel("tzafon", "tzafon.northstar-cua-fast", "Tzafon Northstar CUA Fast"),
 		cuaModel("tzafon", "tzafon.northstar-cua-fast-1.6", "Tzafon Northstar CUA Fast 1.6"),
@@ -133,8 +140,9 @@ export function cuaOverrideModels(provider: CuaProvider): readonly Model<Api>[] 
  * Split a provider-qualified ref like `"openai:gpt-5.5"` into its parts.
  *
  * `"gemini:"` is accepted as an alias for the canonical `"google:"` prefix
- * and normalizes to provider `"google"`. Throws when the ref is unqualified
- * or names an unsupported provider.
+ * and normalizes to provider `"google"`; `"moonshot:"` likewise normalizes
+ * to `"moonshotai"`. Throws when the ref is unqualified or names an
+ * unsupported provider.
  */
 export function parseCuaModelRef(ref: string): { provider: CuaProvider; model: string } {
 	const idx = ref.indexOf(":");
@@ -142,7 +150,7 @@ export function parseCuaModelRef(ref: string): { provider: CuaProvider; model: s
 		throw new Error(`CUA model ref must be provider-qualified as "<provider>:<model>"; got "${ref}"`);
 	}
 	const prefix = ref.slice(0, idx);
-	const provider = prefix === "gemini" ? "google" : prefix;
+	const provider = prefix === "gemini" ? "google" : prefix === "moonshot" ? "moonshotai" : prefix;
 	const model = ref.slice(idx + 1);
 	if (!isCuaProvider(provider)) {
 		throw new Error(`unsupported CUA provider "${prefix}" (expected one of: ${CUA_PROVIDERS.join(", ")})`);
@@ -223,7 +231,7 @@ export function routeCuaApi(model: Model<Api>): Model<Api> {
 				...model.cost,
 				tiers: [{ inputTokensAbove: 200_000, input: 4, output: 12, cacheRead: 1, cacheWrite: 0 }],
 			},
-			compat: { supportsDeveloperRole: false, sendSessionIdHeader: false, supportsLongCacheRetention: false },
+			compat: { supportsDeveloperRole: false, sessionAffinityFormat: "openai-nosession", supportsLongCacheRetention: false },
 		};
 	}
 	return model;
@@ -273,7 +281,7 @@ function isCuaFamilyMatch(id: string, family: string): boolean {
 		.every((segment) => /^\d+$/.test(segment));
 }
 
-function cuaModel(provider: Exclude<CuaProvider, "xai">, id: string, name: string): Model<Api> {
+function cuaModel(provider: Exclude<CuaProvider, "xai" | "moonshotai">, id: string, name: string): Model<Api> {
 	const base = {
 		id,
 		name,
@@ -301,7 +309,7 @@ function cuaModel(provider: Exclude<CuaProvider, "xai">, id: string, name: strin
 				cost: { input: 1.25, output: 4.25, cacheRead: 0.15, cacheWrite: 0 },
 				contextWindow: 1_048_576,
 				maxTokens: 128_000,
-				compat: { supportsDeveloperRole: true, sendSessionIdHeader: false, supportsLongCacheRetention: true },
+				compat: { supportsDeveloperRole: true, sessionAffinityFormat: "openai-nosession", supportsLongCacheRetention: true },
 			} as Model<Api>;
 		case "tzafon":
 			return { ...base, api: "tzafon-responses", baseUrl: "https://api.lightcone.ai", contextWindow: 128_000, maxTokens: 4_096 } as Model<Api>;

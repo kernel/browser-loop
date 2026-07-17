@@ -88,6 +88,25 @@ Grok 4.5 model metadata.
 
 Source: [Grok 4.5 docs](https://docs.x.ai/developers/grok-4-5), [function calling](https://docs.x.ai/developers/tools/function-calling), and [image understanding](https://docs.x.ai/developers/model-capabilities/images/understanding).
 
+## `moonshotai`
+
+Coordinates: normalized 0–1 fractions (CUA function-tool contract)
+
+Model refs use the `moonshotai:` prefix; `moonshot:` is accepted as an alias.
+
+Exact IDs:
+
+- `kimi-k3`
+
+Kimi K3 uses Moonshot's OpenAI-compatible chat completions API with screenshot
+input and ordinary function tools. Moonshot does not define a native computer
+tool or coordinate protocol; Kimi's visual grounding emits width/height
+fractions from 0 to 1, so CUA declares that contract and scales to viewport
+pixels at execution. K3 launched with max-only thinking effort — other levels
+are clamped away until Moonshot ships them.
+
+Source: [Kimi K3 announcement](https://www.kimi.com/blog/kimi-k3), [tool use](https://platform.kimi.ai/docs/api/tool-use), and [vision input](https://platform.kimi.ai/docs/guide/use-kimi-vision-model).
+
 ## `tzafon`
 
 Coordinates: normalized 0–999

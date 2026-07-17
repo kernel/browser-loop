@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	CUA_MODEL_ANNOTATIONS,
 	CUA_PROVIDERS,
+	type CuaModelRef,
 	cuaOverrideModels,
 	findCuaAnnotation,
 	formatCuaModelRef,
@@ -27,7 +28,7 @@ describe("CUA model refs", () => {
 
 	it("names the valid providers in the unsupported-provider error", () => {
 		expect(() => parseCuaModelRef("bogus:model")).toThrow(
-			'unsupported CUA provider "bogus" (expected one of: openai, anthropic, google, meta, xai, tzafon, yutori)',
+			'unsupported CUA provider "bogus" (expected one of: openai, anthropic, google, meta, xai, moonshotai, tzafon, yutori)',
 		);
 	});
 
@@ -75,6 +76,25 @@ describe("CUA model refs", () => {
 		expect(grok.cost.tiers).toEqual([
 			{ inputTokensAbove: 200_000, input: 4, output: 12, cacheRead: 1, cacheWrite: 0 },
 		]);
+	});
+
+	it("uses pi-ai's Kimi catalog entry without CUA routing overrides", () => {
+		expect(cuaOverrideModels("moonshotai")).toEqual([]);
+		const kimi = getCuaModel("moonshotai:kimi-k3");
+		expect(kimi.provider).toBe("moonshotai");
+		expect(kimi.api).toBe("openai-completions");
+		expect(kimi.baseUrl).toBe("https://api.moonshot.ai/v1");
+		expect(kimi.input).toContain("image");
+		expect(kimi.contextWindow).toBe(1_048_576);
+		expect(kimi.maxTokens).toBe(131_072);
+		// K3 launched with max-only thinking effort; pi-ai clamps the rest away.
+		expect(kimi.thinkingLevelMap?.max).toBe("max");
+		expect(kimi.thinkingLevelMap?.high).toBeNull();
+	});
+
+	it("accepts the moonshot: alias for moonshotai refs", () => {
+		expect(parseCuaModelRef("moonshot:kimi-k3")).toEqual({ provider: "moonshotai", model: "kimi-k3" });
+		expect(getCuaModel("moonshot:kimi-k3" as CuaModelRef).id).toBe("kimi-k3");
 	});
 
 	it("loads supported custom provider models without explicit registration", () => {
@@ -146,6 +166,9 @@ describe("CUA support annotations", () => {
 		expect(findCuaAnnotation("xai", "grok-4.5")).toBeDefined();
 		expect(findCuaAnnotation("xai", "grok-4.5-latest")).toBeUndefined();
 		expect(findCuaAnnotation("xai", "grok-4.3")).toBeUndefined();
+		expect(findCuaAnnotation("moonshotai", "kimi-k3")).toBeDefined();
+		expect(findCuaAnnotation("moonshotai", "kimi-k2.5")).toBeUndefined();
+		expect(findCuaAnnotation("moonshotai", "kimi-latest")).toBeUndefined();
 		expect(findCuaAnnotation("google", "gemini-3.1-flash-lite")).toBeDefined();
 		expect(findCuaAnnotation("yutori", "n1.5-latest")).toBeDefined();
 		expect(findCuaAnnotation("tzafon", "tzafon.northstar-cua-fast")).toBeDefined();

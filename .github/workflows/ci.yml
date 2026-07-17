@@ -134,6 +134,7 @@ jobs:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           META_API_KEY: ${{ secrets.META_API_KEY }}
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+          MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
           TZAFON_API_KEY: ${{ secrets.TZAFON_API_KEY }}
           YUTORI_API_KEY: ${{ secrets.YUTORI_API_KEY }}
         run: npm run test:integration --workspace @onkernel/cua-ai
@@ -162,6 +163,7 @@ jobs:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           META_API_KEY: ${{ secrets.META_API_KEY }}
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+          MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
           TZAFON_API_KEY: ${{ secrets.TZAFON_API_KEY }}
           YUTORI_API_KEY: ${{ secrets.YUTORI_API_KEY }}
         run: npm test --workspace @onkernel/cua-agent -- test/e2e.live.test.ts

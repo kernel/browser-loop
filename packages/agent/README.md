@@ -194,6 +194,7 @@ If auth callbacks are omitted, both classes default to CUA env var conventions:
 - Gemini: `GOOGLE_API_KEY` or `GEMINI_API_KEY`
 - Meta: `META_API_KEY`
 - xAI: `XAI_API_KEY`
+- Moonshot: `MOONSHOT_API_KEY`
 - Tzafon: `TZAFON_API_KEY`
 - Yutori: `YUTORI_API_KEY`
 

@@ -13,6 +13,7 @@ import {
 	getCuaEnvApiKey,
 	getCuaModel,
 	meta,
+	moonshot,
 	openai,
 	tzafon,
 	xai,
@@ -73,6 +74,17 @@ const cases: ProviderCase[] = [
 		requireToolCalls: true,
 		systemPrompt: "Coordinates are normalized from 0 to 1000 relative to the screenshot.",
 		extraOptions: { reasoningEffort: "off" },
+	},
+	{
+		provider: "moonshotai",
+		envVar: "MOONSHOT_API_KEY",
+		modelRef: "moonshotai:kimi-k3",
+		tools: () => moonshot.computerTools({ actions: ["click"] }),
+		coordinateRange: [0, 1],
+		requireToolCalls: true,
+		systemPrompt: "Coordinates are fractions of the screenshot, normalized from 0 to 1.",
+		// K3 launched max-thinking-only; leave headroom for reasoning tokens.
+		extraOptions: { maxTokens: 8192 },
 	},
 	{
 		provider: "tzafon",

@@ -22,6 +22,7 @@ type ProviderCase = {
 		| "google:gemini-3-flash-preview"
 		| "meta:muse-spark-1.1"
 		| "xai:grok-4.5"
+		| "moonshotai:kimi-k3"
 		| "tzafon:tzafon.northstar-cua-fast"
 		| "yutori:n1.5-latest";
 	prompt: string;
@@ -98,6 +99,19 @@ const cases: ProviderCase[] = [
 		name: "xai",
 		apiKeyEnvVar: "XAI_API_KEY",
 		modelRef: "xai:grok-4.5",
+		prompt: [
+			"Use the tool named `screenshot` exactly once to inspect the browser.",
+			"Pass empty arguments (`{}`).",
+			"Do not call any other tools.",
+			"After the tool result, provide a one-sentence summary.",
+		].join("\n"),
+		expectToolCalls: true,
+		timeoutMs: 180_000,
+	},
+	{
+		name: "moonshotai",
+		apiKeyEnvVar: "MOONSHOT_API_KEY",
+		modelRef: "moonshotai:kimi-k3",
 		prompt: [
 			"Use the tool named `screenshot` exactly once to inspect the browser.",
 			"Pass empty arguments (`{}`).",
