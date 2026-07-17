@@ -45,6 +45,16 @@ describe("resolveCuaRuntimeSpec", () => {
 		expect(openaiSpec.onPayload).toBeUndefined();
 		expect(xaiSpec.onPayload).toBeUndefined();
 		expect(anthropicSpec.onPayload).toBeTypeOf("function");
+		// Kimi streams through pi's plain chat-completions transport, so its
+		// serial tool-call constraint rides on runtime payload middleware.
+		const moonshotSpec = resolveCuaRuntimeSpec("moonshotai:kimi-k3");
+		expect(moonshotSpec.onPayload).toBeTypeOf("function");
+	});
+
+	it("disables parallel tool calls on Kimi payloads", async () => {
+		const spec = resolveCuaRuntimeSpec("moonshotai:kimi-k3");
+		const payload = await spec.onPayload?.({ model: "kimi-k3", messages: [] }, spec.model);
+		expect(payload).toMatchObject({ model: "kimi-k3", parallel_tool_calls: false });
 	});
 
 	it("routes concrete Responses models to provider-specific APIs", () => {

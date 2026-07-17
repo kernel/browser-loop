@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { anthropic, CUA_COMPUTER_ACTION_TYPES, CUA_PROVIDERS, type CuaProvider, gemini, meta, openai, tzafon, xai, yutori } from "../src/index";
+import { anthropic, CUA_COMPUTER_ACTION_TYPES, CUA_PROVIDERS, type CuaProvider, gemini, meta, moonshot, openai, tzafon, xai, yutori } from "../src/index";
 import type { CuaProviderModule } from "../src/providers/common";
 
 const MODULES: Record<CuaProvider, { providerModule: CuaProviderModule }> = {
@@ -8,6 +8,7 @@ const MODULES: Record<CuaProvider, { providerModule: CuaProviderModule }> = {
 	google: gemini,
 	meta,
 	xai,
+	moonshotai: moonshot,
 	tzafon,
 	yutori,
 };
@@ -18,6 +19,7 @@ const NAMESPACES: Record<CuaProvider, { namespace: Record<string, unknown>; pref
 	google: { namespace: gemini, prefix: "GEMINI" },
 	meta: { namespace: meta, prefix: "META" },
 	xai: { namespace: xai, prefix: "XAI" },
+	moonshotai: { namespace: moonshot, prefix: "MOONSHOT" },
 	tzafon: { namespace: tzafon, prefix: "TZAFON" },
 	yutori: { namespace: yutori, prefix: "YUTORI" },
 };
@@ -59,6 +61,7 @@ describe("provider modules satisfy the uniform contract", () => {
 	it.each([
 		["meta", meta.providerModule],
 		["xai", xai.providerModule],
+		["moonshotai", moonshot.providerModule],
 	])("%s restricts its normalized coordinate contract to computer mode", (_provider, providerModule) => {
 		expect(() => providerModule.toolDefinitions({ mode: "browser" })).toThrow(/computer only/);
 		expect(() => providerModule.toolDefinitions({ mode: "hybrid" })).toThrow(/computer only/);

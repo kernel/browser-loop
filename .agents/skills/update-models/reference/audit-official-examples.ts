@@ -5,7 +5,7 @@ import { basename, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import process from "node:process";
 
-type Provider = "openai" | "anthropic" | "gemini" | "meta" | "xai" | "yutori";
+type Provider = "openai" | "anthropic" | "gemini" | "meta" | "xai" | "moonshot" | "yutori";
 
 interface ExampleRepo {
 	provider: Provider;
@@ -83,6 +83,7 @@ const ACTION_REGEXES: Record<Provider, RegExp[]> = {
 	gemini: [/\b(open_web_browser|open_web|wait_5_seconds|go_back|go_forward|search|navigate|click_at|hover_at|type_text_at|key_combination|scroll_document|scroll_at|drag_and_drop)\b/g],
 	meta: [/\b(screenshot|left_click|right_click|middle_click|double_click|triple_click|left_click_drag|mouse_move|key|type|scroll|hold_key|wait|left_mouse_down|left_mouse_up)\b/g],
 	xai: [/\b(screenshot|click|double_click|mouse_down|mouse_up|scroll|type|keypress|drag|move|wait)\b/g],
+	moonshot: [/\b(screenshot|click|double_click|mouse_down|mouse_up|scroll|type|keypress|drag|move|wait)\b/g],
 	yutori: [/\b(left_click|double_click|triple_click|right_click|scroll|type|key_press|hover|drag|wait|refresh|go_back|goto_url|mouse_move|middle_click|mouse_down|mouse_up|go_forward|hold_key|extract_elements|find|set_element_value|execute_js)\b/g],
 };
 

@@ -14,6 +14,7 @@ const ENV_KEYS = [
 	"GEMINI_API_KEY",
 	"META_API_KEY",
 	"XAI_API_KEY",
+	"MOONSHOT_API_KEY",
 	"TZAFON_API_KEY",
 	"YUTORI_API_KEY",
 ] as const;
@@ -35,6 +36,8 @@ describe("cua api key helpers", () => {
 		expect(cuaApiKeyEnvVarsForProvider("gemini")).toEqual(["GOOGLE_API_KEY", "GEMINI_API_KEY"]);
 		expect(cuaApiKeyEnvVarsForProvider("meta")).toEqual(["META_API_KEY"]);
 		expect(cuaApiKeyEnvVarsForProvider("xai")).toEqual(["XAI_API_KEY"]);
+		expect(cuaApiKeyEnvVarsForProvider("moonshotai")).toEqual(["MOONSHOT_API_KEY"]);
+		expect(cuaApiKeyEnvVarsForProvider("moonshot")).toEqual(["MOONSHOT_API_KEY"]);
 		expect(cuaApiKeyEnvVarsForProvider("unknown")).toEqual([]);
 	});
 
@@ -53,6 +56,8 @@ describe("cua api key helpers", () => {
 		expect(getCuaEnvApiKeyForModel("meta:muse-spark-1.1")).toBe("meta");
 		process.env.XAI_API_KEY = "xai";
 		expect(getCuaEnvApiKeyForModel("xai:grok-4.5")).toBe("xai");
+		process.env.MOONSHOT_API_KEY = "moonshot";
+		expect(getCuaEnvApiKeyForModel("moonshotai:kimi-k3")).toBe("moonshot");
 	});
 
 	it("throws readable errors when missing", () => {

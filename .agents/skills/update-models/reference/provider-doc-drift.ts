@@ -2,7 +2,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import process from "node:process";
 
-type Provider = "openai" | "anthropic" | "gemini" | "meta" | "xai" | "yutori";
+type Provider = "openai" | "anthropic" | "gemini" | "meta" | "xai" | "moonshot" | "yutori";
 
 interface Args {
 	examples: string;
@@ -40,6 +40,11 @@ const DOCS: Record<Provider, string[]> = {
 		"https://docs.x.ai/developers/tools/function-calling",
 		"https://docs.x.ai/developers/model-capabilities/images/understanding",
 	],
+	moonshot: [
+		"https://www.kimi.com/blog/kimi-k3",
+		"https://platform.kimi.ai/docs/api/tool-use",
+		"https://platform.kimi.ai/docs/guide/use-kimi-vision-model",
+	],
 	yutori: [
 		"https://docs.yutori.com/reference/navigator",
 		"https://docs.yutori.com/reference/n1",
@@ -54,6 +59,7 @@ const LOCAL_FILES: Record<Provider, string> = {
 	gemini: "packages/ai/src/providers/gemini/index.ts",
 	meta: "packages/ai/src/providers/meta/index.ts",
 	xai: "packages/ai/src/providers/xai/index.ts",
+	moonshot: "packages/ai/src/providers/moonshot/index.ts",
 	yutori: "packages/ai/src/providers/yutori/actions.ts",
 };
 
@@ -63,6 +69,7 @@ const ACTION_REGEXES: Record<Provider, RegExp> = {
 	gemini: /\b(open_web_browser|open_web|wait_5_seconds|go_back|go_forward|search|navigate|click_at|hover_at|type_text_at|key_combination|scroll_document|scroll_at|drag_and_drop)\b/g,
 	meta: /\b(click|double_click|mouse_down|mouse_up|scroll|type|wait|keypress|drag|move|screenshot|goto|back|forward|url|cursor_position|left_click|right_click|middle_click|triple_click|left_click_drag|mouse_move|key|hold_key|left_mouse_down|left_mouse_up)\b/g,
 	xai: /\b(click|double_click|mouse_down|mouse_up|scroll|type|wait|keypress|drag|move|screenshot|goto|back|forward|url|cursor_position)\b/g,
+	moonshot: /\b(click|double_click|mouse_down|mouse_up|scroll|type|wait|keypress|drag|move|screenshot|goto|back|forward|url|cursor_position)\b/g,
 	yutori: /\b(left_click|double_click|triple_click|right_click|scroll|type|key_press|hover|drag|wait|refresh|go_back|go_forward|goto_url|mouse_move|middle_click|mouse_down|mouse_up|hold_key|extract_elements|find|set_element_value|execute_js)\b/g,
 };
 
@@ -137,8 +144,8 @@ async function checkProvider(provider: Provider, examples: any): Promise<Record<
 		documented_actions: sorted(documentedActions),
 		example_repo_actions: sorted(exampleActions),
 		repo_supported_actions: sorted(localActions),
-		unknown_documented_actions: provider === "meta" || provider === "xai" ? [] : sorted(difference(new Set(documentedActions), new Set(localActions))),
-		unknown_example_actions: provider === "meta" || provider === "xai" ? [] : sorted(difference(new Set(exampleActions), new Set(localActions))),
+		unknown_documented_actions: provider === "meta" || provider === "xai" || provider === "moonshot" ? [] : sorted(difference(new Set(documentedActions), new Set(localActions))),
+		unknown_example_actions: provider === "meta" || provider === "xai" || provider === "moonshot" ? [] : sorted(difference(new Set(exampleActions), new Set(localActions))),
 		response_fields_from_examples: sorted(example.response_fields ?? []),
 		notes: notesFor(provider, documentedToolVersions, exampleToolVersions, localToolVersions),
 	};
@@ -173,6 +180,9 @@ function notesFor(provider: Provider, documentedToolVersions: string[], exampleT
 	}
 	if (provider === "xai") {
 		notes.push("xAI uses developer-defined function tools and does not document a native coordinate protocol; compare Responses compatibility, reasoning controls, and CUA's normalized coordinate contract instead.");
+	}
+	if (provider === "moonshot") {
+		notes.push("Moonshot uses developer-defined function tools over OpenAI-compatible chat completions and does not document a coordinate protocol; Kimi grounding emits 0-1 width/height fractions, so compare against CUA's fractional coordinate contract.");
 	}
 	if (provider === "yutori") {
 		notes.push("Yutori Navigator emits OpenAI-compatible tool_calls for built-in browser actions; local AgentTools should execute those names but outbound payloads should not duplicate the built-in browser schemas.");

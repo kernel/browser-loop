@@ -22,6 +22,7 @@ check these environment variables, in order:
 | `google`    | `GOOGLE_API_KEY`, `GEMINI_API_KEY`          |
 | `meta`      | `META_API_KEY`                              |
 | `xai`       | `XAI_API_KEY`                               |
+| `moonshotai` | `MOONSHOT_API_KEY`                         |
 | `tzafon`    | `TZAFON_API_KEY`                            |
 | `yutori`    | `YUTORI_API_KEY`                            |
 
@@ -214,6 +215,7 @@ getCuaModel("anthropic:claude-opus-4-7");
 getCuaModel("google:gemini-3-flash-preview");
 getCuaModel("meta:muse-spark-1.1");
 getCuaModel("xai:grok-4.5");
+getCuaModel("moonshotai:kimi-k3"); // "moonshot:" is accepted as an alias
 getCuaModel("tzafon:tzafon.northstar-cua-fast");
 getCuaModel("yutori:n1.5-latest");
 ```
@@ -230,7 +232,7 @@ list of CUA-supporting models per provider.
 `CuaProvider` is the string union of provider IDs this package targets:
 
 ```ts
-type CuaProvider = "openai" | "anthropic" | "google" | "meta" | "xai" | "tzafon" | "yutori";
+type CuaProvider = "openai" | "anthropic" | "google" | "meta" | "xai" | "moonshotai" | "tzafon" | "yutori";
 ```
 
 The IDs match pi-ai's `Model.provider` values exactly. `providerForModel(model)`
@@ -377,6 +379,7 @@ Per-provider canonical action subsets (each namespace exports its list as
 | `gemini`    | all 16                                                                              |
 | `meta`      | all 16                                                                              |
 | `xai`       | all 16                                                                              |
+| `moonshot`  | all 16                                                                              |
 | `tzafon`    | all 16 (replaced on the wire by Tzafon's native `computer_use` tool)                |
 | `yutori`    | 13 — everything except `screenshot`, `url`, `cursor_position` (local mirrors only)  |
 
@@ -413,6 +416,7 @@ Current coordinate contracts:
 - `gemini`: normalized coordinates in the 0-999 range ([source](https://ai.google.dev/gemini-api/docs/computer-use))
 - `meta`: normalized coordinates in the 0-1000 range ([source](https://dev.meta.ai/docs/getting-started/cookbook/computer-use-macos))
 - `xai`: CUA-defined normalized coordinates in the 0-1000 range; Grok exposes image input and function calling rather than a native coordinate protocol ([source](https://docs.x.ai/developers/grok-4-5))
+- `moonshot`: CUA-defined normalized coordinates as 0-1 fractions; Kimi's visual grounding natively emits width/height fractions and Moonshot documents function calling and image input rather than a coordinate protocol ([source](https://platform.kimi.ai/docs/api/tool-use))
 - `yutori`: normalized coordinates in the 0-1000 range ([source](https://docs.yutori.com/reference/navigator), [SDK helper](https://github.com/yutori-ai/yutori-sdk-python/blob/main/yutori/navigator/coordinates.py))
 - `tzafon`: normalized coordinates in the 0-999 range ([source](https://docs.lightcone.ai/guides/coordinates/), [model card](https://huggingface.co/Tzafon/Northstar-CUA-Fast))
 
@@ -490,7 +494,7 @@ type CuaNavigationInput = {
 ## Provider Namespaces
 
 Every provider namespace (`openai`, `anthropic`, `gemini`, `meta`, `xai`,
-`tzafon`, `yutori`) follows one convention:
+`moonshot`, `tzafon`, `yutori`) follows one convention:
 
 - `computerTools(options?)` and `computerToolExecutors(options?)`
 - `createActionSchema(actions?)` — TypeBox schema for the provider's subset
@@ -520,6 +524,9 @@ Provider-specific extras:
   `streamXaiResponses`, `streamSimpleXaiResponses`, `XaiResponsesOptions`),
   with serial function tools, encrypted reasoning replay, and
   `previous_response_id` threading
+- `moonshot`: no stream adapter — Kimi flows through pi's builtin
+  `openai-completions` transport; the provider module's payload middleware
+  disables parallel tool calls
 - `tzafon`: the `tzafon-responses` stream adapter (`TZAFON_RESPONSES_API`,
   `streamTzafonResponses`, `streamSimpleTzafonResponses`,
   `TzafonResponsesOptions` with `keepToolNames`), `tzafonComputerUseOnPayload`

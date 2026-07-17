@@ -55,9 +55,10 @@ Options:
                                    google:    google:gemini-3-flash-preview
                                    meta:      meta:muse-spark-1.1
                                    xai:       xai:grok-4.5
+                                   moonshot:  moonshotai:kimi-k3
                                    tzafon:    tzafon:tzafon.northstar-cua-fast
                                    yutori:    yutori:n1.5-latest
-      --thinking <level>         Thinking level: off | minimal | low | medium | high | xhigh
+      --thinking <level>         Thinking level: off | minimal | low | medium | high | xhigh | max
                                  (default: low; applies to providers that support it)
       --profile <name|id>        Kernel browser profile to load
       --proxy <name|id>          Kernel proxy to route the browser through
@@ -105,6 +106,7 @@ Environment:
   GEMINI_API_KEY        Alias for GOOGLE_API_KEY
   META_API_KEY          Meta Model API key (required when -m meta:…)
   XAI_API_KEY           xAI API key (required when -m xai:…)
+  MOONSHOT_API_KEY      Moonshot AI API key (required when -m moonshotai:…)
   TZAFON_API_KEY        Tzafon API key (required when -m tzafon:…)
   YUTORI_API_KEY        Yutori API key (required when -m yutori:…)
   KERNEL_BASE_URL       Override Kernel base URL
@@ -113,6 +115,7 @@ Environment:
   GOOGLE_BASE_URL       Override Google base URL
   META_BASE_URL         Override Meta Model API base URL
   XAI_BASE_URL          Override xAI API base URL
+  MOONSHOTAI_BASE_URL   Override Moonshot AI base URL
   TZAFON_BASE_URL       Override Tzafon base URL
   YUTORI_BASE_URL       Override Yutori base URL
   XDG_DATA_HOME         Sessions are stored under \$XDG_DATA_HOME/cua/sessions
@@ -204,10 +207,10 @@ function parseCliArgs(argv: string[]): CliFlags {
 	const maxSteps = maxStepsRaw ? Number(maxStepsRaw) : undefined;
 	const thinkingRaw = parsed.values.thinking as string | undefined;
 	if (thinkingRaw !== undefined) {
-		const allowed = new Set(["off", "none", "minimal", "low", "medium", "high", "xhigh"]);
+		const allowed = new Set(["off", "none", "minimal", "low", "medium", "high", "xhigh", "max"]);
 		if (!allowed.has(thinkingRaw.trim().toLowerCase())) {
 			throw new Error(
-				`invalid --thinking value "${thinkingRaw}"; expected one of: off | minimal | low | medium | high | xhigh`,
+				`invalid --thinking value "${thinkingRaw}"; expected one of: off | minimal | low | medium | high | xhigh | max`,
 			);
 		}
 	}

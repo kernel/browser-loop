@@ -6,6 +6,7 @@ import { providerModule as anthropic } from "./providers/anthropic/index";
 import { createNativeToolOnPayload, nativeApiForToolType, nativeToolExecutors } from "./providers/anthropic/native";
 import { providerModule as gemini } from "./providers/gemini/index";
 import { providerModule as meta } from "./providers/meta/index";
+import { providerModule as moonshot } from "./providers/moonshot/index";
 import { providerModule as openai } from "./providers/openai/index";
 import { providerModule as tzafon } from "./providers/tzafon/index";
 import { providerModule as xai } from "./providers/xai/index";
@@ -24,6 +25,7 @@ const PROVIDERS = {
 	google: gemini,
 	meta,
 	xai,
+	moonshotai: moonshot,
 	tzafon,
 	yutori,
 } satisfies Record<CuaProvider, CuaProviderModule>;

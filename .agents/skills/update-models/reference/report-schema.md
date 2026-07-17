@@ -14,6 +14,7 @@ Use this shape for JSON reports and the same fields when writing a Markdown summ
     "gemini": {},
     "meta": {},
     "xai": {},
+    "moonshot": {},
     "tzafon": {},
     "yutori": {}
   },

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import process from "node:process";
 import { parse as parseToml } from "smol-toml";
 
-type Provider = "openai" | "anthropic" | "gemini" | "meta" | "xai" | "tzafon" | "yutori";
+type Provider = "openai" | "anthropic" | "gemini" | "meta" | "xai" | "moonshot" | "tzafon" | "yutori";
 
 interface Args {
 	provider: Provider | "all";
@@ -39,7 +39,7 @@ interface ModelResult {
 	cua?: Record<string, unknown>;
 }
 
-const PROVIDERS: Provider[] = ["openai", "anthropic", "gemini", "meta", "xai", "tzafon", "yutori"];
+const PROVIDERS: Provider[] = ["openai", "anthropic", "gemini", "meta", "xai", "moonshot", "tzafon", "yutori"];
 const TZAFON_KNOWN_MODELS = [
 	"tzafon.northstar-cua-fast",
 ];
@@ -110,7 +110,7 @@ function usage(): never {
   npx tsx .agents/skills/update-models/reference/discover-models.ts --provider openai --models gpt-5.5,gpt-5.4
 
 Options:
-  --provider <all|openai|anthropic|gemini|meta|xai|tzafon|yutori>
+  --provider <all|openai|anthropic|gemini|meta|xai|moonshot|tzafon|yutori>
   --models <comma-separated model ids>    Smoke-test explicit models instead of inferred candidates.
   --candidate-limit <n>                  Max inferred candidates per provider. Default: 20.
   --no-smoke                             Only list metadata.
@@ -140,6 +140,7 @@ async function runProvider(provider: Provider, args: Args): Promise<Record<strin
 		if (provider === "gemini") return await discoverGemini(args);
 		if (provider === "meta") return await discoverMeta(args);
 		if (provider === "xai") return await discoverXai(args);
+		if (provider === "moonshot") return await discoverMoonshot(args);
 		if (provider === "tzafon") return await discoverTzafon(args);
 		if (provider === "yutori") return await discoverYutori(args);
 		throw new Error(`unknown provider ${provider satisfies never}`);
@@ -332,6 +333,98 @@ async function smokeXai(client: any, model: string): Promise<SmokeResult> {
 function likelyXaiGenerationModel(id: string): boolean {
 	const lower = id.toLowerCase();
 	return lower.startsWith("grok-") && !lower.includes("imagine");
+}
+
+async function discoverMoonshot(args: Args): Promise<Record<string, unknown>> {
+	const OpenAI = await importDefault("openai", "OpenAI");
+	const client = new OpenAI({ apiKey: process.env.MOONSHOT_API_KEY, baseURL: "https://api.moonshot.ai/v1" });
+	const rawModels = await collectAsync(client.models.list());
+	const models: ModelResult[] = rawModels.map((m) => ({
+		id: String(m.id),
+		display_name: String(m.id),
+		created_at: typeof m.created === "number" && m.created > 0 ? new Date(m.created * 1000).toISOString() : null,
+		raw: m,
+		supports_generation: String(m.id).toLowerCase().startsWith("kimi-"),
+		model_docs: {
+			url: "https://platform.kimi.ai/docs/api/tool-use",
+			chat_completions_endpoint: "supported",
+			function_calling: "supported",
+			image_input: "verify-per-model",
+			coordinate_space: "CUA-defined 0-1 fractions",
+		},
+	}));
+	const candidates = explicitOrCandidates(
+		args,
+		models
+			.filter((model) => model.supports_generation)
+			.sort(compareMoonshotCandidates)
+			.map((model) => model.id),
+	);
+	if (args.smoke) {
+		await Promise.all(candidates.map(async (id) => {
+			const model = models.find((candidate) => candidate.id === id) ?? { id, display_name: id, supports_generation: true };
+			model.computer_use = await smokeMoonshot(client, id);
+			if (!models.find((candidate) => candidate.id === id)) models.unshift(model);
+		}));
+	}
+	await annotateCuaSupport("moonshot", models);
+	return { provider: "moonshot", metadata_source: "Moonshot models.list()", models, candidates };
+}
+
+async function smokeMoonshot(client: any, model: string): Promise<SmokeResult> {
+	try {
+		const screenshot = await readFile(fixtureScreenshotPath());
+		const response = await client.chat.completions.create({
+			model,
+			parallel_tool_calls: false,
+			max_tokens: 8192,
+			messages: [
+				{
+					role: "system",
+					content: "Coordinates are fractions of the screenshot, normalized from 0 to 1.",
+				},
+				{
+					role: "user",
+					content: [
+						{ type: "text", text: "Call the click tool for the sign in link. Do not answer only in text." },
+						{ type: "image_url", image_url: { url: `data:image/png;base64,${screenshot.toString("base64")}` } },
+					],
+				},
+			],
+			tools: [{
+				type: "function",
+				function: {
+					name: "click",
+					description: "Click at coordinates given as 0-1 fractions of the screenshot.",
+					parameters: {
+						type: "object",
+						properties: { x: { type: "number" }, y: { type: "number" } },
+						required: ["x", "y"],
+						additionalProperties: false,
+					},
+				},
+			}],
+		});
+		const calls: any[] = response.choices?.[0]?.message?.tool_calls ?? [];
+		return {
+			status: calls.length > 0 ? "pass" : "inconclusive",
+			tool_name: "function_tools",
+			tool_version: null,
+			beta_header: null,
+			observed_actions: unique(calls.map((call) => call?.function?.name).filter(Boolean)),
+			response_item_types: unique([response.choices?.[0]?.finish_reason].filter(Boolean)),
+			coordinate_space: "0-1 fractions",
+			error: null,
+		};
+	} catch (err) {
+		return smokeError(err, { tool_name: "function_tools" });
+	}
+}
+
+function compareMoonshotCandidates(a: ModelResult, b: ModelResult): number {
+	if (a.id === "kimi-k3") return -1;
+	if (b.id === "kimi-k3") return 1;
+	return String(b.created_at ?? "").localeCompare(String(a.created_at ?? ""));
 }
 
 function compareXaiCandidates(a: ModelResult, b: ModelResult): number {
@@ -839,7 +932,7 @@ const TZAFON_FUNCTION_TOOLS = [
 ];
 
 async function annotateCuaSupport(provider: Provider, models: ModelResult[]): Promise<void> {
-	const piProvider = provider === "gemini" ? "google" : provider;
+	const piProvider = provider === "gemini" ? "google" : provider === "moonshot" ? "moonshotai" : provider;
 	const getBuiltinModel = await import("@earendil-works/pi-ai/providers/all").then((mod) => mod.getBuiltinModel).catch(() => undefined);
 	for (const model of models) {
 		const inRegistry = getBuiltinModel ? !!getBuiltinModel(piProvider as never, model.id as never) : false;

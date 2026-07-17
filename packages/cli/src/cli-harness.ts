@@ -60,7 +60,7 @@ Usage:
   cua models --json
 
 Options:
-  -p, --provider <id>  Filter by provider: openai | anthropic | google | gemini | meta | xai | tzafon | yutori
+  -p, --provider <id>  Filter by provider: openai | anthropic | google | gemini | meta | xai | moonshotai | tzafon | yutori
       --json           Output JSON
   -h, --help           Show this help
 `;
@@ -526,7 +526,7 @@ export function parseNativeTool(raw: string | undefined): CuaNativeToolSpec | un
 	throw new Error(`invalid --native-tool value "${raw}"; expected one of: computer_20260701 | browser_20260701`);
 }
 
-function mapThinkingLevel(raw: string | undefined): "off" | "minimal" | "low" | "medium" | "high" | "xhigh" {
+function mapThinkingLevel(raw: string | undefined): "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" {
 	const v = (raw ?? "low").trim().toLowerCase();
 	switch (v) {
 		case "off":
@@ -540,12 +540,14 @@ function mapThinkingLevel(raw: string | undefined): "off" | "minimal" | "low" | 
 			return "high";
 		case "xhigh":
 			return "xhigh";
+		case "max":
+			return "max";
 		case "low":
 		case "":
 			return "low";
 		default:
 			throw new Error(
-				`invalid --thinking value "${raw}"; expected one of: off | minimal | low | medium | high | xhigh`,
+				`invalid --thinking value "${raw}"; expected one of: off | minimal | low | medium | high | xhigh | max`,
 			);
 	}
 }

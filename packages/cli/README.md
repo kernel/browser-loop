@@ -47,6 +47,7 @@ cua --print --model anthropic:claude-opus-4-7 "..."
 cua --print --model google:gemini-3-flash-preview "..."
 cua --print --model meta:muse-spark-1.1 "..."
 cua --print --model xai:grok-4.5 "..."
+cua --print --model moonshotai:kimi-k3 "..."
 cua --print --model yutori:n1.5-latest "..."
 
 # Named sessions (browser stays alive across calls):
@@ -70,7 +71,8 @@ cua --session abc12345                        # by id prefix
 Run `cua models` to list every supported `-m` / `--model` value and the
 provider it routes to. Filter by provider with `cua models -p openai`,
 `cua models -p anthropic`, `cua models -p google` (alias: `gemini`),
-`cua models -p meta`, `cua models -p xai`, or `cua models -p yutori`.
+`cua models -p meta`, `cua models -p xai`, `cua models -p moonshotai`
+(alias: `moonshot`), or `cua models -p yutori`.
 
 `-m` / `--model` accepts a provider-qualified `provider:model` ref (e.g.
 `openai:gpt-5.5`) or a bare model id when it matches exactly one catalog
@@ -89,6 +91,7 @@ Configuration is by environment variable. There is no config file.
 | `GEMINI_API_KEY`     | alias of `GOOGLE_API_KEY`                      |
 | `META_API_KEY`       | Meta Model API key (required when `-m meta:…`)  |
 | `XAI_API_KEY`        | xAI API key (required when `-m xai:…`)          |
+| `MOONSHOT_API_KEY`   | Moonshot AI API key (required when `-m moonshotai:…`) |
 | `TZAFON_API_KEY`     | Tzafon API key (required when `-m tzafon:…`)   |
 | `YUTORI_API_KEY`     | Yutori API key (required when `-m yutori:…`)   |
 | `KERNEL_BASE_URL`    | override Kernel base URL                       |
@@ -97,12 +100,13 @@ Configuration is by environment variable. There is no config file.
 | `GOOGLE_BASE_URL`    | override Google base URL                       |
 | `META_BASE_URL`      | override Meta Model API base URL               |
 | `XAI_BASE_URL`       | override xAI API base URL                       |
+| `MOONSHOTAI_BASE_URL` | override Moonshot AI base URL                  |
 | `TZAFON_BASE_URL`    | override Tzafon base URL                       |
 | `YUTORI_BASE_URL`    | override Yutori base URL                       |
 | `XDG_DATA_HOME`      | sessions dir base (defaults to `~/.local/share`) |
 | `CUA_IMAGE_PROTOCOL` | force inline image protocol (`kitty`/`iterm2`/`none`/`auto`) |
 
-Use `--thinking <level>` (`off | minimal | low | medium | high | xhigh`,
+Use `--thinking <level>` (`off | minimal | low | medium | high | xhigh | max`,
 default `low`) for providers that support reasoning effort.
 
 ## Playwright escape hatch

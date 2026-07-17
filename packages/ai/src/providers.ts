@@ -36,6 +36,8 @@ import { streamSimpleYutori, streamYutori, YUTORI_CHAT_COMPLETIONS_API } from ".
  *   (pi's builtin only reads `GEMINI_API_KEY`).
  * - `xai` intercepts `xai-cua-responses` so Grok can use stateful Responses
  *   tool loops while preserving pi's builtin xAI auth and catalog.
+ * - `moonshotai` is pi's builtin provider untouched: Kimi streams through the
+ *   plain OpenAI-compatible chat completions transport with `MOONSHOT_API_KEY`.
  * - `meta`, `tzafon`, and `yutori` are CUA-only providers pi does not ship.
  *
  * Each call returns an independent collection; register additional providers
