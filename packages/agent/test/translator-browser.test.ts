@@ -3,7 +3,7 @@ import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import type { CuaBrowserAction } from "@onkernel/cua-ai";
 import { BrowserExecutor } from "../src/translator/browser";
-import type { CdpConnection } from "../src/translator/cdp";
+import { CdpProtocolError, type CdpConnection } from "../src/translator/cdp";
 import { buildCuaComputerTools } from "../src/tools";
 import { InternalComputerTranslator, type KernelBrowser } from "../src/translator/translator";
 import type { BatchReadResult } from "../src/translator/types";
@@ -110,7 +110,8 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 	const frameTrees = new Map<string, Array<{ backendDOMNodeId?: number }>>();
 	const iframeFrameIds = new Map<number, string>();
 	const autoAttachFrames: Array<{ targetId: string; sessionId: string }> = [];
-	const failMethods = new Set<string>();
+	const methodFailures = new Map<string, Error>();
+	let failureProvider: ((method: string, params: Record<string, unknown>, sessionId?: string) => Error | undefined) | undefined;
 	let axRead = 0;
 	let targetRead = 0;
 	let onAxRead: ((read: number, params: Record<string, unknown>, sessionId?: string) => void) | undefined;
@@ -133,7 +134,8 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 		},
 		send: async (method: string, params: Record<string, unknown> = {}, sessionId?: string) => {
 			sent.push({ method, params, sessionId });
-			if (failMethods.has(method)) throw new Error(`${method} rejected`);
+			const failure = methodFailures.get(method) ?? failureProvider?.(method, params, sessionId);
+			if (failure) throw failure;
 			switch (method) {
 				case "Accessibility.getFullAXTree": {
 					const tree = treeFor(sessionId, params.frameId);
@@ -201,8 +203,11 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 	const addAutoAttachFrame = (frame: { targetId: string; sessionId: string }) => {
 		autoAttachFrames.push(frame);
 	};
-	const failOn = (method: string) => {
-		failMethods.add(method);
+	const failOn = (method: string, error = new Error(`${method} rejected`)) => {
+		methodFailures.set(method, error);
+	};
+	const setFailureProvider = (provider: typeof failureProvider) => {
+		failureProvider = provider;
 	};
 	const setAxReadHook = (hook: typeof onAxRead) => {
 		onAxRead = hook;
@@ -220,6 +225,7 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 		setIframeFrame,
 		addAutoAttachFrame,
 		failOn,
+		setFailureProvider,
 		setAxReadHook,
 		setTargetProvider,
 		cdp: fake as unknown as CdpConnection,
@@ -762,7 +768,102 @@ describe("BrowserExecutor iframe stitching", () => {
 		expect(text).toContain('button "Pay" [e');
 	});
 
-	it("rejects a scoped frame ref when its owning frame is missing from the observation", async () => {
+	it("invalidates and releases a same-process frame when it detaches and rotates", async () => {
+		const root = [
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),
+			ax({ nodeId: "2", role: "Iframe", backendDOMNodeId: 50, parentId: "1" }),
+		];
+		const fake = createFakeCdp(root);
+		fake.setIframeFrame(50, "FRAME-SP");
+		fake.setFrameTree("FRAME-SP", [ax({ nodeId: "old", role: "button", name: "Old", backendDOMNodeId: 60 })]);
+		const executor = new BrowserExecutor(fake.cdp);
+		await snapshotText(executor);
+
+		fake.emit({ method: "Page.frameDetached", params: { frameId: "FRAME-SP", reason: "swap" }, sessionId: "session-1" });
+		await expect(executor.execute({ type: "browser_click", ref: "e2" } as CuaBrowserAction)).rejects.toThrow(/stale/);
+
+		fake.setFrameTree("FRAME-SP", [ax({ nodeId: "new", role: "button", name: "New", backendDOMNodeId: 61 })]);
+		expect(await snapshotText(executor)).toContain('button "New" [e');
+		fake.emit({ method: "Page.frameDetached", params: { frameId: "FRAME-SP", reason: "remove" }, sessionId: "session-1" });
+		expect(executor.exportRefState().generations.map(([key]) => key)).toEqual(["TARGET-1"]);
+	});
+
+	it("does not retain generation state for rotating unreferenced frames", async () => {
+		const root = [
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),
+			ax({ nodeId: "2", role: "Iframe", backendDOMNodeId: 50, parentId: "1" }),
+		];
+		const fake = createFakeCdp(root);
+		const executor = new BrowserExecutor(fake.cdp);
+		for (let index = 0; index < 25; index += 1) {
+			const frameId = `FRAME-${index}`;
+			fake.setIframeFrame(50, frameId);
+			fake.setFrameTree(frameId, [ax({ nodeId: `root-${index}`, role: "RootWebArea", name: "Embed" })]);
+			await snapshotText(executor);
+		}
+		expect(executor.exportRefState().generations).toEqual([["TARGET-1", 0]]);
+	});
+
+	it("does not retain a frame generation when its AX fetch is transiently inaccessible", async () => {
+		const root = [
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),
+			ax({ nodeId: "2", role: "Iframe", backendDOMNodeId: 50, parentId: "1" }),
+		];
+		const fake = createFakeCdp(root);
+		fake.setIframeFrame(50, "FRAME-SP");
+		fake.setFailureProvider((method, params) =>
+			method === "Accessibility.getFullAXTree" && params.frameId === "FRAME-SP"
+				? new CdpProtocolError(method, -32000, "Frame with the given id was not found.")
+				: undefined,
+		);
+		const executor = new BrowserExecutor(fake.cdp);
+		expect(await snapshotText(executor)).toContain("Iframe [e1]");
+		expect(executor.exportRefState().generations).toEqual([["TARGET-1", 0]]);
+	});
+
+	it("propagates unexpected frame protocol failures with frame diagnostics and no registration leak", async () => {
+		const root = [
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),
+			ax({ nodeId: "2", role: "Iframe", backendDOMNodeId: 50, parentId: "1" }),
+		];
+		const fake = createFakeCdp(root);
+		fake.setIframeFrame(50, "FRAME-SP");
+		fake.setFailureProvider((method, params) =>
+			method === "Accessibility.getFullAXTree" && params.frameId === "FRAME-SP" ? new Error("decoder exploded") : undefined,
+		);
+		const executor = new BrowserExecutor(fake.cdp);
+		await expect(snapshotText(executor)).rejects.toThrow(
+			/Failed to collect iframe FRAME-SP at backend node 50 during Accessibility\.getFullAXTree: decoder exploded/,
+		);
+		expect(executor.exportRefState().generations).toEqual([["TARGET-1", 0]]);
+	});
+
+	it("propagates malformed frame trees as indexed collection failures", async () => {
+		const root = [
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),
+			ax({ nodeId: "2", role: "Iframe", backendDOMNodeId: 50, parentId: "1" }),
+		];
+		const fake = createFakeCdp(root);
+		fake.setIframeFrame(50, "FRAME-SP");
+		fake.setFrameTree("FRAME-SP", null as unknown as unknown[]);
+		const executor = new BrowserExecutor(fake.cdp);
+		await expect(snapshotText(executor)).rejects.toThrow(/FRAME-SP.*building the accessibility index/);
+		expect(executor.exportRefState().generations).toEqual([["TARGET-1", 0]]);
+	});
+
+	it("propagates unexpected iframe description failures instead of treating them as inaccessible", async () => {
+		const root = [
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),
+			ax({ nodeId: "2", role: "Iframe", backendDOMNodeId: 50, parentId: "1" }),
+		];
+		const fake = createFakeCdp(root);
+		fake.failOn("DOM.describeNode", new CdpProtocolError("DOM.describeNode", -32603, "Internal error"));
+		const executor = new BrowserExecutor(fake.cdp);
+		await expect(snapshotText(executor)).rejects.toThrow(/backend node 50 during DOM\.describeNode.*Internal error/);
+		expect(fake.sent.filter((command) => command.method === "DOM.describeNode")).toHaveLength(1);
+	});
+
+	it("retries a transiently omitted owning frame instead of staling its scoped ref", async () => {
 		const root = [
 			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2", "3"] }),
 			ax({ nodeId: "2", role: "button", name: "Pay", backendDOMNodeId: 40, parentId: "1" }),
@@ -774,8 +875,30 @@ describe("BrowserExecutor iframe stitching", () => {
 		const executor = new BrowserExecutor(fake.cdp);
 		await snapshotText(executor);
 
-		fake.failOn("DOM.describeNode");
-		await expect(snapshotText(executor, { ref: "e3" })).rejects.toThrow(/stale/);
+		let omitted = false;
+		fake.setFailureProvider((method) => {
+			if (method !== "DOM.describeNode" || omitted) return undefined;
+			omitted = true;
+			return new CdpProtocolError(method, -32000, "Could not find node with given id");
+		});
+		await expect(snapshotText(executor, { ref: "e3" })).resolves.toContain('button "Pay"');
+		expect(fake.sent.filter((command) => command.method === "DOM.describeNode")).toHaveLength(3);
+	});
+
+	it("reports a persistently omitted owning frame as unverifiable rather than stale", async () => {
+		const root = [
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),
+			ax({ nodeId: "2", role: "Iframe", backendDOMNodeId: 50, parentId: "1" }),
+		];
+		const fake = createFakeCdp(root);
+		fake.setIframeFrame(50, "FRAME-SP");
+		fake.setFrameTree("FRAME-SP", [ax({ nodeId: "f1", role: "button", name: "Pay", backendDOMNodeId: 70 })]);
+		const executor = new BrowserExecutor(fake.cdp);
+		await snapshotText(executor);
+
+		fake.failOn("DOM.describeNode", new CdpProtocolError("DOM.describeNode", -32000, "Could not find node with given id"));
+		await expect(snapshotText(executor, { ref: "e2" })).rejects.toThrow(/could not verify ref e2/i);
+		expect(fake.sent.filter((command) => command.method === "DOM.describeNode")).toHaveLength(4);
 	});
 });
 
@@ -950,6 +1073,27 @@ describe("BrowserExecutor ref state export/import", () => {
 		await second.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction);
 		const pressed = sent.find((cmd) => cmd.method === "Input.dispatchMouseEvent" && cmd.params.type === "mousePressed");
 		expect(pressed).toBeDefined();
+	});
+
+	it("restores a same-process frame ref with its owning generation", async () => {
+		const root = [
+			ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),
+			ax({ nodeId: "2", role: "Iframe", backendDOMNodeId: 50, parentId: "1" }),
+		];
+		const firstFake = createFakeCdp(root);
+		firstFake.setIframeFrame(50, "FRAME-SP");
+		firstFake.setFrameTree("FRAME-SP", [ax({ nodeId: "f1", role: "button", name: "Pay", backendDOMNodeId: 70 })]);
+		const first = new BrowserExecutor(firstFake.cdp);
+		await snapshotText(first);
+		const state = first.exportRefState();
+
+		const secondFake = createFakeCdp(root);
+		secondFake.setIframeFrame(50, "FRAME-SP");
+		secondFake.setFrameTree("FRAME-SP", [ax({ nodeId: "f1", role: "button", name: "Pay", backendDOMNodeId: 70 })]);
+		const second = new BrowserExecutor(secondFake.cdp);
+		second.importRefState(state);
+		await second.execute({ type: "browser_click", ref: "e2" } as CuaBrowserAction);
+		expect(secondFake.sent.some((command) => command.method === "DOM.getBoxModel" && command.params.backendNodeId === 70)).toBe(true);
 	});
 
 	it("keeps minting unique refs after import and invalidates imported refs on navigation", async () => {

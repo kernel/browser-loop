@@ -12,16 +12,19 @@ import {
 	type CuaActionBrowserSnapshot,
 	type CuaBrowserAction,
 } from "@onkernel/cua-ai";
-import { CdpConnection, type CdpEventMessage } from "./cdp";
+import { CdpConnection, CdpProtocolError, type CdpEventMessage } from "./cdp";
 import {
+	IncompleteObservationError,
 	ObservationChangedError,
 	buildNthIndex,
 	cohortKey,
+	observedNodes,
 	staticTextRun,
 	type AXNode,
 	type BrowserObservation,
 	type BrowserPresentation,
 	type FrameStitch,
+	type IncompleteFrame,
 	type ObservationLine,
 	type RenderContext,
 } from "./browser-observation";
@@ -50,6 +53,237 @@ interface RefEntry {
 	nth: number;
 	/** Size of the (role, name) cohort in the tree the ref was minted from. */
 	cohort: number;
+}
+
+interface TargetGenerationState {
+	readonly targetId: string;
+	generation: number;
+	observationRevision: number;
+}
+
+interface FrameGenerationState {
+	readonly targetId: string;
+	readonly frameId: string;
+	generation: number;
+	captures: number;
+	refs: number;
+}
+
+interface GenerationCapture {
+	readonly targetId: string;
+	readonly frameKey: string;
+	readonly generation: number;
+	readonly targetGeneration: number;
+	readonly observationRevision: number;
+	readonly targetState: TargetGenerationState;
+	readonly frameState?: FrameGenerationState;
+}
+
+/**
+ * Owns generation identity and ref retention. Target documents and child
+ * frames have distinct records even though CDP represents both ids as strings.
+ * Frame records live only while an observation is collecting or a ref needs
+ * them, so transient and rotating frames cannot grow retained state.
+ */
+class RefGenerationLifecycle {
+	private readonly targets = new Map<string, TargetGenerationState>();
+	private readonly frames = new Map<string, FrameGenerationState>();
+
+	constructor(private readonly refs: Map<string, RefEntry>) {}
+
+	captureTarget(targetId: string): GenerationCapture {
+		const targetState = this.ensureTarget(targetId);
+		return {
+			targetId,
+			frameKey: targetId,
+			generation: targetState.generation,
+			targetGeneration: targetState.generation,
+			observationRevision: targetState.observationRevision,
+			targetState,
+		};
+	}
+
+	captureFrame(targetId: string, frameId: string): GenerationCapture {
+		const targetState = this.ensureTarget(targetId);
+		let frameState = this.frames.get(frameId);
+		if (frameState && frameState.targetId !== targetId) {
+			throw new Error(`frame ${frameId} changed owner from ${frameState.targetId} to ${targetId}`);
+		}
+		frameState ??= { targetId, frameId, generation: 0, captures: 0, refs: 0 };
+		this.frames.set(frameId, frameState);
+		frameState.captures += 1;
+		return {
+			targetId,
+			frameKey: frameId,
+			generation: frameState.generation,
+			targetGeneration: targetState.generation,
+			observationRevision: targetState.observationRevision,
+			targetState,
+			frameState,
+		};
+	}
+
+	isCurrent(capture: GenerationCapture): boolean {
+		if (
+			this.targets.get(capture.targetId) !== capture.targetState ||
+			capture.targetState.generation !== capture.targetGeneration ||
+			capture.targetState.observationRevision !== capture.observationRevision
+		) {
+			return false;
+		}
+		return (
+			!capture.frameState ||
+			(this.frames.get(capture.frameKey) === capture.frameState && capture.frameState.generation === capture.generation)
+		);
+	}
+
+	release(captures: readonly GenerationCapture[]): void {
+		for (const capture of captures) {
+			if (!capture.frameState) continue;
+			capture.frameState.captures = Math.max(0, capture.frameState.captures - 1);
+			this.deleteUnusedFrame(capture.frameState);
+		}
+	}
+
+	retainRef(ref: string, entry: RefEntry): void {
+		this.deleteRef(ref);
+		if (entry.frameId === entry.targetId) {
+			const target = this.targets.get(entry.targetId);
+			if (!target || target.generation !== entry.generation) throw new ObservationChangedError();
+		} else {
+			const frame = this.frames.get(entry.frameId);
+			if (!frame || frame.targetId !== entry.targetId || frame.generation !== entry.generation) {
+				throw new ObservationChangedError();
+			}
+			frame.refs += 1;
+		}
+		this.refs.set(ref, entry);
+	}
+
+	deleteRef(ref: string): void {
+		const entry = this.refs.get(ref);
+		if (!entry) return;
+		this.refs.delete(ref);
+		if (entry.frameId === entry.targetId) return;
+		const frame = this.frames.get(entry.frameId);
+		if (!frame || frame.targetId !== entry.targetId) return;
+		frame.refs = Math.max(0, frame.refs - 1);
+		this.deleteUnusedFrame(frame);
+	}
+
+	isRefCurrent(entry: RefEntry): boolean {
+		if (entry.frameId === entry.targetId) return this.targets.get(entry.targetId)?.generation === entry.generation;
+		const frame = this.frames.get(entry.frameId);
+		return frame?.targetId === entry.targetId && frame.generation === entry.generation;
+	}
+
+	invalidateTarget(targetId: string): void {
+		const target = this.ensureTarget(targetId);
+		target.generation += 1;
+		target.observationRevision += 1;
+		this.deleteRefs((entry) => entry.targetId === targetId);
+		for (const frame of [...this.frames.values()]) {
+			if (frame.targetId !== targetId) continue;
+			frame.generation += 1;
+			this.deleteUnusedFrame(frame);
+		}
+	}
+
+	invalidateFrame(targetId: string, frameId: string): void {
+		const target = this.targets.get(targetId);
+		if (target) target.observationRevision += 1;
+		const frame = this.frames.get(frameId);
+		if (!frame || frame.targetId !== targetId) return;
+		frame.generation += 1;
+		this.deleteRefs((entry) => entry.targetId === targetId && entry.frameId === frameId);
+		this.deleteUnusedFrame(frame);
+	}
+
+	removeFrame(targetId: string, frameId: string): void {
+		const target = this.targets.get(targetId);
+		if (target) target.observationRevision += 1;
+		const frame = this.frames.get(frameId);
+		if (!frame || frame.targetId !== targetId) return;
+		this.deleteRefs((entry) => entry.targetId === targetId && entry.frameId === frameId);
+		this.frames.delete(frameId);
+	}
+
+	dropTarget(targetId: string): void {
+		this.deleteRefs((entry) => entry.targetId === targetId);
+		this.targets.delete(targetId);
+		for (const [frameId, frame] of this.frames) {
+			if (frame.targetId === targetId) this.frames.delete(frameId);
+		}
+	}
+
+	exportGenerations(): Array<[string, number]> {
+		return [
+			...[...this.targets.values()].map((state): [string, number] => [state.targetId, state.generation]),
+			...[...this.frames.values()].map((state): [string, number] => [state.frameId, state.generation]),
+		];
+	}
+
+	importState(
+		generations: readonly (readonly [string, number])[],
+		entries: readonly (readonly [string, Omit<RefEntry, "sessionId">])[],
+		activeTargetId?: string,
+	): void {
+		const importedGenerations = new Map(generations);
+		const targetIds = new Set(entries.map(([, entry]) => entry.targetId));
+		if (activeTargetId) targetIds.add(activeTargetId);
+		for (const targetId of targetIds) {
+			this.targets.set(targetId, {
+				targetId,
+				generation: importedGenerations.get(targetId) ?? 0,
+				observationRevision: 0,
+			});
+		}
+		for (const [ref, imported] of entries) {
+			this.deleteRef(ref);
+			const entry: RefEntry = { ...imported, sessionId: "" };
+			if (entry.frameId !== entry.targetId) {
+				let frame = this.frames.get(entry.frameId);
+				if (!frame) {
+					frame = {
+						targetId: entry.targetId,
+						frameId: entry.frameId,
+						generation: importedGenerations.get(entry.frameId) ?? entry.generation,
+						captures: 0,
+						refs: 0,
+					};
+					this.frames.set(entry.frameId, frame);
+				}
+				frame.refs += 1;
+			}
+			this.refs.set(ref, entry);
+		}
+	}
+
+	private ensureTarget(targetId: string): TargetGenerationState {
+		let target = this.targets.get(targetId);
+		if (!target) {
+			target = { targetId, generation: 0, observationRevision: 0 };
+			this.targets.set(targetId, target);
+		}
+		return target;
+	}
+
+	private deleteRefs(predicate: (entry: RefEntry) => boolean): void {
+		for (const [ref, entry] of this.refs) {
+			if (predicate(entry)) this.deleteRef(ref);
+		}
+	}
+
+	private deleteUnusedFrame(frame: FrameGenerationState): void {
+		if (frame.captures === 0 && frame.refs === 0 && this.frames.get(frame.frameId) === frame) {
+			this.frames.delete(frame.frameId);
+		}
+	}
+}
+
+interface CollectedObservation {
+	readonly observation: BrowserObservation;
+	readonly captures: readonly GenerationCapture[];
 }
 
 export interface BrowserFindCandidate {
@@ -104,9 +338,10 @@ export interface BrowserRefState {
  */
 export class BrowserExecutor {
 	private readonly refs = new Map<string, RefEntry>();
-	private readonly generations = new Map<string, number>();
+	private readonly lifecycle = new RefGenerationLifecycle(this.refs);
 	private readonly targetsBySession = new Map<string, string>();
 	private readonly frameSessions = new Map<string, string>();
+	private readonly frameOwners = new Map<string, string>();
 	private readonly frameTargets = new Set<string>();
 	private readonly lastSnapshots = new Map<string, { key: string; shape: string }>();
 	private readonly selfNavigations = new Set<string>();
@@ -125,20 +360,33 @@ export class BrowserExecutor {
 			case "Page.frameNavigated": {
 				const frame = event.params.frame as { id?: string; parentId?: string } | undefined;
 				if (!event.sessionId || !frame) return;
-				const targetId = this.targetsBySession.get(event.sessionId);
-				if (!targetId) return;
-				if (this.frameTargets.has(targetId)) {
-					// Refs from a frame target's tree (its root and any same-process
-					// subframes inlined in it) are all minted against the target's key,
-					// so any navigation observed in its session stales them.
-					this.invalidateFrame(targetId);
+				const sessionTargetId = this.targetsBySession.get(event.sessionId);
+				if (!sessionTargetId) return;
+				if (this.frameTargets.has(sessionTargetId)) {
+					// The OOPIF tree and any same-process descendants fetched through
+					// its session share the OOPIF generation key.
+					const owner = this.frameOwners.get(sessionTargetId);
+					if (owner) this.lifecycle.invalidateFrame(owner, sessionTargetId);
 					return;
 				}
 				if (frame.parentId) {
-					if (frame.id) this.invalidateFrame(frame.id);
+					if (frame.id) this.lifecycle.invalidateFrame(sessionTargetId, frame.id);
 					return;
 				}
-				if (!this.selfNavigations.delete(targetId)) this.invalidateRefs(targetId);
+				if (!this.selfNavigations.delete(sessionTargetId)) this.lifecycle.invalidateTarget(sessionTargetId);
+				return;
+			}
+			case "Page.frameDetached": {
+				if (!event.sessionId) return;
+				const { frameId } = event.params as { frameId?: string; reason?: "remove" | "swap" };
+				const sessionTargetId = this.targetsBySession.get(event.sessionId);
+				if (!frameId || !sessionTargetId) return;
+				if (this.frameTargets.has(sessionTargetId)) {
+					const owner = this.frameOwners.get(sessionTargetId);
+					if (owner) this.lifecycle.invalidateFrame(owner, sessionTargetId);
+				} else {
+					this.lifecycle.removeFrame(sessionTargetId, frameId);
+				}
 				return;
 			}
 			case "Page.navigatedWithinDocument": {
@@ -153,7 +401,10 @@ export class BrowserExecutor {
 			case "Target.attachedToTarget": {
 				const { sessionId, targetInfo } = event.params as { sessionId?: string; targetInfo?: { targetId?: string; type?: string } };
 				if (!sessionId || !targetInfo?.targetId || targetInfo.type !== "iframe") return;
+				const parentTarget = event.sessionId ? this.targetsBySession.get(event.sessionId) : undefined;
+				const owner = parentTarget ? (this.frameOwners.get(parentTarget) ?? parentTarget) : undefined;
 				this.frameSessions.set(targetInfo.targetId, sessionId);
+				if (owner) this.frameOwners.set(targetInfo.targetId, owner);
 				this.frameTargets.add(targetInfo.targetId);
 				this.targetsBySession.set(sessionId, targetInfo.targetId);
 				void this.cdp.send("Page.enable", {}, sessionId).catch(() => {});
@@ -178,7 +429,16 @@ export class BrowserExecutor {
 				if (typeof sessionId !== "string") return;
 				const targetId = this.targetsBySession.get(sessionId);
 				this.targetsBySession.delete(sessionId);
-				if (targetId) this.dropTarget(targetId);
+				if (!targetId) return;
+				if (this.frameTargets.has(targetId)) {
+					const owner = this.frameOwners.get(targetId);
+					if (owner) this.lifecycle.removeFrame(owner, targetId);
+					this.frameSessions.delete(targetId);
+					this.frameOwners.delete(targetId);
+					this.frameTargets.delete(targetId);
+				} else {
+					this.dropTarget(targetId);
+				}
 				return;
 			}
 		}
@@ -194,7 +454,7 @@ export class BrowserExecutor {
 		return {
 			refCounter: this.refCounter,
 			...(this.activeTargetId ? { activeTargetId: this.activeTargetId } : {}),
-			generations: [...this.generations],
+			generations: this.lifecycle.exportGenerations(),
 			refs: [...this.refs].map(([ref, { sessionId: _sessionId, ...entry }]) => [ref, entry]),
 		};
 	}
@@ -203,8 +463,7 @@ export class BrowserExecutor {
 	importRefState(state: BrowserRefState): void {
 		this.refCounter = Math.max(this.refCounter, state.refCounter);
 		this.activeTargetId = state.activeTargetId ?? this.activeTargetId;
-		for (const [frameId, generation] of state.generations) this.generations.set(frameId, generation);
-		for (const [ref, entry] of state.refs) this.refs.set(ref, { ...entry, sessionId: "" });
+		this.lifecycle.importState(state.generations, state.refs, state.activeTargetId);
 	}
 
 	async execute(action: CuaBrowserAction): Promise<BatchReadResult[]> {
@@ -279,59 +538,70 @@ export class BrowserExecutor {
 	}
 
 	private async snapshot(action: CuaActionBrowserSnapshot): Promise<string> {
-		return this.renderObservation(this.presentObservation(await this.observe(action.tab_id), action));
+		return this.withObservation(action.tab_id, true, (observation) =>
+			this.renderObservation(this.presentObservation(observation, action)),
+		);
 	}
 
-	private async observe(tabId?: string, includeCursor = true): Promise<BrowserObservation> {
+	private async withObservation<T>(
+		tabId: string | undefined,
+		includeCursor: boolean,
+		consume: (observation: BrowserObservation) => T,
+	): Promise<T> {
 		for (let attempt = 0; ; attempt += 1) {
+			let collected: CollectedObservation | undefined;
 			try {
-				return await this.collectObservation(tabId, includeCursor);
+				collected = await this.collectObservation(tabId, includeCursor);
+				return consume(collected.observation);
 			} catch (error) {
-				if (!(error instanceof ObservationChangedError) || attempt === 2) throw error;
+				const retryable = error instanceof ObservationChangedError || error instanceof IncompleteObservationError;
+				if (!retryable || attempt === 2) throw error;
+			} finally {
+				if (collected) this.lifecycle.release(collected.captures);
 			}
 		}
 	}
 
-	private async collectObservation(tabId: string | undefined, includeCursor: boolean): Promise<BrowserObservation> {
+	private async collectObservation(tabId: string | undefined, includeCursor: boolean): Promise<CollectedObservation> {
 		const targetId = await this.resolveTarget(tabId);
 		const pageSession = await this.attach(targetId);
 		const before = (await this.cdp.pageTargets()).find((target) => target.targetId === targetId);
 		if (!before) throw new ObservationChangedError("Browser target disappeared during observation");
 
-		const generations = new Map<string, number>();
-		const rootGeneration = this.trackGeneration(targetId);
-		generations.set(targetId, rootGeneration);
-		const { nodes, sessionId } = await this.frameAxTree(targetId, targetId, pageSession);
-		const rootCtx: RenderContext = {
-			targetId,
-			frameKey: targetId,
-			sessionId,
-			generation: rootGeneration,
-			interactiveOnly: false,
-			nthIndex: buildNthIndex(nodes),
-			...(includeCursor ? { cursorIds: await this.cursorPointerIds(pageSession) } : {}),
-		};
-		const tree = this.frameStitch(nodes, rootCtx);
-		const stitches = await this.stitchFrames(nodes, targetId, pageSession, generations);
-		const after = (await this.cdp.pageTargets()).find((target) => target.targetId === targetId);
-		if (!after || before.url !== after.url || before.title !== after.title) {
-			throw new ObservationChangedError("Browser target metadata changed during observation");
+		const captures: GenerationCapture[] = [this.lifecycle.captureTarget(targetId)];
+		try {
+			const rootCapture = captures[0]!;
+			const { nodes, sessionId } = await this.frameAxTree(targetId, targetId, pageSession);
+			const rootCtx: RenderContext = {
+				targetId,
+				frameKey: targetId,
+				sessionId,
+				generation: rootCapture.generation,
+				nthIndex: buildNthIndex(nodes),
+				...(includeCursor ? { cursorIds: await this.cursorPointerIds(pageSession) } : {}),
+			};
+			const tree = this.frameStitch(nodes, rootCtx);
+			const { stitches, incompleteFrames } = await this.stitchFrames(nodes, targetId, pageSession, captures);
+			const after = (await this.cdp.pageTargets()).find((target) => target.targetId === targetId);
+			if (!after || before.url !== after.url || before.title !== after.title) {
+				throw new ObservationChangedError("Browser target metadata changed during observation");
+			}
+			if (captures.some((capture) => !this.lifecycle.isCurrent(capture))) throw new ObservationChangedError();
+			return {
+				observation: {
+					targetId,
+					tree,
+					stitches,
+					incompleteFrames,
+					revision: rootCapture.observationRevision,
+					generations: new Map(captures.map((capture) => [capture.frameKey, capture.generation])),
+				},
+				captures,
+			};
+		} catch (error) {
+			this.lifecycle.release(captures);
+			throw error;
 		}
-		for (const [frameKey, generation] of generations) {
-			if (this.generations.get(frameKey) !== generation) throw new ObservationChangedError();
-		}
-		return {
-			targetId,
-			tree,
-			stitches,
-			nodes: [
-				...nodes.map((node) => ({ node, ctx: rootCtx })),
-				...[...stitches.values()].flatMap((stitch) => [...stitch.byId.values()].map((node) => ({ node, ctx: stitch.ctx }))),
-			],
-			url: before.url,
-			title: before.title,
-			generations,
-		};
 	}
 
 	private presentObservation(observation: BrowserObservation, action: CuaActionBrowserSnapshot): BrowserPresentation {
@@ -343,7 +613,14 @@ export class BrowserExecutor {
 				tree = observation.tree;
 			} else {
 				const frameTree = [...observation.stitches.values()].find((stitch) => stitch.ctx.frameKey === refEntry.frameId);
-				if (!frameTree) throw staleRefError(action.ref);
+				if (!frameTree) {
+					const details = observation.incompleteFrames
+						.map((frame) => `${frame.frameId ?? `backend node ${frame.backendNodeId}`} (${frame.reason})`)
+						.join(", ");
+					throw new IncompleteObservationError(
+						`Could not verify ref ${action.ref}: owning frame ${refEntry.frameId} was not collected${details ? `; incomplete frames: ${details}` : ""}`,
+					);
+				}
 				tree = frameTree;
 			}
 			const treeNodes = [...tree.byId.values()];
@@ -357,10 +634,10 @@ export class BrowserExecutor {
 		const walk = (current: FrameStitch, nodeId: string, depth: number, parentName: string): void => {
 			const node = current.byId.get(nodeId);
 			if (!node) return;
-			const ctx = current.ctx.interactiveOnly === interactiveOnly ? current.ctx : { ...current.ctx, interactiveOnly };
+			const ctx = current.ctx;
 			let childDepth = depth;
 			if (!node.ignored) {
-				const rendered = this.renderNode(node, depth, parentName, ctx);
+				const rendered = this.renderNode(node, depth, parentName, ctx, interactiveOnly);
 				if (rendered) {
 					lines.push({ ...rendered, ctx });
 					childDepth = depth + 1;
@@ -377,7 +654,7 @@ export class BrowserExecutor {
 			for (let i = 0; i < childIds.length; i += 1) {
 				const run = staticTextRun(current.byId, childIds, i);
 				if (run) {
-					const rendered = this.renderNode(run.node, childDepth, childName, ctx);
+					const rendered = this.renderNode(run.node, childDepth, childName, ctx, interactiveOnly);
 					if (rendered) lines.push({ ...rendered, ctx });
 					i = run.end;
 				} else walk(current, childIds[i]!, childDepth, childName);
@@ -388,7 +665,7 @@ export class BrowserExecutor {
 		const generationKey = [...observation.generations].map(([frameKey, generation]) => `${frameKey}:${generation}`).join("|");
 		return {
 			observation,
-			cacheKey: [action.ref ?? "", action.depth ?? "", action.filter ?? "", generationKey].join("|"),
+			cacheKey: [action.ref ?? "", action.depth ?? "", action.filter ?? "", `revision:${observation.revision}`, generationKey].join("|"),
 			lines,
 			shape,
 		};
@@ -412,14 +689,20 @@ export class BrowserExecutor {
 		return text || "(empty accessibility tree)";
 	}
 
-	private renderNode(node: AXNode, depth: number, parentName: string, ctx: RenderContext): { text: string; refNode?: AXNode } | undefined {
+	private renderNode(
+		node: AXNode,
+		depth: number,
+		parentName: string,
+		ctx: RenderContext,
+		interactiveOnly: boolean,
+	): { text: string; refNode?: AXNode } | undefined {
 		const role = node.role?.value ?? "";
 		const name = node.name?.value ?? "";
 		const interactive = INTERACTIVE_ROLES.has(role);
 		const pointer = node.backendDOMNodeId !== undefined && (ctx.cursorIds?.has(node.backendDOMNodeId) ?? false);
-		if (ctx.interactiveOnly && !interactive && !pointer) return undefined;
+		if (interactiveOnly && !interactive && !pointer) return undefined;
 		if (role === "StaticText" && name === parentName) return undefined;
-		if (!ctx.interactiveOnly && !name && !interactive && !pointer && SKIPPED_ROLES.has(role)) return undefined;
+		if (!interactiveOnly && !name && !interactive && !pointer && SKIPPED_ROLES.has(role)) return undefined;
 		let line = `${"  ".repeat(Math.min(depth, 20))}${role || "node"}${name ? ` ${JSON.stringify(name)}` : ""}`;
 		let refNode: AXNode | undefined;
 		const refWorthy = interactive || pointer || FRAME_ROLES.has(role) || (name !== "" && CONTENT_ROLES.has(role));
@@ -455,41 +738,74 @@ export class BrowserExecutor {
 
 	/** Resolve each iframe node's child frame and fetch its AX tree for stitching. One nesting level only. */
 	private async stitchFrames(
-		nodes: AXNode[],
+		nodes: readonly AXNode[],
 		targetId: string,
 		pageSession: string,
-		generations: Map<string, number>,
-	): Promise<Map<number, FrameStitch>> {
+		captures: GenerationCapture[],
+	): Promise<{ stitches: ReadonlyMap<number, FrameStitch>; incompleteFrames: readonly IncompleteFrame[] }> {
 		const stitches = new Map<number, FrameStitch>();
+		const incompleteFrames: IncompleteFrame[] = [];
 		for (const node of nodes) {
 			if (node.ignored || !FRAME_ROLES.has(node.role?.value ?? "") || node.backendDOMNodeId === undefined) continue;
+			const backendNodeId = node.backendDOMNodeId;
+			let dom: { frameId?: string; contentDocument?: { frameId?: string } };
 			try {
-				const { node: dom } = await this.cdp.send<{ node: { frameId?: string; contentDocument?: { frameId?: string } } }>(
+				const described = await this.cdp.send<{ node?: typeof dom }>(
 					"DOM.describeNode",
-					{ backendNodeId: node.backendDOMNodeId, depth: 1 },
+					{ backendNodeId, depth: 1 },
 					pageSession,
 				);
-				const frameId = dom.contentDocument?.frameId ?? dom.frameId;
-				if (!frameId || frameId === targetId) continue;
-				const generation = this.trackGeneration(frameId);
-				generations.set(frameId, generation);
+				if (!described.node) throw new Error("response did not include a node");
+				dom = described.node;
+			} catch (error) {
+				if (!isExpectedFrameCollectionError(error, "DOM.describeNode")) {
+					throw frameCollectionError(backendNodeId, undefined, "DOM.describeNode", error);
+				}
+				incompleteFrames.push({ backendNodeId, stage: "describe", reason: error.message });
+				continue;
+			}
+			const frameId = dom.contentDocument?.frameId ?? dom.frameId;
+			if (!frameId || frameId === targetId) {
+				incompleteFrames.push({ backendNodeId, stage: "resolve", reason: "iframe did not expose a child frame id" });
+				continue;
+			}
+
+			if (this.frameSessions.has(frameId)) this.frameOwners.set(frameId, targetId);
+			let capture: GenerationCapture;
+			try {
+				capture = this.lifecycle.captureFrame(targetId, frameId);
+			} catch (error) {
+				throw frameCollectionError(backendNodeId, frameId, "capturing the frame generation", error);
+			}
+			let retained = false;
+			try {
 				const { nodes: frameNodes, sessionId } = await this.frameAxTree(frameId, targetId, pageSession);
-				stitches.set(
-					node.backendDOMNodeId,
-					this.frameStitch(frameNodes, {
+				let stitch: FrameStitch;
+				try {
+					stitch = this.frameStitch(frameNodes, {
 						targetId,
 						frameKey: frameId,
 						sessionId,
-						generation,
-						interactiveOnly: false,
+						generation: capture.generation,
 						nthIndex: buildNthIndex(frameNodes),
-					}),
-				);
-			} catch {
-				// Cross-origin or already-detached frames can refuse the fetch; the iframe renders without children.
+					});
+				} catch (error) {
+					throw frameCollectionError(backendNodeId, frameId, "building the accessibility index", error);
+				}
+				stitches.set(backendNodeId, stitch);
+				captures.push(capture);
+				retained = true;
+			} catch (error) {
+				if (error instanceof FrameCollectionError) throw error;
+				if (!isExpectedFrameCollectionError(error, "Accessibility.getFullAXTree")) {
+					throw frameCollectionError(backendNodeId, frameId, "Accessibility.getFullAXTree", error);
+				}
+				incompleteFrames.push({ backendNodeId, frameId, stage: "accessibility", reason: error.message });
+			} finally {
+				if (!retained) this.lifecycle.release([capture]);
 			}
 		}
-		return stitches;
+		return { stitches, incompleteFrames };
 	}
 
 	/** Resolve backend node ids for elements whose own computed cursor is "pointer", without touching the DOM. */
@@ -535,24 +851,32 @@ export class BrowserExecutor {
 	 * matches, best first. Structured counterpart of the `browser_find` action.
 	 */
 	async findCandidates(query: string, tabId?: string, roles?: ReadonlySet<string>): Promise<BrowserFindCandidate[]> {
-		const observation = await this.observe(tabId, false);
-		const queryTokens = tokenize(query);
-		const scored = observation.nodes
-			.filter(
-				({ node }) => !node.ignored && node.backendDOMNodeId !== undefined && (node.name?.value || INTERACTIVE_ROLES.has(node.role?.value ?? "")),
-			)
-			.map(({ node, ctx }) => ({ node, ctx, score: overlapScore(queryTokens, tokenize(`${node.role?.value ?? ""} ${node.name?.value ?? ""}`)) }))
-			.filter((entry) => entry.score > 0 && (!roles || roles.has(entry.node.role?.value ?? "")))
-			.sort((a, b) => b.score - a.score)
-			.slice(0, FIND_MATCH_LIMIT);
-		const candidates = scored.map(({ node, ctx, score }) => ({
-			ref: this.mintRef(node, ctx),
-			role: node.role?.value ?? "",
-			name: node.name?.value ?? "",
-			score,
-		}));
-		this.pruneRefs(observation.targetId);
-		return candidates;
+		return this.withObservation(tabId, false, (observation) => {
+			const queryTokens = tokenize(query);
+			const scored = [...observedNodes(observation)]
+				.filter(
+					({ node }) =>
+						!node.ignored &&
+						node.backendDOMNodeId !== undefined &&
+						(node.name?.value || INTERACTIVE_ROLES.has(node.role?.value ?? "")),
+				)
+				.map(({ node, ctx }) => ({
+					node,
+					ctx,
+					score: overlapScore(queryTokens, tokenize(`${node.role?.value ?? ""} ${node.name?.value ?? ""}`)),
+				}))
+				.filter((entry) => entry.score > 0 && (!roles || roles.has(entry.node.role?.value ?? "")))
+				.sort((a, b) => b.score - a.score)
+				.slice(0, FIND_MATCH_LIMIT);
+			const candidates = scored.map(({ node, ctx, score }) => ({
+				ref: this.mintRef(node, ctx),
+				role: node.role?.value ?? "",
+				name: node.name?.value ?? "",
+				score,
+			}));
+			this.pruneRefs(observation.targetId);
+			return candidates;
+		});
 	}
 
 	private async click(action: CuaActionBrowserClick): Promise<void> {
@@ -665,7 +989,7 @@ export class BrowserExecutor {
 			const entry = history.entries[history.currentIndex + (direction === "back" ? -1 : 1)];
 			if (!entry) throw new Error(`cannot go ${direction}: no history entry`);
 			await this.selfNavigate(targetId, () => this.cdp.send("Page.navigateToHistoryEntry", { entryId: entry.id }, session));
-			this.invalidateRefs(targetId);
+			this.lifecycle.invalidateTarget(targetId);
 			return `Navigated ${direction}.\n${await this.tabContext(targetId)}`;
 		}
 		const url = normalizeGotoUrl(action.url);
@@ -677,7 +1001,7 @@ export class BrowserExecutor {
 			this.selfNavigations.delete(targetId);
 			throw new Error(`navigation to ${url} failed: ${errorText}`);
 		}
-		this.invalidateRefs(targetId);
+		this.lifecycle.invalidateTarget(targetId);
 		return `Navigated to ${url}.\n${await this.tabContext(targetId)}`;
 	}
 
@@ -820,7 +1144,7 @@ export class BrowserExecutor {
 		const name = node.name?.value ?? "";
 		this.refCounter += 1;
 		const ref = `e${this.refCounter}`;
-		this.refs.set(ref, {
+		this.lifecycle.retainRef(ref, {
 			backendNodeId: node.backendDOMNodeId!,
 			targetId: ctx.targetId,
 			frameId: ctx.frameKey,
@@ -851,52 +1175,21 @@ export class BrowserExecutor {
 		const entry = this.refs.get(ref);
 		// Entries are deleted eagerly on invalidation; the generation check only
 		// guards refs resolved while a navigation event is still in flight.
-		if (!entry || entry.targetId !== targetId || entry.generation !== this.generation(entry.frameId)) {
-			throw staleRefError(ref);
-		}
+		if (!entry || entry.targetId !== targetId || !this.lifecycle.isRefCurrent(entry)) throw staleRefError(ref);
 		return entry;
 	}
 
-	private generation(targetId: string): number {
-		return this.generations.get(targetId) ?? 0;
-	}
-
-	private trackGeneration(frameKey: string): number {
-		if (!this.generations.has(frameKey)) this.generations.set(frameKey, 0);
-		return this.generation(frameKey);
-	}
-
-	private invalidateRefs(targetId: string): void {
-		this.generations.set(targetId, this.generation(targetId) + 1);
-		for (const [ref, entry] of this.refs) {
-			if (entry.targetId === targetId) this.refs.delete(ref);
-		}
-	}
-
-	private invalidateFrame(frameKey: string): void {
-		let tracked = this.generations.has(frameKey) || this.frameSessions.has(frameKey);
-		for (const [ref, entry] of this.refs) {
-			if (entry.frameId === frameKey) {
-				this.refs.delete(ref);
-				tracked = true;
-			}
-		}
-		// Frames we never referenced don't get a generation entry, or pages with
-		// rotating ad iframes would grow the map without bound.
-		if (tracked) this.generations.set(frameKey, this.generation(frameKey) + 1);
-	}
-
 	private dropTarget(targetId: string): void {
-		this.generations.delete(targetId);
+		this.lifecycle.dropTarget(targetId);
 		this.selfNavigations.delete(targetId);
 		this.lastSnapshots.delete(targetId);
-		this.frameSessions.delete(targetId);
-		this.frameTargets.delete(targetId);
-		for (const [ref, entry] of this.refs) {
-			if (entry.targetId === targetId || entry.frameId === targetId) {
-				if (entry.frameId !== targetId) this.generations.delete(entry.frameId);
-				this.refs.delete(ref);
-			}
+		for (const [frameId, owner] of this.frameOwners) {
+			if (owner !== targetId) continue;
+			const sessionId = this.frameSessions.get(frameId);
+			if (sessionId) this.targetsBySession.delete(sessionId);
+			this.frameSessions.delete(frameId);
+			this.frameOwners.delete(frameId);
+			this.frameTargets.delete(frameId);
 		}
 	}
 
@@ -906,7 +1199,7 @@ export class BrowserExecutor {
 		for (const [ref, entry] of this.refs) {
 			if (entry.targetId === targetId) owned.push(ref);
 		}
-		for (const ref of owned.slice(0, Math.max(0, owned.length - REF_LIMIT_PER_TARGET))) this.refs.delete(ref);
+		for (const ref of owned.slice(0, Math.max(0, owned.length - REF_LIMIT_PER_TARGET))) this.lifecycle.deleteRef(ref);
 	}
 
 	private drainDialogNotes(): string | undefined {
@@ -949,6 +1242,32 @@ export class BrowserExecutor {
 
 function tabOf(action: { tab_id?: string }): string | undefined {
 	return action.tab_id;
+}
+
+class FrameCollectionError extends Error {
+	constructor(message: string, cause: unknown) {
+		super(message, { cause });
+		this.name = "FrameCollectionError";
+	}
+}
+
+function isExpectedFrameCollectionError(error: unknown, method: "DOM.describeNode" | "Accessibility.getFullAXTree"): error is CdpProtocolError {
+	if (!(error instanceof CdpProtocolError) || error.method !== method) return false;
+	const message = error.protocolMessage.trim();
+	if (method === "DOM.describeNode") {
+		return /^(?:Could not find node with given id|No node with given id found)\.?$/i.test(message);
+	}
+	return /^(?:Frame with the given id was not found|No frame for given id found|Session with given id not found|Target session terminated)\.?$/i.test(
+		message,
+	);
+}
+
+function frameCollectionError(backendNodeId: number, frameId: string | undefined, stage: string, cause: unknown): FrameCollectionError {
+	const detail = cause instanceof Error ? cause.message : String(cause);
+	return new FrameCollectionError(
+		`Failed to collect iframe ${frameId ?? "with unknown frame id"} at backend node ${backendNodeId} during ${stage}: ${detail}`,
+		cause,
+	);
 }
 
 function staleRefError(ref: string, cause?: unknown): Error {
