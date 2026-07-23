@@ -5,7 +5,8 @@ export type { KernelBrowser } from "./translator/translator";
 export { InternalComputerTranslator } from "./translator/translator";
 export { CdpConnection } from "./translator/cdp";
 export { BrowserExecutor } from "./translator/browser";
-export type { BrowserFindCandidate, BrowserRefState } from "./translator/browser";
+export type { BrowserFindCandidate } from "./translator/browser";
+export type { BrowserRefState } from "./translator/browser-ref-lifecycle";
 export type { BatchExecutionResult, BatchReadResult } from "./translator/types";
 export { createCuaComputerTools } from "./tools";
 export type {

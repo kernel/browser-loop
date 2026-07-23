@@ -90,6 +90,53 @@ export class IncompleteObservationError extends Error {
 	}
 }
 
+export const REF_PLACEHOLDER = "\u0000";
+
+export const INTERACTIVE_ROLES: ReadonlySet<string> = new Set([
+	"button",
+	"link",
+	"textbox",
+	"searchbox",
+	"checkbox",
+	"radio",
+	"combobox",
+	"listbox",
+	"option",
+	"menuitem",
+	"menuitemcheckbox",
+	"menuitemradio",
+	"slider",
+	"spinbutton",
+	"switch",
+	"tab",
+	"treeitem",
+]);
+
+export const FRAME_ROLES: ReadonlySet<string> = new Set(["Iframe", "IframePresentational"]);
+
+const SKIPPED_ROLES: ReadonlySet<string> = new Set(["none", "generic", "InlineTextBox", "LineBreak", "StaticText"]);
+
+/** Non-interactive roles that get refs when named, so scroll_to / ref-scoped snapshots can target them. */
+const CONTENT_ROLES: ReadonlySet<string> = new Set([
+	"heading",
+	"cell",
+	"gridcell",
+	"columnheader",
+	"rowheader",
+	"row",
+	"listitem",
+	"article",
+	"region",
+	"main",
+	"navigation",
+	"banner",
+	"contentinfo",
+	"complementary",
+	"tabpanel",
+	"figure",
+	"image",
+]);
+
 /** Index each ref-healing candidate by its position among nodes with the same role and name, in tree order. */
 export function buildNthIndex(nodes: readonly AXNode[]): NthIndex {
 	const cohorts = new Map<string, number>();
@@ -135,4 +182,62 @@ export function staticTextRun(
 	if (end - start < 2) return undefined;
 	const first = tree.get(childIds[start]!)!;
 	return { node: { ...first, name: { value: parts.join(" ") }, childIds: [] }, end: end - 1 };
+}
+
+export function renderObservationNode(
+	node: AXNode,
+	depth: number,
+	parentName: string,
+	ctx: RenderContext,
+	interactiveOnly: boolean,
+): { text: string; refNode?: AXNode } | undefined {
+	const role = node.role?.value ?? "";
+	const name = node.name?.value ?? "";
+	const interactive = INTERACTIVE_ROLES.has(role);
+	const pointer = node.backendDOMNodeId !== undefined && (ctx.cursorIds?.has(node.backendDOMNodeId) ?? false);
+	if (interactiveOnly && !interactive && !pointer) return undefined;
+	if (role === "StaticText" && name === parentName) return undefined;
+	if (!interactiveOnly && !name && !interactive && !pointer && SKIPPED_ROLES.has(role)) return undefined;
+	let line = `${"  ".repeat(Math.min(depth, 20))}${role || "node"}${name ? ` ${JSON.stringify(name)}` : ""}`;
+	let refNode: AXNode | undefined;
+	const refWorthy = interactive || pointer || FRAME_ROLES.has(role) || (name !== "" && CONTENT_ROLES.has(role));
+	if (node.backendDOMNodeId !== undefined && refWorthy) {
+		line += ` [${REF_PLACEHOLDER}]`;
+		refNode = node;
+	}
+	const states = collectStates(node);
+	if (pointer && !interactive) states.push("cursor:pointer");
+	if (states.length > 0) line += ` [${states.join(", ")}]`;
+	return { text: line, refNode };
+}
+
+function collectStates(node: AXNode): string[] {
+	const states: string[] = [];
+	for (const property of node.properties ?? []) {
+		const value = property.value?.value;
+		switch (property.name) {
+			case "checked":
+			case "pressed":
+			case "expanded":
+				// False is meaningful here: it distinguishes an unchecked checkbox or
+				// collapsed disclosure from an element without the state at all.
+				if (value === true || value === "true") states.push(property.name);
+				else if (value === false || value === "false") states.push(`${property.name}=false`);
+				else if (value === "mixed") states.push(`${property.name}=mixed`);
+				break;
+			case "disabled":
+			case "selected":
+			case "required":
+				if (value === true || value === "true") states.push(property.name);
+				break;
+			case "level":
+				if (typeof value === "number") states.push(`level=${value}`);
+				break;
+		}
+	}
+	const value = node.value?.value;
+	if (value !== undefined && value !== "" && String(value) !== (node.name?.value ?? "")) {
+		states.push(`value=${JSON.stringify(String(value))}`);
+	}
+	return states;
 }

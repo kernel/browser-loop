@@ -12,13 +12,18 @@ import {
 	type CuaActionBrowserSnapshot,
 	type CuaBrowserAction,
 } from "@onkernel/cua-ai";
-import { CdpConnection, CdpProtocolError, type CdpEventMessage } from "./cdp";
+import { CdpConnection, type CdpEventMessage } from "./cdp";
+import { FrameCollectionError, frameCollectionError, isExpectedFrameCollectionError } from "./browser-frame-collection";
 import {
+	FRAME_ROLES,
+	INTERACTIVE_ROLES,
+	REF_PLACEHOLDER,
 	IncompleteObservationError,
 	ObservationChangedError,
 	buildNthIndex,
 	cohortKey,
 	observedNodes,
+	renderObservationNode,
 	staticTextRun,
 	type AXNode,
 	type BrowserObservation,
@@ -28,6 +33,13 @@ import {
 	type ObservationLine,
 	type RenderContext,
 } from "./browser-observation";
+import {
+	RefGenerationLifecycle,
+	staleRefError,
+	type BrowserRefState,
+	type GenerationCapture,
+	type RefEntry,
+} from "./browser-ref-lifecycle";
 import type { BatchReadResult } from "./types";
 
 const SNAPSHOT_CHAR_LIMIT = 50_000;
@@ -36,250 +48,7 @@ const FIND_MATCH_LIMIT = 20;
 const REF_LIMIT_PER_TARGET = 1000;
 const SCROLL_NOTCH_PX = 120;
 
-const STALE_REF_HINT = "Call snapshot (or find) to get fresh element references.";
-const REF_PLACEHOLDER = "\u0000";
 const UNCHANGED_SNAPSHOT = "Page unchanged since the last snapshot; previous element refs are still valid.";
-
-interface RefEntry {
-	backendNodeId: number;
-	targetId: string;
-	/** Generation key: the owning page target id for main-frame refs, the frame id for iframe refs. */
-	frameId: string;
-	/** Session to route DOM/Input calls through: the frame's own session for OOPIFs, the page session otherwise. */
-	sessionId: string;
-	generation: number;
-	role: string;
-	name: string;
-	nth: number;
-	/** Size of the (role, name) cohort in the tree the ref was minted from. */
-	cohort: number;
-}
-
-interface TargetGenerationState {
-	readonly targetId: string;
-	generation: number;
-	observationRevision: number;
-}
-
-interface FrameGenerationState {
-	readonly targetId: string;
-	readonly frameId: string;
-	generation: number;
-	captures: number;
-	refs: number;
-}
-
-interface GenerationCapture {
-	readonly targetId: string;
-	readonly frameKey: string;
-	readonly generation: number;
-	readonly targetGeneration: number;
-	readonly observationRevision: number;
-	readonly targetState: TargetGenerationState;
-	readonly frameState?: FrameGenerationState;
-}
-
-/**
- * Owns generation identity and ref retention. Target documents and child
- * frames have distinct records even though CDP represents both ids as strings.
- * Frame records live only while an observation is collecting or a ref needs
- * them, so transient and rotating frames cannot grow retained state.
- */
-class RefGenerationLifecycle {
-	private readonly targets = new Map<string, TargetGenerationState>();
-	private readonly frames = new Map<string, FrameGenerationState>();
-
-	constructor(private readonly refs: Map<string, RefEntry>) {}
-
-	captureTarget(targetId: string): GenerationCapture {
-		const targetState = this.ensureTarget(targetId);
-		return {
-			targetId,
-			frameKey: targetId,
-			generation: targetState.generation,
-			targetGeneration: targetState.generation,
-			observationRevision: targetState.observationRevision,
-			targetState,
-		};
-	}
-
-	captureFrame(targetId: string, frameId: string): GenerationCapture {
-		const targetState = this.ensureTarget(targetId);
-		let frameState = this.frames.get(frameId);
-		if (frameState && frameState.targetId !== targetId) {
-			throw new Error(`frame ${frameId} changed owner from ${frameState.targetId} to ${targetId}`);
-		}
-		frameState ??= { targetId, frameId, generation: 0, captures: 0, refs: 0 };
-		this.frames.set(frameId, frameState);
-		frameState.captures += 1;
-		return {
-			targetId,
-			frameKey: frameId,
-			generation: frameState.generation,
-			targetGeneration: targetState.generation,
-			observationRevision: targetState.observationRevision,
-			targetState,
-			frameState,
-		};
-	}
-
-	isCurrent(capture: GenerationCapture): boolean {
-		if (
-			this.targets.get(capture.targetId) !== capture.targetState ||
-			capture.targetState.generation !== capture.targetGeneration ||
-			capture.targetState.observationRevision !== capture.observationRevision
-		) {
-			return false;
-		}
-		return (
-			!capture.frameState ||
-			(this.frames.get(capture.frameKey) === capture.frameState && capture.frameState.generation === capture.generation)
-		);
-	}
-
-	release(captures: readonly GenerationCapture[]): void {
-		for (const capture of captures) {
-			if (!capture.frameState) continue;
-			capture.frameState.captures = Math.max(0, capture.frameState.captures - 1);
-			this.deleteUnusedFrame(capture.frameState);
-		}
-	}
-
-	retainRef(ref: string, entry: RefEntry): void {
-		this.deleteRef(ref);
-		if (entry.frameId === entry.targetId) {
-			const target = this.targets.get(entry.targetId);
-			if (!target || target.generation !== entry.generation) throw new ObservationChangedError();
-		} else {
-			const frame = this.frames.get(entry.frameId);
-			if (!frame || frame.targetId !== entry.targetId || frame.generation !== entry.generation) {
-				throw new ObservationChangedError();
-			}
-			frame.refs += 1;
-		}
-		this.refs.set(ref, entry);
-	}
-
-	deleteRef(ref: string): void {
-		const entry = this.refs.get(ref);
-		if (!entry) return;
-		this.refs.delete(ref);
-		if (entry.frameId === entry.targetId) return;
-		const frame = this.frames.get(entry.frameId);
-		if (!frame || frame.targetId !== entry.targetId) return;
-		frame.refs = Math.max(0, frame.refs - 1);
-		this.deleteUnusedFrame(frame);
-	}
-
-	isRefCurrent(entry: RefEntry): boolean {
-		if (entry.frameId === entry.targetId) return this.targets.get(entry.targetId)?.generation === entry.generation;
-		const frame = this.frames.get(entry.frameId);
-		return frame?.targetId === entry.targetId && frame.generation === entry.generation;
-	}
-
-	invalidateTarget(targetId: string): void {
-		const target = this.ensureTarget(targetId);
-		target.generation += 1;
-		target.observationRevision += 1;
-		this.deleteRefs((entry) => entry.targetId === targetId);
-		for (const frame of [...this.frames.values()]) {
-			if (frame.targetId !== targetId) continue;
-			frame.generation += 1;
-			this.deleteUnusedFrame(frame);
-		}
-	}
-
-	invalidateFrame(targetId: string, frameId: string): void {
-		const target = this.targets.get(targetId);
-		if (target) target.observationRevision += 1;
-		const frame = this.frames.get(frameId);
-		if (!frame || frame.targetId !== targetId) return;
-		frame.generation += 1;
-		this.deleteRefs((entry) => entry.targetId === targetId && entry.frameId === frameId);
-		this.deleteUnusedFrame(frame);
-	}
-
-	removeFrame(targetId: string, frameId: string): void {
-		const target = this.targets.get(targetId);
-		if (target) target.observationRevision += 1;
-		const frame = this.frames.get(frameId);
-		if (!frame || frame.targetId !== targetId) return;
-		this.deleteRefs((entry) => entry.targetId === targetId && entry.frameId === frameId);
-		this.frames.delete(frameId);
-	}
-
-	dropTarget(targetId: string): void {
-		this.deleteRefs((entry) => entry.targetId === targetId);
-		this.targets.delete(targetId);
-		for (const [frameId, frame] of this.frames) {
-			if (frame.targetId === targetId) this.frames.delete(frameId);
-		}
-	}
-
-	exportGenerations(): Array<[string, number]> {
-		return [
-			...[...this.targets.values()].map((state): [string, number] => [state.targetId, state.generation]),
-			...[...this.frames.values()].map((state): [string, number] => [state.frameId, state.generation]),
-		];
-	}
-
-	importState(
-		generations: readonly (readonly [string, number])[],
-		entries: readonly (readonly [string, Omit<RefEntry, "sessionId">])[],
-		activeTargetId?: string,
-	): void {
-		const importedGenerations = new Map(generations);
-		const targetIds = new Set(entries.map(([, entry]) => entry.targetId));
-		if (activeTargetId) targetIds.add(activeTargetId);
-		for (const targetId of targetIds) {
-			this.targets.set(targetId, {
-				targetId,
-				generation: importedGenerations.get(targetId) ?? 0,
-				observationRevision: 0,
-			});
-		}
-		for (const [ref, imported] of entries) {
-			this.deleteRef(ref);
-			const entry: RefEntry = { ...imported, sessionId: "" };
-			if (entry.frameId !== entry.targetId) {
-				let frame = this.frames.get(entry.frameId);
-				if (!frame) {
-					frame = {
-						targetId: entry.targetId,
-						frameId: entry.frameId,
-						generation: importedGenerations.get(entry.frameId) ?? entry.generation,
-						captures: 0,
-						refs: 0,
-					};
-					this.frames.set(entry.frameId, frame);
-				}
-				frame.refs += 1;
-			}
-			this.refs.set(ref, entry);
-		}
-	}
-
-	private ensureTarget(targetId: string): TargetGenerationState {
-		let target = this.targets.get(targetId);
-		if (!target) {
-			target = { targetId, generation: 0, observationRevision: 0 };
-			this.targets.set(targetId, target);
-		}
-		return target;
-	}
-
-	private deleteRefs(predicate: (entry: RefEntry) => boolean): void {
-		for (const [ref, entry] of this.refs) {
-			if (predicate(entry)) this.deleteRef(ref);
-		}
-	}
-
-	private deleteUnusedFrame(frame: FrameGenerationState): void {
-		if (frame.captures === 0 && frame.refs === 0 && this.frames.get(frame.frameId) === frame) {
-			this.frames.delete(frame.frameId);
-		}
-	}
-}
 
 interface CollectedObservation {
 	readonly observation: BrowserObservation;
@@ -291,21 +60,6 @@ export interface BrowserFindCandidate {
 	role: string;
 	name: string;
 	score: number;
-}
-
-/**
- * Serializable ref state, so refs minted in one process (e.g. a `cua
- * snapshot` invocation) can be resolved in a later one against the same
- * browser. Session ids are process-local and deliberately not exported;
- * imported refs rebind lazily. Backend node ids stay valid for the life of
- * the document, and the usual generation/self-heal machinery covers pages
- * that changed in between.
- */
-export interface BrowserRefState {
-	refCounter: number;
-	activeTargetId?: string;
-	generations: Array<[string, number]>;
-	refs: Array<[string, Omit<RefEntry, "sessionId">]>;
 }
 
 /**
@@ -637,7 +391,7 @@ export class BrowserExecutor {
 			const ctx = current.ctx;
 			let childDepth = depth;
 			if (!node.ignored) {
-				const rendered = this.renderNode(node, depth, parentName, ctx, interactiveOnly);
+				const rendered = renderObservationNode(node, depth, parentName, ctx, interactiveOnly);
 				if (rendered) {
 					lines.push({ ...rendered, ctx });
 					childDepth = depth + 1;
@@ -654,7 +408,7 @@ export class BrowserExecutor {
 			for (let i = 0; i < childIds.length; i += 1) {
 				const run = staticTextRun(current.byId, childIds, i);
 				if (run) {
-					const rendered = this.renderNode(run.node, childDepth, childName, ctx, interactiveOnly);
+					const rendered = renderObservationNode(run.node, childDepth, childName, ctx, interactiveOnly);
 					if (rendered) lines.push({ ...rendered, ctx });
 					i = run.end;
 				} else walk(current, childIds[i]!, childDepth, childName);
@@ -687,33 +441,6 @@ export class BrowserExecutor {
 		}
 		this.pruneRefs(observation.targetId);
 		return text || "(empty accessibility tree)";
-	}
-
-	private renderNode(
-		node: AXNode,
-		depth: number,
-		parentName: string,
-		ctx: RenderContext,
-		interactiveOnly: boolean,
-	): { text: string; refNode?: AXNode } | undefined {
-		const role = node.role?.value ?? "";
-		const name = node.name?.value ?? "";
-		const interactive = INTERACTIVE_ROLES.has(role);
-		const pointer = node.backendDOMNodeId !== undefined && (ctx.cursorIds?.has(node.backendDOMNodeId) ?? false);
-		if (interactiveOnly && !interactive && !pointer) return undefined;
-		if (role === "StaticText" && name === parentName) return undefined;
-		if (!interactiveOnly && !name && !interactive && !pointer && SKIPPED_ROLES.has(role)) return undefined;
-		let line = `${"  ".repeat(Math.min(depth, 20))}${role || "node"}${name ? ` ${JSON.stringify(name)}` : ""}`;
-		let refNode: AXNode | undefined;
-		const refWorthy = interactive || pointer || FRAME_ROLES.has(role) || (name !== "" && CONTENT_ROLES.has(role));
-		if (node.backendDOMNodeId !== undefined && refWorthy) {
-			line += ` [${REF_PLACEHOLDER}]`;
-			refNode = node;
-		}
-		const states = collectStates(node);
-		if (pointer && !interactive) states.push("cursor:pointer");
-		if (states.length > 0) line += ` [${states.join(", ")}]`;
-		return { text: line, refNode };
 	}
 
 	/** Fetch a frame's AX tree: OOPIFs through their own session, same-process frames through the page session with a frameId. */
@@ -1244,67 +971,6 @@ function tabOf(action: { tab_id?: string }): string | undefined {
 	return action.tab_id;
 }
 
-class FrameCollectionError extends Error {
-	constructor(message: string, cause: unknown) {
-		super(message, { cause });
-		this.name = "FrameCollectionError";
-	}
-}
-
-function isExpectedFrameCollectionError(error: unknown, method: "DOM.describeNode" | "Accessibility.getFullAXTree"): error is CdpProtocolError {
-	if (!(error instanceof CdpProtocolError) || error.method !== method) return false;
-	const message = error.protocolMessage.trim();
-	if (method === "DOM.describeNode") {
-		return /^(?:Could not find node with given id|No node with given id found)\.?$/i.test(message);
-	}
-	return /^(?:Frame with the given id was not found|No frame for given id found|Session with given id not found|Target session terminated)\.?$/i.test(
-		message,
-	);
-}
-
-function frameCollectionError(backendNodeId: number, frameId: string | undefined, stage: string, cause: unknown): FrameCollectionError {
-	const detail = cause instanceof Error ? cause.message : String(cause);
-	return new FrameCollectionError(
-		`Failed to collect iframe ${frameId ?? "with unknown frame id"} at backend node ${backendNodeId} during ${stage}: ${detail}`,
-		cause,
-	);
-}
-
-function staleRefError(ref: string, cause?: unknown): Error {
-	return new Error(`ref ${ref} is stale or not on the current page. ${STALE_REF_HINT}`, cause === undefined ? undefined : { cause });
-}
-
-function collectStates(node: AXNode): string[] {
-	const states: string[] = [];
-	for (const property of node.properties ?? []) {
-		const value = property.value?.value;
-		switch (property.name) {
-			case "checked":
-			case "pressed":
-			case "expanded":
-				// False is meaningful here: it distinguishes an unchecked checkbox or
-				// collapsed disclosure from an element without the state at all.
-				if (value === true || value === "true") states.push(property.name);
-				else if (value === false || value === "false") states.push(`${property.name}=false`);
-				else if (value === "mixed") states.push(`${property.name}=mixed`);
-				break;
-			case "disabled":
-			case "selected":
-			case "required":
-				if (value === true || value === "true") states.push(property.name);
-				break;
-			case "level":
-				if (typeof value === "number") states.push(`level=${value}`);
-				break;
-		}
-	}
-	const value = node.value?.value;
-	if (value !== undefined && value !== "" && String(value) !== (node.name?.value ?? "")) {
-		states.push(`value=${JSON.stringify(String(value))}`);
-	}
-	return states;
-}
-
 function shortTabId(targetId: string): string {
 	return targetId.slice(0, 10).toUpperCase();
 }
@@ -1416,51 +1082,6 @@ const FILL_FUNCTION = `function(value) {
 	el.dispatchEvent(new Event("input", { bubbles: true }));
 	el.dispatchEvent(new Event("change", { bubbles: true }));
 }`;
-
-const INTERACTIVE_ROLES: ReadonlySet<string> = new Set([
-	"button",
-	"link",
-	"textbox",
-	"searchbox",
-	"checkbox",
-	"radio",
-	"combobox",
-	"listbox",
-	"option",
-	"menuitem",
-	"menuitemcheckbox",
-	"menuitemradio",
-	"slider",
-	"spinbutton",
-	"switch",
-	"tab",
-	"treeitem",
-]);
-
-const SKIPPED_ROLES: ReadonlySet<string> = new Set(["none", "generic", "InlineTextBox", "LineBreak", "StaticText"]);
-
-const FRAME_ROLES: ReadonlySet<string> = new Set(["Iframe", "IframePresentational"]);
-
-/** Non-interactive roles that get refs when named, so scroll_to / ref-scoped snapshots can target them. */
-const CONTENT_ROLES: ReadonlySet<string> = new Set([
-	"heading",
-	"cell",
-	"gridcell",
-	"columnheader",
-	"rowheader",
-	"row",
-	"listitem",
-	"article",
-	"region",
-	"main",
-	"navigation",
-	"banner",
-	"contentinfo",
-	"complementary",
-	"tabpanel",
-	"figure",
-	"image",
-]);
 
 const CURSOR_SCAN_GROUP = "cua-cursor-scan";
 
