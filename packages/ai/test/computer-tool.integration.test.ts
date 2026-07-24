@@ -51,7 +51,7 @@ const cases: ProviderCase[] = [
 	{
 		provider: "anthropic",
 		envVar: "ANTHROPIC_API_KEY",
-		modelRef: "anthropic:claude-opus-4-7",
+		modelRef: "anthropic:claude-opus-5",
 		tools: () => anthropic.computerTools({ actions: ["click"] }),
 		coordinateRange: [0, 1920],
 		requireToolCalls: true,

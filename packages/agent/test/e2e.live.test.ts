@@ -18,7 +18,7 @@ type ProviderCase = {
 	apiKeyEnvVar: string;
 	modelRef:
 		| "openai:gpt-5.5"
-		| "anthropic:claude-opus-4-7"
+		| "anthropic:claude-opus-5"
 		| "google:gemini-3-flash-preview"
 		| "meta:muse-spark-1.1"
 		| "xai:grok-4.5"
@@ -57,7 +57,7 @@ const cases: ProviderCase[] = [
 	{
 		name: "anthropic",
 		apiKeyEnvVar: "ANTHROPIC_API_KEY",
-		modelRef: "anthropic:claude-opus-4-7",
+		modelRef: "anthropic:claude-opus-5",
 		prompt: [
 			"Use the tool named `screenshot` exactly once to inspect the browser.",
 			"Pass empty arguments (`{}`).",

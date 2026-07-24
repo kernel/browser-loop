@@ -65,7 +65,7 @@ const first = await harness.prompt("Open example.com and describe what you see."
 console.log(textOf(first));
 
 // Swap providers mid-session; CUA tools and the default prompt refresh to match.
-await harness.setModel("anthropic:claude-opus-4-7");
+await harness.setModel("anthropic:claude-opus-5");
 
 // Turn 2 continues the same transcript on the new model.
 const second = await harness.prompt("Open the most relevant link from what you found.");

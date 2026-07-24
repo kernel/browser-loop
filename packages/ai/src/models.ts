@@ -65,6 +65,7 @@ export const CUA_MODEL_ANNOTATIONS: Record<CuaProvider, readonly CuaModelAnnotat
 	anthropic: [
 		{ match: { kind: "family", family: "claude-3-7-sonnet" }, source: "https://docs.anthropic.com/en/docs/build-with-claude/computer-use" },
 		{ match: { kind: "family", family: "claude-opus-4" }, source: "https://docs.anthropic.com/en/docs/build-with-claude/computer-use" },
+		{ match: { kind: "family", family: "claude-opus-5" }, source: "https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool" },
 		{ match: { kind: "family", family: "claude-sonnet-4" }, source: "https://docs.anthropic.com/en/docs/build-with-claude/computer-use" },
 		{ match: { kind: "family", family: "claude-sonnet-5" }, source: "https://docs.anthropic.com/en/docs/build-with-claude/computer-use" },
 		{ match: { kind: "family", family: "claude-haiku-4" }, source: "https://docs.anthropic.com/en/docs/build-with-claude/computer-use" },
@@ -112,7 +113,9 @@ export const CUA_MODEL_ANNOTATIONS: Record<CuaProvider, readonly CuaModelAnnotat
 // in CUA_MODEL_ANNOTATIONS above so the support filter recognizes it.
 const CUA_MODEL_OVERRIDES: Record<CuaProvider, readonly Model<Api>[]> = {
 	openai: [],
-	anthropic: [],
+	// Opus 5 is live in Anthropic's API and models.dev but is newer than the
+	// pinned pi-ai catalog. Remove this override after the next pi-ai bump.
+	anthropic: [anthropicOpus5Model()],
 	google: [],
 	// pi-ai 0.80.10 still lacks Meta's models.dev catalog entry.
 	meta: [cuaModel("meta", "muse-spark-1.1", "Muse Spark 1.1")],
@@ -279,6 +282,23 @@ function isCuaFamilyMatch(id: string, family: string): boolean {
 		.slice(family.length + 1)
 		.split("-")
 		.every((segment) => /^\d+$/.test(segment));
+}
+
+function anthropicOpus5Model(): Model<Api> {
+	return {
+		id: "claude-opus-5",
+		name: "Claude Opus 5",
+		api: "anthropic-messages",
+		provider: "anthropic",
+		baseUrl: "https://api.anthropic.com",
+		compat: { forceAdaptiveThinking: true, supportsTemperature: false },
+		reasoning: true,
+		thinkingLevelMap: { xhigh: "xhigh", max: "max" },
+		input: ["text", "image"],
+		cost: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+		contextWindow: 1_000_000,
+		maxTokens: 128_000,
+	};
 }
 
 function cuaModel(provider: Exclude<CuaProvider, "xai" | "moonshotai">, id: string, name: string): Model<Api> {

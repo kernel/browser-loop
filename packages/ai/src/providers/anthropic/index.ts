@@ -72,6 +72,7 @@ function isAdaptiveThinkingModel(model: Model<Api>): boolean {
 		id.startsWith("claude-mythos-preview") ||
 		id.startsWith("claude-sonnet-5") ||
 		id.startsWith("claude-sonnet-4-6") ||
+		id.startsWith("claude-opus-5") ||
 		id.startsWith("claude-opus-4-8") ||
 		id.startsWith("claude-opus-4-7") ||
 		id.startsWith("claude-opus-4-6")

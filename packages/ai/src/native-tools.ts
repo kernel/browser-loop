@@ -66,7 +66,7 @@ const NATIVE_TOOL_INFO: Record<CuaNativeToolType, NativeToolInfo> = {
 		provider: "anthropic",
 		betaHeader: "computer-use-2026-07-01",
 		defaultName: "computer",
-		supportedModelFamilies: ["claude-fable-5", "claude-opus-4-8", "claude-sonnet-5"],
+		supportedModelFamilies: ["claude-fable-5", "claude-opus-4-8", "claude-opus-5", "claude-sonnet-5"],
 		skippedAfterFailureMessage: "Not executed: an earlier computer action in this turn failed.",
 	},
 	browser_20260701: {
@@ -74,7 +74,7 @@ const NATIVE_TOOL_INFO: Record<CuaNativeToolType, NativeToolInfo> = {
 		provider: "anthropic",
 		betaHeader: "browser-use-2026-07-01",
 		defaultName: "browser",
-		supportedModelFamilies: ["claude-opus-4-8", "claude-sonnet-5"],
+		supportedModelFamilies: ["claude-opus-4-8", "claude-opus-5", "claude-sonnet-5"],
 		skippedAfterFailureMessage: "Not executed: an earlier action in this turn failed.",
 	},
 };

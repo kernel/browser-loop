@@ -8,7 +8,7 @@ import {
 } from "@onkernel/cua-ai";
 
 // Switch providers by setting CUA_MODEL (and the matching API key env var):
-//   anthropic:claude-opus-4-7        ANTHROPIC_API_KEY
+//   anthropic:claude-opus-5          ANTHROPIC_API_KEY
 //   google:gemini-3-flash-preview    GOOGLE_API_KEY
 //   meta:muse-spark-1.1              META_API_KEY
 //   xai:grok-4.5                     XAI_API_KEY

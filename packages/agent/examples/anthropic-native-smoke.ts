@@ -1,6 +1,6 @@
 // Smoke-test the mode/native-tool matrix against a live Kernel browser:
 //
-//   MODEL_REF=anthropic:claude-opus-4-8 CONFIG=native-browser tsx examples/anthropic-native-smoke.ts
+//   MODEL_REF=anthropic:claude-opus-5 CONFIG=native-browser tsx examples/anthropic-native-smoke.ts
 //
 // CONFIG selects the runtime shape:
 //   computer (default)  canonical computer-plane (OS input) tools
@@ -13,7 +13,7 @@ import { requireCuaEnvApiKeyForModel, type CuaModelRef, type CuaMode, type CuaNa
 import { CuaAgent } from "../src/index";
 import { logAgentEvent, logAssistant } from "./shared/logging";
 
-const modelRef = (process.env.MODEL_REF as CuaModelRef | undefined) ?? "anthropic:claude-opus-4-8";
+const modelRef = (process.env.MODEL_REF as CuaModelRef | undefined) ?? "anthropic:claude-opus-5";
 const config = process.env.CONFIG ?? "computer";
 
 const CONFIGS: Record<string, { mode?: CuaMode; nativeTool?: CuaNativeToolSpec }> = {

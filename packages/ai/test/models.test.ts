@@ -45,6 +45,7 @@ describe("CUA model refs", () => {
 	it("lists curated model refs without a default", () => {
 		const models = listCuaModels();
 		expect(models.some((model) => model.ref === "openai:gpt-5.5")).toBe(true);
+		expect(models.some((model) => model.ref === "anthropic:claude-opus-5")).toBe(true);
 		expect(models.every((model) => model.ref.includes(":"))).toBe(true);
 		expect(models.some((model) => "default" in model)).toBe(false);
 		expect(models.some((model) => "origin" in model)).toBe(false);
@@ -54,6 +55,18 @@ describe("CUA model refs", () => {
 		const model = getCuaModel("yutori:n1.5-latest");
 		expect(model.provider).toBe("yutori");
 		expect(model.api).toBe("yutori-chat-completions");
+
+		const opus = getCuaModel("anthropic:claude-opus-5");
+		expect(cuaOverrideModels("anthropic").map((entry) => entry.id)).toContain("claude-opus-5");
+		expect(opus).toMatchObject({
+			provider: "anthropic",
+			api: "anthropic-messages",
+			contextWindow: 1_000_000,
+			maxTokens: 128_000,
+			thinkingLevelMap: { xhigh: "xhigh", max: "max" },
+			cost: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+		});
+		expect(opus.compat).toMatchObject({ forceAdaptiveThinking: true, supportsTemperature: false });
 
 		const muse = getCuaModel("meta:muse-spark-1.1");
 		expect(muse.provider).toBe("meta");
@@ -141,6 +154,8 @@ describe("CUA support annotations", () => {
 		expect(findCuaAnnotation("openai", "gpt-5.4-mini")?.match).toEqual({ kind: "family", family: "gpt-5.4-mini" });
 		expect(findCuaAnnotation("openai", "gpt-5.4-mini-2026-03-17")?.match).toEqual({ kind: "family", family: "gpt-5.4-mini" });
 		expect(findCuaAnnotation("anthropic", "claude-opus-4-7")).toBeDefined();
+		expect(findCuaAnnotation("anthropic", "claude-opus-5")?.match).toEqual({ kind: "family", family: "claude-opus-5" });
+		expect(findCuaAnnotation("anthropic", "claude-opus-5-20260724")?.match).toEqual({ kind: "family", family: "claude-opus-5" });
 		expect(findCuaAnnotation("anthropic", "claude-3-7-sonnet-20250219")).toBeDefined();
 	});
 

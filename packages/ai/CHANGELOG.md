@@ -2,10 +2,14 @@
 
 ## Unreleased
 
+- Add `anthropic:claude-opus-5` with its 1M-token context window, 128k output
+  limit, adaptive thinking levels, and current pricing. Opus 5 is also accepted
+  by both July 2026 Anthropic native tools.
 - Fail locally when `computer_20260701` or `browser_20260701` is paired with
   an Anthropic model that the live early-access API rejects. The verified
-  computer models are Claude Fable 5, Claude Opus 4.8, and Claude Sonnet 5;
-  the verified browser models are Claude Opus 4.8 and Claude Sonnet 5.
+  computer models are Claude Fable 5, Claude Opus 4.8, Claude Opus 5, and
+  Claude Sonnet 5; the verified browser models are Claude Opus 4.8, Claude
+  Opus 5, and Claude Sonnet 5.
 - Carry each native tool's stop-on-first-failure result contract through
   `CuaRuntimeSpec`, allowing cua-agent to skip unsafe remaining actions without
   a provider conditional.
