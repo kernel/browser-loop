@@ -114,6 +114,28 @@ describe("waitForBrowserExpectation", () => {
 		expect(result).toMatchObject({ status: reason === "observation_failed" ? "unverifiable" : "interrupted", reason });
 	});
 
+	it.each([
+		["target_changed", { targetId: "other" }],
+		["dialog", { dialog: true }],
+		["navigation", { crossDocument: true }],
+	] as const)("captures fresh final evidence for %s interruptions", async (reason, scenario) => {
+		let time = 0, reads = 0, dialogReads = 0;
+		const result = await waitForBrowserExpectation({
+			selectTarget: async () => "page",
+			observeTarget: async () => observation(reads++ === 0 ? [] : ["Fresh"], true, {
+				...(reads > 1 && "targetId" in scenario ? { targetId: scenario.targetId } : {}),
+				...(reads > 1 && "crossDocument" in scenario ? { generations: new Map([["page", 1]]) } : {}),
+			}),
+			dialogCount: () => "dialog" in scenario && scenario.dialog && dialogReads++ > 0 ? 1 : 0,
+			targetExists: async () => true,
+			resolveRef: missingRef,
+			now: () => time,
+			delay: async (ms) => { time += ms; },
+		}, { expect: { type: "text", text: "Fresh" }, timeoutMs: 20, pollMs: 10 });
+		expect(result).toMatchObject({ status: "interrupted", reason });
+		expect(result.final.details).toContain("text present");
+	});
+
 	it("allows a condition to satisfy after an unrelated baseline frame is removed", async () => {
 		let time = 0, reads = 0;
 		const baseline = observation(["Gone"]);
@@ -188,6 +210,22 @@ describe("waitForBrowserExpectation", () => {
 	it("allows location expectations to be satisfied by navigation", async () => {
 		let time = 0, reads = 0;
 		const result = await waitForBrowserExpectation({ selectTarget: async () => "page", observeTarget: async () => reads++ === 0 ? observation() : observation([], true, { url: "https://a.test/done", generations: new Map([["page", 1]]) }), dialogCount: () => 0, targetExists: async () => true, liveGeneration: () => 0, resolveRef: missingRef, now: () => time, delay: async (ms) => { time += ms; } }, { expect: { type: "url", contains: "/done" }, timeoutMs: 20, pollMs: 10 });
+		expect(result).toMatchObject({ status: "satisfied", evidence: "newly_verified" });
+	});
+
+	it("allows mixed any waits to satisfy via location after navigation", async () => {
+		let time = 0, reads = 0;
+		const result = await waitForBrowserExpectation({
+			selectTarget: async () => "page",
+			observeTarget: async () => reads++ === 0
+				? observation()
+				: observation([], true, { url: "https://a.test/done", generations: new Map([["page", 1]]) }),
+			dialogCount: () => 0,
+			targetExists: async () => true,
+			resolveRef: missingRef,
+			now: () => time,
+			delay: async (ms) => { time += ms; },
+		}, { expect: { any: [{ type: "url", contains: "/done" }, { type: "text", text: "Ready" }] }, timeoutMs: 20, pollMs: 10 });
 		expect(result).toMatchObject({ status: "satisfied", evidence: "newly_verified" });
 	});
 
