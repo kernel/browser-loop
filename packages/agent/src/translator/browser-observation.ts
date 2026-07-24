@@ -58,6 +58,10 @@ export interface ObservedNode {
 /** Stable structured browser state collected before presentation filtering. */
 export interface BrowserObservation {
 	readonly targetId: string;
+	/** Same-document navigation epoch for waits; cross-document changes use generations. */
+	readonly navigationEpoch: number;
+	readonly url: string;
+	readonly title: string;
 	readonly tree: FrameStitch;
 	readonly stitches: ReadonlyMap<number, FrameStitch>;
 	readonly incompleteFrames: readonly IncompleteFrame[];

@@ -16,6 +16,7 @@ import {
 } from "@onkernel/cua-ai";
 import { InternalComputerTranslator, type KernelBrowser } from "./translator/translator";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
+import type { BrowserWaitForResult } from "./translator/types";
 
 export interface ComputerToolOptions {
 	browser: KernelBrowser;
@@ -32,11 +33,14 @@ type ToolContent = Array<TextContent | ImageContent>;
 
 export interface BatchDetails {
 	statusText: string;
+	/** Remaining canonical actions skipped after an unsatisfied semantic wait. */
+	skippedActions?: number;
 	readResults: Array<
 		| { type: "url"; url: string }
 		| { type: "screenshot"; bytes: number }
 		| { type: "cursor_position"; x: number; y: number }
 		| { type: "browser_text"; label: string; bytes: number }
+		| { type: "browser_wait_for"; result: BrowserWaitForResult }
 	>;
 }
 
@@ -158,8 +162,10 @@ async function executeBatchTool(
 ): Promise<AgentToolResult<BatchDetails>> {
 	const content: ToolContent = [];
 	const readResults: BatchDetails["readResults"] = [];
+	let skippedActions = 0;
 	try {
 		const result = await translator.executeBatch(params.actions);
+		skippedActions = result.skippedActions ?? 0;
 		for (const read of result.readResults) {
 			if (read.type === "url") {
 				readResults.push({ type: "url", url: read.url });
@@ -170,6 +176,9 @@ async function executeBatchTool(
 			} else if (read.type === "browser_text") {
 				readResults.push({ type: "browser_text", label: read.label, bytes: read.text.length });
 				content.push({ type: "text", text: read.text });
+			} else if (read.type === "browser_wait_for") {
+				readResults.push(read);
+				content.push({ type: "text", text: formatBrowserWaitResult(read.result) });
 			} else {
 				readResults.push({ type: "screenshot", bytes: read.data.length });
 				content.push({ type: "image", data: read.data.toString("base64"), mimeType: read.mimeType });
@@ -185,7 +194,26 @@ async function executeBatchTool(
 	} catch (err) {
 		throw new Error(`Actions failed: ${errorMessage(err)}`, { cause: err });
 	}
-	return { content, details: { statusText: "Actions executed successfully.", readResults } };
+	const waits = readResults.flatMap((read) => read.type === "browser_wait_for" ? [read.result] : []);
+	const failedWait = ["interrupted", "timed_out", "unverifiable"].find((status) => waits.some((wait) => wait.status === status));
+	let statusText = waits.length === 0
+		? "Actions executed successfully."
+		: failedWait
+			? `Browser condition ${failedWait}.`
+			: "Browser condition satisfied.";
+	if (skippedActions) {
+		const skipped = `${skippedActions} subsequent action${skippedActions === 1 ? " was" : "s were"} skipped.`;
+		statusText = `${statusText} ${skipped}`;
+		content.push({ type: "text", text: skipped });
+	}
+	return {
+		content,
+		details: {
+			statusText,
+			readResults,
+			...(skippedActions ? { skippedActions } : {}),
+		},
+	};
 }
 
 async function executeNavigationTool(
@@ -255,6 +283,11 @@ async function executePlaywrightTool(translator: InternalComputerTranslator, par
 	} catch (err) {
 		throw new Error(`playwright_execute failed: ${errorMessage(err)}`, { cause: err });
 	}
+}
+
+function formatBrowserWaitResult(result: BrowserWaitForResult): string {
+	const reason = result.reason ? ` (${result.reason})` : "";
+	return [`wait_for: ${result.status}/${result.evidence}${reason} after ${result.elapsed_ms}ms`, ...result.details].join("\n");
 }
 
 function formatPlaywrightResult(result: unknown): string {

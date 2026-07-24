@@ -10,7 +10,9 @@ import {
 	type CuaActionBrowserScroll,
 	type CuaActionBrowserScrollTo,
 	type CuaActionBrowserSnapshot,
+	type CuaActionBrowserWaitFor,
 	type CuaBrowserAction,
+	type CuaBrowserExpectation,
 } from "@onkernel/cua-ai";
 import { CdpConnection, type CdpEventMessage } from "./cdp";
 import {
@@ -46,7 +48,8 @@ import {
 	type GenerationCapture,
 	type RefEntry,
 } from "./browser-ref-lifecycle";
-import type { BatchReadResult } from "./types";
+import { waitForBrowserExpectation, type BrowserExpectationEvaluation } from "./browser-wait";
+import type { BatchReadResult, BrowserWaitForResult } from "./types";
 
 const SNAPSHOT_CHAR_LIMIT = 50_000;
 const DEFAULT_SNAPSHOT_DEPTH = 15;
@@ -120,6 +123,8 @@ export class BrowserExecutor {
 	private readonly frameTargets = new Set<string>();
 	private readonly documents: BrowserDocumentReconciler;
 	private readonly lastSnapshots = new Map<string, { key: string; shape: string }>();
+	private readonly mainFramesByTarget = new Map<string, string>();
+	private readonly navigationEpochs = new Map<string, number>();
 	private readonly selfNavigations = new Set<string>();
 	private readonly dialogNotes: string[] = [];
 	private refCounter = 0;
@@ -156,6 +161,7 @@ export class BrowserExecutor {
 					}
 					return;
 				}
+				if (frame.id) this.mainFramesByTarget.set(sessionTargetId, frame.id);
 				if (!this.selfNavigations.delete(sessionTargetId)) this.lifecycle.invalidateTarget(sessionTargetId);
 				// Record the committed document so it reflects the current generation,
 				// whether the navigation was ours or page-initiated.
@@ -181,7 +187,11 @@ export class BrowserExecutor {
 				if (!event.sessionId) return;
 				const targetId = this.targetsBySession.get(event.sessionId);
 				const { frameId } = event.params as { frameId?: string };
-				if (targetId && frameId === targetId) this.selfNavigations.delete(targetId);
+				const mainFrameId = targetId ? this.mainFramesByTarget.get(targetId) : undefined;
+				if (targetId && frameId && frameId === (mainFrameId ?? targetId)) {
+					this.selfNavigations.delete(targetId);
+					this.navigationEpochs.set(targetId, (this.navigationEpochs.get(targetId) ?? 0) + 1);
+				}
 				return;
 			}
 			case "Target.attachedToTarget": {
@@ -272,6 +282,8 @@ export class BrowserExecutor {
 		switch (action.type) {
 			case "browser_snapshot":
 				return [{ type: "browser_text", label: "snapshot", text: await this.snapshot(action) }];
+			case "browser_wait_for":
+				return [{ type: "browser_wait_for", result: await this.waitFor(action) }];
 			case "browser_text":
 				return [{ type: "browser_text", label: "text", text: await this.pageText(tabOf(action)) }];
 			case "browser_find":
@@ -338,6 +350,70 @@ export class BrowserExecutor {
 		);
 	}
 
+	private observe(tabId?: string, includeCursor = false): Promise<BrowserObservation> {
+		return this.withObservation(tabId, includeCursor, (observation) => observation);
+	}
+
+	private waitFor(action: CuaActionBrowserWaitFor): Promise<BrowserWaitForResult> {
+		return waitForBrowserExpectation(
+			{
+				selectTarget: (tabId) => this.resolveTarget(tabId),
+				observeTarget: (targetId) => this.observe(targetId),
+				dialogCount: () => this.dialogNotes.length,
+				targetExists: async (targetId) => (await this.cdp.pageTargets()).some((target) => target.targetId === targetId),
+				resolveRef: (expectation, observation) => this.evaluateRefExpectation(expectation, observation),
+			},
+			{ expect: action.expect, timeoutMs: action.timeout_ms, pollMs: action.poll_ms, tabId: action.tab_id },
+		);
+	}
+
+	private evaluateRefExpectation(
+		expectation: Extract<CuaBrowserExpectation, { type: "ref" }>,
+		observation: BrowserObservation,
+	): BrowserExpectationEvaluation {
+		const entry = this.refs.get(expectation.ref);
+		if (!entry || entry.targetId !== observation.targetId || !this.lifecycle.isRefCurrent(entry)) {
+			return { truth: undefined, details: [`ref ${expectation.ref} is stale`], reason: "stale_ref" };
+		}
+		const nodes = [...observedNodes(observation)]
+			.filter(({ ctx }) => ctx.frameKey === entry.frameId)
+			.map(({ node }) => node);
+		let node = nodes.find((candidate) => candidate.backendDOMNodeId === entry.backendNodeId);
+		if (!node) {
+			try {
+				node = this.healEntry(expectation.ref, entry, nodes);
+			} catch {
+				const incomplete = observation.incompleteFrames.length > 0;
+				return {
+					truth: undefined,
+					details: [`ref ${expectation.ref} is not observable`],
+					reason: incomplete ? "incomplete_observation" : "stale_ref",
+				};
+			}
+		}
+		const checks: boolean[] = [];
+		let missing = false;
+		if (expectation.value !== undefined) {
+			if (node.value?.value === undefined) missing = true;
+			else checks.push(String(node.value.value) === expectation.value);
+		}
+		for (const state of ["checked", "selected", "expanded"] as const) {
+			if (expectation[state] === undefined) continue;
+			const property = node.properties?.find((candidate) => candidate.name === state)?.value?.value;
+			if (property === undefined) missing = true;
+			else checks.push(normalizeState(property) === expectation[state]);
+		}
+		if (missing) {
+			return {
+				truth: undefined,
+				details: [`ref ${expectation.ref} lacks requested value/state metadata`],
+				reason: "incomplete_observation",
+			};
+		}
+		const truth = checks.every(Boolean);
+		return { truth, details: [`ref ${expectation.ref} value/state ${truth ? "matched" : "did not match"}`] };
+	}
+
 	private async withObservation<T>(
 		tabId: string | undefined,
 		includeCursor: boolean,
@@ -361,6 +437,7 @@ export class BrowserExecutor {
 		const targetId = await this.resolveTarget(tabId);
 		const pageSession = await this.attach(targetId);
 		const pageTree = await this.documents.capturePage(targetId, pageSession);
+		if (pageTree?.frame?.id) this.mainFramesByTarget.set(targetId, pageTree.frame.id);
 		const before = (await this.cdp.pageTargets()).find((target) => target.targetId === targetId);
 		if (!before) throw new ObservationChangedError("Browser target disappeared during observation");
 
@@ -386,6 +463,9 @@ export class BrowserExecutor {
 			return {
 				observation: {
 					targetId,
+					navigationEpoch: this.navigationEpochs.get(targetId) ?? 0,
+					url: before.url,
+					title: before.title,
 					tree,
 					stitches,
 					incompleteFrames,
@@ -980,6 +1060,8 @@ export class BrowserExecutor {
 
 	private dropTarget(targetId: string): void {
 		this.lifecycle.dropTarget(targetId);
+		this.mainFramesByTarget.delete(targetId);
+		this.navigationEpochs.delete(targetId);
 		this.selfNavigations.delete(targetId);
 		this.lastSnapshots.delete(targetId);
 		for (const [frameId, owner] of this.frameOwners) {
@@ -1044,6 +1126,11 @@ export class BrowserExecutor {
 
 function tabOf(action: { tab_id?: string }): string | undefined {
 	return action.tab_id;
+}
+
+function normalizeState(value: unknown): boolean | "mixed" {
+	if (value === "mixed") return "mixed";
+	return value === true || value === "true";
 }
 
 function shortTabId(targetId: string): string {

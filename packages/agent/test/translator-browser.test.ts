@@ -108,6 +108,7 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 	let nodes = initialNodes as Array<{ backendDOMNodeId?: number }>;
 	let cursorBackendIds: number[] = [];
 	let loaderId: string | undefined = "L0";
+	let mainFrameId = "TARGET-1";
 	const sessionTrees = new Map<string, Array<{ backendDOMNodeId?: number }>>();
 	const frameTrees = new Map<string, Array<{ backendDOMNodeId?: number }>>();
 	const iframeFrameIds = new Map<number, string>();
@@ -116,6 +117,7 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 	const oopifFrameKeys = new Set<string>();
 	const oopifSessionFrames = new Map<string, string>();
 	const autoAttachFrames: Array<{ targetId: string; sessionId: string; delayMs?: number }> = [];
+	const targetSessions = new Map<string, string>();
 	// A same-process child frame's document loaderId defaults to a stable value so
 	// it verifies unchanged across processes; setFrameLoaderId overrides it.
 	const loaderFor = (frameKey: string) => frameLoaderIds.get(frameKey) ?? (frameKey === "TARGET-1" ? loaderId : "L0");
@@ -196,7 +198,7 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 					});
 					return {
 						frameTree: {
-							frame: { id: "TARGET-1", ...(loaderId !== undefined ? { loaderId } : {}) },
+							frame: { id: mainFrameId, ...(loaderId !== undefined ? { loaderId } : {}) },
 							...(childFrames.length ? { childFrames } : {}),
 						},
 					};
@@ -225,7 +227,7 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 		},
 		pageTargets: async () =>
 			targetProvider?.(++targetRead) ?? [{ targetId: "TARGET-1", type: "page", title: "Page", url: "https://a.test/" }],
-		attachToTarget: async () => "session-1",
+		attachToTarget: async (targetId: string) => targetSessions.get(targetId) ?? "session-1",
 		createTarget: async () => "TARGET-2",
 		close: () => {},
 	};
@@ -250,6 +252,9 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 	const setLoaderId = (id: string | undefined) => {
 		loaderId = id;
 	};
+	const setMainFrameId = (id: string) => {
+		mainFrameId = id;
+	};
 	const setFrameLoaderId = (frameKey: string, id: string) => {
 		frameLoaderIds.set(frameKey, id);
 	};
@@ -272,6 +277,9 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 	const setTargetProvider = (provider: typeof targetProvider) => {
 		targetProvider = provider;
 	};
+	const setTargetSession = (targetId: string, sessionId: string) => {
+		targetSessions.set(targetId, sessionId);
+	};
 	return {
 		sent,
 		emit,
@@ -282,12 +290,14 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 		setIframeFrame,
 		setBoxModel,
 		setLoaderId,
+		setMainFrameId,
 		setFrameLoaderId,
 		addAutoAttachFrame,
 		failOn,
 		setFailureProvider,
 		setAxReadHook,
 		setTargetProvider,
+		setTargetSession,
 		cdp: fake as unknown as CdpConnection,
 	};
 }
@@ -375,6 +385,22 @@ describe("BrowserExecutor ref lifecycle", () => {
 		emit({ method: "Page.frameNavigated", params: { frame: { id: "F1" } }, sessionId: "session-1" });
 		await expect(executor.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction)).rejects.toThrow(/stale/);
 		expect(refsOf(executor).size).toBe(0);
+	});
+
+	it("records same-document navigation when the main frame id differs from the target id", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		fake.setMainFrameId("FRAME-1");
+		const executor = new BrowserExecutor(fake.cdp);
+		await snapshotText(executor);
+
+		fake.emit({
+			method: "Page.navigatedWithinDocument",
+			params: { frameId: "FRAME-1", url: "https://a.test/#section" },
+			sessionId: "session-1",
+		});
+
+		const epochs = (executor as unknown as { navigationEpochs: Map<string, number> }).navigationEpochs;
+		expect(epochs.get("TARGET-1")).toBe(1);
 	});
 
 	it("does not let a same-document navigation suppress the next real navigation's invalidation", async () => {
@@ -746,6 +772,79 @@ describe("BrowserExecutor snapshot diffing", () => {
 	});
 });
 
+describe("BrowserExecutor semantic waits", () => {
+	it.each([
+		["selected target", "TARGET-1", "session-1"],
+		["unrelated target", "TARGET-2", "session-2"],
+	] as const)("continues content waits across same-document navigation on the %s", async (_label, frameId, sessionId) => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		fake.setTargetSession("TARGET-2", "session-2");
+		fake.setTargetProvider(() => [
+			{ targetId: "TARGET-1", type: "page", title: "One", url: "https://a.test/" },
+			{ targetId: "TARGET-2", type: "page", title: "Two", url: "https://b.test/" },
+		]);
+		const executor = new BrowserExecutor(fake.cdp);
+		await executor.execute({ type: "browser_text", tab_id: "TARGET-2" } as CuaBrowserAction);
+		fake.setAxReadHook((read) => {
+			if (read === 2) fake.emit({ method: "Page.navigatedWithinDocument", params: { frameId }, sessionId });
+		});
+		const [read] = await executor.execute({
+			type: "browser_wait_for",
+			tab_id: "TARGET-1",
+			expect: { type: "text", text: "Ready" },
+			timeout_ms: 20,
+			poll_ms: 1,
+		} as CuaBrowserAction);
+		expect(read).toMatchObject({ type: "browser_wait_for", result: { status: "timed_out", evidence: "failed" } });
+	});
+
+	it.each([
+		["missing value", {}, { value: "" }, "unverifiable"],
+		["empty value", { value: "" }, { value: "" }, "satisfied"],
+		["missing false state", {}, { checked: false }, "unverifiable"],
+		["actual false state", { properties: [{ name: "checked", value: false }] }, { checked: false }, "satisfied"],
+	] as const)("treats %s distinctly", async (_label, metadata, expected, status) => {
+		const tree = [
+			ax({ nodeId: "1", role: "RootWebArea", childIds: ["2"] }),
+			ax({ nodeId: "2", role: "checkbox", name: "Option", backendDOMNodeId: 42, parentId: "1", ...metadata }),
+		];
+		const executor = new BrowserExecutor(createFakeCdp(tree).cdp);
+		await snapshotText(executor);
+		const [read] = await executor.execute({
+			type: "browser_wait_for",
+			expect: { type: "ref", ref: "e1", ...expected },
+			timeout_ms: 2,
+			poll_ms: 1,
+		} as CuaBrowserAction);
+		expect(read).toMatchObject({ type: "browser_wait_for", result: { status } });
+	});
+
+	it("observes a condition that becomes true during polling", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		fake.setAxReadHook((read) => {
+			if (read === 2) {
+				fake.emit({
+					method: "Page.navigatedWithinDocument",
+					params: { frameId: "TARGET-1", url: "https://a.test/#ready" },
+					sessionId: "session-1",
+				});
+				fake.setNodes([
+					ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),
+					ax({ nodeId: "2", role: "status", name: "Ready", backendDOMNodeId: 43, parentId: "1" }),
+				]);
+			}
+		});
+		const executor = new BrowserExecutor(fake.cdp);
+		const [read] = await executor.execute({
+			type: "browser_wait_for",
+			expect: { type: "text", text: "Ready" },
+			timeout_ms: 100,
+			poll_ms: 10,
+		} as CuaBrowserAction);
+		expect(read).toMatchObject({ type: "browser_wait_for", result: { status: "satisfied", evidence: "newly_verified" } });
+	});
+});
+
 describe("BrowserExecutor iframe stitching", () => {
 	it("stitches a same-process iframe subtree indented under its iframe node", async () => {
 		const tree = [
@@ -911,6 +1010,17 @@ describe("BrowserExecutor iframe stitching", () => {
 		const { fake, executor } = await importOopifRefWithoutOwner();
 		fake.emit(event);
 		expect([...refsOf(executor).keys()].sort()).toEqual(["e1", "e2"]);
+	});
+
+	it("waits on semantic content inside stitched iframes", async () => {
+		const { cdp } = setupOopif();
+		const executor = new BrowserExecutor(cdp);
+		const [read] = await executor.execute({
+			type: "browser_wait_for",
+			expect: { type: "text", text: "Pay" },
+			timeout_ms: 20,
+		} as CuaBrowserAction);
+		expect(read).toMatchObject({ type: "browser_wait_for", result: { status: "satisfied", evidence: "preexisting" } });
 	});
 
 	it("finds elements inside stitched iframes", async () => {
