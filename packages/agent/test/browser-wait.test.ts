@@ -297,6 +297,26 @@ describe("waitForBrowserExpectation", () => {
 		expect(result.status).toBe("timed_out");
 	});
 
+	it("retains baseline evidence when observation completes at the deadline", async () => {
+		let time = 0;
+		const result = await waitForBrowserExpectation({
+			selectTarget: async () => "page",
+			observeTarget: async () => {
+				time = 10;
+				return observation(["Ready"]);
+			},
+			dialogCount: () => 0,
+			targetExists: async () => true,
+			resolveRef: missingRef,
+			now: () => time,
+		}, { expect: { type: "text", text: "Ready" }, timeoutMs: 10 });
+		expect(result).toMatchObject({
+			status: "timed_out",
+			initial: { truth: true, details: ["text present"] },
+			final: { truth: true, details: ["text present"] },
+		});
+	});
+
 	it("preserves a stale-ref interruption discovered at the deadline", async () => {
 		let time = 0;
 		const result = await waitForBrowserExpectation({

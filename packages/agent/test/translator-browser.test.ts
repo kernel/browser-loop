@@ -108,6 +108,7 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 	let nodes = initialNodes as Array<{ backendDOMNodeId?: number }>;
 	let cursorBackendIds: number[] = [];
 	let loaderId: string | undefined = "L0";
+	let mainFrameId = "TARGET-1";
 	const sessionTrees = new Map<string, Array<{ backendDOMNodeId?: number }>>();
 	const frameTrees = new Map<string, Array<{ backendDOMNodeId?: number }>>();
 	const iframeFrameIds = new Map<number, string>();
@@ -197,7 +198,7 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 					});
 					return {
 						frameTree: {
-							frame: { id: "TARGET-1", ...(loaderId !== undefined ? { loaderId } : {}) },
+							frame: { id: mainFrameId, ...(loaderId !== undefined ? { loaderId } : {}) },
 							...(childFrames.length ? { childFrames } : {}),
 						},
 					};
@@ -251,6 +252,9 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 	const setLoaderId = (id: string | undefined) => {
 		loaderId = id;
 	};
+	const setMainFrameId = (id: string) => {
+		mainFrameId = id;
+	};
 	const setFrameLoaderId = (frameKey: string, id: string) => {
 		frameLoaderIds.set(frameKey, id);
 	};
@@ -286,6 +290,7 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 		setIframeFrame,
 		setBoxModel,
 		setLoaderId,
+		setMainFrameId,
 		setFrameLoaderId,
 		addAutoAttachFrame,
 		failOn,
@@ -380,6 +385,22 @@ describe("BrowserExecutor ref lifecycle", () => {
 		emit({ method: "Page.frameNavigated", params: { frame: { id: "F1" } }, sessionId: "session-1" });
 		await expect(executor.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction)).rejects.toThrow(/stale/);
 		expect(refsOf(executor).size).toBe(0);
+	});
+
+	it("records same-document navigation when the main frame id differs from the target id", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		fake.setMainFrameId("FRAME-1");
+		const executor = new BrowserExecutor(fake.cdp);
+		await snapshotText(executor);
+
+		fake.emit({
+			method: "Page.navigatedWithinDocument",
+			params: { frameId: "FRAME-1", url: "https://a.test/#section" },
+			sessionId: "session-1",
+		});
+
+		const epochs = (executor as unknown as { navigationEpochs: Map<string, number> }).navigationEpochs;
+		expect(epochs.get("TARGET-1")).toBe(1);
 	});
 
 	it("does not let a same-document navigation suppress the next real navigation's invalidation", async () => {
