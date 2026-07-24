@@ -753,9 +753,9 @@ describe("BrowserExecutor snapshot diffing", () => {
 
 describe("BrowserExecutor semantic waits", () => {
 	it.each([
-		["selected target", "TARGET-1", "session-1", "interrupted", "navigation"],
-		["unrelated target", "TARGET-2", "session-2", "timed_out", undefined],
-	] as const)("handles same-document navigation on the %s", async (_label, frameId, sessionId, status, reason) => {
+		["selected target", "TARGET-1", "session-1"],
+		["unrelated target", "TARGET-2", "session-2"],
+	] as const)("continues content waits across same-document navigation on the %s", async (_label, frameId, sessionId) => {
 		const fake = createFakeCdp(BUTTON_TREE);
 		fake.setTargetSession("TARGET-2", "session-2");
 		fake.setTargetProvider(() => [
@@ -774,7 +774,7 @@ describe("BrowserExecutor semantic waits", () => {
 			timeout_ms: 20,
 			poll_ms: 1,
 		} as CuaBrowserAction);
-		expect(read).toMatchObject({ type: "browser_wait_for", result: { status, ...(reason ? { reason } : {}) } });
+		expect(read).toMatchObject({ type: "browser_wait_for", result: { status: "timed_out", evidence: "failed" } });
 	});
 
 	it.each([
@@ -802,6 +802,11 @@ describe("BrowserExecutor semantic waits", () => {
 		const fake = createFakeCdp(BUTTON_TREE);
 		fake.setAxReadHook((read) => {
 			if (read === 2) {
+				fake.emit({
+					method: "Page.navigatedWithinDocument",
+					params: { frameId: "TARGET-1", url: "https://a.test/#ready" },
+					sessionId: "session-1",
+				});
 				fake.setNodes([
 					ax({ nodeId: "1", role: "RootWebArea", name: "Page", childIds: ["2"] }),
 					ax({ nodeId: "2", role: "status", name: "Ready", backendDOMNodeId: 43, parentId: "1" }),

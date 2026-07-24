@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type Kernel from "@onkernel/sdk";
+import type { CuaBrowserAction } from "@onkernel/cua-ai";
+import type { BrowserExecutor } from "../src/translator/browser";
 import { InternalComputerTranslator, type KernelBrowser } from "../src/translator/translator";
 
 const browser = { session_id: "browser_123" } as KernelBrowser;
@@ -89,6 +91,45 @@ describe("InternalComputerTranslator", () => {
 				{ type: "press_key", press_key: { keys: ["Shift_L"], duration: 1500 } },
 			],
 		]);
+	});
+
+	it("stops a batch when a semantic browser wait does not satisfy", async () => {
+		const { client } = createClient();
+		const calls: CuaBrowserAction[] = [];
+		const browserExecutor = {
+			execute: async (action: CuaBrowserAction) => {
+				calls.push(action);
+				if (action.type !== "browser_wait_for") return [];
+				return [{
+					type: "browser_wait_for" as const,
+					result: {
+						status: "timed_out" as const,
+						evidence: "failed" as const,
+						initial: { truth: false, details: [] },
+						final: { truth: false, details: [] },
+						elapsed_ms: 10,
+						details: [],
+					},
+				}];
+			},
+			close: () => {},
+		} as unknown as BrowserExecutor;
+		const translator = new InternalComputerTranslator({
+			browser: { ...browser, cdp_ws_url: "ws://test" },
+			client,
+			createBrowserExecutor: () => browserExecutor,
+		});
+
+		const result = await translator.executeBatch([
+			{ type: "browser_wait_for", expect: { type: "text", text: "Ready" } },
+			{ type: "browser_click", x: 10, y: 20 },
+		]);
+
+		expect(calls.map((action) => action.type)).toEqual(["browser_wait_for"]);
+		expect(result).toMatchObject({
+			skippedActions: 1,
+			readResults: [{ type: "browser_wait_for", result: { status: "timed_out" } }],
+		});
 	});
 
 	it("denormalizes provider coordinates to the Kernel browser viewport", async () => {

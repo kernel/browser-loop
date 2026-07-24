@@ -91,7 +91,7 @@ describe("mode tool schemas", () => {
 
 	it("registers semantic waits in hybrid mode with bounded polling", () => {
 		const wait = computerTools({ mode: "hybrid" }).find((tool) => tool.name === "browser_wait_for")!;
-		expect(wait.parameters.properties.timeout_ms).toMatchObject({ minimum: 0, maximum: 30_000 });
+		expect(wait.parameters.properties.timeout_ms).toMatchObject({ minimum: 1, maximum: 30_000 });
 		expect(wait.parameters.properties.poll_ms).toMatchObject({ minimum: 10, maximum: 1_000 });
 	});
 
@@ -105,6 +105,16 @@ describe("mode tool schemas", () => {
 	])("accepts semantic expectation %#", (condition) => {
 		const tool = computerTools({ mode: "hybrid" }).find((candidate) => candidate.name === "browser_wait_for")!;
 		expect(() => validateToolArguments(tool, { type: "toolCall", id: "1", name: tool.name, arguments: { expect: condition } })).not.toThrow();
+	});
+
+	it("rejects a zero semantic wait timeout", () => {
+		const tool = computerTools({ mode: "hybrid" }).find((candidate) => candidate.name === "browser_wait_for")!;
+		expect(() => validateToolArguments(tool, {
+			type: "toolCall",
+			id: "1",
+			name: tool.name,
+			arguments: { expect: { type: "text", text: "Ready" }, timeout_ms: 0 },
+		})).toThrow();
 	});
 
 	it.each([

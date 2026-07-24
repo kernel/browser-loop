@@ -131,10 +131,18 @@ export class InternalComputerTranslator {
 			await this.runKernelBatch(pending.splice(0));
 		};
 
-		for (const action of actions) {
+		for (let index = 0; index < actions.length; index += 1) {
+			const action = actions[index]!;
 			if (isCuaBrowserAction(action)) {
 				await flush();
-				result.readResults.push(...(await this.browser().execute(action)));
+				const reads = await this.browser().execute(action);
+				result.readResults.push(...reads);
+				const failedWait = reads.some((read) => read.type === "browser_wait_for" && read.result.status !== "satisfied");
+				if (failedWait) {
+					const skippedActions = actions.length - index - 1;
+					if (skippedActions > 0) result.skippedActions = skippedActions;
+					break;
+				}
 				continue;
 			}
 			switch (action.type) {

@@ -1,7 +1,9 @@
-import { CUA_PROVIDERS, listCuaModels, resolveCuaRuntimeSpec } from "@onkernel/cua-ai";
+import { CUA_PROVIDERS, listCuaModels, resolveCuaRuntimeSpec, type CuaToolExecutorSpec } from "@onkernel/cua-ai";
+import { Type } from "@earendil-works/pi-ai";
 import type Kernel from "@onkernel/sdk";
 import { describe, expect, it } from "vitest";
-import { createCuaComputerTools, type KernelBrowser } from "../src/index";
+import type { InternalComputerTranslator, KernelBrowser } from "../src/index";
+import { buildCuaComputerTools, createCuaComputerTools } from "../src/tools";
 
 const browser = { session_id: "browser_123" } as KernelBrowser;
 const client = {} as Kernel;
@@ -84,6 +86,43 @@ describe("Cua tool executor coverage", () => {
 			[{ type: "click_mouse", click_mouse: { x: 10, y: 20, button: "left" } }],
 		]);
 		expect(result.content.at(-1)).toMatchObject({ type: "image", mimeType: "image/png" });
+	});
+
+	it("reports actions skipped after an unsatisfied semantic wait", async () => {
+		const executor: CuaToolExecutorSpec = {
+			definition: {
+				name: "test_batch",
+				description: "test",
+				parameters: Type.Object({}, { additionalProperties: false }),
+			},
+			toActions: () => [],
+		};
+		const translator = {
+			executeBatch: async () => ({
+				skippedActions: 2,
+				readResults: [{
+					type: "browser_wait_for" as const,
+					result: {
+						status: "timed_out" as const,
+						evidence: "failed" as const,
+						initial: { truth: false, details: [] },
+						final: { truth: false, details: [] },
+						elapsed_ms: 10,
+						details: [],
+					},
+				}],
+			}),
+		} as unknown as InternalComputerTranslator;
+		const tool = buildCuaComputerTools({ toolExecutors: [executor], mode: "browser" }, translator)
+			.find((candidate) => candidate.name === "test_batch")!;
+
+		const result = await tool.execute("call_1", {});
+
+		expect(result.content).toContainEqual({ type: "text", text: "2 subsequent actions were skipped." });
+		expect(result.details).toMatchObject({
+			statusText: "Browser condition timed_out. 2 subsequent actions were skipped.",
+			skippedActions: 2,
+		});
 	});
 
 	it("runs the playwright_execute tool and returns result + stdout as tool content", async () => {

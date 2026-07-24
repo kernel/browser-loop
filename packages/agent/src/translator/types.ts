@@ -34,4 +34,6 @@ export type BatchReadResult =
 
 export interface BatchExecutionResult {
 	readResults: BatchReadResult[];
+	/** Remaining canonical actions skipped after an unsatisfied semantic wait. */
+	skippedActions?: number;
 }

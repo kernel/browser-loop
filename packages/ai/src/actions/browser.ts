@@ -214,12 +214,81 @@ const TabId = () => Type.Optional(Type.String({ description: "Tab to act on. Def
 const RefProperty = () => Type.String({ description: "Element reference from browser_snapshot or browser_find, e.g. \"e12\"." });
 
 export function createCuaBrowserActionSchemaByType(options: CuaBrowserSchemaOptions): Record<CuaBrowserActionType, TSchema> {
-	const roleName = (required: "role" | "name") => Type.Object({ type: Type.Literal("role_name"), role: required === "role" ? Type.String() : Type.Optional(Type.String()), name: required === "name" ? Type.String() : Type.Optional(Type.String()), exists: Type.Optional(Type.Boolean()) }, { additionalProperties: false });
-	const refState = (required: "value" | "checked" | "selected" | "expanded") => Type.Object({ type: Type.Literal("ref"), ref: RefProperty(), value: required === "value" ? Type.String() : Type.Optional(Type.String()), checked: required === "checked" ? Type.Union([Type.Boolean(), Type.Literal("mixed")]) : Type.Optional(Type.Union([Type.Boolean(), Type.Literal("mixed")])), selected: required === "selected" ? Type.Boolean() : Type.Optional(Type.Boolean()), expanded: required === "expanded" ? Type.Boolean() : Type.Optional(Type.Boolean()) }, { additionalProperties: false });
-	const location = (required: "equals" | "contains" | "changed") => Type.Object({ type: Type.Union([Type.Literal("url"), Type.Literal("title")]), equals: required === "equals" ? Type.String() : Type.Optional(Type.String()), contains: required === "contains" ? Type.String() : Type.Optional(Type.String()), changed: required === "changed" ? Type.Boolean() : Type.Optional(Type.Boolean()) }, { additionalProperties: false });
-	const leaves = [Type.Object({ type: Type.Literal("text"), text: Type.String(), exists: Type.Optional(Type.Boolean()) }, { additionalProperties: false }), roleName("role"), roleName("name"), refState("value"), refState("checked"), refState("selected"), refState("expanded"), location("equals"), location("contains"), location("changed")];
+	const exists = () => Type.Optional(Type.Boolean({ description: "Whether the matching content must exist (default true)." }));
+	const roleName = (required: "role" | "name") => Type.Object(
+		{
+			type: Type.Literal("role_name"),
+			role: required === "role"
+				? Type.String({ description: "Exact accessibility role, e.g. button or textbox." })
+				: Type.Optional(Type.String({ description: "Exact accessibility role, e.g. button or textbox." })),
+			name: required === "name"
+				? Type.String({ description: "Exact, case-sensitive accessible name." })
+				: Type.Optional(Type.String({ description: "Exact, case-sensitive accessible name." })),
+			exists: exists(),
+		},
+		{ additionalProperties: false },
+	);
+	const checked = () => Type.Union([Type.Boolean(), Type.Literal("mixed")], { description: "Required checkbox/radio state." });
+	const refState = (required: "value" | "checked" | "selected" | "expanded") => Type.Object(
+		{
+			type: Type.Literal("ref"),
+			ref: RefProperty(),
+			value: required === "value"
+				? Type.String({ description: "Exact element value." })
+				: Type.Optional(Type.String({ description: "Exact element value." })),
+			checked: required === "checked" ? checked() : Type.Optional(checked()),
+			selected: required === "selected"
+				? Type.Boolean({ description: "Required selected state." })
+				: Type.Optional(Type.Boolean({ description: "Required selected state." })),
+			expanded: required === "expanded"
+				? Type.Boolean({ description: "Required expanded state." })
+				: Type.Optional(Type.Boolean({ description: "Required expanded state." })),
+		},
+		{ additionalProperties: false },
+	);
+	const location = (required: "equals" | "contains" | "changed") => Type.Object(
+		{
+			type: Type.Union([Type.Literal("url"), Type.Literal("title")]),
+			equals: required === "equals"
+				? Type.String({ description: "Exact URL or title." })
+				: Type.Optional(Type.String({ description: "Exact URL or title." })),
+			contains: required === "contains"
+				? Type.String({ description: "Case-sensitive URL or title substring." })
+				: Type.Optional(Type.String({ description: "Case-sensitive URL or title substring." })),
+			changed: required === "changed"
+				? Type.Boolean({ description: "Whether the URL or title must differ from the value observed when this wait starts." })
+				: Type.Optional(Type.Boolean({ description: "Whether the URL or title must differ from the value observed when this wait starts." })),
+		},
+		{ additionalProperties: false },
+	);
+	const leaves = [
+		Type.Object(
+			{
+				type: Type.Literal("text"),
+				text: Type.String({ description: "Case-insensitive, whitespace-normalized accessible-text substring." }),
+				exists: exists(),
+			},
+			{ additionalProperties: false },
+		),
+		roleName("role"),
+		roleName("name"),
+		refState("value"),
+		refState("checked"),
+		refState("selected"),
+		refState("expanded"),
+		location("equals"),
+		location("contains"),
+		location("changed"),
+	];
 	const leaf = Type.Union(leaves);
-	const expectation = Type.Union([leaf, Type.Object({ all: Type.Array(leaf, { minItems: 1 }) }, { additionalProperties: false }), Type.Object({ any: Type.Array(leaf, { minItems: 1 }) }, { additionalProperties: false })]);
+	const expectation = Type.Union(
+		[
+			leaf,
+			Type.Object({ all: Type.Array(leaf, { minItems: 1, description: "Every leaf must match." }) }, { additionalProperties: false }),
+			Type.Object({ any: Type.Array(leaf, { minItems: 1, description: "At least one leaf must match." }) }, { additionalProperties: false }),
+		],
+		{ description: "Semantic condition evaluated from structured browser observations." },
+	);
 
 	const clickTarget: Record<string, TSchema> = options.coordinates
 		? {
@@ -241,7 +310,7 @@ export function createCuaBrowserActionSchemaByType(options: CuaBrowserSchemaOpti
 			{ additionalProperties: false },
 		),
 		browser_wait_for: Type.Object(
-			{ type: Type.Literal("browser_wait_for"), expect: expectation, timeout_ms: Type.Optional(Type.Number({ minimum: 0, maximum: 30_000, description: "Semantic polling timeout; in-flight browser reads settle before timeout is reported." })), poll_ms: Type.Optional(Type.Number({ minimum: 10, maximum: 1_000 })), tab_id: TabId() },
+			{ type: Type.Literal("browser_wait_for"), expect: expectation, timeout_ms: Type.Optional(Type.Number({ minimum: 1, maximum: 30_000, description: "Semantic polling timeout in milliseconds (default 2000); in-flight browser reads settle before timeout is reported." })), poll_ms: Type.Optional(Type.Number({ minimum: 10, maximum: 1_000, description: "Polling interval in milliseconds (default 50)." })), tab_id: TabId() },
 			{ additionalProperties: false },
 		),
 		browser_text: Type.Object(

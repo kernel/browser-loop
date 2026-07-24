@@ -107,9 +107,10 @@ export async function waitForBrowserExpectation(runtime: BrowserWaitRuntime, opt
 		return failedObservation(started, now(), error);
 	}
 	const initial = evaluateBrowserExpectation(options.expect, baseline, baseline, runtime.resolveRef);
-	if (baseline.incompleteFrames.length > 0) return terminal("unverifiable", "unverifiable", initial, initial, started, now(), "incomplete_observation");
+	if (initial.reason === "stale_ref" && !("any" in options.expect)) {
+		return terminal("interrupted", "unverifiable", initial, initial, started, now(), initial.reason);
+	}
 	if (expired()) return timedOut(started, now());
-	if (initial.reason === "stale_ref") return terminal("interrupted", "unverifiable", initial, initial, started, now(), initial.reason);
 	if (initial.truth === true) return terminal("satisfied", "preexisting", initial, initial, started, now());
 	const dialogs = runtime.dialogCount();
 	let final = initial;
@@ -126,28 +127,26 @@ export async function waitForBrowserExpectation(runtime: BrowserWaitRuntime, opt
 		catch (error) { return failedObservation(started, now(), error, initial, final); }
 		if (observation.targetId !== targetId) return terminal("interrupted", "unverifiable", initial, final, started, now(), "target_changed");
 		if (runtime.dialogCount() > dialogs) return terminal("interrupted", "unverifiable", initial, final, started, now(), "dialog");
-		const navigated =
-			observation.generations.get(targetId) !== baseline.generations.get(targetId) ||
-			observation.navigationEpoch !== baseline.navigationEpoch;
-		if (navigated) {
-			if (isLocationExpectation(options.expect)) {
-				final = evaluateBrowserExpectation(options.expect, observation, baseline, runtime.resolveRef);
-				if (final.truth === true && !expired()) return terminal("satisfied", "newly_verified", initial, final, started, now());
-			}
+		const crossDocumentNavigation = observation.generations.get(targetId) !== baseline.generations.get(targetId);
+		const sameDocumentNavigation = observation.navigationEpoch !== baseline.navigationEpoch;
+		const locationExpectation = isLocationExpectation(options.expect);
+		if (crossDocumentNavigation && !locationExpectation) {
 			return terminal("interrupted", "unverifiable", initial, final, started, now(), "navigation");
 		}
-		if (observation.incompleteFrames.length > 0) {
-			const partial = evaluateBrowserExpectation(options.expect, observation, baseline, runtime.resolveRef);
-			final = { ...partial, truth: undefined, reason: "incomplete_observation" };
+		final = evaluateBrowserExpectation(options.expect, observation, baseline, runtime.resolveRef);
+		if ((crossDocumentNavigation || sameDocumentNavigation) && locationExpectation) {
+			if (final.truth === true && !expired()) return terminal("satisfied", "newly_verified", initial, final, started, now());
 			continue;
 		}
-		const removedFrame = [...baseline.generations.keys()].some((key) => !observation.generations.has(key));
-		if (removedFrame) return terminal("unverifiable", "unverifiable", initial, final, started, now(), "incomplete_observation");
+		if (final.reason === "stale_ref" && !("any" in options.expect)) {
+			return terminal("interrupted", "unverifiable", initial, final, started, now(), final.reason);
+		}
 		if (expired()) break;
-		final = evaluateBrowserExpectation(options.expect, observation, baseline, runtime.resolveRef);
-		if (expired()) break;
-		if (final.reason === "stale_ref") return terminal("interrupted", "unverifiable", initial, final, started, now(), final.reason);
 		if (final.truth === true) return terminal("satisfied", "newly_verified", initial, final, started, now());
+		if (observation.incompleteFrames.length > 0) {
+			final = { ...final, truth: undefined, reason: final.reason ?? "incomplete_observation" };
+			continue;
+		}
 	}
 	if (final.truth === undefined) return terminal("unverifiable", "unverifiable", initial, final, started, now(), final.reason ?? "incomplete_observation");
 	return terminal("timed_out", "failed", initial, final, started, now());

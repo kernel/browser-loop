@@ -93,7 +93,7 @@ describe("waitForBrowserExpectation", () => {
 		["target_detached", { exists: false }],
 		["target_changed", { targetId: "other" }],
 		["dialog", { dialog: true }],
-		["navigation", { navigationEpoch: 1 }],
+		["navigation", { crossDocument: true }],
 		["observation_failed", { observationError: true }],
 	] as const)("returns the public %s interruption reason", async (reason, scenario) => {
 		let time = 0, reads = 0, dialogReads = 0;
@@ -103,7 +103,7 @@ describe("waitForBrowserExpectation", () => {
 				if (reads++ > 0 && "observationError" in scenario) throw new Error("boom");
 				return observation([], true, {
 					...(reads > 1 && scenario.targetId ? { targetId: scenario.targetId } : {}),
-					...(reads > 1 && scenario.navigationEpoch ? { navigationEpoch: scenario.navigationEpoch } : {}),
+					...(reads > 1 && "crossDocument" in scenario ? { generations: new Map([["page", 1]]) } : {}),
 				});
 			},
 			dialogCount: () => "dialog" in scenario && scenario.dialog && dialogReads++ > 0 ? 1 : 0,
@@ -114,7 +114,7 @@ describe("waitForBrowserExpectation", () => {
 		expect(result).toMatchObject({ status: reason === "observation_failed" ? "unverifiable" : "interrupted", reason });
 	});
 
-	it("treats a dropped baseline frame as incomplete rather than navigation or absence", async () => {
+	it("allows a condition to satisfy after an unrelated baseline frame is removed", async () => {
 		let time = 0, reads = 0;
 		const baseline = observation(["Gone"]);
 		baseline.generations.set("frame", 1);
@@ -123,7 +123,7 @@ describe("waitForBrowserExpectation", () => {
 			dialogCount: () => 0, targetExists: async () => true, liveGeneration: () => 0,
 			resolveRef: missingRef, now: () => time, delay: async (ms) => { time += ms; },
 		}, { expect: { type: "text", text: "Gone", exists: false }, timeoutMs: 20, pollMs: 10 });
-		expect(result).toMatchObject({ status: "unverifiable", reason: "incomplete_observation" });
+		expect(result).toMatchObject({ status: "satisfied", evidence: "newly_verified" });
 	});
 
 	it("interrupts when a ref becomes stale after the baseline", async () => {
@@ -144,10 +144,45 @@ describe("waitForBrowserExpectation", () => {
 		expect(result).toMatchObject({ status: "satisfied", evidence: "newly_verified" });
 	});
 
-	it("returns incomplete observations as unverifiable", async () => {
+	it("accepts positive evidence from an incomplete polling observation", async () => {
+		let time = 0, reads = 0;
+		const states = [observation(), observation(["Ready"], false)];
+		const result = await waitForBrowserExpectation({
+			selectTarget: async () => "page", observeTarget: async () => states[Math.min(reads++, states.length - 1)]!,
+			dialogCount: () => 0, targetExists: async () => true, resolveRef: missingRef,
+			now: () => time, delay: async (ms) => { time += ms; },
+		}, { expect: { type: "text", text: "Ready" }, timeoutMs: 20, pollMs: 10 });
+		expect(result).toMatchObject({ status: "satisfied", evidence: "newly_verified" });
+	});
+
+	it("returns unproven absence in incomplete observations as unverifiable", async () => {
 		let time = 0;
 		const result = await waitForBrowserExpectation({ selectTarget: async () => "page", observeTarget: async () => observation([], false), dialogCount: () => 0, targetExists: async () => true, liveGeneration: () => 0, resolveRef: missingRef, now: () => time, delay: async (ms) => { time += ms; } }, { expect: { type: "text", text: "Gone", exists: false }, timeoutMs: 10, pollMs: 10 });
 		expect(result).toMatchObject({ status: "unverifiable", reason: "incomplete_observation" });
+	});
+
+	it.each([
+		[{ type: "text", text: "Ready" } as const, observation(["Ready"], false)],
+		[{ type: "url", contains: "a.test" } as const, observation([], false)],
+	])("accepts positive evidence from an incomplete baseline", async (expectation, baseline) => {
+		let time = 0;
+		const result = await waitForBrowserExpectation({
+			selectTarget: async () => "page", observeTarget: async () => baseline,
+			dialogCount: () => 0, targetExists: async () => true, resolveRef: missingRef,
+			now: () => time, delay: async (ms) => { time += ms; },
+		}, { expect: expectation, timeoutMs: 20, pollMs: 10 });
+		expect(result).toMatchObject({ status: "satisfied", evidence: "preexisting" });
+	});
+
+	it("retries an incomplete baseline until the condition is verifiable", async () => {
+		let time = 0, reads = 0;
+		const states = [observation([], false), observation(["Ready"])];
+		const result = await waitForBrowserExpectation({
+			selectTarget: async () => "page", observeTarget: async () => states[Math.min(reads++, states.length - 1)]!,
+			dialogCount: () => 0, targetExists: async () => true, resolveRef: missingRef,
+			now: () => time, delay: async (ms) => { time += ms; },
+		}, { expect: { type: "text", text: "Ready" }, timeoutMs: 20, pollMs: 10 });
+		expect(result).toMatchObject({ status: "satisfied", evidence: "newly_verified" });
 	});
 
 	it("allows location expectations to be satisfied by navigation", async () => {
@@ -156,7 +191,7 @@ describe("waitForBrowserExpectation", () => {
 		expect(result).toMatchObject({ status: "satisfied", evidence: "newly_verified" });
 	});
 
-	it("reports navigation instead of timeout when a location change lands at the deadline", async () => {
+	it("reports timeout when a non-matching location change lands at the deadline", async () => {
 		let time = 0, reads = 0;
 		const result = await waitForBrowserExpectation({
 			selectTarget: async () => "page",
@@ -168,13 +203,68 @@ describe("waitForBrowserExpectation", () => {
 			dialogCount: () => 0, targetExists: async () => true, liveGeneration: () => 0,
 			resolveRef: missingRef, now: () => time, delay: async (ms) => { time += ms; },
 		}, { expect: { type: "url", contains: "/done" }, timeoutMs: 100, pollMs: 10 });
-		expect(result).toMatchObject({ status: "interrupted", reason: "navigation" });
+		expect(result).toMatchObject({ status: "timed_out", evidence: "failed" });
+	});
+
+	it("continues content waits across same-document navigation", async () => {
+		let time = 0, reads = 0;
+		const result = await waitForBrowserExpectation({
+			selectTarget: async () => "page",
+			observeTarget: async () => reads++ === 0 ? observation() : observation(["Ready"], true, { navigationEpoch: 1 }),
+			dialogCount: () => 0, targetExists: async () => true, resolveRef: missingRef,
+			now: () => time, delay: async (ms) => { time += ms; },
+		}, { expect: { type: "text", text: "Ready" }, timeoutMs: 20, pollMs: 10 });
+		expect(result).toMatchObject({ status: "satisfied", evidence: "newly_verified" });
+	});
+
+	it("continues location waits across redirect hops", async () => {
+		let time = 0, reads = 0;
+		const states = [
+			observation(),
+			observation([], true, { url: "https://a.test/interstitial", generations: new Map([["page", 1]]) }),
+			observation([], true, { url: "https://a.test/done", generations: new Map([["page", 2]]) }),
+		];
+		const result = await waitForBrowserExpectation({
+			selectTarget: async () => "page", observeTarget: async () => states[Math.min(reads++, states.length - 1)]!,
+			dialogCount: () => 0, targetExists: async () => true, resolveRef: missingRef,
+			now: () => time, delay: async (ms) => { time += ms; },
+		}, { expect: { type: "url", contains: "/done" }, timeoutMs: 30, pollMs: 10 });
+		expect(result).toMatchObject({ status: "satisfied", evidence: "newly_verified" });
+	});
+
+	it("keeps polling an any-condition when one ref branch is stale", async () => {
+		let time = 0, reads = 0;
+		const result = await waitForBrowserExpectation({
+			selectTarget: async () => "page",
+			observeTarget: async () => observation(reads++ === 0 ? [] : ["Ready"]),
+			dialogCount: () => 0, targetExists: async () => true, resolveRef: missingRef,
+			now: () => time, delay: async (ms) => { time += ms; },
+		}, {
+			expect: { any: [{ type: "ref", ref: "e1", checked: true }, { type: "text", text: "Ready" }] },
+			timeoutMs: 20,
+			pollMs: 10,
+		});
+		expect(result).toMatchObject({ status: "satisfied", evidence: "newly_verified" });
 	});
 
 	it("does not accept a condition completed after the deadline", async () => {
 		let time = 0, reads = 0;
 		const result = await waitForBrowserExpectation({ selectTarget: async () => "page", observeTarget: async () => { if (reads++ > 0) time += 20; return observation(reads > 1 ? ["Ready"] : []); }, dialogCount: () => 0, targetExists: async () => true, liveGeneration: () => 0, resolveRef: missingRef, now: () => time, delay: async (ms) => { time += ms; } }, { expect: { type: "text", text: "Ready" }, timeoutMs: 20, pollMs: 10 });
 		expect(result.status).toBe("timed_out");
+	});
+
+	it("preserves a stale-ref interruption discovered at the deadline", async () => {
+		let time = 0;
+		const result = await waitForBrowserExpectation({
+			selectTarget: async () => "page", observeTarget: async () => observation(),
+			dialogCount: () => 0, targetExists: async () => true,
+			resolveRef: () => {
+				time = 10;
+				return { truth: undefined, details: ["stale"], reason: "stale_ref" };
+			},
+			now: () => time,
+		}, { expect: { type: "ref", ref: "e1", checked: true }, timeoutMs: 10 });
+		expect(result).toMatchObject({ status: "interrupted", reason: "stale_ref" });
 	});
 
 	it.each(["select", "observe", "evaluate"] as const)("includes initial %s in the hard deadline", async (phase) => {

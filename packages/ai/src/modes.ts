@@ -110,7 +110,9 @@ export function cuaToolNameForAction(action: CuaActionType, mode: CuaMode): stri
 }
 
 const BROWSER_ACTION_DESCRIPTIONS: Record<CuaBrowserActionType, string> = {
-	browser_wait_for: "Wait for a semantic page condition without delivering input.",
+	browser_wait_for:
+		"Poll the page without delivering input until accessible text or an element role/name appears or disappears, an element ref reaches a value/state, or the URL/title matches or changes. " +
+		"Supports all/any leaf groups and returns structured satisfied, timed-out, interrupted, or unverifiable evidence. Defaults to a 2-second timeout and 50ms polling.",
 	browser_snapshot:
 		"Return an accessibility-tree snapshot of the page, including iframe content, with element references like [e12]. " +
 		"Use the refs to target elements in other page tools. Refs are only valid until the page changes; re-snapshot when told a ref is stale. " +
@@ -151,7 +153,9 @@ const HYBRID_BROWSER_DESCRIPTION_OVERRIDES: Partial<Record<CuaBrowserActionType,
 	browser_click:
 		"Click an element by reference from a browser_snapshot. Dispatched via CDP, which protected sites may detect — " +
 		"prefer computer_click when the element is visible in the screenshot; use browser_click for elements that are hard to hit by coordinate.",
-	browser_wait_for: "Wait for a semantic page condition without delivering input.",
+	browser_wait_for:
+		"Poll the page without delivering input until accessible text or an element role/name appears or disappears, an element ref reaches a value/state, or the URL/title matches or changes. " +
+		"Supports all/any leaf groups and returns structured satisfied, timed-out, interrupted, or unverifiable evidence. Defaults to a 2-second timeout and 50ms polling.",
 	browser_snapshot:
 		"Return an accessibility-tree snapshot of the page, including iframe content, with element references like [e12]. " +
 		"This is the high-fidelity way to read page structure — prefer it over screenshots for reading and locating elements. " +
