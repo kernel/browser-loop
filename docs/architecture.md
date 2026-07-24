@@ -132,10 +132,10 @@ Anthropic model through an allowlisted, Anthropic-API-only early-access tool
 schema instead of the canonical function tools: `computer_20260701` pairs with
 `computer` mode and `browser_20260701` with `browser` mode. Model and mode
 mismatches throw locally before a browser is provisioned. The live-verified
-model families are `claude-fable-5`, `claude-opus-4-8`, and `claude-sonnet-5`
-for `computer_20260701`; only `claude-opus-4-8` and `claude-sonnet-5` support
-`browser_20260701`. The API key's organization must also have the matching
-beta entitlement.
+model families are `claude-fable-5`, `claude-opus-4-8`, `claude-opus-5`, and
+`claude-sonnet-5` for `computer_20260701`; `claude-opus-4-8`, `claude-opus-5`,
+and `claude-sonnet-5` support `browser_20260701`. The API key's organization
+must also have the matching beta entitlement.
 
 The spec routes the model to a CUA-owned api id; the registered `anthropic`
 provider dispatches it to pi's builtin `anthropic-messages` transport with the

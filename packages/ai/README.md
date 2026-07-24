@@ -92,7 +92,7 @@ for (const block of response.content) {
 A runnable version ships at [`examples/quickstart.ts`](./examples/quickstart.ts)
 (with a sample screenshot). In this repo, run it from `packages/ai` with
 `npm run example:quickstart`; switch providers with the `CUA_MODEL` env var,
-e.g. `CUA_MODEL=anthropic:claude-opus-4-7`.
+e.g. `CUA_MODEL=anthropic:claude-opus-5`.
 
 ## Error Handling
 
@@ -211,7 +211,7 @@ provider/tool metadata.
 
 ```ts
 getCuaModel("openai:gpt-5.5");
-getCuaModel("anthropic:claude-opus-4-7");
+getCuaModel("anthropic:claude-opus-5");
 getCuaModel("google:gemini-3-flash-preview");
 getCuaModel("meta:muse-spark-1.1");
 getCuaModel("xai:grok-4.5");

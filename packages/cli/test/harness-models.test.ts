@@ -9,6 +9,7 @@ describe("resolveCuaModelRef", () => {
 
 	it("passes provider-qualified refs through", () => {
 		expect(resolveCuaModelRef("openai:gpt-5.5")).toBe("openai:gpt-5.5");
+		expect(resolveCuaModelRef("anthropic:claude-opus-5")).toBe("anthropic:claude-opus-5");
 		expect(resolveCuaModelRef("meta:muse-spark-1.1")).toBe("meta:muse-spark-1.1");
 		expect(resolveCuaModelRef("xai:grok-4.5")).toBe("xai:grok-4.5");
 		expect(resolveCuaModelRef("moonshotai:kimi-k3")).toBe("moonshotai:kimi-k3");
@@ -17,6 +18,7 @@ describe("resolveCuaModelRef", () => {
 
 	it("accepts bare ids when they match exactly one catalog entry", () => {
 		expect(resolveCuaModelRef("gpt-5.5")).toBe("openai:gpt-5.5");
+		expect(resolveCuaModelRef("claude-opus-5")).toBe("anthropic:claude-opus-5");
 		expect(resolveCuaModelRef("muse-spark-1.1")).toBe("meta:muse-spark-1.1");
 		expect(resolveCuaModelRef("grok-4.5")).toBe("xai:grok-4.5");
 		expect(resolveCuaModelRef("kimi-k3")).toBe("moonshotai:kimi-k3");

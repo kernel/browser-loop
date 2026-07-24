@@ -44,15 +44,15 @@ describe("native tool validation", () => {
 			/native tool "computer_20260701" is an allowlisted Anthropic API beta.*claude-opus-4-8/s,
 		);
 		expect(() => resolveCuaRuntimeSpec("anthropic:claude-fable-5", { nativeTool: { type: "browser_20260701" } })).toThrow(
-			/supported model families: claude-opus-4-8, claude-sonnet-5/,
+			/supported model families: claude-opus-4-8, claude-opus-5, claude-sonnet-5/,
 		);
 	});
 
 	it("accepts each live-verified native-tool model family", () => {
-		for (const model of ["claude-fable-5", "claude-opus-4-8", "claude-sonnet-5"] as const) {
+		for (const model of ["claude-fable-5", "claude-opus-4-8", "claude-opus-5", "claude-sonnet-5"] as const) {
 			expect(() => resolveCuaRuntimeSpec(`anthropic:${model}`, { nativeTool: { type: "computer_20260701" } })).not.toThrow();
 		}
-		for (const model of ["claude-opus-4-8", "claude-sonnet-5"] as const) {
+		for (const model of ["claude-opus-4-8", "claude-opus-5", "claude-sonnet-5"] as const) {
 			expect(() => resolveCuaRuntimeSpec(`anthropic:${model}`, { nativeTool: { type: "browser_20260701" } })).not.toThrow();
 		}
 	});

@@ -51,7 +51,7 @@ Options:
                                  match exactly one entry in \`cua models\`.
                                  Recommended:
                                    openai:    openai:gpt-5.5
-                                   anthropic: anthropic:claude-opus-4-7
+                                   anthropic: anthropic:claude-opus-5
                                    google:    google:gemini-3-flash-preview
                                    meta:      meta:muse-spark-1.1
                                    xai:       xai:grok-4.5
@@ -74,9 +74,10 @@ Options:
                                  hybrid: both, deduplicated (computer_* + browser_* tools).
       --native-tool <type>       Drive an entitled Anthropic API key through an early-access
                                  native schema. computer_20260701 requires --mode computer
-                                 and claude-fable-5, claude-opus-4-8, or claude-sonnet-5.
-                                 browser_20260701 requires --mode browser and
-                                 claude-opus-4-8 or claude-sonnet-5.
+                                 and claude-fable-5, claude-opus-4-8, claude-opus-5,
+                                 or claude-sonnet-5. browser_20260701 requires --mode
+                                 browser and claude-opus-4-8, claude-opus-5, or
+                                 claude-sonnet-5.
       --out <file|->             Output file for screenshot subcommand
       --filter <interactive>     Restrict \`cua snapshot\` to interactive elements
   -o, --output <fmt>             Output format for --print: text (default) | jsonl

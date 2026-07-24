@@ -21,6 +21,7 @@ describe("anthropicAdaptiveThinkingOnPayload", () => {
 		const payload = { thinking: { type: "enabled", budget_tokens: 8_192 } };
 
 		for (const ref of [
+			"anthropic:claude-opus-5",
 			"anthropic:claude-sonnet-5",
 			"anthropic:claude-sonnet-4-6",
 			"anthropic:claude-opus-4-8",

@@ -45,7 +45,7 @@ These resolve a natural-language description with an LLM, so they need the model
 Useful flags:
 
 - `-m <model>` — pick the LLM for model-mediated subcommands (default `gpt-5.5`).
-  Other good picks: `claude-opus-4-7`, `gemini-3-flash-preview`, `n1.5-latest`.
+  Other good picks: `claude-opus-5`, `gemini-3-flash-preview`, `n1.5-latest`.
 - `cua models` — list supported `-m` values and their providers; filter
   with `cua models -p openai|anthropic|google|yutori|tzafon` (`gemini` is
   accepted as an alias for `google`). Model refs print as `provider:model`

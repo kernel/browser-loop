@@ -27,7 +27,7 @@ const cases: Array<{
 describe("Anthropic early-access native tools", () => {
 	for (const current of cases) {
 		liveIt(`${current.name} survives CUA's pi-ai serialization`, async () => {
-			const spec = resolveCuaRuntimeSpec("anthropic:claude-opus-4-8", { nativeTool: current.nativeTool });
+			const spec = resolveCuaRuntimeSpec("anthropic:claude-opus-5", { nativeTool: current.nativeTool });
 			const response = await createCuaModels().complete(
 				spec.model,
 				{

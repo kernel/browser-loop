@@ -17,7 +17,7 @@ Frontier models expose computer use through different tool protocols:
 - **OpenAI gpt-5.5**: a built-in `computer` tool that emits actions like
   `{type:"click", x, y}`, `{type:"scroll", x, y, scroll_x, scroll_y}`,
   `{type:"keypress", keys:[...]}`, …
-- **Anthropic claude-opus-4-7**: a built-in `computer_20251124` tool that
+- **Anthropic claude-opus-5**: a built-in `computer_20251124` tool that
   emits `{action:"left_click", coordinate:[x, y]}`,
   `{action:"scroll", scroll_direction, scroll_amount}`, …
 - **Google gemini-2.5-pro / gemini-3.x**: a set of predefined
@@ -102,7 +102,7 @@ npx tsx packages/cli/src/cli.ts --help
 
 # set API keys via env vars
 export OPENAI_API_KEY=sk-...                 # for gpt-5.5
-export ANTHROPIC_API_KEY=sk-ant-...          # for claude-opus-4-7
+export ANTHROPIC_API_KEY=sk-ant-...          # for claude-opus-5
 export GOOGLE_API_KEY=...                    # for gemini-3-flash-preview
 export META_API_KEY=...                      # for muse-spark-1.1
 export XAI_API_KEY=xai-...                   # for grok-4.5
@@ -117,7 +117,7 @@ cua -p "Open https://news.ycombinator.com and tell me the top story"
 cua models
 
 # Claude
-cua -p --model claude-opus-4-7 "Same prompt"
+cua -p --model claude-opus-5 "Same prompt"
 
 # Gemini 3 Flash (built-in computer use)
 cua -p --model gemini-3-flash-preview "Same prompt"
