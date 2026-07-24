@@ -125,21 +125,21 @@ export async function waitForBrowserExpectation(runtime: BrowserWaitRuntime, opt
 		let observation: BrowserObservation;
 		try { observation = await runtime.observeTarget(targetId); }
 		catch (error) { return failedObservation(started, now(), error, initial, final); }
+		final = evaluateBrowserExpectation(options.expect, observation, baseline, runtime.resolveRef);
 		if (observation.targetId !== targetId) return terminal("interrupted", "unverifiable", initial, final, started, now(), "target_changed");
 		if (runtime.dialogCount() > dialogs) return terminal("interrupted", "unverifiable", initial, final, started, now(), "dialog");
 		const crossDocumentNavigation = observation.generations.get(targetId) !== baseline.generations.get(targetId);
 		const sameDocumentNavigation = observation.navigationEpoch !== baseline.navigationEpoch;
-		const locationExpectation = isLocationExpectation(options.expect);
+		const locationExpectation = containsLocationExpectation(options.expect);
 		if (crossDocumentNavigation && !locationExpectation) {
 			return terminal("interrupted", "unverifiable", initial, final, started, now(), "navigation");
 		}
-		final = evaluateBrowserExpectation(options.expect, observation, baseline, runtime.resolveRef);
+		if (final.reason === "stale_ref" && !("any" in options.expect)) {
+			return terminal("interrupted", "unverifiable", initial, final, started, now(), final.reason);
+		}
 		if ((crossDocumentNavigation || sameDocumentNavigation) && locationExpectation) {
 			if (final.truth === true && !expired()) return terminal("satisfied", "newly_verified", initial, final, started, now());
 			continue;
-		}
-		if (final.reason === "stale_ref" && !("any" in options.expect)) {
-			return terminal("interrupted", "unverifiable", initial, final, started, now(), final.reason);
 		}
 		if (expired()) break;
 		if (final.truth === true) return terminal("satisfied", "newly_verified", initial, final, started, now());
@@ -167,9 +167,9 @@ async function beforeDeadline<T>(operation: () => Promise<T>, remaining: number,
 	}
 }
 
-function isLocationExpectation(expectation: CuaBrowserExpectation): boolean {
-	if ("all" in expectation) return expectation.all.every(isLocationExpectation);
-	if ("any" in expectation) return expectation.any.every(isLocationExpectation);
+function containsLocationExpectation(expectation: CuaBrowserExpectation): boolean {
+	if ("all" in expectation) return expectation.all.some(containsLocationExpectation);
+	if ("any" in expectation) return expectation.any.some(containsLocationExpectation);
 	return expectation.type === "url" || expectation.type === "title";
 }
 
