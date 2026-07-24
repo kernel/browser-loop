@@ -142,7 +142,7 @@ export class BrowserExecutor {
 				if (this.frameTargets.has(sessionTargetId)) {
 					// The OOPIF tree and any same-process descendants fetched through
 					// its session share the OOPIF generation key.
-					const owner = this.frameOwners.get(sessionTargetId);
+					const owner = this.ownerForFrameTarget(sessionTargetId);
 					if (owner) {
 						this.lifecycle.invalidateFrame(owner, sessionTargetId);
 						if (frame.loaderId) this.lifecycle.recordDocument(sessionTargetId, owner, frame.loaderId);
@@ -168,7 +168,7 @@ export class BrowserExecutor {
 				const sessionTargetId = this.targetsBySession.get(event.sessionId);
 				if (!frameId || !sessionTargetId) return;
 				if (this.frameTargets.has(sessionTargetId)) {
-					const owner = this.frameOwners.get(sessionTargetId);
+					const owner = this.ownerForFrameTarget(sessionTargetId);
 					if (owner) this.lifecycle.invalidateFrame(owner, sessionTargetId);
 				} else {
 					this.lifecycle.removeFrame(sessionTargetId, frameId);
@@ -218,7 +218,7 @@ export class BrowserExecutor {
 				this.targetsBySession.delete(sessionId);
 				if (!targetId) return;
 				if (this.frameTargets.has(targetId)) {
-					const owner = this.frameOwners.get(targetId);
+					const owner = this.ownerForFrameTarget(targetId);
 					if (owner) this.lifecycle.removeFrame(owner, targetId);
 					this.frameSessions.delete(targetId);
 					this.frameOwners.delete(targetId);
@@ -965,6 +965,17 @@ export class BrowserExecutor {
 		// guards refs resolved while a navigation event is still in flight.
 		if (!entry || entry.targetId !== targetId || !this.lifecycle.isRefCurrent(entry)) throw staleRefError(ref);
 		return entry;
+	}
+
+	private ownerForFrameTarget(frameTargetId: string): string | undefined {
+		const mapped = this.frameOwners.get(frameTargetId);
+		if (mapped) return mapped;
+		for (const entry of this.refs.values()) {
+			if (entry.frameId !== frameTargetId) continue;
+			this.frameOwners.set(frameTargetId, entry.targetId);
+			return entry.targetId;
+		}
+		return undefined;
 	}
 
 	private dropTarget(targetId: string): void {

@@ -1,5 +1,9 @@
 import { CdpProtocolError } from "./cdp";
 
+/**
+ * Wraps unexpected iframe collection failures with context about which frame
+ * and collection stage failed.
+ */
 export class FrameCollectionError extends Error {
 	constructor(message: string, cause: unknown) {
 		super(message, { cause });
@@ -7,6 +11,11 @@ export class FrameCollectionError extends Error {
 	}
 }
 
+/**
+ * True when a CDP error is one of the known transient "frame disappeared"
+ * variants that should mark the frame as incomplete instead of failing the
+ * whole observation.
+ */
 export function isExpectedFrameCollectionError(
 	error: unknown,
 	method: "DOM.describeNode" | "Accessibility.getFullAXTree",
@@ -21,6 +30,10 @@ export function isExpectedFrameCollectionError(
 	);
 }
 
+/**
+ * Build a contextual {@link FrameCollectionError} for an unexpected iframe
+ * collection failure.
+ */
 export function frameCollectionError(
 	backendNodeId: number,
 	frameId: string | undefined,
