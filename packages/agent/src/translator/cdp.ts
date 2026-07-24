@@ -8,6 +8,7 @@
  */
 
 interface PendingCommand {
+	readonly method: string;
 	resolve(result: unknown): void;
 	reject(error: Error): void;
 }
@@ -28,6 +29,19 @@ export interface CdpTargetInfo {
 
 export type CdpEventListener = (event: CdpEventMessage) => void;
 
+/** A command error returned by the CDP JSON-RPC endpoint. */
+export class CdpProtocolError extends Error {
+	constructor(
+		readonly method: string,
+		readonly code: number,
+		readonly protocolMessage: string,
+		readonly data?: string,
+	) {
+		super(protocolMessage);
+		this.name = "CdpProtocolError";
+	}
+}
+
 export class CdpConnection {
 	private socket?: WebSocket;
 	private opening?: Promise<WebSocket>;
@@ -47,7 +61,7 @@ export class CdpConnection {
 		const id = this.nextId++;
 		const message = JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) });
 		return new Promise<T>((resolve, reject) => {
-			this.pending.set(id, { resolve: resolve as (result: unknown) => void, reject });
+			this.pending.set(id, { method, resolve: resolve as (result: unknown) => void, reject });
 			// A non-OPEN socket silently discards send() per the WebSocket spec,
 			// which would leave this command pending forever.
 			if (socket.readyState !== WebSocket.OPEN) {
@@ -123,7 +137,14 @@ export class CdpConnection {
 	}
 
 	private handleMessage(data: string): void {
-		let message: { id?: number; result?: unknown; error?: { message?: string }; method?: string; params?: Record<string, unknown>; sessionId?: string };
+		let message: {
+			id?: number;
+			result?: unknown;
+			error?: { code?: number; message?: string; data?: string };
+			method?: string;
+			params?: Record<string, unknown>;
+			sessionId?: string;
+		};
 		try {
 			message = JSON.parse(data);
 		} catch {
@@ -133,8 +154,16 @@ export class CdpConnection {
 			const pending = this.pending.get(message.id);
 			if (!pending) return;
 			this.pending.delete(message.id);
-			if (message.error) pending.reject(new Error(message.error.message ?? "CDP command failed"));
-			else pending.resolve(message.result ?? {});
+			if (message.error) {
+				pending.reject(
+					new CdpProtocolError(
+						pending.method,
+						message.error.code ?? -1,
+						message.error.message ?? "CDP command failed",
+						message.error.data,
+					),
+				);
+			} else pending.resolve(message.result ?? {});
 			return;
 		}
 		if (typeof message.method === "string") {

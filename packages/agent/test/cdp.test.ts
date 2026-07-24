@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CdpConnection } from "../src/translator/cdp";
+import { CdpConnection, CdpProtocolError } from "../src/translator/cdp";
 
 class FakeSocket {
 	static instances: FakeSocket[] = [];
@@ -65,5 +65,24 @@ describe("CdpConnection send", () => {
 		await Promise.resolve();
 		FakeSocket.instances[0]!.close();
 		await expect(pending).rejects.toThrow(/closed/);
+	});
+
+	it("preserves command and protocol error metadata", async () => {
+		vi.stubGlobal("WebSocket", Object.assign(FakeSocket, { OPEN: 1 }));
+		const cdp = new CdpConnection("wss://fake.test/cdp");
+		const pending = cdp.send("Accessibility.getFullAXTree", { frameId: "F1" }, "session-1");
+		await vi.waitFor(() => expect(FakeSocket.instances[0]!.sent).toHaveLength(1));
+		FakeSocket.instances[0]!.emit("message", {
+			data: JSON.stringify({ id: 1, error: { code: -32000, message: "Frame with the given id was not found.", data: "gone" } }),
+		});
+
+		const error = await pending.catch((cause: unknown) => cause);
+		expect(error).toBeInstanceOf(CdpProtocolError);
+		expect(error).toMatchObject({
+			method: "Accessibility.getFullAXTree",
+			code: -32000,
+			protocolMessage: "Frame with the given id was not found.",
+			data: "gone",
+		});
 	});
 });
