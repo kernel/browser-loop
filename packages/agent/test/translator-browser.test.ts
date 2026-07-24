@@ -108,6 +108,7 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 	let nodes = initialNodes as Array<{ backendDOMNodeId?: number }>;
 	let cursorBackendIds: number[] = [];
 	let loaderId: string | undefined = "L0";
+	let mainFrameId = "TARGET-1";
 	const sessionTrees = new Map<string, Array<{ backendDOMNodeId?: number }>>();
 	const frameTrees = new Map<string, Array<{ backendDOMNodeId?: number }>>();
 	const iframeFrameIds = new Map<number, string>();
@@ -119,7 +120,7 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 	const targetSessions = new Map<string, string>();
 	// A same-process child frame's document loaderId defaults to a stable value so
 	// it verifies unchanged across processes; setFrameLoaderId overrides it.
-	const loaderFor = (frameKey: string) => frameLoaderIds.get(frameKey) ?? (frameKey === "TARGET-1" ? loaderId : "L0");
+	const loaderFor = (frameKey: string) => frameLoaderIds.get(frameKey) ?? (frameKey === mainFrameId ? loaderId : "L0");
 	const sameProcessChildFrames = () => {
 		const ids = new Set<string>();
 		for (const frameId of iframeFrameIds.values()) if (!oopifFrameKeys.has(frameId)) ids.add(frameId);
@@ -197,7 +198,7 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 					});
 					return {
 						frameTree: {
-							frame: { id: "TARGET-1", ...(loaderId !== undefined ? { loaderId } : {}) },
+							frame: { id: mainFrameId, ...(loaderId !== undefined ? { loaderId } : {}) },
 							...(childFrames.length ? { childFrames } : {}),
 						},
 					};
@@ -251,6 +252,9 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 	const setLoaderId = (id: string | undefined) => {
 		loaderId = id;
 	};
+	const setMainFrameId = (id: string) => {
+		mainFrameId = id;
+	};
 	const setFrameLoaderId = (frameKey: string, id: string) => {
 		frameLoaderIds.set(frameKey, id);
 	};
@@ -286,6 +290,7 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 		setIframeFrame,
 		setBoxModel,
 		setLoaderId,
+		setMainFrameId,
 		setFrameLoaderId,
 		addAutoAttachFrame,
 		failOn,
@@ -383,13 +388,14 @@ describe("BrowserExecutor ref lifecycle", () => {
 	});
 
 	it("does not let a same-document navigation suppress the next real navigation's invalidation", async () => {
-		const { cdp, emit } = createFakeCdp(BUTTON_TREE);
+		const { cdp, emit, setMainFrameId } = createFakeCdp(BUTTON_TREE);
+		setMainFrameId("MAIN-1");
 		const executor = new BrowserExecutor(cdp);
 		await executor.execute({ type: "browser_navigate", url: "https://a.test/#section" } as CuaBrowserAction);
-		emit({ method: "Page.navigatedWithinDocument", params: { frameId: "TARGET-1", url: "https://a.test/#section" }, sessionId: "session-1" });
+		emit({ method: "Page.navigatedWithinDocument", params: { frameId: "MAIN-1", url: "https://a.test/#section" }, sessionId: "session-1" });
 		await snapshotText(executor);
 
-		emit({ method: "Page.frameNavigated", params: { frame: { id: "TARGET-1" } }, sessionId: "session-1" });
+		emit({ method: "Page.frameNavigated", params: { frame: { id: "MAIN-1" } }, sessionId: "session-1" });
 		await expect(executor.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction)).rejects.toThrow(/stale/);
 	});
 

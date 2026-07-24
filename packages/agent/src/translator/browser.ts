@@ -124,6 +124,7 @@ export class BrowserExecutor {
 	private readonly documents: BrowserDocumentReconciler;
 	private readonly lastSnapshots = new Map<string, { key: string; shape: string }>();
 	private readonly navigationEpochs = new Map<string, number>();
+	private readonly mainFrameIds = new Map<string, string>();
 	private readonly selfNavigations = new Set<string>();
 	private readonly dialogNotes: string[] = [];
 	private refCounter = 0;
@@ -160,6 +161,7 @@ export class BrowserExecutor {
 					}
 					return;
 				}
+				if (frame.id) this.mainFrameIds.set(sessionTargetId, frame.id);
 				if (!this.selfNavigations.delete(sessionTargetId)) this.lifecycle.invalidateTarget(sessionTargetId);
 				// Record the committed document so it reflects the current generation,
 				// whether the navigation was ours or page-initiated.
@@ -185,10 +187,12 @@ export class BrowserExecutor {
 				if (!event.sessionId) return;
 				const targetId = this.targetsBySession.get(event.sessionId);
 				const { frameId } = event.params as { frameId?: string };
-				if (targetId && frameId === targetId) {
-					this.selfNavigations.delete(targetId);
-					this.navigationEpochs.set(targetId, (this.navigationEpochs.get(targetId) ?? 0) + 1);
-				}
+				if (!targetId || this.frameTargets.has(targetId)) return;
+				const mainFrameId = this.mainFrameIds.get(targetId);
+				if (frameId && mainFrameId && frameId !== mainFrameId) return;
+				if (frameId && !mainFrameId) this.mainFrameIds.set(targetId, frameId);
+				this.selfNavigations.delete(targetId);
+				this.navigationEpochs.set(targetId, (this.navigationEpochs.get(targetId) ?? 0) + 1);
 				return;
 			}
 			case "Target.attachedToTarget": {
@@ -434,6 +438,7 @@ export class BrowserExecutor {
 		const targetId = await this.resolveTarget(tabId);
 		const pageSession = await this.attach(targetId);
 		const pageTree = await this.documents.capturePage(targetId, pageSession);
+		if (pageTree?.frame?.id) this.mainFrameIds.set(targetId, pageTree.frame.id);
 		const before = (await this.cdp.pageTargets()).find((target) => target.targetId === targetId);
 		if (!before) throw new ObservationChangedError("Browser target disappeared during observation");
 
@@ -1057,6 +1062,7 @@ export class BrowserExecutor {
 	private dropTarget(targetId: string): void {
 		this.lifecycle.dropTarget(targetId);
 		this.navigationEpochs.delete(targetId);
+		this.mainFrameIds.delete(targetId);
 		this.selfNavigations.delete(targetId);
 		this.lastSnapshots.delete(targetId);
 		for (const [frameId, owner] of this.frameOwners) {

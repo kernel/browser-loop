@@ -311,6 +311,26 @@ describe("waitForBrowserExpectation", () => {
 		expect(result).toMatchObject({ status: "interrupted", reason: "stale_ref" });
 	});
 
+	it("evaluates the baseline snapshot before returning timed_out at the deadline", async () => {
+		let time = 0;
+		const result = await waitForBrowserExpectation({
+			selectTarget: async () => "page",
+			observeTarget: async () => {
+				time = 10;
+				return observation(["Ready"]);
+			},
+			dialogCount: () => 0,
+			targetExists: async () => true,
+			resolveRef: missingRef,
+			now: () => time,
+		}, { expect: { type: "text", text: "Ready" }, timeoutMs: 10 });
+		expect(result).toMatchObject({
+			status: "timed_out",
+			initial: { truth: true, details: ["text present"] },
+			final: { truth: true, details: ["text present"] },
+		});
+	});
+
 	it.each(["select", "observe", "evaluate"] as const)("includes initial %s in the hard deadline", async (phase) => {
 		let time = 0;
 		const result = await waitForBrowserExpectation({

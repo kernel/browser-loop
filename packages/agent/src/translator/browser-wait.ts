@@ -101,7 +101,6 @@ export async function waitForBrowserExpectation(runtime: BrowserWaitRuntime, opt
 		targetId = await beforeDeadline(() => runtime.selectTarget(options.tabId), remaining(), now);
 		if (expired()) return timedOut(started, now());
 		baseline = await runtime.observeTarget(targetId);
-		if (expired()) return timedOut(started, now());
 	} catch (error) {
 		if (error instanceof WaitDeadlineError) return timedOut(started, now());
 		return failedObservation(started, now(), error);
@@ -110,7 +109,7 @@ export async function waitForBrowserExpectation(runtime: BrowserWaitRuntime, opt
 	if (initial.reason === "stale_ref" && !("any" in options.expect)) {
 		return terminal("interrupted", "unverifiable", initial, initial, started, now(), initial.reason);
 	}
-	if (expired()) return timedOut(started, now());
+	if (expired()) return timedOut(started, now(), initial);
 	if (initial.truth === true) return terminal("satisfied", "preexisting", initial, initial, started, now());
 	const dialogs = runtime.dialogCount();
 	let final = initial;
@@ -173,9 +172,13 @@ function containsLocationExpectation(expectation: CuaBrowserExpectation): boolea
 	return expectation.type === "url" || expectation.type === "title";
 }
 
-function timedOut(started: number, ended: number): BrowserWaitForResult {
-	const evidence = { truth: undefined, details: [] };
-	return terminal("timed_out", "failed", evidence, evidence, started, ended);
+function timedOut(
+	started: number,
+	ended: number,
+	initial: BrowserExpectationEvidence = { truth: undefined, details: [] },
+	final: BrowserExpectationEvidence = initial,
+): BrowserWaitForResult {
+	return terminal("timed_out", "failed", initial, final, started, ended);
 }
 
 function terminal(status: BrowserWaitForResult["status"], evidence: BrowserWaitForResult["evidence"], initial: BrowserExpectationEvidence, final: BrowserExpectationEvidence, started: number, ended: number, reason?: BrowserWaitReason): BrowserWaitForResult {
