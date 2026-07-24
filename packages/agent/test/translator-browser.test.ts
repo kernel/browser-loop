@@ -784,6 +784,27 @@ describe("BrowserExecutor iframe stitching", () => {
 		return fake;
 	};
 
+	const importOopifRefWithoutOwner = async () => {
+		const source = setupOopif();
+		const mint = new BrowserExecutor(source.cdp);
+		await snapshotText(mint);
+		const state = mint.exportRefState();
+
+		const fake = createFakeCdp(OOPIF_PAGE);
+		fake.setIframeFrame(50, "FRAME-OOP");
+		fake.setSessionTree("session-oop", OOPIF_CHILD);
+		const executor = new BrowserExecutor(fake.cdp);
+		executor.importRefState(state);
+		// Simulate an OOPIF session attaching without a parent session id. The
+		// imported ref state must still identify its owning page for invalidation.
+		fake.emit({
+			method: "Target.attachedToTarget",
+			params: { sessionId: "session-oop", targetInfo: { targetId: "FRAME-OOP", type: "iframe" } },
+		});
+		expect([...refsOf(executor).keys()].sort()).toEqual(["e1", "e2", "e3"]);
+		return { executor, fake };
+	};
+
 	it("resolves an OOPIF ref's node through the child session but dispatches input on the page session", async () => {
 		const { cdp, sent } = setupOopif();
 		const executor = new BrowserExecutor(cdp);
@@ -871,6 +892,25 @@ describe("BrowserExecutor iframe stitching", () => {
 
 		emit({ method: "Page.frameNavigated", params: { frame: { id: "FRAME-INNER", parentId: "FRAME-OOP" } }, sessionId: "session-oop" });
 		await expect(executor.execute({ type: "browser_click", ref: "e3" } as CuaBrowserAction)).rejects.toThrow(/stale/);
+	});
+
+	it.each([
+		{
+			label: "Page.frameNavigated",
+			event: { method: "Page.frameNavigated", params: { frame: { id: "FRAME-OOP" } }, sessionId: "session-oop" },
+		},
+		{
+			label: "Page.frameDetached",
+			event: { method: "Page.frameDetached", params: { frameId: "FRAME-OOP", reason: "swap" }, sessionId: "session-oop" },
+		},
+		{
+			label: "Target.detachedFromTarget",
+			event: { method: "Target.detachedFromTarget", params: { sessionId: "session-oop" } },
+		},
+	] as const)("drops imported OOPIF refs when $label fires before owner mapping is known", async ({ event }) => {
+		const { fake, executor } = await importOopifRefWithoutOwner();
+		fake.emit(event);
+		expect([...refsOf(executor).keys()].sort()).toEqual(["e1", "e2"]);
 	});
 
 	it("finds elements inside stitched iframes", async () => {
