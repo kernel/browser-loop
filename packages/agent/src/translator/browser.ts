@@ -13,6 +13,11 @@ import {
 	type CuaBrowserAction,
 } from "@onkernel/cua-ai";
 import { CdpConnection, type CdpEventMessage } from "./cdp";
+import {
+	BrowserDocumentReconciler,
+	oopifFrameOffset,
+	type FrameTreeNode,
+} from "./browser-document-reconciliation";
 import { FrameCollectionError, frameCollectionError, isExpectedFrameCollectionError } from "./browser-frame-collection";
 import {
 	FRAME_ROLES,
@@ -34,6 +39,7 @@ import {
 	type RenderContext,
 } from "./browser-observation";
 import {
+	REF_STATE_VERSION,
 	RefGenerationLifecycle,
 	staleRefError,
 	type BrowserRefState,
@@ -83,7 +89,22 @@ export interface BrowserFindCandidate {
  * session so actions resolve through the right one, and each frame's refs
  * are invalidated independently when that frame navigates. Re-snapshotting
  * an unchanged page with the same params returns a short unchanged notice
- * instead of the full tree.
+ * instead of the full tree. Clicking/hovering an out-of-process iframe ref
+ * dispatches on the page session (where the Input domain lives) but shifts
+ * the frame-local box-model quads by the iframe owner's offset first, so the
+ * event lands on the intended element rather than the frame's origin.
+ *
+ * Refs persisted across invocations (see {@link exportRefState}) carry the
+ * `loaderId` of every ref-owning frame — the page target for main-frame refs,
+ * the child frame for same-process iframes and OOPIFs. On the next process the
+ * imported set is reconciled per frame against the live browser before any ref
+ * resolves: an unchanged frame keeps its refs, while a reload/navigation
+ * between invocations stales only the frames whose document changed — including
+ * an OOPIF-only navigation that left the main-frame loaderId untouched — since
+ * generation alone is process-local and cannot detect a change that committed
+ * after export. A ref-owning frame whose imported identity is missing or
+ * unusable (legacy or partial state) is staled rather than trusted, so it can
+ * never silently resolve against a different document with reused node ids.
  *
  * Native JavaScript dialogs are auto-handled so they never wedge the CDP
  * session: alert and beforeunload dialogs are accepted (so navigation can
@@ -97,6 +118,7 @@ export class BrowserExecutor {
 	private readonly frameSessions = new Map<string, string>();
 	private readonly frameOwners = new Map<string, string>();
 	private readonly frameTargets = new Set<string>();
+	private readonly documents: BrowserDocumentReconciler;
 	private readonly lastSnapshots = new Map<string, { key: string; shape: string }>();
 	private readonly selfNavigations = new Set<string>();
 	private readonly dialogNotes: string[] = [];
@@ -106,13 +128,14 @@ export class BrowserExecutor {
 
 	constructor(cdp: string | CdpConnection) {
 		this.cdp = typeof cdp === "string" ? new CdpConnection(cdp) : cdp;
+		this.documents = new BrowserDocumentReconciler(this.cdp, this.lifecycle, this.frameSessions);
 		this.cdp.onEvent((event) => this.handleCdpEvent(event));
 	}
 
 	private handleCdpEvent(event: CdpEventMessage): void {
 		switch (event.method) {
 			case "Page.frameNavigated": {
-				const frame = event.params.frame as { id?: string; parentId?: string } | undefined;
+				const frame = event.params.frame as { id?: string; parentId?: string; loaderId?: string } | undefined;
 				if (!event.sessionId || !frame) return;
 				const sessionTargetId = this.targetsBySession.get(event.sessionId);
 				if (!sessionTargetId) return;
@@ -120,14 +143,23 @@ export class BrowserExecutor {
 					// The OOPIF tree and any same-process descendants fetched through
 					// its session share the OOPIF generation key.
 					const owner = this.frameOwners.get(sessionTargetId);
-					if (owner) this.lifecycle.invalidateFrame(owner, sessionTargetId);
+					if (owner) {
+						this.lifecycle.invalidateFrame(owner, sessionTargetId);
+						if (frame.loaderId) this.lifecycle.recordDocument(sessionTargetId, owner, frame.loaderId);
+					}
 					return;
 				}
 				if (frame.parentId) {
-					if (frame.id) this.lifecycle.invalidateFrame(sessionTargetId, frame.id);
+					if (frame.id) {
+						this.lifecycle.invalidateFrame(sessionTargetId, frame.id);
+						if (frame.loaderId) this.lifecycle.recordDocument(frame.id, sessionTargetId, frame.loaderId);
+					}
 					return;
 				}
 				if (!this.selfNavigations.delete(sessionTargetId)) this.lifecycle.invalidateTarget(sessionTargetId);
+				// Record the committed document so it reflects the current generation,
+				// whether the navigation was ours or page-initiated.
+				if (frame.loaderId) this.lifecycle.recordDocument(sessionTargetId, sessionTargetId, frame.loaderId);
 				return;
 			}
 			case "Page.frameDetached": {
@@ -161,6 +193,7 @@ export class BrowserExecutor {
 				if (owner) this.frameOwners.set(targetInfo.targetId, owner);
 				this.frameTargets.add(targetInfo.targetId);
 				this.targetsBySession.set(sessionId, targetInfo.targetId);
+				this.documents.frameSessionAttached(targetInfo.targetId);
 				void this.cdp.send("Page.enable", {}, sessionId).catch(() => {});
 				return;
 			}
@@ -205,19 +238,27 @@ export class BrowserExecutor {
 
 	/** Snapshot the ref table for persistence across invocations; see {@link BrowserRefState}. */
 	exportRefState(): BrowserRefState {
+		const refFrames = new Set([...this.refs.values()].map((entry) => entry.frameId));
+		const documents = this.lifecycle.exportDocuments(refFrames);
 		return {
 			refCounter: this.refCounter,
 			...(this.activeTargetId ? { activeTargetId: this.activeTargetId } : {}),
 			generations: this.lifecycle.exportGenerations(),
+			...(documents.length ? { documents } : {}),
 			refs: [...this.refs].map(([ref, { sessionId: _sessionId, ...entry }]) => [ref, entry]),
 		};
 	}
 
 	/** Restore a ref table exported by a previous invocation against the same browser. */
 	importRefState(state: BrowserRefState): void {
+		if (state.version !== undefined && state.version > REF_STATE_VERSION) {
+			// A newer identity scheme we can't verify against; reject loudly rather
+			// than silently mis-parse it into trusted-looking refs.
+			throw new Error(`unsupported browser ref state version ${state.version}; this build understands up to ${REF_STATE_VERSION}`);
+		}
 		this.refCounter = Math.max(this.refCounter, state.refCounter);
 		this.activeTargetId = state.activeTargetId ?? this.activeTargetId;
-		this.lifecycle.importState(state.generations, state.refs, state.activeTargetId);
+		this.lifecycle.importState(state.generations, state.refs, state.activeTargetId, state.documents);
 	}
 
 	async execute(action: CuaBrowserAction): Promise<BatchReadResult[]> {
@@ -319,6 +360,7 @@ export class BrowserExecutor {
 	private async collectObservation(tabId: string | undefined, includeCursor: boolean): Promise<CollectedObservation> {
 		const targetId = await this.resolveTarget(tabId);
 		const pageSession = await this.attach(targetId);
+		const pageTree = await this.documents.capturePage(targetId, pageSession);
 		const before = (await this.cdp.pageTargets()).find((target) => target.targetId === targetId);
 		if (!before) throw new ObservationChangedError("Browser target disappeared during observation");
 
@@ -335,7 +377,7 @@ export class BrowserExecutor {
 				...(includeCursor ? { cursorIds: await this.cursorPointerIds(pageSession) } : {}),
 			};
 			const tree = this.frameStitch(nodes, rootCtx);
-			const { stitches, incompleteFrames } = await this.stitchFrames(nodes, targetId, pageSession, captures);
+			const { stitches, incompleteFrames } = await this.stitchFrames(nodes, targetId, pageSession, captures, pageTree);
 			const after = (await this.cdp.pageTargets()).find((target) => target.targetId === targetId);
 			if (!after || before.url !== after.url || before.title !== after.title) {
 				throw new ObservationChangedError("Browser target metadata changed during observation");
@@ -469,6 +511,7 @@ export class BrowserExecutor {
 		targetId: string,
 		pageSession: string,
 		captures: GenerationCapture[],
+		pageTree: FrameTreeNode | undefined,
 	): Promise<{ stitches: ReadonlyMap<number, FrameStitch>; incompleteFrames: readonly IncompleteFrame[] }> {
 		const stitches = new Map<number, FrameStitch>();
 		const incompleteFrames: IncompleteFrame[] = [];
@@ -520,6 +563,7 @@ export class BrowserExecutor {
 					throw frameCollectionError(backendNodeId, frameId, "building the accessibility index", error);
 				}
 				stitches.set(backendNodeId, stitch);
+				await this.documents.captureFrame(frameId, targetId, pageSession, pageTree);
 				captures.push(capture);
 				retained = true;
 			} catch (error) {
@@ -647,6 +691,10 @@ export class BrowserExecutor {
 
 	private async fill(action: CuaActionBrowserFill): Promise<void> {
 		const targetId = await this.resolveTarget(action.tab_id);
+		// Attach before resolving the ref (like click/hover) so any imported document
+		// identity is reconciled first; otherwise a document that changed across the
+		// process boundary would resolve against a reused backend node id.
+		await this.attach(targetId);
 		const entry = this.resolveRef(action.ref, targetId);
 		const session = await this.refSession(entry);
 		const objectId = await this.resolveObject(entry, action.ref, session);
@@ -668,6 +716,8 @@ export class BrowserExecutor {
 
 	private async scrollTo(action: CuaActionBrowserScrollTo): Promise<void> {
 		const targetId = await this.resolveTarget(action.tab_id);
+		// Reconcile the imported document before resolving the ref; see fill().
+		await this.attach(targetId);
 		const entry = this.resolveRef(action.ref, targetId);
 		await this.scrollIntoView(entry, action.ref, await this.refSession(entry));
 	}
@@ -803,9 +853,20 @@ export class BrowserExecutor {
 				refSession,
 			);
 			const quad = model.content;
-			// Box-model quads are main-viewport coordinates even through an OOPIF's
-			// session, so input always dispatches on the page target's session.
-			return { x: (quad[0]! + quad[4]!) / 2, y: (quad[1]! + quad[5]!) / 2, session };
+			let x = (quad[0]! + quad[4]!) / 2;
+			let y = (quad[1]! + quad[5]!) / 2;
+			// Input.dispatchMouseEvent lives on the tab target and hit-tests in
+			// top-level viewport coordinates, so it always dispatches on the page
+			// session. A cross-process OOPIF lays out in its own renderer, so its
+			// box-model quads are frame-local; shift them by the iframe owner's
+			// content-box origin before dispatching. Same-process and main-frame
+			// refs read through the page session and are already top-level.
+			if (refSession !== session) {
+				const offset = await oopifFrameOffset(this.cdp, entry.frameId, session);
+				x += offset.x;
+				y += offset.y;
+			}
+			return { x, y, session };
 		}
 		if (typeof action.x === "number" && typeof action.y === "number") return { x: action.x, y: action.y, session };
 		throw new Error("page target required: pass a ref or viewport coordinates");
@@ -945,8 +1006,11 @@ export class BrowserExecutor {
 		if (!this.targetsBySession.has(session)) {
 			this.targetsBySession.set(session, targetId);
 			await this.cdp.send("Page.enable", {}, session);
+			// setAutoAttach must run before reconcile so an imported OOPIF's session
+			// surfaces (via attachedToTarget) in time to read its own document.
 			await this.cdp.send("Target.setAutoAttach", { autoAttach: true, flatten: true, waitForDebuggerOnStart: false }, session);
 		}
+		await this.documents.reconcile(targetId, session);
 		return session;
 	}
 
