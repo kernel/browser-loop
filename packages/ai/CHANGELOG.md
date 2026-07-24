@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Fail locally when `computer_20260701` or `browser_20260701` is paired with
+  an Anthropic model that the live early-access API rejects. The verified
+  computer models are Claude Fable 5, Claude Opus 4.8, and Claude Sonnet 5;
+  the verified browser models are Claude Opus 4.8 and Claude Sonnet 5.
+- Carry each native tool's stop-on-first-failure result contract through
+  `CuaRuntimeSpec`, allowing cua-agent to skip unsafe remaining actions without
+  a provider conditional.
+- Add opt-in live integration coverage for the beta header, native declaration,
+  and pi-ai serialization path of both July 2026 tools.
+
 ## 0.7.0 - 2026-07-17
 
 - Added Moonshot Kimi K3 computer-use support: `moonshotai:kimi-k3`
@@ -47,8 +59,9 @@ Introduces action planes (modes) and Anthropic native computer-use tools.
   (`cuaToolNameForAction`), descriptions, schemas, and system prompts.
 - New `nativeTool` option drives Anthropic models through their native
   computer-use declarations: `computer_20260701` (computer mode, with
-  `enable_zoom`) and `browser_20260701` (browser mode) behind
-  `anthropic-beta: computer-use-2026-07-01`.
+  `enable_zoom`) behind `anthropic-beta: computer-use-2026-07-01`, and
+  `browser_20260701` (browser mode) behind
+  `anthropic-beta: browser-use-2026-07-01`.
 - JavaScript execution is on by default: `browser_evaluate` is part of the
   default browser/hybrid action sets, and native `browser_20260701`
   declarations default `enable_javascript_exec` to true (an explicit value on

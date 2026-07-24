@@ -54,11 +54,29 @@ interface NativeToolInfo {
 	provider: "anthropic";
 	betaHeader: string;
 	defaultName: string;
+	/** Model families verified against the live early-access API. */
+	supportedModelFamilies: readonly string[];
+	/** Required error result for actions skipped after an earlier action failed. */
+	skippedAfterFailureMessage: string;
 }
 
 const NATIVE_TOOL_INFO: Record<CuaNativeToolType, NativeToolInfo> = {
-	computer_20260701: { mode: "computer", provider: "anthropic", betaHeader: "computer-use-2026-07-01", defaultName: "computer" },
-	browser_20260701: { mode: "browser", provider: "anthropic", betaHeader: "browser-use-2026-07-01", defaultName: "browser" },
+	computer_20260701: {
+		mode: "computer",
+		provider: "anthropic",
+		betaHeader: "computer-use-2026-07-01",
+		defaultName: "computer",
+		supportedModelFamilies: ["claude-fable-5", "claude-opus-4-8", "claude-sonnet-5"],
+		skippedAfterFailureMessage: "Not executed: an earlier computer action in this turn failed.",
+	},
+	browser_20260701: {
+		mode: "browser",
+		provider: "anthropic",
+		betaHeader: "browser-use-2026-07-01",
+		defaultName: "browser",
+		supportedModelFamilies: ["claude-opus-4-8", "claude-sonnet-5"],
+		skippedAfterFailureMessage: "Not executed: an earlier action in this turn failed.",
+	},
 };
 
 /** The {@link CuaMode} a native tool requires. */
@@ -85,6 +103,8 @@ export interface ResolvedCuaNativeTool {
 	name: string;
 	/** Required `anthropic-beta` header value. */
 	betaHeader: string;
+	/** Error result required for later tool calls after the first failure in a turn. */
+	skippedAfterFailureMessage: string;
 	mode: CuaMode;
 }
 
@@ -101,6 +121,12 @@ export function resolveNativeTool(spec: CuaNativeToolSpec, model: Model<Api>, mo
 	if (model.provider !== info.provider) {
 		throw new Error(`native tool "${spec.type}" requires an ${info.provider} model paired with mode "${info.mode}"; got provider "${model.provider}"`);
 	}
+	if (!info.supportedModelFamilies.some((family) => isModelFamily(model.id, family))) {
+		throw new Error(
+			`native tool "${spec.type}" is an allowlisted Anthropic API beta and does not support model "${model.id}"; ` +
+				`supported model families: ${info.supportedModelFamilies.join(", ")}`,
+		);
+	}
 	if (mode !== info.mode) {
 		throw new Error(`native tool "${spec.type}" requires mode "${info.mode}"; got "${mode}"`);
 	}
@@ -110,6 +136,17 @@ export function resolveNativeTool(spec: CuaNativeToolSpec, model: Model<Api>, mo
 		declaration: { ...spec, name },
 		name,
 		betaHeader: info.betaHeader,
+		skippedAfterFailureMessage: info.skippedAfterFailureMessage,
 		mode,
 	};
+}
+
+function isModelFamily(modelId: string, family: string): boolean {
+	const id = modelId.toLowerCase();
+	if (id === family) return true;
+	if (!id.startsWith(`${family}-`)) return false;
+	return id
+		.slice(family.length + 1)
+		.split("-")
+		.every((segment) => /^\d+$/.test(segment));
 }

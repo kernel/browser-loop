@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Native Anthropic multi-action turns now stop after the first failed tool call.
+  Every remaining call in that assistant turn receives the provider-required
+  error result instead of executing against stale browser state. This applies
+  to both `CuaAgent` and `CuaAgentHarness` via provider-neutral runtime data.
+
 ## 0.7.0 - 2026-07-17
 
 - `CuaAgent` and `CuaAgentHarness` support Moonshot Kimi K3

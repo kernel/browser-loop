@@ -55,6 +55,18 @@ describe("mode/native-tool validation before provisioning", () => {
 		expect(provisionBrowser).not.toHaveBeenCalled();
 	});
 
+	it("rejects an ineligible Anthropic model without provisioning a browser", async () => {
+		await expect(
+			runActionCommand("url", [], flagsWith({
+				model: "anthropic:claude-opus-4-7",
+				nativeTool: "browser_20260701",
+			})),
+		).rejects.toThrow(
+			'native tool "browser_20260701" is an allowlisted Anthropic API beta and does not support model "claude-opus-4-7"',
+		);
+		expect(provisionBrowser).not.toHaveBeenCalled();
+	});
+
 	it("rejects an unsupported provider/mode pair without provisioning a browser", async () => {
 		await expect(
 			runActionCommand("url", [], flagsWith({

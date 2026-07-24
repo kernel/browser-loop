@@ -88,11 +88,11 @@ function createScriptedStream(texts: Array<string | undefined>, contexts?: Array
 	return { streamFn, calls: () => providerCalls };
 }
 
-function createModelsFromStream(streamFn: StreamFn) {
+function createModelsFromStream(streamFn: StreamFn, provider = "openai") {
 	const models = createCuaModels();
 	models.setProvider({
-		id: "openai",
-		name: "scripted openai",
+		id: provider,
+		name: `scripted ${provider}`,
 		auth: {
 			apiKey: {
 				name: "test key",
@@ -259,7 +259,7 @@ describe("CuaAgent", () => {
 			client,
 			nativeTool: { type: "browser_20260701" },
 			initialState: {
-				model: "anthropic:claude-opus-4-5",
+				model: "anthropic:claude-opus-4-8",
 			},
 		});
 		expect(agent.getMode()).toBe("browser");
@@ -509,6 +509,47 @@ describe("CuaAgent", () => {
 		const fedBack = contexts[1]!.messages.find((message) => message.role === "toolResult");
 		expect(fedBack, "second provider request should carry the tool result").toBeDefined();
 		expect(fedBack!.content.some((block) => block.type === "image" && block.mimeType === "image/png")).toBe(true);
+	});
+
+	it("stops a native multi-action turn after its first failed action", async () => {
+		const contexts: Context[] = [];
+		let providerCalls = 0;
+		const streamFn: StreamFn = (model, context) => {
+			contexts.push({ ...context, messages: structuredClone(context.messages) });
+			const stream = createAssistantMessageEventStream();
+			const message = createAssistantMessage(model);
+			if (providerCalls++ === 0) {
+				message.content = [
+					{ type: "toolCall", id: "tool-1", name: "browser", arguments: { action: "warp" } },
+					{ type: "toolCall", id: "tool-2", name: "browser", arguments: { action: "navigate", url: "https://example.com" } },
+				];
+				message.stopReason = "toolUse";
+			} else {
+				message.content = [{ type: "text", text: "done" }];
+			}
+			stream.push({ type: "start", partial: message });
+			stream.push({ type: "done", reason: message.stopReason, message });
+			stream.end(message);
+			return stream;
+		};
+		const agent = new CuaAgent({
+			browser,
+			client,
+			streamFn,
+			nativeTool: { type: "browser_20260701" },
+			initialState: { model: "anthropic:claude-opus-4-8" },
+		});
+
+		await agent.prompt("run two browser actions");
+
+		const results = contexts[1]!.messages.filter((message) => message.role === "toolResult");
+		expect(results).toHaveLength(2);
+		expect(results[0]).toMatchObject({ toolCallId: "tool-1", isError: true });
+		expect(results[1]).toMatchObject({
+			toolCallId: "tool-2",
+			isError: true,
+			content: [{ type: "text", text: "Not executed: an earlier action in this turn failed." }],
+		});
 	});
 
 	it("applies screenshot projection after a caller context transform", async () => {
@@ -1158,6 +1199,48 @@ describe("CuaAgentHarness", () => {
 
 		await harness.prompt("task");
 		expect(calls).toBe(2);
+	});
+
+	it("stops a native harness turn after its first failed action", async () => {
+		const contexts: Context[] = [];
+		let calls = 0;
+		const streamFn: StreamFn = (model, context) => {
+			contexts.push({ ...context, messages: structuredClone(context.messages) });
+			const stream = createAssistantMessageEventStream();
+			const message = createAssistantMessage(model);
+			if (calls++ === 0) {
+				message.content = [
+					{ type: "toolCall", id: "tool-1", name: "computer", arguments: { action: "warp" } },
+					{ type: "toolCall", id: "tool-2", name: "computer", arguments: { action: "screenshot" } },
+				];
+				message.stopReason = "toolUse";
+			} else {
+				message.content = [{ type: "text", text: "done" }];
+			}
+			stream.push({ type: "start", partial: message });
+			stream.push({ type: "done", reason: message.stopReason, message });
+			stream.end(message);
+			return stream;
+		};
+		const harness = new CuaAgentHarness({
+			...(await createHarnessServices()),
+			browser,
+			client,
+			model: "anthropic:claude-opus-4-8",
+			models: createModelsFromStream(streamFn, "anthropic"),
+			nativeTool: { type: "computer_20260701" },
+		});
+
+		await harness.prompt("run two computer actions");
+
+		const results = contexts[1]!.messages.filter((message) => message.role === "toolResult");
+		expect(results).toHaveLength(2);
+		expect(results[0]).toMatchObject({ toolCallId: "tool-1", isError: true });
+		expect(results[1]).toMatchObject({
+			toolCallId: "tool-2",
+			isError: true,
+			content: [{ type: "text", text: "Not executed: an earlier computer action in this turn failed." }],
+		});
 	});
 
 	it.each([[-1], [1.5], [Number.POSITIVE_INFINITY], [Number.NaN]])(

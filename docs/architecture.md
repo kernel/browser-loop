@@ -127,17 +127,24 @@ The mode is set at construction (`mode` on `CuaAgent`/`CuaAgentHarness`,
 TUI's `/mode` command), which refreshes CUA-owned tools and the default
 system prompt.
 
-**Native tools.** `resolveCuaRuntimeSpec(model, { nativeTool })` drives an
-Anthropic model through its provider-defined tool schema instead of the
-canonical function tools: `computer_20260701` pairs with `computer` mode and
-`browser_20260701` with `browser` mode (mismatches throw, mirroring the API's
-own rejection of mixed frames). The spec routes the model to a CUA-owned api
-id; the registered `anthropic` provider dispatches it to pi's builtin
-`anthropic-messages` transport with the tool's `anthropic-beta` header, an
-`onPayload` hook swaps the placeholder tool for the native declaration, and
-`providers/anthropic/native.ts` maps incoming `tool_use` inputs onto the same
-canonical actions the mode uses — so canonical vs native is purely a wire
-format difference over one execution path.
+**Native tools.** `resolveCuaRuntimeSpec(model, { nativeTool })` can drive an
+Anthropic model through an allowlisted, Anthropic-API-only early-access tool
+schema instead of the canonical function tools: `computer_20260701` pairs with
+`computer` mode and `browser_20260701` with `browser` mode. Model and mode
+mismatches throw locally before a browser is provisioned. The live-verified
+model families are `claude-fable-5`, `claude-opus-4-8`, and `claude-sonnet-5`
+for `computer_20260701`; only `claude-opus-4-8` and `claude-sonnet-5` support
+`browser_20260701`. The API key's organization must also have the matching
+beta entitlement.
+
+The spec routes the model to a CUA-owned api id; the registered `anthropic`
+provider dispatches it to pi's builtin `anthropic-messages` transport with the
+tool-specific `anthropic-beta` header, an `onPayload` hook swaps the placeholder
+tool for the native declaration, and `providers/anthropic/native.ts` maps
+incoming `tool_use` inputs onto the same canonical actions the mode uses. The
+runtime spec also carries the native tool's stop-on-first-failure result text,
+which cua-agent applies without a provider conditional. Canonical vs native is
+therefore a wire-format and turn-contract difference over one execution path.
 
 ## Layers
 
@@ -353,7 +360,6 @@ flowchart LR
 
 | Feature                                            | Status   | Notes                                             |
 | -------------------------------------------------- | -------- | ------------------------------------------------- |
-| Anthropic `hold_key` / `zoom`                      | deferred | Translator returns errors so the model adapts     |
 | `--local` Docker-backed browser                    | deferred | Remote Kernel cloud only                          |
 | pi-tui `SelectList`-based session picker for `-r`  | deferred | Plain readline picker today                       |
 | Auto-compaction in the harness run loop            | deferred | Manual `/compact` from the TUI; `shouldCompact` + `estimateContextTokens` are available from cua-agent re-exports for a future auto-trigger |
