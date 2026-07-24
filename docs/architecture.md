@@ -145,8 +145,6 @@ incoming `tool_use` inputs onto the same canonical actions the mode uses. The
 runtime spec also carries the native tool's stop-on-first-failure result text,
 which cua-agent applies without a provider conditional. Canonical vs native is
 therefore a wire-format and turn-contract difference over one execution path.
-See [the July 2026 investigation](anthropic-native-tools-investigation.md)
-for the compatibility matrix and live evidence.
 
 ## Layers
 
