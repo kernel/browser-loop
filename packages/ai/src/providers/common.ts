@@ -373,6 +373,8 @@ export interface CuaRuntimeSpec {
 	mode: CuaMode;
 	/** Present when the model is driven through a provider-native tool declaration. */
 	nativeTool?: ResolvedCuaNativeTool;
+	/** When set, stop executing a turn's remaining tool calls after its first failure and return this error text for each. */
+	stopOnFirstToolFailureMessage?: string;
 	/** Provider-facing CUA tool definitions used for model requests. */
 	toolDefinitions: Tool[];
 	/** Local execution adapters that turn provider tool calls into canonical CUA actions. */

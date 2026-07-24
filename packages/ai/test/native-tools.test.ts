@@ -25,11 +25,11 @@ describe("native tool validation", () => {
 	});
 
 	it("rejects a native tool with a conflicting mode", () => {
-		expect(() => resolveCuaRuntimeSpec("anthropic:claude-opus-4-5", { mode: "browser", nativeTool: { type: "computer_20260701" } })).toThrow(
+		expect(() => resolveCuaRuntimeSpec("anthropic:claude-opus-4-8", { mode: "browser", nativeTool: { type: "computer_20260701" } })).toThrow(
 			/requires mode "computer"/,
 		);
 		expect(() =>
-			resolveCuaRuntimeSpec("anthropic:claude-opus-4-5", { mode: "hybrid", nativeTool: { type: "browser_20260701" } }),
+			resolveCuaRuntimeSpec("anthropic:claude-opus-4-8", { mode: "hybrid", nativeTool: { type: "browser_20260701" } }),
 		).toThrow(/requires mode "browser"/);
 	});
 
@@ -38,38 +38,58 @@ describe("native tool validation", () => {
 			/requires an anthropic model paired with mode "computer"/,
 		);
 	});
+
+	it("fails locally when the model is ineligible for the early-access tool version", () => {
+		expect(() => resolveCuaRuntimeSpec("anthropic:claude-opus-4-7", { nativeTool: { type: "computer_20260701" } })).toThrow(
+			/native tool "computer_20260701" is an allowlisted Anthropic API beta.*claude-opus-4-8/s,
+		);
+		expect(() => resolveCuaRuntimeSpec("anthropic:claude-fable-5", { nativeTool: { type: "browser_20260701" } })).toThrow(
+			/supported model families: claude-opus-4-8, claude-sonnet-5/,
+		);
+	});
+
+	it("accepts each live-verified native-tool model family", () => {
+		for (const model of ["claude-fable-5", "claude-opus-4-8", "claude-sonnet-5"] as const) {
+			expect(() => resolveCuaRuntimeSpec(`anthropic:${model}`, { nativeTool: { type: "computer_20260701" } })).not.toThrow();
+		}
+		for (const model of ["claude-opus-4-8", "claude-sonnet-5"] as const) {
+			expect(() => resolveCuaRuntimeSpec(`anthropic:${model}`, { nativeTool: { type: "browser_20260701" } })).not.toThrow();
+		}
+	});
 });
 
 describe("native runtime specs", () => {
 	it("routes computer_20260701 to the native api with a single placeholder tool", () => {
-		const spec = resolveCuaRuntimeSpec("anthropic:claude-opus-4-5", { nativeTool: { type: "computer_20260701", enable_zoom: true } });
+		const spec = resolveCuaRuntimeSpec("anthropic:claude-opus-4-8", { nativeTool: { type: "computer_20260701", enable_zoom: true } });
 		expect(spec.mode).toBe("computer");
 		expect(spec.model.api).toBe(ANTHROPIC_NATIVE_COMPUTER_MESSAGES_API);
 		expect(spec.nativeTool?.betaHeader).toBe("computer-use-2026-07-01");
+		expect(spec.stopOnFirstToolFailureMessage).toBe("Not executed: an earlier computer action in this turn failed.");
 		expect(spec.toolDefinitions.map((tool) => tool.name)).toEqual(["computer"]);
 	});
 
 	it("routes browser_20260701 to the native api under the default name", () => {
-		const spec = resolveCuaRuntimeSpec("anthropic:claude-opus-4-5", { nativeTool: { type: "browser_20260701" } });
+		const spec = resolveCuaRuntimeSpec("anthropic:claude-opus-4-8", { nativeTool: { type: "browser_20260701" } });
 		expect(spec.mode).toBe("browser");
 		expect(spec.model.api).toBe(ANTHROPIC_NATIVE_BROWSER_MESSAGES_API);
+		expect(spec.stopOnFirstToolFailureMessage).toBe("Not executed: an earlier action in this turn failed.");
 		expect(spec.toolDefinitions.map((tool) => tool.name)).toEqual(["browser"]);
 	});
 
 	it("enables javascript exec on the native browser declaration unless the spec is explicit", () => {
-		const defaulted = resolveCuaRuntimeSpec("anthropic:claude-opus-4-5", {
+		const defaulted = resolveCuaRuntimeSpec("anthropic:claude-opus-4-8", {
 			nativeTool: { type: "browser_20260701" },
 		});
 		expect(defaulted.nativeTool?.declaration.enable_javascript_exec).toBe(true);
 
-		const explicit = resolveCuaRuntimeSpec("anthropic:claude-opus-4-5", {
+		const explicit = resolveCuaRuntimeSpec("anthropic:claude-opus-4-8", {
 			nativeTool: { type: "browser_20260701", enable_javascript_exec: false },
 		});
 		expect(explicit.nativeTool?.declaration.enable_javascript_exec).toBe(false);
 	});
 
 	it("swaps the placeholder tool for the native declaration in the payload", async () => {
-		const spec = resolveCuaRuntimeSpec("anthropic:claude-opus-4-5", { nativeTool: { type: "computer_20260701", enable_zoom: true } });
+		const spec = resolveCuaRuntimeSpec("anthropic:claude-opus-4-8", { nativeTool: { type: "computer_20260701", enable_zoom: true } });
 		const payload = {
 			tools: [
 				{ name: "computer", description: "placeholder", input_schema: {} },
@@ -168,10 +188,11 @@ describe("browser_20260701 action mapping", () => {
 
 describe("native tool executors", () => {
 	it("translate native tool calls through the runtime spec executors", () => {
-		const spec = resolveCuaRuntimeSpec("anthropic:claude-opus-4-5", { nativeTool: { type: "browser_20260701" } });
+		const spec = resolveCuaRuntimeSpec("anthropic:claude-opus-4-8", { nativeTool: { type: "browser_20260701" } });
 		const executor = spec.toolExecutors[0]!;
 		const actions: CuaAction[] = executor.toActions({ action: "left_click", target: { type: "ref", ref: "e3" } });
 		expect(actions).toEqual([{ type: "browser_click", ref: "e3" }]);
+		expect(() => executor.toActions({})).toThrow(/expected an object with an "action" field/);
 	});
 
 	it("exports the anthropic namespace surface", () => {

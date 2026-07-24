@@ -65,6 +65,7 @@ export function resolveCuaRuntimeSpec(input: CuaRuntimeSpecInput, options: CuaRu
 			provider,
 			mode,
 			nativeTool,
+			stopOnFirstToolFailureMessage: nativeTool.skippedAfterFailureMessage,
 			toolDefinitions: executors.map((executor) => executor.definition),
 			toolExecutors: executors,
 			defaultSystemPrompt: mod.buildSystemPrompt({ mode }),

@@ -255,6 +255,10 @@ class CuaRuntimeController {
 		return this.runtimeSpec.mode;
 	}
 
+	get stopOnFirstToolFailureMessage(): string | undefined {
+		return this.runtimeSpec.stopOnFirstToolFailureMessage;
+	}
+
 	setMode(mode: CuaMode): void {
 		if (mode === this.runtimeSpec.mode) return;
 		this.beginSwitch(this.resolveSpec(this.runtimeSpec.model, mode));
@@ -509,9 +513,15 @@ export class CuaAgent extends Agent {
 			};
 			return retryingStream(model, context, optionsWithCuaRuntime);
 		};
+		const guardedToolHooks = stopToolTurnAfterFailure(
+			runtime.stopOnFirstToolFailureMessage,
+			agentOptions.beforeToolCall,
+			agentOptions.afterToolCall,
+		);
 
 		super({
 			...agentOptions,
+			...guardedToolHooks,
 			getApiKey: agentOptions.getApiKey ?? getCuaEnvApiKey,
 			streamFn: wrappedStreamFn,
 			transformContext: async (messages, signal) =>
@@ -654,6 +664,8 @@ export class CuaAgentHarness<
 	private requestedActiveToolNames?: string[];
 	private emptyResponseRecoveryAttempts = 0;
 	private hasPendingActiveQueue = false;
+	private toolTurnFailed = false;
+	private removeToolFailureGuard?: () => void;
 
 	constructor(options: CuaAgentHarnessOptions<TSkill, TPromptTemplate>) {
 		const {
@@ -705,6 +717,20 @@ export class CuaAgentHarness<
 
 		this.runtime = runtime;
 		this.requestedActiveToolNames = activeToolNames;
+		if (runtime.stopOnFirstToolFailureMessage) {
+			this.installToolFailureGuard(runtime.stopOnFirstToolFailureMessage);
+			this.subscribe((event) => {
+				if (event.type === "message_end" && event.message.role === "assistant") {
+					this.toolTurnFailed = false;
+					// Harness hooks are last-result-wins. Reinsert the guard after caller
+					// hooks at the start of each assistant tool turn so it cannot be
+					// accidentally overridden once a prior action has failed.
+					this.installToolFailureGuard(runtime.stopOnFirstToolFailureMessage!);
+				} else if (event.type === "tool_execution_end" && event.isError) {
+					this.toolTurnFailed = true;
+				}
+			});
+		}
 		if (recovery && recovery.maxAttempts > 0) {
 			this.on("before_agent_start", () => {
 				this.emptyResponseRecoveryAttempts = 0;
@@ -725,6 +751,13 @@ export class CuaAgentHarness<
 			if (!onPayload) return { payload };
 			return { payload: (await onPayload(payload, model)) ?? payload };
 		});
+	}
+
+	private installToolFailureGuard(message: string): void {
+		this.removeToolFailureGuard?.();
+		this.removeToolFailureGuard = this.on("tool_call", () =>
+			this.toolTurnFailed ? { block: true, reason: message } : undefined,
+		);
 	}
 
 	private async recoverFromEmptyResponse(
@@ -807,5 +840,38 @@ function composeOnPayload(first: AgentOptions["onPayload"], second: AgentOptions
 	return async (payload, modelRef) => {
 		const afterFirst = await first(payload, modelRef);
 		return second(afterFirst ?? payload, modelRef);
+	};
+}
+
+function stopToolTurnAfterFailure(
+	message: string | undefined,
+	before: AgentOptions["beforeToolCall"],
+	after: AgentOptions["afterToolCall"],
+): Pick<AgentOptions, "beforeToolCall" | "afterToolCall"> {
+	if (!message) return { beforeToolCall: before, afterToolCall: after };
+	const failedTurns = new WeakSet<object>();
+
+	return {
+		beforeToolCall: async (context, signal) => {
+			if (failedTurns.has(context.assistantMessage)) return { block: true, reason: message };
+			try {
+				const result = await before?.(context, signal);
+				if (result?.block) failedTurns.add(context.assistantMessage);
+				return result;
+			} catch (error) {
+				failedTurns.add(context.assistantMessage);
+				throw error;
+			}
+		},
+		afterToolCall: async (context, signal) => {
+			try {
+				const result = await after?.(context, signal);
+				if (result?.isError ?? context.isError) failedTurns.add(context.assistantMessage);
+				return result;
+			} catch (error) {
+				failedTurns.add(context.assistantMessage);
+				throw error;
+			}
+		},
 	};
 }

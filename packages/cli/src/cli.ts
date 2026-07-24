@@ -72,9 +72,11 @@ Options:
                                  computer: OS-level input only. browser: CDP page tools
                                  (snapshot, find, click-by-ref, navigate, tabs).
                                  hybrid: both, deduplicated (computer_* + browser_* tools).
-      --native-tool <type>       Drive an Anthropic model through its native tool schema:
-                                 computer_20260701 (requires --mode computer) or
-                                 browser_20260701 (requires --mode browser)
+      --native-tool <type>       Drive an entitled Anthropic API key through an early-access
+                                 native schema. computer_20260701 requires --mode computer
+                                 and claude-fable-5, claude-opus-4-8, or claude-sonnet-5.
+                                 browser_20260701 requires --mode browser and
+                                 claude-opus-4-8 or claude-sonnet-5.
       --out <file|->             Output file for screenshot subcommand
       --filter <interactive>     Restrict \`cua snapshot\` to interactive elements
   -o, --output <fmt>             Output format for --print: text (default) | jsonl

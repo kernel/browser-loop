@@ -31,7 +31,7 @@ export function withAnthropicBetaHeader<T extends StreamOptions>(options: T | un
 // The native tool's input schema is Anthropic-defined and validated
 // server-side; the local placeholder schema stays permissive and the
 // executor validates during mapping.
-const NativeActionSchema = Type.Object({ action: Type.String() }, { additionalProperties: true });
+const NativeActionSchema = Type.Object({ action: Type.Optional(Type.String()) }, { additionalProperties: true });
 
 /**
  * Build the single execution adapter for a native Anthropic tool: tool calls
