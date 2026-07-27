@@ -102,7 +102,7 @@ export async function runBrowserAct(action: CuaActionBrowserAct, runtime: Browse
 						deadline,
 					);
 					expectation = expectationEvidence(waitResult);
-					if (waitResult.status === "timed_out") timeout = deadline.reason;
+					if (waitResult.status === "timed_out" && expectation.status !== "failed") timeout = deadline.reason;
 				}
 				if (!timeout) {
 					after = await beforeDeadline(() => runtime.observe(action.tab_id), deadline);

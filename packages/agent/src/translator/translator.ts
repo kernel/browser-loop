@@ -140,7 +140,7 @@ export class InternalComputerTranslator {
 				const stopped = reads.some((read) =>
 					read.type === "browser_wait_for"
 						? read.result.status !== "satisfied"
-						: read.type === "browser_act" && read.result.stop_reason !== undefined,
+						: read.type === "browser_act" && read.result.stop_reason !== undefined && read.result.outcome !== "worked",
 				);
 				if (stopped) {
 					const skippedActions = actions.length - index - 1;

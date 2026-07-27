@@ -113,7 +113,7 @@ describe("browser_act orchestration", () => {
 	it.each([
 		["newly_verified", "worked", undefined, "not_matched", "matched"],
 		["preexisting", "unknown", "control_flow", "matched", "matched"],
-		["failed", "didnt", "global_timeout", "not_matched", "not_matched"],
+		["failed", "didnt", "expectation_failed", "not_matched", "not_matched"],
 		["unverifiable", "unknown", "control_flow", "not_matched", "unknown"],
 	] as const)("maps %s evidence to an honest %s outcome", async (evidence, outcome, stopReason, before, after) => {
 		const states = [observation("before"), observation("before"), observation("after"), observation("after")];
@@ -170,7 +170,7 @@ describe("browser_act orchestration", () => {
 			{ type: "click", ref: "e1", expect: { type: "url", contains: "before" } },
 			{ type: "type", text: "no" },
 		] }, rt);
-		expect(result).toMatchObject({ outcome: "didnt", stopped_at: 0, stop_reason: "global_timeout", steps: [{ expectation: { status: "failed", before: "matched", after: "not_matched" } }] });
+		expect(result).toMatchObject({ outcome: "didnt", stopped_at: 0, stop_reason: "expectation_failed", steps: [{ expectation: { status: "failed", before: "matched", after: "not_matched" } }] });
 		expect(rt.dispatched).toEqual(["click"]);
 	});
 
@@ -184,7 +184,7 @@ describe("browser_act orchestration", () => {
 	it("does not dispatch later steps after a failed expectation", async () => {
 		const rt = runtime([observation("before"), observation("before"), observation("after"), observation("after")], [waitResult("failed")]);
 		const result = await runBrowserAct({ type: "browser_act", steps: [{ type: "click", ref: "e1", expect: { type: "text", text: "Missing" } }, { type: "type", text: "no" }] }, rt);
-		expect(result).toMatchObject({ outcome: "didnt", stopped_at: 0, stop_reason: "global_timeout" });
+		expect(result).toMatchObject({ outcome: "didnt", stopped_at: 0, stop_reason: "expectation_failed" });
 		expect(rt.dispatched).toEqual(["click"]);
 	});
 
@@ -433,7 +433,7 @@ describe("browser_act orchestration", () => {
 		const result = await runBrowserAct({ type: "browser_act", steps: [{ type: "click", ref: "e1", expect: { type: "text", text: "Missing" } }] }, runtime([
 			observation("before"), observation("before"), observation("after"),
 		], [waitResult("failed")], { failObservationAt: [3, 4, 5] }));
-		expect(result).toMatchObject({ outcome: "didnt", stop_reason: "global_timeout", successor: { status: "unavailable" } });
+		expect(result).toMatchObject({ outcome: "didnt", stop_reason: "expectation_failed", successor: { status: "unavailable" } });
 	});
 
 	it("preserves a verified outcome when successor collection fails", async () => {
@@ -495,6 +495,21 @@ describe("browser_act orchestration", () => {
 		const result = await translator.executeBatch([{ type: "browser_act", steps: [{ type: "wait" }] }, { type: "browser_text" }]);
 		expect(executed).toEqual(["browser_act"]);
 		expect(result.skippedActions).toBe(1);
+	});
+
+	it("continues a mixed batch after a worked plan with diagnostic stop reason", async () => {
+		const { client } = createClient();
+		const executed: string[] = [];
+		const executor = { execute: async (action: CuaBrowserAction) => {
+			executed.push(action.type);
+			return action.type === "browser_act"
+				? [{ type: "browser_act", result: { outcome: "worked", steps: [], stopped_at: 0, stop_reason: "navigation", successor: { status: "observed", text: "done", url: "https://example.test", title: "done", diff: { changed: false, added: [], removed: [] } } } } as BatchReadResult]
+				: [];
+		} } as unknown as BrowserExecutor;
+		const translator = new InternalComputerTranslator({ browser, client, createBrowserExecutor: () => executor });
+		const result = await translator.executeBatch([{ type: "browser_act", steps: [{ type: "wait" }] }, { type: "browser_text" }]);
+		expect(executed).toEqual(["browser_act", "browser_text"]);
+		expect(result.skippedActions).toBeUndefined();
 	});
 });
 
