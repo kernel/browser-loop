@@ -478,6 +478,16 @@ describe("browser_act orchestration", () => {
 		expect(result).toMatchObject({ outcome: "unknown", stop_reason: "action_failed", steps: [{ outcome: "unknown", expectation: { status: "newly_verified" } }], successor: { status: "observed" } });
 	});
 
+	it("formats stop_reason even when stopped_at is absent", () => {
+		const result = {
+			outcome: "unknown",
+			steps: [],
+			stop_reason: "control_flow",
+			successor: { status: "observed", text: "stable", url: "u", title: "t", diff: { changed: false, added: [], removed: [] } },
+		} satisfies BrowserActResult;
+		expect(formatBrowserActResult(result)).toContain("stop_reason: control_flow");
+	});
+
 	it("bounds formatted diff output while preserving the structured diff", () => {
 		const added = Array.from({ length: 250 }, (_, index) => ({ line: `line ${index}`, count: 1 }));
 		const result = { outcome: "unknown", steps: [], successor: { status: "observed", text: "successor", url: "u", title: "t", diff: { changed: true, added, removed: [] } } } satisfies BrowserActResult;

@@ -307,6 +307,7 @@ function formatBrowserWaitResult(result: BrowserWaitForResult): string {
 export function formatBrowserActResult(result: BrowserActResult): string {
 	const lines = [`browser_act: ${result.outcome}`];
 	if (result.stopped_at !== undefined) lines.push(`stopped_at: ${result.stopped_at} (${result.stop_reason ?? "unknown"})`);
+	else if (result.stop_reason !== undefined) lines.push(`stop_reason: ${result.stop_reason}`);
 	for (const step of result.steps) {
 		lines.push(`step ${step.index} ${step.type}: ${step.outcome} — ${step.diagnostics.join("; ")}`);
 		for (const diagnostic of step.expectation?.diagnostics ?? []) lines.push(`  ${diagnostic}`);
