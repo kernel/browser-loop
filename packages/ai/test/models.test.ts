@@ -7,11 +7,12 @@ import {
 	findCuaAnnotation,
 	formatCuaModelRef,
 	getCuaModel,
+	GOOGLE_CUA_INTERACTIONS_API,
 	listCuaModels,
-	meta,
-	openai,
+	META_RESPONSES_API,
+	OPENAI_CUA_RESPONSES_API,
 	parseCuaModelRef,
-	xai,
+	XAI_CUA_RESPONSES_API,
 } from "../src/index";
 
 describe("CUA model refs", () => {
@@ -44,6 +45,7 @@ describe("CUA model refs", () => {
 
 	it("lists curated model refs without a default", () => {
 		const models = listCuaModels();
+		expect(models.some((model) => model.ref === "openai:gpt-5.6-sol")).toBe(true);
 		expect(models.some((model) => model.ref === "openai:gpt-5.5")).toBe(true);
 		expect(models.some((model) => model.ref === "anthropic:claude-opus-5")).toBe(true);
 		expect(models.every((model) => model.ref.includes(":"))).toBe(true);
@@ -70,7 +72,7 @@ describe("CUA model refs", () => {
 
 		const muse = getCuaModel("meta:muse-spark-1.1");
 		expect(muse.provider).toBe("meta");
-		expect(muse.api).toBe(meta.META_RESPONSES_API);
+		expect(muse.api).toBe(META_RESPONSES_API);
 		expect(muse.baseUrl).toBe("https://api.meta.ai/v1");
 		expect(muse.contextWindow).toBe(1_048_576);
 		expect(muse.maxTokens).toBe(128_000);
@@ -81,7 +83,7 @@ describe("CUA model refs", () => {
 		expect(cuaOverrideModels("xai")).toEqual([]);
 		const grok = getCuaModel("xai:grok-4.5");
 		expect(grok.provider).toBe("xai");
-		expect(grok.api).toBe(xai.XAI_CUA_RESPONSES_API);
+		expect(grok.api).toBe(XAI_CUA_RESPONSES_API);
 		expect(grok.baseUrl).toBe("https://api.x.ai/v1");
 		expect(grok.contextWindow).toBe(500_000);
 		expect(grok.maxTokens).toBe(500_000);
@@ -118,10 +120,12 @@ describe("CUA model refs", () => {
 	it("routes Responses models to provider-specific threading APIs", () => {
 		// Registry models carry pi-ai's builtin "openai-responses" api and must
 		// be routed to provider-specific previous_response_id transports.
-		expect(getCuaModel("openai:gpt-5.5").api).toBe(openai.OPENAI_CUA_RESPONSES_API);
-		expect(getCuaModel("openai:gpt-5.4-mini").api).toBe(openai.OPENAI_CUA_RESPONSES_API);
-		expect(getCuaModel("meta:muse-spark-1.1").api).toBe(meta.META_RESPONSES_API);
-		expect(getCuaModel("xai:grok-4.5").api).toBe(xai.XAI_CUA_RESPONSES_API);
+		expect(getCuaModel("openai:gpt-5.6-sol").api).toBe(OPENAI_CUA_RESPONSES_API);
+		expect(getCuaModel("openai:gpt-5.5").api).toBe(OPENAI_CUA_RESPONSES_API);
+		expect(getCuaModel("openai:gpt-5.4-mini").api).toBe(OPENAI_CUA_RESPONSES_API);
+		expect(getCuaModel("google:gemini-3-flash-preview").api).toBe(GOOGLE_CUA_INTERACTIONS_API);
+		expect(getCuaModel("meta:muse-spark-1.1").api).toBe(META_RESPONSES_API);
+		expect(getCuaModel("xai:grok-4.5").api).toBe(XAI_CUA_RESPONSES_API);
 	});
 
 	it("rejects supported model IDs that are not in pi-ai or overrides", () => {
@@ -176,6 +180,8 @@ describe("CUA support annotations", () => {
 	});
 
 	it("matches exact-id annotations", () => {
+		expect(findCuaAnnotation("openai", "gpt-5.6-sol")?.match).toEqual({ kind: "exact", id: "gpt-5.6-sol" });
+		expect(findCuaAnnotation("openai", "gpt-5.6-sol-20260728")).toBeUndefined();
 		expect(findCuaAnnotation("google", "gemini-3-flash-preview")).toBeDefined();
 		expect(findCuaAnnotation("meta", "muse-spark-1.1")).toBeDefined();
 		expect(findCuaAnnotation("xai", "grok-4.5")).toBeDefined();

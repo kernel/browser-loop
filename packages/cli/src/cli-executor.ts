@@ -3,7 +3,7 @@ import { writeFile } from "node:fs/promises";
 import { stderr, stdout } from "node:process";
 import { emitCompact, type RunActionResult } from "./action/harness-runner";
 import { exitCodeFor, type ActionResult, type DeterministicActionType } from "./action/result";
-import { parseMode, parseNativeTool, provisionForFlags, requireKernelApiKey, type HarnessCliFlags } from "./cli-harness";
+import { provisionForFlags, requireKernelApiKey, type HarnessCliFlags } from "./cli-harness";
 import { readNamedSessionRefs, writeNamedSessionRefs } from "./harness-named-sessions";
 import { captureScreenshot, type CuaBrowserHandle } from "./harness-browser";
 
@@ -171,10 +171,6 @@ export async function runDeterministicCommand(
 	flags: HarnessCliFlags,
 ): Promise<number> {
 	const req = parseDeterministicArgs(action, rest, flags);
-	// Deterministic commands ignore the runtime mode, but an invalid value is
-	// still a usage error, same as the harness-backed entry points.
-	parseMode(flags.mode);
-	parseNativeTool(flags.nativeTool);
 	const { apiKey, baseUrl } = requireKernelApiKey();
 	const provisioned = await provisionForFlags(flags, { kernelApiKey: apiKey, kernelBaseUrl: baseUrl });
 	const name = flags.namedSession;

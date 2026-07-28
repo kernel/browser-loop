@@ -7,12 +7,9 @@ import {
 	type Skill,
 } from "@onkernel/cua-agent";
 import {
-	type CuaMode,
 	type CuaModelRef,
-	type CuaNativeToolSpec,
 	parseCuaModelRef,
 	requireCuaEnvApiKey,
-	resolveCuaRuntimeSpec,
 } from "@onkernel/cua-ai";
 import { parseArgs } from "node:util";
 import { stderr, stdout } from "node:process";
@@ -22,7 +19,7 @@ import {
 	type ModelActionType,
 } from "./action/prompts";
 import { runAction, emitCompact } from "./action/harness-runner";
-import { buildCuaHarness } from "./harness";
+import { buildCuaHarness, defaultInteractionTools } from "./harness";
 import { provisionBrowser } from "./harness-browser";
 import { DEFAULT_CUA_MODEL_REF, listSupportedModels, resolveCuaModelRef } from "./harness-models";
 import {
@@ -181,9 +178,6 @@ export interface HarnessCliFlags {
 	debugTui: boolean;
 	jsonlIncludeDeltas: boolean;
 	jsonlIncludeImages: boolean;
-	playwright: boolean;
-	mode?: string;
-	nativeTool?: string;
 	model?: string;
 	thinking?: string;
 	browserProfile?: string;
@@ -371,14 +365,9 @@ export interface SetupHarnessRuntimeOptions {
 	skipDiskSession?: boolean;
 }
 
-/** Default -m/--mode/--native-tool from a named session's stored values when not passed explicitly. */
+/** Default -m from a named session's stored model when not passed explicitly. */
 export function applyNamedSessionDefaults(flags: HarnessCliFlags, meta: NamedSessionMetadata): HarnessCliFlags {
-	return {
-		...flags,
-		model: flags.model ?? meta.model,
-		mode: flags.mode ?? meta.mode,
-		nativeTool: flags.nativeTool ?? meta.native_tool,
-	};
+	return { ...flags, model: flags.model ?? meta.model };
 }
 
 async function setupHarnessRuntime(
@@ -399,15 +388,9 @@ async function setupHarnessRuntime(
 		disabled: flags.noSkills,
 	});
 
-	// Validate mode/native-tool flags before provisioning so a bad combination
-	// never leaves an orphaned browser behind.
-	const mode = parseMode(flags.mode);
-	const nativeTool = parseNativeTool(flags.nativeTool);
-	resolveCuaRuntimeSpec(auth.modelRef, { mode, nativeTool });
-
 	const provisioned = await provisionForFlags(flags, auth);
 	try {
-		return await finishHarnessRuntime(flags, auth, provisioned, { cwd, skills, contextFiles, mode, nativeTool, skipDisk: opts.skipDiskSession === true });
+		return await finishHarnessRuntime(flags, auth, provisioned, { cwd, skills, contextFiles, skipDisk: opts.skipDiskSession === true });
 	} catch (err) {
 		await provisioned.handle.close().catch(() => {});
 		throw err;
@@ -418,8 +401,6 @@ interface FinishHarnessRuntimeContext {
 	cwd: string;
 	skills: Skill[];
 	contextFiles: ContextFile[];
-	mode: CuaMode | undefined;
-	nativeTool: CuaNativeToolSpec | undefined;
 	skipDisk: boolean;
 }
 
@@ -429,7 +410,7 @@ async function finishHarnessRuntime(
 	provisioned: ProvisionedBrowser,
 	context: FinishHarnessRuntimeContext,
 ): Promise<HarnessRuntime> {
-	const { cwd, skills, contextFiles, mode, nativeTool } = context;
+	const { cwd, skills, contextFiles } = context;
 	const repo = createSessionRepo(flags.sessionDir);
 
 	const skipDisk = context.skipDisk && !hasExplicitSessionFlag(flags);
@@ -453,11 +434,7 @@ async function finishHarnessRuntime(
 		});
 		if (provisioned.named) {
 			await recordTranscriptPath(provisioned.named.name, resolved.transcriptPath);
-			await recordSessionModel(provisioned.named.name, {
-				model: auth.modelRef,
-				mode: flags.mode,
-				native_tool: flags.nativeTool,
-			});
+			await recordSessionModel(provisioned.named.name, { model: auth.modelRef });
 		}
 		if (flags.verbose) {
 			stderr.write(`[cua] session=${resolved.transcriptPath}\n`);
@@ -476,9 +453,6 @@ async function finishHarnessRuntime(
 		skills,
 		contextFiles,
 		thinkingLevel,
-		mode,
-		nativeTool,
-		playwright: flags.playwright,
 		modelBaseUrl: baseUrlOverride,
 	});
 
@@ -507,23 +481,6 @@ function providerBaseUrlOverride(provider: string): string | undefined {
 	const envName = `${provider.toUpperCase()}_BASE_URL`;
 	const value = process.env[envName]?.trim();
 	return value && value.length > 0 ? value : undefined;
-}
-
-export function parseMode(raw: string | undefined): CuaMode | undefined {
-	if (raw === undefined) return undefined;
-	const value = raw.trim().toLowerCase();
-	if (value === "computer" || value === "browser" || value === "hybrid") return value;
-	throw new Error(`invalid --mode value "${raw}"; expected one of: computer | browser | hybrid`);
-}
-
-export function parseNativeTool(raw: string | undefined): CuaNativeToolSpec | undefined {
-	if (raw === undefined) return undefined;
-	const value = raw.trim().toLowerCase();
-	// enable_zoom follows Anthropic's own recommendation for fine-grained
-	// visual targeting; the executor implements the zoom crop locally.
-	if (value === "computer_20260701") return { type: "computer_20260701", enable_zoom: true };
-	if (value === "browser_20260701") return { type: "browser_20260701" };
-	throw new Error(`invalid --native-tool value "${raw}"; expected one of: computer_20260701 | browser_20260701`);
 }
 
 function mapThinkingLevel(raw: string | undefined): "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" {
@@ -597,6 +554,7 @@ export async function runInteractiveCommand(
 			contextFiles: runtime.contextFiles,
 			modelRef: runtime.modelRef,
 			provider: runtime.provider,
+			interactionToolsForModel: defaultInteractionTools,
 			initialPrompt: initialPrompt || undefined,
 			imageProtocol: flags.imageProtocol,
 			debugTui: flags.debugTui,

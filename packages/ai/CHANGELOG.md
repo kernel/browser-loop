@@ -2,19 +2,43 @@
 
 ## Unreleased
 
+Breaking: agent tools are now one explicit, identity-keyed catalog. The mode,
+implicit-tool, and runtime-spec APIs are removed.
+
+- Add the frozen `cua` namespace with atomic browser/computer/Playwright tools,
+  `browser`/`computer`/`mixed` convenience toolsets, mechanical batch tools,
+  coordinate contracts, and provider-native tools/toolsets.
+- Add `compileCuaToolCatalog()` with stable identities; exact requested-order
+  preservation; schema/executor/catalog fingerprints; exact and
+  provider-normalized collision checks; model compatibility checks; inspectable
+  declarations; dynamic-loading eligibility; generated header composition;
+  ordered payload transforms; and incoming native-call plans.
+- Remove `resolveCuaRuntimeSpec`, `CuaRuntimeSpec`, `CuaMode`, mode inference,
+  legacy native-tool switches, implicit navigation tools, and provider-owned
+  default prompt selection from the public API.
+- Provider-native declarations now compose by selected identity with ordinary
+  functions. Add fixed-version Anthropic computer/browser factories,
+  Anthropic-recommended deferred toolsets, OpenAI native computer composition,
+  Tzafon viewport-aware declaration replacement, exact current/legacy Google
+  predefined browser toolsets, and identity-scoped Yutori native selection.
+- Add deterministic provider composition: generated model preparation, tool
+  serialization, provider fields, request grounding, then caller payload hooks.
+  Header requirements merge without overwriting unrelated caller headers.
+- Add a Google Interactions API adapter plus current `computer_use` action names
+  and `[0, 999]` coordinates; legacy Gemini 2.5 actions remain explicit and
+  generation-incompatible. Current exact-subset declarations also exclude the
+  published legacy vocabulary to suppress Gemini 3 preview fallback calls, and
+  excluded incoming calls fail with a named catalog error.
 - Add `anthropic:claude-opus-5` with its 1M-token context window, 128k output
-  limit, adaptive thinking levels, and current pricing. Opus 5 is also accepted
-  by both July 2026 Anthropic native tools.
-- Fail locally when `computer_20260701` or `browser_20260701` is paired with
-  an Anthropic model that the live early-access API rejects. The verified
-  computer models are Claude Fable 5, Claude Opus 4.8, Claude Opus 5, and
-  Claude Sonnet 5; the verified browser models are Claude Opus 4.8, Claude
-  Opus 5, and Claude Sonnet 5.
-- Carry each native tool's stop-on-first-failure result contract through
-  `CuaRuntimeSpec`, allowing cua-agent to skip unsafe remaining actions without
-  a provider conditional.
-- Add opt-in live integration coverage for the beta header, native declaration,
-  and pi-ai serialization path of both July 2026 tools.
+  limit, adaptive thinking levels, and July 2026 native-tool compatibility.
+  Native `browser_20260701` transparently retries through an equivalent
+  function-tool declaration when the active credential lacks beta access.
+- Add the verified `openai:gpt-5.6-sol` model.
+- Rename Google's predefined action factories to `browser()` and
+  `legacyBrowser()`. Remove the Meta/xAI/Moonshot coordinate toolsets; those
+  custom-function providers use the standard CUA browser toolset.
+- Native tool execution metadata carries stop-on-first-failure policy without
+  introducing provider branches in cua-agent.
 
 ## 0.7.0 - 2026-07-17
 

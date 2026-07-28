@@ -2,12 +2,13 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_CUA_MODEL_REF, listSupportedModels, resolveCuaModelRef } from "../src/harness-models";
 
 describe("resolveCuaModelRef", () => {
-	it("defaults to openai:gpt-5.5", () => {
+	it("defaults to openai:gpt-5.6-sol", () => {
 		expect(resolveCuaModelRef(undefined)).toBe(DEFAULT_CUA_MODEL_REF);
 		expect(resolveCuaModelRef("")).toBe(DEFAULT_CUA_MODEL_REF);
 	});
 
 	it("passes provider-qualified refs through", () => {
+		expect(resolveCuaModelRef("openai:gpt-5.6-sol")).toBe("openai:gpt-5.6-sol");
 		expect(resolveCuaModelRef("openai:gpt-5.5")).toBe("openai:gpt-5.5");
 		expect(resolveCuaModelRef("anthropic:claude-opus-5")).toBe("anthropic:claude-opus-5");
 		expect(resolveCuaModelRef("meta:muse-spark-1.1")).toBe("meta:muse-spark-1.1");
@@ -17,6 +18,7 @@ describe("resolveCuaModelRef", () => {
 	});
 
 	it("accepts bare ids when they match exactly one catalog entry", () => {
+		expect(resolveCuaModelRef("gpt-5.6-sol")).toBe("openai:gpt-5.6-sol");
 		expect(resolveCuaModelRef("gpt-5.5")).toBe("openai:gpt-5.5");
 		expect(resolveCuaModelRef("claude-opus-5")).toBe("anthropic:claude-opus-5");
 		expect(resolveCuaModelRef("muse-spark-1.1")).toBe("meta:muse-spark-1.1");

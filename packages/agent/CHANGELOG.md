@@ -2,10 +2,36 @@
 
 ## Unreleased
 
-- Native Anthropic multi-action turns now stop after the first failed tool call.
-  Every remaining call in that assistant turn receives the provider-required
-  error result instead of executing against stale browser state. This applies
-  to both `CuaAgent` and `CuaAgentHarness` via provider-neutral runtime data.
+Breaking: `CuaAgent` and `CuaAgentHarness` now require one exact `tools` list and
+use composition instead of inheriting from pi's `Agent`/`AgentHarness`.
+
+- Add `getTools()`, atomic `setTools()`, and `inspectTools()`. Model changes
+  recompile and revalidate the full requested catalog. Empty catalogs are valid;
+  no tools or system-prompt text are inferred or appended.
+- Remove `mode`, `nativeTool`, `extraTools`, `playwright`, `setMode()` /
+  `getMode()`, and implicit `computer_use_extra` behavior.
+- Add one shared `CuaExecutionResources` pool per agent/harness. Catalog and
+  model changes preserve the canonical translator, lazy raw-CDP browser
+  executor, refs, tabs, screenshots, and Playwright capability.
+- Integrate pi 0.80.10 dynamic tool loading. Eligible additions made from inside
+  a running tool emit `addedToolNames`; outside-tool additions and all
+  provider-native changes are eager. Schema/executor replacements are treated
+  as real changes, not name-only no-ops.
+- Refactor atomic tools to operation-specific argument objects while preserving
+  the existing `browser_act` schema.
+- Add mechanical `computer_batch` and `browser_batch` execution. Computer writes
+  coalesce across write-only runs and flush around reads; browser actions run
+  sequentially against shared ref state. Failure details include the failed
+  action index, completed reads, and skipped count.
+- Centralize grounding policy: browser writes return viewport screenshots,
+  computer writes return OS screenshots, explicit reads have no fallback image,
+  Yutori native results stay text-only for request-time grounding, and failures
+  capture no new screenshot or leak earlier images.
+- Native multi-action turns stop after the first failed tool call. Every
+  remaining call in that assistant turn receives the configured error result
+  instead of executing against stale browser state.
+- Update shared examples to use the same browser-oriented provider catalogs as
+  the CLI, including Anthropic native-browser selection and model fallback.
 
 ## 0.7.0 - 2026-07-17
 

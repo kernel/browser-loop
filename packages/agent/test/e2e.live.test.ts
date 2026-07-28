@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	CuaAgent,
 	CuaAgentHarness,
+	cua,
 	InMemorySessionRepo,
 	NodeExecutionEnv,
 	type AgentEvent,
@@ -14,10 +15,10 @@ const LIVE = process.env.CUA_E2E_LIVE === "1";
 const KERNEL_API_KEY = process.env.KERNEL_API_KEY;
 
 type ProviderCase = {
-	name: string;
+	name: "openai" | "anthropic" | "gemini" | "meta" | "xai" | "moonshotai" | "tzafon" | "yutori";
 	apiKeyEnvVar: string;
 	modelRef:
-		| "openai:gpt-5.5"
+		| "openai:gpt-5.6-sol"
 		| "anthropic:claude-opus-5"
 		| "google:gemini-3-flash-preview"
 		| "meta:muse-spark-1.1"
@@ -43,9 +44,9 @@ const cases: ProviderCase[] = [
 	{
 		name: "openai",
 		apiKeyEnvVar: "OPENAI_API_KEY",
-		modelRef: "openai:gpt-5.5",
+		modelRef: "openai:gpt-5.6-sol",
 		prompt: [
-			"Use the tool named `screenshot` exactly once to inspect the browser.",
+			"Use the tool named `browser_screenshot` exactly once to inspect the browser.",
 			"Pass empty arguments (`{}`).",
 			"Do not call any other tools.",
 			"After the tool result, provide a one-sentence summary.",
@@ -59,12 +60,11 @@ const cases: ProviderCase[] = [
 		apiKeyEnvVar: "ANTHROPIC_API_KEY",
 		modelRef: "anthropic:claude-opus-5",
 		prompt: [
-			"Use the tool named `screenshot` exactly once to inspect the browser.",
-			"Pass empty arguments (`{}`).",
+			"Use the native `browser` tool's `screenshot` action exactly once.",
 			"Do not call any other tools.",
 			"After the tool result, provide a one-sentence summary.",
 		].join("\n"),
-		expectToolCalls: false,
+		expectToolCalls: true,
 		timeoutMs: 120_000,
 		ciOptInEnvVar: "CUA_E2E_ANTHROPIC",
 	},
@@ -73,8 +73,7 @@ const cases: ProviderCase[] = [
 		apiKeyEnvVar: "GOOGLE_API_KEY",
 		modelRef: "google:gemini-3-flash-preview",
 		prompt: [
-			"Use the tool named `screenshot` exactly once to inspect the browser.",
-			"Pass empty arguments (`{}`).",
+			"Use the predefined `take_screenshot` browser action exactly once.",
 			"Do not call any other tools.",
 			"After the tool result, provide a one-sentence summary.",
 		].join("\n"),
@@ -87,7 +86,7 @@ const cases: ProviderCase[] = [
 		apiKeyEnvVar: "META_API_KEY",
 		modelRef: "meta:muse-spark-1.1",
 		prompt: [
-			"Use the tool named `screenshot` exactly once to inspect the browser.",
+			"Use the tool named `browser_screenshot` exactly once to inspect the browser.",
 			"Pass empty arguments (`{}`).",
 			"Do not call any other tools.",
 			"After the tool result, provide a one-sentence summary.",
@@ -100,7 +99,7 @@ const cases: ProviderCase[] = [
 		apiKeyEnvVar: "XAI_API_KEY",
 		modelRef: "xai:grok-4.5",
 		prompt: [
-			"Use the tool named `screenshot` exactly once to inspect the browser.",
+			"Use the tool named `browser_screenshot` exactly once to inspect the browser.",
 			"Pass empty arguments (`{}`).",
 			"Do not call any other tools.",
 			"After the tool result, provide a one-sentence summary.",
@@ -113,7 +112,7 @@ const cases: ProviderCase[] = [
 		apiKeyEnvVar: "MOONSHOT_API_KEY",
 		modelRef: "moonshotai:kimi-k3",
 		prompt: [
-			"Use the tool named `screenshot` exactly once to inspect the browser.",
+			"Use the tool named `browser_screenshot` exactly once to inspect the browser.",
 			"Pass empty arguments (`{}`).",
 			"Do not call any other tools.",
 			"After the tool result, provide a one-sentence summary.",
@@ -126,12 +125,11 @@ const cases: ProviderCase[] = [
 		apiKeyEnvVar: "TZAFON_API_KEY",
 		modelRef: "tzafon:tzafon.northstar-cua-fast",
 		prompt: [
-			"Use the tool named `screenshot` exactly once to inspect the browser.",
-			"Pass empty arguments (`{}`).",
+			"Use the native `computer` tool's `screenshot` action exactly once.",
 			"Do not call any other tools.",
 			"After the tool result, provide a one-sentence summary.",
 		].join("\n"),
-		expectToolCalls: false,
+		expectToolCalls: true,
 		timeoutMs: 120_000,
 		ciOptInEnvVar: "CUA_E2E_TZAFON",
 	},
@@ -180,6 +178,39 @@ function shouldRunCase(c: ProviderCase): boolean {
 
 function shouldRunSwitchCase(c: ModelSwitchCase): boolean {
 	return shouldRunCase(c.from) && shouldRunCase(c.to);
+}
+
+function toolsForCase(c: ProviderCase) {
+	switch (c.name) {
+		case "openai":
+		case "meta":
+		case "xai":
+		case "moonshotai":
+			return cua.toolsets.browser();
+		case "anthropic":
+			return [cua.providers.anthropic.tools.browser({ version: "20260701", javascript: true })];
+		case "gemini":
+			return cua.providers.google.toolsets.browser();
+		case "tzafon":
+			return [cua.providers.tzafon.tools.computer()];
+		case "yutori":
+			return cua.providers.yutori.toolsets.n15Core();
+	}
+}
+
+function systemPromptForCase(_case: ProviderCase): string {
+	return "Use only the explicitly selected browser interaction tools.";
+}
+
+const modelSwitchPrompt = [
+	"Use the tool named `screenshot` exactly once to inspect the browser.",
+	"Pass empty arguments (`{}`).",
+	"Do not call any other tools.",
+	"After the tool result, provide a one-sentence summary.",
+].join("\n");
+
+function modelSwitchTools() {
+	return [cua.tools.computer.screenshot({ name: "screenshot" })];
 }
 
 function createRunStats(): RunStats {
@@ -277,8 +308,10 @@ describe("Cua live e2e", () => {
 						client,
 						getApiKey: () => apiKeyForCase(c),
 						afterToolCall: async () => ({ terminate: true }),
+						tools: toolsForCase(c),
 						initialState: {
 							model: c.modelRef,
+							systemPrompt: systemPromptForCase(c),
 						},
 					});
 					agent.subscribe((event) => {
@@ -302,10 +335,8 @@ describe("Cua live e2e", () => {
 						browser,
 						client,
 						model: c.modelRef,
-						getApiKeyAndHeaders: async () => {
-							const apiKey = apiKeyForCase(c);
-							return apiKey ? { apiKey } : undefined;
-						},
+						tools: toolsForCase(c),
+						systemPrompt: systemPromptForCase(c),
 					});
 					harness.on("tool_result", () => ({ terminate: true }));
 
@@ -337,20 +368,22 @@ describe("Cua live e2e", () => {
 							if (provider === c.to.modelRef.split(":")[0]) return apiKeyForCase(c.to);
 							return undefined;
 						},
+						tools: modelSwitchTools(),
 						initialState: {
 							model: c.from.modelRef,
+							systemPrompt: "Use only the explicitly selected screenshot tool.",
 						},
 					});
 					agent.subscribe((event) => {
 						recordRunEvent(stats, event);
 					});
 
-					await agent.prompt(c.from.prompt);
+					await agent.prompt(modelSwitchPrompt);
 					assertStats(stats, c.from, "agent");
 
 					stats = createRunStats();
 					agent.state.model = c.to.modelRef;
-					await agent.prompt(c.to.prompt);
+					await agent.prompt(modelSwitchPrompt);
 					assertStats(stats, c.to, "agent");
 				});
 			},
@@ -367,28 +400,19 @@ describe("Cua live e2e", () => {
 						browser,
 						client,
 						model: c.from.modelRef,
-						getApiKeyAndHeaders: async (model) => {
-							if (model.provider === c.from.modelRef.split(":")[0]) {
-								const apiKey = apiKeyForCase(c.from);
-								return apiKey ? { apiKey } : undefined;
-							}
-							if (model.provider === c.to.modelRef.split(":")[0]) {
-								const apiKey = apiKeyForCase(c.to);
-								return apiKey ? { apiKey } : undefined;
-							}
-							return undefined;
-						},
+						tools: modelSwitchTools(),
+						systemPrompt: "Use only the explicitly selected screenshot tool.",
 					});
 					harness.subscribe((event) => {
 						recordRunEvent(stats, event);
 					});
 
-					await harness.prompt(c.from.prompt);
+					await harness.prompt(modelSwitchPrompt);
 					assertStats(stats, c.from, "harness");
 
 					stats = createRunStats();
 					await harness.setModel(c.to.modelRef);
-					await harness.prompt(c.to.prompt);
+					await harness.prompt(modelSwitchPrompt);
 					assertStats(stats, c.to, "harness");
 				});
 			},

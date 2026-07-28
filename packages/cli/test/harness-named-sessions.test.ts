@@ -30,7 +30,6 @@ function baseFlags(overrides: Partial<HarnessCliFlags> = {}): HarnessCliFlags {
 		debugTui: false,
 		jsonlIncludeDeltas: false,
 		jsonlIncludeImages: false,
-		playwright: false,
 		namedSession: "foo",
 		skillPaths: [],
 		...overrides,
@@ -47,21 +46,18 @@ describe("named session model persistence", () => {
 		else process.env.XDG_DATA_HOME = originalXdg;
 	});
 
-	it("records the model/mode/native-tool onto the metadata file", async () => {
+	it("records the model onto the metadata file", async () => {
 		await writeNamedSession(baseMeta());
-		await recordSessionModel("foo", { model: "anthropic:claude-opus-4-8", mode: "hybrid", native_tool: "computer_20260701" });
+		await recordSessionModel("foo", { model: "anthropic:claude-opus-4-8" });
 		const meta = await readNamedSession("foo");
 		expect(meta?.model).toBe("anthropic:claude-opus-4-8");
-		expect(meta?.mode).toBe("hybrid");
-		expect(meta?.native_tool).toBe("computer_20260701");
 	});
 
 	it("overwrites a previously recorded model on an explicit switch", async () => {
 		await writeNamedSession(baseMeta({ model: "openai:gpt-5.5" }));
-		await recordSessionModel("foo", { model: "anthropic:claude-opus-4-8", mode: "hybrid" });
+		await recordSessionModel("foo", { model: "anthropic:claude-opus-4-8" });
 		const meta = await readNamedSession("foo");
 		expect(meta?.model).toBe("anthropic:claude-opus-4-8");
-		expect(meta?.mode).toBe("hybrid");
 	});
 
 	it("is a no-op for an unknown session", async () => {
@@ -69,34 +65,24 @@ describe("named session model persistence", () => {
 		expect(await readNamedSession("missing")).toBeUndefined();
 	});
 
-	it("patches individual runtime fields without clobbering the rest", async () => {
-		await writeNamedSession(baseMeta({ model: "openai:gpt-5.5", mode: "computer", native_tool: "computer_20260701" }));
-
-		await updateNamedSessionRuntime("foo", { mode: "browser" });
-		let meta = await readNamedSession("foo");
-		expect(meta?.mode).toBe("browser");
-		expect(meta?.model).toBe("openai:gpt-5.5");
-		expect(meta?.native_tool).toBe("computer_20260701");
-
+	it("patches the model without clobbering session identity", async () => {
+		await writeNamedSession(baseMeta({ model: "openai:gpt-5.5" }));
 		await updateNamedSessionRuntime("foo", { model: "anthropic:claude-opus-4-8" });
-		meta = await readNamedSession("foo");
+		const meta = await readNamedSession("foo");
 		expect(meta?.model).toBe("anthropic:claude-opus-4-8");
-		expect(meta?.mode).toBe("browser");
+		expect(meta?.kernel_session_id).toBe("ks_123");
 	});
 
 	it("defaults flags from the stored session model when -m is omitted", () => {
-		const meta = baseMeta({ model: "anthropic:claude-opus-4-8", mode: "hybrid", native_tool: "computer_20260701" });
+		const meta = baseMeta({ model: "anthropic:claude-opus-4-8" });
 		const flags = applyNamedSessionDefaults(baseFlags(), meta);
 		expect(flags.model).toBe("anthropic:claude-opus-4-8");
-		expect(flags.mode).toBe("hybrid");
-		expect(flags.nativeTool).toBe("computer_20260701");
 	});
 
-	it("keeps explicit flags over stored session values", () => {
-		const meta = baseMeta({ model: "anthropic:claude-opus-4-8", mode: "hybrid" });
-		const flags = applyNamedSessionDefaults(baseFlags({ model: "openai:gpt-5.5", mode: "browser" }), meta);
+	it("keeps an explicit model over the stored session value", () => {
+		const meta = baseMeta({ model: "anthropic:claude-opus-4-8" });
+		const flags = applyNamedSessionDefaults(baseFlags({ model: "openai:gpt-5.5" }), meta);
 		expect(flags.model).toBe("openai:gpt-5.5");
-		expect(flags.mode).toBe("browser");
 	});
 
 	it("excludes refs sidecar files from listNamedSessions", async () => {

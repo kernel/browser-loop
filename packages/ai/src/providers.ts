@@ -13,7 +13,8 @@ import {
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { cuaApiKeyEnvVarsForProvider } from "./api-keys";
 import { cuaOverrideModels } from "./models";
-import { ANTHROPIC_NATIVE_API_BETA_HEADERS, withAnthropicBetaHeader } from "./providers/anthropic/native";
+import { withAnthropicBrowserFallback } from "./providers/anthropic/browser-fallback";
+import { GOOGLE_CUA_INTERACTIONS_API, streamGoogleInteractions, streamSimpleGoogleInteractions } from "./providers/google/provider";
 import { META_RESPONSES_API, streamMetaResponses, streamSimpleMetaResponses } from "./providers/meta/provider";
 import { OPENAI_CUA_RESPONSES_API, streamOpenAIResponses, streamSimpleOpenAIResponses } from "./providers/openai/provider";
 import { streamSimpleTzafonResponses, streamTzafonResponses, TZAFON_RESPONSES_API } from "./providers/tzafon/provider";
@@ -24,16 +25,14 @@ import { streamSimpleYutori, streamYutori, YUTORI_CHAT_COMPLETIONS_API } from ".
  * Build the pi `Models` collection CUA streams through: pi's builtin
  * providers, adjusted for CUA:
  *
+ * - `anthropic` retries an inaccessible native browser beta through the
+ *   selected tool's equivalent function declaration.
  * - `openai` intercepts the `openai-cua-responses` api that
  *   {@link getCuaModel} routes OpenAI models to, threading
  *   `previous_response_id`; every other api falls through to pi's builtin
  *   provider.
- * - `anthropic` intercepts the native computer/browser tool apis that
- *   `resolveCuaRuntimeSpec` routes models with a `nativeTool` to, dispatching
- *   them to pi's builtin `anthropic-messages` transport with the tool's
- *   `anthropic-beta` header merged in.
- * - `google` resolves its API key from `GOOGLE_API_KEY` or `GEMINI_API_KEY`
- *   (pi's builtin only reads `GEMINI_API_KEY`).
+ * - `google` intercepts `google-cua-interactions` for current native computer
+ *   use and resolves API keys from `GOOGLE_API_KEY` or `GEMINI_API_KEY`.
  * - `xai` intercepts `xai-cua-responses` so Grok can use stateful Responses
  *   tool loops while preserving pi's builtin xAI auth and catalog.
  * - `moonshotai` is pi's builtin provider untouched: Kimi streams through the
@@ -45,12 +44,12 @@ import { streamSimpleYutori, streamYutori, YUTORI_CHAT_COMPLETIONS_API } from ".
  */
 export function createCuaModels(options?: CreateModelsOptions): MutableModels {
 	const models = builtinModels(options);
+	const anthropic = models.getProvider("anthropic");
+	if (anthropic) models.setProvider(withAnthropicBrowserFallback(anthropic));
 	const openai = models.getProvider("openai");
 	if (openai) models.setProvider(withOpenAICuaResponses(openai));
-	const anthropic = models.getProvider("anthropic");
-	if (anthropic) models.setProvider(withAnthropicNativeTools(anthropic));
 	const google = models.getProvider("google");
-	if (google) models.setProvider(withGoogleEnvKeys(google));
+	if (google) models.setProvider(withGoogleCuaInteractions(google));
 	const xai = models.getProvider("xai");
 	if (xai) models.setProvider(withXaiCuaResponses(xai));
 	models.setProvider(metaProvider());
@@ -90,29 +89,19 @@ function withOpenAICuaResponses(base: Provider): Provider {
 	};
 }
 
-// Native-tool runs route Anthropic models to a CUA-owned api id (see
-// resolveCuaRuntimeSpec) so the required `anthropic-beta` header can be
-// injected here; the request otherwise flows through pi's builtin
-// anthropic-messages transport.
-function withAnthropicNativeTools(base: Provider): Provider {
-	const toBuiltin = (model: Model<Api>): Model<Api> => ({ ...model, api: "anthropic-messages" as Model<Api>["api"] });
+function withGoogleCuaInteractions(base: Provider): Provider {
 	return {
 		...base,
-		stream: (model: Model<Api>, context: Context, options?: StreamOptions) => {
-			const beta = ANTHROPIC_NATIVE_API_BETA_HEADERS[model.api];
-			return beta ? base.stream(toBuiltin(model), context, withAnthropicBetaHeader(options, beta)) : base.stream(model, context, options);
-		},
-		streamSimple: (model: Model<Api>, context: Context, options?: SimpleStreamOptions) => {
-			const beta = ANTHROPIC_NATIVE_API_BETA_HEADERS[model.api];
-			return beta
-				? base.streamSimple(toBuiltin(model), context, withAnthropicBetaHeader(options, beta))
-				: base.streamSimple(model, context, options);
-		},
+		auth: { ...base.auth, apiKey: envApiKeyAuth("Google API key", cuaApiKeyEnvVarsForProvider("google")) },
+		stream: (model: Model<Api>, context: Context, options?: StreamOptions) =>
+			model.api === GOOGLE_CUA_INTERACTIONS_API
+				? streamGoogleInteractions(model as never, context, options)
+				: base.stream(model, context, options),
+		streamSimple: (model: Model<Api>, context: Context, options?: SimpleStreamOptions) =>
+			model.api === GOOGLE_CUA_INTERACTIONS_API
+				? streamSimpleGoogleInteractions(model as never, context, options)
+				: base.streamSimple(model, context, options),
 	};
-}
-
-function withGoogleEnvKeys(base: Provider): Provider {
-	return { ...base, auth: { ...base.auth, apiKey: envApiKeyAuth("Google API key", cuaApiKeyEnvVarsForProvider("google")) } };
 }
 
 function withXaiCuaResponses(base: Provider): Provider {
@@ -144,7 +133,7 @@ function tzafonProvider(): Provider {
 	return createProvider({
 		id: "tzafon",
 		name: "Tzafon",
-		baseUrl: "https://api.lightcone.ai",
+		baseUrl: "https://api.tzafon.ai",
 		auth: { apiKey: envApiKeyAuth("Tzafon API key", cuaApiKeyEnvVarsForProvider("tzafon")) },
 		models: cuaOverrideModels("tzafon"),
 		api: { stream: streamTzafonResponses, streamSimple: streamSimpleTzafonResponses },
@@ -162,6 +151,7 @@ function yutoriProvider(): Provider {
 	});
 }
 
+export { GOOGLE_CUA_INTERACTIONS_API, streamGoogleInteractions, streamSimpleGoogleInteractions };
 export { META_RESPONSES_API, streamMetaResponses, streamSimpleMetaResponses };
 export { OPENAI_CUA_RESPONSES_API, streamOpenAIResponses, streamSimpleOpenAIResponses };
 export { TZAFON_RESPONSES_API, streamSimpleTzafonResponses, streamTzafonResponses };

@@ -6,8 +6,8 @@ import {
 import { tmpdir } from "node:os";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
-import { parseCuaModelRef } from "@onkernel/cua-ai";
-import { buildCuaHarness } from "../../src/harness";
+import { parseCuaModelRef, type CuaAgentTool } from "@onkernel/cua-ai";
+import { buildCuaHarness, defaultInteractionTools } from "../../src/harness";
 import { createFakeKernelEnvironment, type FakeKernelEnvironment } from "./fake-kernel";
 import type { ScriptedProviderHandle, ScriptedTurn } from "./scripted-provider";
 import { createScriptedCuaModels } from "./scripted-provider";
@@ -23,13 +23,14 @@ export interface TestHarnessFixture {
 export interface BuildTestHarnessOptions {
 	turns: ScriptedTurn[];
 	skills?: Skill[];
-	/** CUA model ref. Defaults to "openai:gpt-5.5". */
+	/** CUA model ref. Defaults to the CLI's OpenAI default. */
 	modelRef?: string;
+	tools?: CuaAgentTool[];
 	retry?: Parameters<typeof buildCuaHarness>[0]["retry"];
 }
 
 export async function buildTestHarness(opts: BuildTestHarnessOptions): Promise<TestHarnessFixture> {
-	const modelRef = opts.modelRef ?? "openai:gpt-5.5";
+	const modelRef = opts.modelRef ?? "openai:gpt-5.6-sol";
 	const provider = createScriptedCuaModels(parseCuaModelRef(modelRef).provider, opts.turns);
 
 	const kernel = createFakeKernelEnvironment();
@@ -45,7 +46,7 @@ export async function buildTestHarness(opts: BuildTestHarnessOptions): Promise<T
 		session,
 		model: modelRef as never,
 		skills: opts.skills,
-		extraTools: [],
+		tools: opts.tools ?? defaultInteractionTools(modelRef as never),
 		models: provider.models,
 		retry: opts.retry,
 	});

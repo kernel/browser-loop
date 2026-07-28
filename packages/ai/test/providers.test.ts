@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { createCuaModels, cuaModels, tzafon, yutori } from "../src/index";
-import { OPENAI_CUA_RESPONSES_API } from "../src/providers/openai/provider";
-
-const TZAFON_RESPONSES_API = tzafon.TZAFON_RESPONSES_API;
-const YUTORI_CHAT_COMPLETIONS_API = yutori.YUTORI_CHAT_COMPLETIONS_API;
+import {
+	createCuaModels,
+	cuaModels,
+	OPENAI_CUA_RESPONSES_API,
+	TZAFON_RESPONSES_API,
+	YUTORI_CHAT_COMPLETIONS_API,
+} from "../src/index";
 
 describe("createCuaModels", () => {
 	it("registers the CUA-only providers alongside pi's builtins", () => {
@@ -25,7 +27,11 @@ describe("createCuaModels", () => {
 		expect(tzafonIds).toContain("tzafon.northstar-cua-fast");
 		const yutoriIds = models.getModels("yutori").map((m) => m.id);
 		expect(yutoriIds).toContain("n1.5-latest");
-		expect(models.getModel("tzafon", "tzafon.northstar-cua-fast")?.api).toBe(TZAFON_RESPONSES_API);
+		expect(models.getProvider("tzafon")?.baseUrl).toBe("https://api.tzafon.ai");
+		expect(models.getModel("tzafon", "tzafon.northstar-cua-fast")).toMatchObject({
+			api: TZAFON_RESPONSES_API,
+			baseUrl: "https://api.tzafon.ai",
+		});
 		expect(models.getModel("yutori", "n1.5-latest")?.api).toBe(YUTORI_CHAT_COMPLETIONS_API);
 	});
 

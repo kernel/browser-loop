@@ -2,6 +2,7 @@ import {
 	type AgentHarnessEvent,
 	type AgentMessage,
 	type CuaAgentHarness,
+	type CuaAgentTool,
 	estimateContextTokens,
 	formatSkillInvocation,
 	type Session,
@@ -22,7 +23,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { homedir } from "node:os";
-import type { ImageContent, Model } from "@onkernel/cua-ai";
+import type { CuaModelRef, ImageContent, Model } from "@onkernel/cua-ai";
 import { captureScreenshot, type CuaBrowserHandle } from "../harness-browser";
 import { resolveCuaModelRef } from "../harness-models";
 import { updateNamedSessionRuntime } from "../harness-named-sessions";
@@ -48,6 +49,8 @@ export interface InteractiveOptions {
 	/** CUA model ref currently active. Used for the status line and `/model` default. */
 	modelRef: string;
 	provider: string;
+	/** Optional CLI application policy for replacing interaction tools on /model. */
+	interactionToolsForModel?: (model: CuaModelRef) => readonly CuaAgentTool[];
 	initialPrompt?: string;
 	/** Image protocol override: kitty | iterm2 | none | auto (default: auto). */
 	imageProtocol?: string;
@@ -57,7 +60,7 @@ export interface InteractiveOptions {
 	resumed?: boolean;
 	/** Display path of the on-disk transcript, when one exists. */
 	transcriptPath?: string;
-	/** Named session (-s) backing this TUI; /mode and /model switches persist to it. */
+	/** Named session (-s) backing this TUI; /model switches persist to it. */
 	namedSession?: string;
 	/** Enable extra TUI render diagnostics for manual repros. */
 	debugTui?: boolean;
@@ -306,10 +309,6 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 				await applyModelCommand(opts, footer, status, messages, parsed.argument);
 				return;
 			}
-			if (parsed?.command === "mode") {
-				await applyModeCommand(opts, messages, parsed.argument);
-				return;
-			}
 			if (parsed?.command === "thinking") {
 				await applyThinkingCommand(opts, footer, messages, parsed.argument);
 				return;
@@ -450,9 +449,7 @@ async function maybeInitialScreenshot(
 ): Promise<ImageContent[] | undefined> {
 	if (firstPromptSent) return undefined;
 	if (opts.skipInitialScreenshot) return undefined;
-	// Browser mode's only frame is the viewport; skip the OS-display capture
-	// rather than mix coordinate frames on the first turn.
-	if (opts.harness.getMode() === "browser") return undefined;
+	if (opts.harness.inspectTools().some((tool) => tool.requestGrounding === "os-screenshot")) return undefined;
 	if (await sessionHasPriorTurn(opts.session)) return undefined;
 	const png = await captureScreenshot(opts.browserHandle.client, opts.browserHandle.browser.session_id);
 	if (!png) return undefined;
@@ -483,7 +480,27 @@ async function applyModelCommand(
 	}
 	try {
 		const resolved = resolveCuaModelRef(ref);
-		await opts.harness.setModel(resolved);
+		if (opts.interactionToolsForModel) {
+			const previousModel = opts.harness.getModel();
+			const previousTools = opts.harness.getTools();
+			const inspection = opts.harness.inspectTools();
+			const applicationTools = previousTools.filter((_tool, index) => inspection[index]?.origin === "caller");
+			try {
+				// Provider-recommended catalogs can be incompatible across providers.
+				// Transition through application tools, then select the CLI policy's
+				// explicit interaction catalog for the new model.
+				await opts.harness.setTools(applicationTools);
+				await opts.harness.setModel(resolved);
+				await opts.harness.setTools([...opts.interactionToolsForModel(resolved), ...applicationTools]);
+			} catch (error) {
+				await opts.harness.setTools(applicationTools);
+				await opts.harness.setModel(previousModel);
+				await opts.harness.setTools(previousTools);
+				throw error;
+			}
+		} else {
+			await opts.harness.setModel(resolved);
+		}
 		const model = opts.harness.getModel();
 		footer.update({
 			provider: model.provider,
@@ -498,29 +515,13 @@ async function applyModelCommand(
 	}
 }
 
-async function applyModeCommand(opts: InteractiveOptions, messages: MessageList, argument: string): Promise<void> {
-	const value = argument.trim().toLowerCase();
-	if (value !== "computer" && value !== "browser" && value !== "hybrid") {
-		messages.addError("usage: /mode <computer|browser|hybrid>");
-		return;
-	}
-	try {
-		await opts.harness.setMode(value);
-	} catch (err) {
-		messages.addError((err as Error).message);
-		return;
-	}
-	messages.addNotice(`mode → ${value}`);
-	await persistNamedSessionRuntime(opts, messages, { mode: value });
-}
-
 // Persistence is best-effort: the live switch already happened, so a failed
 // metadata write must not masquerade as a failed switch — warn that resume
 // will restore the previous value instead.
 async function persistNamedSessionRuntime(
 	opts: InteractiveOptions,
 	messages: MessageList,
-	patch: { model?: string; mode?: string },
+	patch: { model?: string },
 ): Promise<void> {
 	if (!opts.namedSession) return;
 	try {

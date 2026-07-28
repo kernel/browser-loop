@@ -22,8 +22,6 @@ export interface NamedSessionMetadata {
 	transcript_path?: string;
 	/** Model ref last used with this session; chained invocations without -m default to it. */
 	model?: string;
-	mode?: string;
-	native_tool?: string;
 	created_at: number;
 }
 
@@ -274,29 +272,21 @@ export async function recordTranscriptPath(name: string, transcriptPath: string)
 	await writeNamedSession(meta);
 }
 
-/** Persist the model/mode/native-tool used with a named session so chained invocations reuse them. */
-export async function recordSessionModel(
-	name: string,
-	runtime: { model: string; mode?: string; native_tool?: string },
-): Promise<void> {
+/** Persist the model used with a named session so chained invocations reuse it. */
+export async function recordSessionModel(name: string, runtime: { model: string }): Promise<void> {
 	const meta = await readNamedSession(name);
-	if (!meta) return;
-	if (meta.model === runtime.model && meta.mode === runtime.mode && meta.native_tool === runtime.native_tool) return;
+	if (!meta || meta.model === runtime.model) return;
 	meta.model = runtime.model;
-	meta.mode = runtime.mode;
-	meta.native_tool = runtime.native_tool;
 	await writeNamedSession(meta);
 }
 
-/** Patch individual runtime fields (e.g. after a TUI /mode or /model switch) without clobbering the rest. */
-export async function updateNamedSessionRuntime(name: string, patch: { model?: string; mode?: string }): Promise<void> {
+/** Patch the named session model after a TUI /model switch. */
+export async function updateNamedSessionRuntime(name: string, patch: { model?: string }): Promise<void> {
 	const meta = await readNamedSession(name);
 	if (!meta) return;
 	const model = patch.model ?? meta.model;
-	const mode = patch.mode ?? meta.mode;
-	if (meta.model === model && meta.mode === mode) return;
+	if (meta.model === model) return;
 	meta.model = model;
-	meta.mode = mode;
 	await writeNamedSession(meta);
 }
 

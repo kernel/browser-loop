@@ -3,8 +3,9 @@ import { requireCuaEnvApiKeyForModel, type CuaModelRef } from "@onkernel/cua-ai"
 import { CuaAgent } from "../src/index";
 import { logAgentEvent, logAssistant } from "./shared/logging";
 import { SCENARIOS } from "./shared/scenarios";
+import { toolsForModel } from "./shared/tools";
 
-const modelRef = (process.env.MODEL_REF as CuaModelRef | undefined) ?? "openai:gpt-5.5";
+const modelRef = (process.env.MODEL_REF as CuaModelRef | undefined) ?? "openai:gpt-5.6-sol";
 
 async function main(): Promise<void> {
 	const kernelApiKey = process.env.KERNEL_API_KEY;
@@ -17,7 +18,8 @@ async function main(): Promise<void> {
 		const agent = new CuaAgent({
 			browser,
 			client,
-			initialState: { model: modelRef },
+			tools: toolsForModel(modelRef),
+			initialState: { model: modelRef, systemPrompt: "Use the provided computer and browser tools to interact with the page." },
 		});
 
 		agent.subscribe(logAgentEvent);

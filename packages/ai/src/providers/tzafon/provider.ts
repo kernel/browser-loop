@@ -13,37 +13,30 @@ import {
 	type ToolCall,
 } from "@earendil-works/pi-ai";
 import Lightcone from "@tzafon/lightcone";
+import type { CuaAction } from "../../actions/index";
 import {
 	canonicalToolCallArguments,
 	canonicalToolCallName,
 	type CuaSimpleStreamOptions,
-	CUA_ACTION_TYPES,
 	responseThreadingDelta,
 	responseThreadingEnabled,
-	type CuaAction,
-	type CuaPayloadContext,
 	type ResponseThreadingOptions,
 } from "../common";
+import type { CuaIncomingToolPlan } from "../../tool-catalog";
 
 export const TZAFON_RESPONSES_API = "tzafon-responses";
-const TZAFON_COMPUTER_USE_TOOL = {
-	type: "computer_use",
-	display_width: 1920,
-	display_height: 1080,
-	environment: "browser",
-} as const;
-const TZAFON_LOCAL_ACTION_TOOL_NAMES = new Set<string>(CUA_ACTION_TYPES);
 
 /** Stream options accepted by {@link streamTzafonResponses}. */
 export interface TzafonResponsesOptions extends StreamOptions, ResponseThreadingOptions {
-	/** Tool names to keep in the outbound payload even though they collide with local CUA action tool names. */
-	keepToolNames?: readonly string[];
+	/** @internal Identity-addressed native dispatch compiled from selected tools. */
+	cuaIncomingToolPlan?: CuaIncomingToolPlan;
 }
 
 /** Inputs {@link buildTzafonRequestInput} reads to shape the Responses API request body. */
 export interface TzafonRequestOptions extends ResponseThreadingOptions {
 	temperature?: number;
 	maxTokens?: number;
+	cuaIncomingToolPlan?: CuaIncomingToolPlan;
 }
 
 /** Responses API request body for {@link Lightcone.responses.create}, including optional threading fields. */
@@ -69,7 +62,7 @@ export interface TzafonRequestBody {
 export function buildTzafonRequestInput(model: Model<Api>, context: Context, options?: TzafonRequestOptions): TzafonRequestBody {
 	const body: TzafonRequestBody = {
 		model: model.id,
-		input: convertMessages(context.messages),
+		input: convertMessages(context.messages, options?.cuaIncomingToolPlan?.tzafonComputerName),
 		tools: convertTools(context.tools ?? []),
 		instructions: context.systemPrompt,
 		temperature: options?.temperature ?? 0,
@@ -78,7 +71,7 @@ export function buildTzafonRequestInput(model: Model<Api>, context: Context, opt
 	if (!responseThreadingEnabled(options)) return body;
 	const { previousResponseId, deltaMessages } = responseThreadingDelta(context.messages, TZAFON_RESPONSES_API);
 	if (!previousResponseId) return body;
-	return { ...body, input: convertMessages(deltaMessages), previous_response_id: previousResponseId, store: true };
+	return { ...body, input: convertMessages(deltaMessages, options?.cuaIncomingToolPlan?.tzafonComputerName), previous_response_id: previousResponseId, store: true };
 }
 
 export const streamSimpleTzafonResponses: StreamFunction<typeof TZAFON_RESPONSES_API, CuaSimpleStreamOptions> = (model, context, options) => {
@@ -93,14 +86,15 @@ export const streamTzafonResponses: StreamFunction<typeof TZAFON_RESPONSES_API, 
 		try {
 			const apiKey = options?.apiKey || process.env.TZAFON_API_KEY;
 			if (!apiKey) throw new Error(`No API key for provider: ${model.provider}`);
-			const client = new Lightcone({ apiKey });
-			const payload = buildTzafonRequestInput(model as Model<Api>, context, options);
-			const tzafonPayload = tzafonComputerUseOnPayload(payload, model as Model<Api>, {
-				keepToolNames: [...keepToolNamesFromContext(context), ...(options?.keepToolNames ?? [])],
+			const client = new Lightcone({
+				apiKey,
+				baseURL: model.baseUrl,
+				defaultHeaders: { ...model.headers, ...options?.headers },
 			});
-			const nextPayload = await options?.onPayload?.(tzafonPayload ?? payload, model as Model<Api>);
+			const payload = buildTzafonRequestInput(model as Model<Api>, context, options);
+			const nextPayload = await options?.onPayload?.(payload, model as Model<Api>);
 			if (options?.signal?.aborted) throw new Error("Request was aborted");
-			const response = await client.responses.create((nextPayload ?? tzafonPayload ?? payload) as never, {
+			const response = await client.responses.create((nextPayload ?? payload) as never, {
 				signal: options?.signal,
 			});
 			if (options?.signal?.aborted) throw new Error("Request was aborted");
@@ -126,19 +120,23 @@ export const streamTzafonResponses: StreamFunction<typeof TZAFON_RESPONSES_API, 
 				}
 				if (type === "computer_call") {
 					const callId = getString(item, "call_id") || getString(item, "id") || `computer_call_${output.content.length}`;
-					let actionIndex = 0;
-					for (const action of toCanonicalActions(getValue(item, "action"))) {
-						if (action.type === "answer") {
-							emitText(stream, output, action.text);
-							continue;
-						}
+					const rawAction = getValue(item, "action");
+					const canonical = toCanonicalActions(rawAction);
+					for (const action of canonical) if (action.type === "answer") emitText(stream, output, action.text);
+					const executable = canonical.filter((action): action is CuaAction => action.type !== "answer");
+					const nativeName = options?.cuaIncomingToolPlan?.tzafonComputerName;
+					if (nativeName && executable.length > 0) {
+						emitToolCall(stream, output, { type: "toolCall", id: callId, name: nativeName, arguments: { action: rawAction } });
+						continue;
+					}
+					for (let actionIndex = 0; actionIndex < executable.length; actionIndex += 1) {
+						const action = executable[actionIndex]!;
 						emitToolCall(stream, output, {
 							type: "toolCall",
 							id: tzafonToolCallId(callId, actionIndex),
 							name: canonicalToolCallName(action),
 							arguments: canonicalToolCallArguments(action),
 						});
-						actionIndex += 1;
 					}
 				}
 			}
@@ -156,25 +154,6 @@ export const streamTzafonResponses: StreamFunction<typeof TZAFON_RESPONSES_API, 
 
 	return stream;
 };
-
-export function tzafonComputerUseOnPayload(payload: unknown, _model?: Model<Api>, context?: CuaPayloadContext): unknown | undefined {
-	if (!payload || typeof payload !== "object") return undefined;
-	const current = payload as { tools?: unknown };
-	const keepToolNames = new Set(context?.keepToolNames ?? []);
-	const existingTools = Array.isArray(current.tools) ? current.tools : [];
-	const shouldAddComputerUse = existingTools.some((tool) => {
-		const name = readToolName(tool);
-		return Boolean(name && TZAFON_LOCAL_ACTION_TOOL_NAMES.has(name) && !keepToolNames.has(name));
-	});
-	const tools = existingTools.filter((tool) => {
-		const name = readToolName(tool);
-		return !name || keepToolNames.has(name) || !TZAFON_LOCAL_ACTION_TOOL_NAMES.has(name);
-	});
-	return {
-		...(payload as Record<string, unknown>),
-		tools: shouldAddComputerUse ? [TZAFON_COMPUTER_USE_TOOL, ...tools] : tools,
-	};
-}
 
 /** Derive a unique canonical tool-call id for a Tzafon computer action. */
 export function tzafonToolCallId(callId: string, actionIndex: number): string {
@@ -322,21 +301,7 @@ function convertTools(tools: Tool[]): Array<Record<string, unknown>> {
 	}));
 }
 
-function keepToolNamesFromContext(context: Context): string[] {
-	return (context.tools ?? [])
-		.map((tool) => tool.name)
-		.filter((name) => !TZAFON_LOCAL_ACTION_TOOL_NAMES.has(name));
-}
-
-function readToolName(tool: unknown): string | undefined {
-	if (!tool || typeof tool !== "object") return undefined;
-	const direct = getString(tool, "name");
-	if (direct) return direct;
-	const fn = getValue(tool, "function");
-	return getString(fn, "name");
-}
-
-function convertMessages(messages: readonly Message[]): Array<Record<string, unknown>> {
+function convertMessages(messages: readonly Message[], nativeComputerName?: string): Array<Record<string, unknown>> {
 	const items: Array<Record<string, unknown>> = [];
 	for (const message of messages) {
 		if (message.role === "user") {
@@ -352,12 +317,16 @@ function convertMessages(messages: readonly Message[]): Array<Record<string, unk
 			if (text) items.push({ role: "assistant", content: text });
 			for (const part of message.content) {
 				if (part.type !== "toolCall") continue;
-				items.push({
-					type: "function_call",
-					call_id: part.id,
-					name: part.name,
-					arguments: JSON.stringify(part.arguments ?? {}),
-				});
+				if (nativeComputerName && part.name === nativeComputerName) {
+					items.push({ type: "computer_call", call_id: part.id, action: getValue(part.arguments, "action") });
+				} else {
+					items.push({
+						type: "function_call",
+						call_id: part.id,
+						name: part.name,
+						arguments: JSON.stringify(part.arguments ?? {}),
+					});
+				}
 			}
 			continue;
 		}
@@ -367,12 +336,22 @@ function convertMessages(messages: readonly Message[]): Array<Record<string, unk
 				.map((part) => part.text)
 				.join("\n")
 				.trim();
+			const image = [...message.content].reverse().find((part): part is ImageContent => part.type === "image");
+			if (nativeComputerName && message.toolName === nativeComputerName) {
+				items.push({
+					type: "computer_call_output",
+					call_id: message.toolCallId,
+					output: image
+						? { type: "computer_screenshot", image_url: `data:${image.mimeType};base64,${image.data}` }
+						: { type: "computer_screenshot", error: message.isError ? text || "tool execution failed" : text || "ok" },
+				});
+				continue;
+			}
 			items.push({
 				type: "function_call_output",
 				call_id: message.toolCallId,
 				output: message.isError ? `Error: ${text || "tool execution failed"}` : text || "ok",
 			});
-			const image = [...message.content].reverse().find((part): part is ImageContent => part.type === "image");
 			if (image) {
 				items.push({
 					role: "user",

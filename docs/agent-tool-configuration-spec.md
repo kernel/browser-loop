@@ -1,6 +1,7 @@
 # Agent Tool Configuration
 
-**Status:** Draft for later review  
+**Status:** Implemented
+
 **Scope:** `@onkernel/cua-agent` and the tool-building surface in `@onkernel/cua-ai`  
 **Compatibility:** Not a goal; these packages are alpha and may make breaking API changes.
 
@@ -17,7 +18,7 @@ The array may contain:
 
 Provider-recommended tools are intentionally distinct from CUA-authored tools. The former reproduce the basic tools or schemas a model provider recommends in its computer-use examples; the latter are additional capabilities designed and maintained by CUA. A caller should be able to combine either category with custom application tools while seeing exactly what the model receives.
 
-The current `extraTools`, `mode`, `nativeTool`, and `playwright` constructor options should be removed. `activeToolNames`, `setActiveTools()`, `setMode()`, `getMode()`, `computer_use_extra`, and CUA-generated default system prompts should also be removed. No global or derived mode should replace them.
+The former `extraTools`, `mode`, `nativeTool`, and `playwright` constructor options are removed. `activeToolNames`, `setActiveTools()`, `setMode()`, `getMode()`, `computer_use_extra`, and CUA-generated default system prompts are also removed. No global or derived mode replaces them.
 
 Each CUA tool specification must contain enough information to build, expose, execute, and describe that tool independently. Convenience toolsets may return arrays of tool specifications, but they must not establish hidden runtime state or add undeclared tools.
 
@@ -79,7 +80,7 @@ This terminology must also be used consistently in the architecture document, pa
 - Silently replacing incompatible tools when the model changes
 - Preserving CUA's current default system prompts
 
-## Proposed public namespace
+## Public namespace
 
 Tool factories and toolsets should be exported through one discoverable namespace rather than as a collection of global functions.
 
@@ -105,9 +106,8 @@ cua.providers.anthropic.tools.browser(...)
 cua.providers.anthropic.tools.computer(...)
 cua.providers.anthropic.toolsets.computer()
 
-cua.providers.google.toolsets.computer()
-cua.providers.meta.toolsets.computer()
-cua.providers.moonshot.toolsets.computer()
+cua.providers.google.toolsets.browser()
+cua.providers.google.toolsets.legacyBrowser()
 ```
 
 The distinction is deliberate:
@@ -118,7 +118,7 @@ The distinction is deliberate:
 
 The exact property names may be refined, but the final exports must remain namespaced, autocomplete-friendly, and free of a large flat list of package-level tool factory functions.
 
-## Proposed constructor API
+## Constructor API
 
 Both constructors accept one required top-level `tools` array:
 
@@ -141,7 +141,7 @@ const harness = new CuaAgentHarness({
   client,
   env,
   session,
-  model: "openai:gpt-5.5",
+  model: "openai:gpt-5.6-sol",
   tools: [
     cua.tools.playwright(),
   ],
@@ -331,7 +331,7 @@ A tool specification has a stable identity and a preferred model-facing name. Th
 
 Composition sees the complete requested list and must detect name collisions before the first request. It must never silently shadow a tool.
 
-The naming policy is a design blocker that must be resolved before implementation. Candidate behavior is:
+The implemented naming policy is:
 
 1. Keep preferred provider-recommended names when unique.
 2. Reject collisions by default with an error naming both tool identities.
@@ -341,7 +341,7 @@ The naming policy is a design blocker that must be resolved before implementatio
 
 A toolset factory should not need hidden global state. The central composer sees all expanded tool specs and applies the collision policy. A toolset may expose explicit naming or namespace options, but automatic context-sensitive aliasing must not make the resulting catalog unpredictable.
 
-This policy must be prototyped with provider-recommended computer tools plus CUA browser tools before implementation begins.
+Catalog tests cover provider-recommended computer tools composed with CUA browser and caller tools.
 
 ## Tools and actions
 
@@ -365,7 +365,7 @@ Examples:
 
 An operation selected through a tool's arguments.
 
-Current or proposed action-bearing tools include:
+Current action-bearing tools include:
 
 - provider-native computer and browser tools, which use an `action` discriminator
 - `computer_batch`, which accepts an ordered `actions` array
@@ -392,7 +392,7 @@ A CUA or provider-recommended toolset may choose and document a default batch co
 
 ### Browser batch
 
-CUA should offer a browser-plane equivalent that does not dispatch OS computer-use input:
+CUA offers a browser-plane equivalent that does not dispatch OS computer-use input:
 
 ```ts
 cua.tools.browser.batch({
@@ -400,7 +400,7 @@ cua.tools.browser.batch({
 })
 ```
 
-The browser batch would execute browser/CDP operations and return their ordered read results. Its action schema, ref lifetime behavior, failure short-circuiting, and result grounding must be specified explicitly.
+The browser batch executes browser/CDP operations sequentially over one shared ref table and returns ordered read results. It short-circuits on the first failed or unsatisfied boundary, reports the failed index and skipped count, and follows the browser result-grounding policy.
 
 ### Browser batch versus browser act
 
@@ -409,7 +409,7 @@ The browser batch would execute browser/CDP operations and return their ordered 
 - `browser_batch` is a mechanical ordered container for explicitly selected browser actions and read results.
 - `browser_act` is a dependent plan with per-step and final semantic expectations, causal outcomes, deadlines, stop reasons, and stable successor feedback.
 
-The overlap still needs a design review before implementation. In particular, the design must decide whether ref-producing reads can feed later actions inside one batch and whether a simpler batch should instead be a restricted form of the action-plan tool.
+The implemented batch is intentionally not a restricted action-plan tool. Ref-producing reads update the shared ref table before later actions, but the input has no interpolation, saved-value, branch, or workflow syntax. `browser_act` remains the semantic planning surface.
 
 ### Native action restrictions
 
@@ -464,7 +464,7 @@ Tool descriptions should carry the instructions needed by lazily added tools. CU
 The requested tool list remains caller-owned when a model changes.
 
 ```ts
-await harness.setModel("openai:gpt-5.5");
+await harness.setModel("openai:gpt-5.6-sol");
 ```
 
 CUA revalidates the same tool specifications against the new model. It must not silently replace, add, remove, or rename tools.
@@ -472,7 +472,7 @@ CUA revalidates the same tool specifications against the new model. It must not 
 An incompatible native tool produces a direct error:
 
 ```text
-anthropic browser_20260701 requires an Anthropic model; selected openai:gpt-5.5
+anthropic browser_20260701 requires an Anthropic model; selected openai:gpt-5.6-sol
 ```
 
 Caller-provided generic tools and compatible CUA-authored tools remain installed.
@@ -522,11 +522,11 @@ A provider capability description may include:
 
 Coordinate uncertainty in one computer tool must not disable coordinate-free browser tools such as snapshots, refs, semantic waits, or action plans.
 
-Tzafon and Yutori require adapter changes before arbitrary composition is safe because their current payload hooks replace or suppress tools by name. That limitation should be reported against the affected requested tools, not represented as a blanket rejection of browser or mixed configurations.
+Tzafon and Yutori adapters compose by selected identity: Tzafon replaces only its native computer placeholder, while Yutori removes only selected native placeholders and preserves unrelated function tools.
 
 ## Removal of `computer_use_extra`
 
-`computer_use_extra` should be deleted entirely: definition, executor, implicit installation, exports, tests, and documentation.
+`computer_use_extra` is deleted entirely: definition, executor, implicit installation, exports, tests, and documentation.
 
 No replacement navigation helper is added automatically or under a new hidden name. A caller who needs navigation chooses an explicit capability, such as:
 
@@ -549,7 +549,7 @@ tool name "browser_act" is requested by both cua.browser.act and custom.plan
 ```
 
 ```text
-anthropic browser_20260701 cannot be used with model openai:gpt-5.5
+anthropic browser_20260701 cannot be used with model openai:gpt-5.6-sol
 ```
 
 ```text
@@ -560,11 +560,11 @@ tools "tzafon_computer" and "browser_click" require conflicting payload transfor
 provider google does not accept the schema used by "browser_act"
 ```
 
-CUA must not silently drop tools, substitute a different toolset, append fallback tools, or rename an existing tool after a dynamic addition.
+CUA must not silently drop tools, substitute a different selected toolset, append tools, or rename an existing tool after a dynamic addition. A selected native tool may declare an equivalent function-transport fallback under the same identity, name, schema, and executor for credentials that cannot access the native provider feature; this does not change the caller's tool catalog.
 
 ## Removal of current API
 
-The following constructor options should be removed rather than deprecated:
+The following constructor options are removed rather than deprecated:
 
 ```ts
 extraTools
@@ -574,7 +574,7 @@ playwright
 activeToolNames
 ```
 
-The following methods should be removed from the CUA-facing API:
+The following methods are removed from the CUA-facing API:
 
 ```ts
 setMode()
@@ -582,14 +582,14 @@ getMode()
 setActiveTools()
 ```
 
-`computer_use_extra` and CUA-generated default system prompts should be removed with them.
+`computer_use_extra` and CUA-generated default system prompts are removed with them.
 
 Their replacements are direct tool-list entries:
 
 | Current option | Replacement |
 | --- | --- |
 | `extraTools: [tool]` | include `tool` in `tools` |
-| `mode: "computer"` | `tools: cua.providers.<provider>.toolsets.computer()` or an explicit list |
+| `mode: "computer"` | `tools: cua.toolsets.computer()` or an explicit provider-native list |
 | `mode: "browser"` | `tools: cua.toolsets.browser()` or an explicit list |
 | `mode: "hybrid"` | compose the desired provider and CUA tools explicitly |
 | `nativeTool: spec` | `tools: [cua.providers.anthropic.tools.browser(spec)]` |
@@ -598,7 +598,7 @@ Their replacements are direct tool-list entries:
 
 ## Documentation requirements
 
-The future implementation must update:
+The implementation updates:
 
 - `docs/architecture.md` with the tool-spec composition and provider-adapter ownership boundaries
 - package READMEs with exact constructor examples and no legacy mode terminology
@@ -607,19 +607,15 @@ The future implementation must update:
 
 Provider-recommended toolsets must link to or name the provider guidance they mirror. CUA-authored additions must be described as CUA capabilities rather than provider defaults.
 
-## Design blockers before implementation
+## Implemented design resolutions
 
-No implementation should begin until these questions have concrete prototypes or decisions:
-
-1. **Name composition:** reject versus explicitly alias collisions, especially when provider-native names are fixed.
-2. **Payload transforms:** compose native and function tools without classifying them by ambiguous model-facing names.
-3. **Grounding ownership:** define post-action browser viewport versus OS display capture per tool, including mixed tool lists.
-4. **Batch overlap:** settle the relationship among `computer_batch`, `browser_batch`, and `browser_act`, including intra-batch ref flow.
-5. **Dynamic loading:** map `setTools()` onto pi's additive deferred-loading protocol while preserving CUA executors and session history.
-6. **Shared resources:** share translators, CDP state, and refs without deriving a mode or allowing one tool to mutate another's public contract.
-7. **Provider-recommended exports:** decide exactly which official or example tool shapes each provider namespace promises to mirror and how those promises are tested.
-
-These are architecture questions, not implementation details. The spec should be revisited after focused spikes for naming, Tzafon/Yutori payload composition, mixed grounding, and cache-preserving dynamic loading.
+1. **Name composition:** exact and provider-normalized collisions reject; caller aliases/namespaces are explicit; native names are fixed.
+2. **Payload transforms:** transforms consume stable identities, declare static write claims, and compose in a fixed phase order.
+3. **Grounding ownership:** each tool carries browser, computer, request-grounded, read, or failure behavior as data.
+4. **Batch overlap:** batches are mechanical; `browser_act` remains semantic; browser batches share ref state without a workflow DSL.
+5. **Dynamic loading:** `setTools()` uses pi 0.80.10 additive markers only for final, cache-preserving in-tool additions; other changes are eager.
+6. **Shared resources:** one resource pool survives tool/model changes and owns the translator and lazy CDP executor.
+7. **Provider exports:** Anthropic's recommended function toolsets and the native OpenAI, Anthropic, Google, Tzafon, and Yutori surfaces are namespaced and tested against their declared contracts. Meta, xAI, and Moonshot use CUA-authored browser tools.
 
 ## Decisions recorded
 
@@ -627,17 +623,17 @@ These are architecture questions, not implementation details. The spec should be
 - CUA does not generate a default system prompt.
 - `computer_use_extra` is removed with no implicit replacement.
 - There is one current public tool list; no CUA-facing `activeToolNames` layer.
-- Provider-recommended tools are namespaced separately from CUA-authored tools.
+- Provider-native and provider-recommended tools are namespaced separately from CUA-authored tools.
 - Tool factories and toolsets are discoverable under a namespace, not exported as many global functions.
 - `browser_act` remains outside `cua.toolsets.browser()` until it has broader production evidence.
 - Naming, payload-transform composition, grounding, and batch overlap must be resolved before code is written.
 
-## Acceptance criteria for a future implementation
+## Acceptance criteria
 
 - Both constructors have one required tool-selection source of truth and accept `tools: []`.
 - The current tool-related constructor options, active-tool option, and mode methods are removed.
 - `computer_use_extra` and CUA-generated default system prompts are removed.
-- CUA-authored and provider-recommended tools are exposed through distinct, discoverable namespaces.
+- CUA-authored, provider-native, and provider-recommended tools are exposed through distinct, discoverable namespaces.
 - Exact native-browser-only, provider-recommended-plus-CUA, Playwright-only, browser-act-only, and empty configurations are tested.
 - No undeclared helper tool is installed.
 - `computer_batch` exposes explicit action control, and a browser batch design is resolved and tested.

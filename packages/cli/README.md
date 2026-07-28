@@ -42,7 +42,7 @@ cua do "buy a pair of socks on amazon" --max-steps 20
 # List and pick supported models:
 cua models
 cua models -p openai
-cua --print --model openai:gpt-5.5 "..."
+cua --print --model openai:gpt-5.6-sol "..."
 cua --print --model anthropic:claude-opus-5 "..."
 cua --print --model google:gemini-3-flash-preview "..."
 cua --print --model meta:muse-spark-1.1 "..."
@@ -75,8 +75,8 @@ provider it routes to. Filter by provider with `cua models -p openai`,
 (alias: `moonshot`), or `cua models -p yutori`.
 
 `-m` / `--model` accepts a provider-qualified `provider:model` ref (e.g.
-`openai:gpt-5.5`) or a bare model id when it matches exactly one catalog
-entry. The default is `openai:gpt-5.5`.
+`openai:gpt-5.6-sol`) or a bare model id when it matches exactly one catalog
+entry. The default is `openai:gpt-5.6-sol`.
 
 ## Configuration
 
@@ -109,15 +109,14 @@ Configuration is by environment variable. There is no config file.
 Use `--thinking <level>` (`off | minimal | low | medium | high | xhigh | max`,
 default `low`) for providers that support reasoning effort.
 
-## Playwright escape hatch
-
-Pass `--playwright` to expose the `playwright_execute` tool, letting the
-model run Playwright/TypeScript directly against the live browser session
-for steps that are awkward as raw pointer/keyboard actions (precise DOM
-reads, form fills, data extraction, waiting on selectors). `page`,
-`context`, and `browser` are in scope; the code may `return` a
-JSON-serializable value. Off by default. Verified e2e with Anthropic,
-Tzafon, and Yutori CUA models.
+The CLI chooses one explicit interaction catalog and appends pi's coding tools:
+CUA browser tools for OpenAI, Meta, xAI, Moonshot, and older Anthropic models;
+Anthropic's native browser tool when supported; Google's native browser action
+set; Tzafon's native computer tool in a browser environment; and Yutori's
+native N1/N1.5 browser set. If the active Anthropic credential cannot access
+`browser_20260701`, the same selected browser tool uses its equivalent function
+transport. Library callers can select any catalog directly; see
+[`@onkernel/cua-agent`](../agent).
 
 ## Output formats
 
@@ -135,7 +134,7 @@ Add `--jsonl-include-deltas` for assistant-token deltas and
 The first event of every `--print -o jsonl` run is
 `session_created` with a `schema_version` field. The current schema
 version is `1`. The `model` field carries a provider-qualified ref
-(e.g. `openai:gpt-5.5`); use `parseCuaModelRef` from `@onkernel/cua-ai`
+(e.g. `openai:gpt-5.6-sol`); use `parseCuaModelRef` from `@onkernel/cua-ai`
 if you only need the bare model id.
 
 ## Sessions and transcripts

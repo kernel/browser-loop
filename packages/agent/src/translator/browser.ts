@@ -59,8 +59,25 @@ const DEFAULT_SNAPSHOT_DEPTH = 15;
 const FIND_MATCH_LIMIT = 20;
 const REF_LIMIT_PER_TARGET = 1000;
 const SCROLL_NOTCH_PX = 120;
+const NAVIGATION_STABILIZATION_TIMEOUT_MS = 10_000;
 
 const UNCHANGED_SNAPSHOT = "Page unchanged since the last snapshot; previous element refs are still valid.";
+
+interface NavigationEvidence {
+	readonly type: "frameNavigated" | "sameDocument" | "lifecycle" | "stopped" | "detached";
+	readonly frameId?: string;
+	readonly loaderId?: string;
+	readonly navigationType?: string;
+	readonly name?: string;
+	readonly errorText?: string;
+}
+
+interface PendingNavigation {
+	readonly targetId: string;
+	readonly sessionId: string;
+	readonly evidence: NavigationEvidence[];
+	onEvidence?: () => void;
+}
 
 interface CollectedObservation {
 	readonly observation: BrowserObservation;
@@ -138,6 +155,7 @@ export class BrowserExecutor {
 	private readonly mainFramesByTarget = new Map<string, string>();
 	private readonly navigationEpochs = new Map<string, number>();
 	private readonly selfNavigations = new Set<string>();
+	private readonly pendingNavigations = new Map<string, PendingNavigation>();
 	private readonly dialogNotes: string[] = [];
 	private refCounter = 0;
 	private activeTargetId?: string;
@@ -150,6 +168,7 @@ export class BrowserExecutor {
 	}
 
 	private handleCdpEvent(event: CdpEventMessage): void {
+		this.recordNavigationEvidence(event);
 		switch (event.method) {
 			case "Page.frameNavigated": {
 				const frame = event.params.frame as { id?: string; parentId?: string; loaderId?: string } | undefined;
@@ -253,6 +272,87 @@ export class BrowserExecutor {
 		}
 	}
 
+	private recordNavigationEvidence(event: CdpEventMessage): void {
+		const detachedSession = event.method === "Target.detachedFromTarget" ? event.params.sessionId : undefined;
+		const sessionId = typeof detachedSession === "string" ? detachedSession : event.sessionId;
+		if (!sessionId) return;
+		const pending = [...this.pendingNavigations.values()].find((navigation) => navigation.sessionId === sessionId);
+		if (!pending) return;
+		let evidence: NavigationEvidence | undefined;
+		if (event.method === "Page.frameNavigated") {
+			const { frame, type: navigationType } = event.params as {
+				frame?: { id?: string; parentId?: string; loaderId?: string; unreachableUrl?: string };
+				type?: string;
+			};
+			if (frame && !frame.parentId) {
+				evidence = { type: "frameNavigated", frameId: frame.id, loaderId: frame.loaderId, navigationType, errorText: frame.unreachableUrl };
+			}
+		} else if (event.method === "Page.navigatedWithinDocument") {
+			const { frameId } = event.params as { frameId?: string };
+			evidence = { type: "sameDocument", frameId };
+		} else if (event.method === "Page.lifecycleEvent") {
+			const { frameId, loaderId, name } = event.params as { frameId?: string; loaderId?: string; name?: string };
+			if (name === "load") evidence = { type: "lifecycle", frameId, loaderId, name };
+		} else if (event.method === "Page.frameStoppedLoading") {
+			const { frameId } = event.params as { frameId?: string };
+			evidence = { type: "stopped", frameId };
+		} else if (event.method === "Target.detachedFromTarget") {
+			evidence = { type: "detached" };
+		}
+		if (!evidence) return;
+		pending.evidence.push(evidence);
+		if (pending.evidence.length > 32) pending.evidence.shift();
+		pending.onEvidence?.();
+	}
+
+	private beginNavigation(targetId: string, sessionId: string): PendingNavigation {
+		if (this.pendingNavigations.has(targetId)) throw new Error(`navigation already in progress for target ${targetId}`);
+		const pending: PendingNavigation = { targetId, sessionId, evidence: [] };
+		this.pendingNavigations.set(targetId, pending);
+		return pending;
+	}
+
+	private cancelNavigation(pending: PendingNavigation): void {
+		if (this.pendingNavigations.get(pending.targetId) === pending) this.pendingNavigations.delete(pending.targetId);
+		pending.onEvidence = undefined;
+	}
+
+	private waitForNavigation(
+		pending: PendingNavigation,
+		expected: { frameId: string; loaderId?: string },
+		signal?: AbortSignal,
+	): Promise<void> {
+		throwIfAborted(signal);
+		return new Promise<void>((resolve, reject) => {
+			let timer: ReturnType<typeof setTimeout> | undefined;
+			let settled = false;
+			const cleanup = () => {
+				if (timer) clearTimeout(timer);
+				signal?.removeEventListener("abort", onAbort);
+				this.cancelNavigation(pending);
+			};
+			const settle = (error?: Error) => {
+				if (settled) return;
+				settled = true;
+				cleanup();
+				if (error) reject(error);
+				else resolve();
+			};
+			const check = () => {
+				const outcome = navigationOutcome(pending.evidence, expected);
+				if (outcome === "complete") settle();
+				else if (outcome instanceof Error) settle(outcome);
+			};
+			const onAbort = () => settle(signal?.reason instanceof Error ? signal.reason : new Error("browser navigation aborted"));
+			pending.onEvidence = check;
+			timer = setTimeout(() => settle(new Error(
+				`browser navigation timed out after ${NAVIGATION_STABILIZATION_TIMEOUT_MS}ms waiting for main-frame load on target ${pending.targetId}`,
+			)), NAVIGATION_STABILIZATION_TIMEOUT_MS);
+			signal?.addEventListener("abort", onAbort, { once: true });
+			check();
+		});
+	}
+
 	/** Close the CDP connection. Safe to call when never connected. */
 	close(): void {
 		this.cdp.close();
@@ -283,14 +383,15 @@ export class BrowserExecutor {
 		this.lifecycle.importState(state.generations, state.refs, state.activeTargetId, state.documents);
 	}
 
-	async execute(action: CuaBrowserAction): Promise<BatchReadResult[]> {
-		const results = await this.dispatch(action);
+	async execute(action: CuaBrowserAction, signal?: AbortSignal): Promise<BatchReadResult[]> {
+		throwIfAborted(signal);
+		const results = await this.dispatch(action, signal);
 		const dialogs = this.drainDialogNotes();
 		if (dialogs) results.push({ type: "browser_text", label: "dialog", text: dialogs });
 		return results;
 	}
 
-	private async dispatch(action: CuaBrowserAction): Promise<BatchReadResult[]> {
+	private async dispatch(action: CuaBrowserAction, signal?: AbortSignal): Promise<BatchReadResult[]> {
 		switch (action.type) {
 			case "browser_snapshot":
 				return [{ type: "browser_text", label: "snapshot", text: await this.snapshot(action) }];
@@ -303,19 +404,19 @@ export class BrowserExecutor {
 			case "browser_find":
 				return [{ type: "browser_text", label: "find", text: await this.find(action) }];
 			case "browser_click":
-				await this.click(action);
+				await this.click(action, signal);
 				return [];
 			case "browser_hover":
-				await this.hover(action);
+				await this.hover(action, signal);
 				return [];
 			case "browser_drag":
 				await this.drag(action);
 				return [];
 			case "browser_fill":
-				await this.fill(action);
+				await this.fill(action, signal);
 				return [];
 			case "browser_scroll_to":
-				await this.scrollTo(action);
+				await this.scrollTo(action, signal);
 				return [];
 			case "browser_scroll":
 				await this.scroll(action);
@@ -326,10 +427,10 @@ export class BrowserExecutor {
 				return [];
 			}
 			case "browser_key":
-				await this.key(action);
+				await this.key(action, signal);
 				return [];
 			case "browser_navigate":
-				return [{ type: "browser_text", label: "navigate", text: await this.navigate(action) }];
+				return [{ type: "browser_text", label: "navigate", text: await this.navigate(action, signal) }];
 			case "browser_list_tabs":
 				return [{ type: "browser_text", label: "tabs", text: await this.listTabs() }];
 			case "browser_new_tab":
@@ -902,9 +1003,11 @@ export class BrowserExecutor {
 		await this.cdp.send("Input.dispatchKeyEvent", { type: "keyUp", ...base }, session);
 	}
 
-	private async navigate(action: CuaActionBrowserNavigate): Promise<string> {
+	private async navigate(action: CuaActionBrowserNavigate, signal?: AbortSignal): Promise<string> {
+		throwIfAborted(signal);
 		const targetId = await this.resolveTarget(action.tab_id);
 		const session = await this.attach(targetId);
+		throwIfAborted(signal);
 		const direction = action.url.trim().toLowerCase();
 		if (direction === "back" || direction === "forward") {
 			const history = await this.cdp.send<{ currentIndex: number; entries: Array<{ id: number; url: string }> }>(
@@ -914,21 +1017,63 @@ export class BrowserExecutor {
 			);
 			const entry = history.entries[history.currentIndex + (direction === "back" ? -1 : 1)];
 			if (!entry) throw new Error(`cannot go ${direction}: no history entry`);
-			await this.selfNavigate(targetId, () => this.cdp.send("Page.navigateToHistoryEntry", { entryId: entry.id }, session));
+			const frameId = await this.mainFrameId(targetId, session);
+			throwIfAborted(signal);
+			const pending = this.beginNavigation(targetId, session);
+			try {
+				await this.selfNavigate(targetId, () => this.cdp.send("Page.navigateToHistoryEntry", { entryId: entry.id }, session));
+			} catch (error) {
+				this.cancelNavigation(pending);
+				throw error;
+			}
 			this.lifecycle.invalidateTarget(targetId);
+			try {
+				await this.waitForNavigation(pending, { frameId }, signal);
+			} finally {
+				this.selfNavigations.delete(targetId);
+			}
 			return `Navigated ${direction}.\n${await this.tabContext(targetId)}`;
 		}
 		const url = normalizeGotoUrl(action.url);
 		if (!url) throw new Error("invalid url");
-		const { errorText } = await this.selfNavigate(targetId, () =>
-			this.cdp.send<{ errorText?: string }>("Page.navigate", { url }, session),
-		);
-		if (errorText) {
+		const pending = this.beginNavigation(targetId, session);
+		let response: { frameId?: string; loaderId?: string; errorText?: string; isDownload?: boolean };
+		try {
+			response = await this.selfNavigate(targetId, () =>
+				this.cdp.send<typeof response>("Page.navigate", { url }, session),
+			);
+		} catch (error) {
+			this.cancelNavigation(pending);
+			throw error;
+		}
+		if (response.errorText) {
+			this.cancelNavigation(pending);
 			this.selfNavigations.delete(targetId);
-			throw new Error(`navigation to ${url} failed: ${errorText}`);
+			throw new Error(`navigation to ${url} failed: ${response.errorText}`);
 		}
 		this.lifecycle.invalidateTarget(targetId);
+		if (response.isDownload) {
+			this.cancelNavigation(pending);
+			this.selfNavigations.delete(targetId);
+		} else {
+			const frameId = response.frameId ?? await this.mainFrameId(targetId, session);
+			try {
+				await this.waitForNavigation(pending, { frameId, loaderId: response.loaderId }, signal);
+			} finally {
+				this.selfNavigations.delete(targetId);
+			}
+		}
 		return `Navigated to ${url}.\n${await this.tabContext(targetId)}`;
+	}
+
+	private async mainFrameId(targetId: string, session: string): Promise<string> {
+		const known = this.mainFramesByTarget.get(targetId);
+		if (known) return known;
+		const { frameTree } = await this.cdp.send<{ frameTree?: { frame?: { id?: string } } }>("Page.getFrameTree", {}, session);
+		const frameId = frameTree?.frame?.id;
+		if (!frameId) throw new Error(`could not resolve the main frame for target ${targetId}`);
+		this.mainFramesByTarget.set(targetId, frameId);
+		return frameId;
 	}
 
 	/**
@@ -1128,6 +1273,8 @@ export class BrowserExecutor {
 	}
 
 	private dropTarget(targetId: string): void {
+		const navigation = this.pendingNavigations.get(targetId);
+		if (navigation) this.cancelNavigation(navigation);
 		this.lifecycle.dropTarget(targetId);
 		this.mainFramesByTarget.delete(targetId);
 		this.navigationEpochs.delete(targetId);
@@ -1168,6 +1315,7 @@ export class BrowserExecutor {
 		if (!this.targetsBySession.has(session)) {
 			this.targetsBySession.set(session, targetId);
 			await this.cdp.send("Page.enable", {}, session);
+			await this.cdp.send("Page.setLifecycleEventsEnabled", { enabled: true }, session);
 			// setAutoAttach must run before reconcile so an imported OOPIF's session
 			// surfaces (via attachedToTarget) in time to read its own document.
 			await this.cdp.send("Target.setAutoAttach", { autoAttach: true, flatten: true, waitForDebuggerOnStart: false }, session);
@@ -1191,6 +1339,32 @@ export class BrowserExecutor {
 		this.activeTargetId = targets[0]!.targetId;
 		return this.activeTargetId;
 	}
+}
+
+function navigationOutcome(
+	evidence: readonly NavigationEvidence[],
+	expected: { frameId: string; loaderId?: string },
+): "pending" | "complete" | Error {
+	let committed = false;
+	let activeLoaderId = expected.loaderId;
+	for (const event of evidence) {
+		if (event.type === "detached") return new Error("browser target detached during navigation");
+		if (event.frameId !== expected.frameId) continue;
+		if (event.type === "sameDocument") return "complete";
+		if (event.type === "frameNavigated") {
+			if (event.errorText) return new Error(`browser navigation failed after commit: ${event.errorText}`);
+			if (event.navigationType === "BackForwardCacheRestore") return "complete";
+			committed = true;
+			if (event.loaderId) activeLoaderId = event.loaderId;
+			continue;
+		}
+		if (event.type === "lifecycle") {
+			if (activeLoaderId ? event.loaderId === activeLoaderId : committed) return "complete";
+			continue;
+		}
+		if (event.type === "stopped" && committed) return "complete";
+	}
+	return "pending";
 }
 
 function tabOf(action: { tab_id?: string }): string | undefined {

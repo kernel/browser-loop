@@ -47,7 +47,7 @@ async function main(): Promise<void> {
 		model: modelRef as CuaModelRef,
 		skills,
 		contextFiles,
-		extraTools: [],
+		tools: [],
 		models: scripted.models,
 	});
 

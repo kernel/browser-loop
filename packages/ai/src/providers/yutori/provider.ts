@@ -13,20 +13,14 @@ import {
 	type TextContent,
 	type ToolCall,
 } from "@earendil-works/pi-ai";
-import {
-	isYutoriLocalActionToolName,
-	toCanonicalActions,
-	yutoriToolSetForModel,
-	YUTORI_N15_EXPANDED_ACTION_TYPES,
-} from "./actions";
-import { canonicalToolCallArguments, canonicalToolCallName, type CuaPayloadContext } from "../common";
+import type { CuaIncomingToolPlan } from "../../tool-catalog";
 
 export const YUTORI_CHAT_COMPLETIONS_API = "yutori-chat-completions";
 
 /** Stream options accepted by {@link streamYutori}. */
 export interface YutoriOptions extends StreamOptions {
-	/** Tool names to keep in the outbound payload even though they collide with local CUA action tool names. */
-	keepToolNames?: readonly string[];
+	/** @internal Identity-addressed native dispatch compiled from selected tools. */
+	cuaIncomingToolPlan?: CuaIncomingToolPlan;
 }
 
 export const streamYutori: StreamFunction<typeof YUTORI_CHAT_COMPLETIONS_API, YutoriOptions> = (model, context, options) => {
@@ -41,82 +35,6 @@ export const streamSimpleYutori: StreamFunction<typeof YUTORI_CHAT_COMPLETIONS_A
 	options,
 ) => streamYutori(model, context, options);
 
-export function yutoriNativeToolSetOnPayload(payload: unknown, model?: Model<Api>, context?: CuaPayloadContext): unknown | undefined {
-	if (!payload || typeof payload !== "object") return undefined;
-	const current = payload as { tools?: unknown };
-	const keepToolNames = new Set(context?.keepToolNames ?? []);
-	const tools = Array.isArray(current.tools)
-		? current.tools.filter((tool) => {
-				const name = readToolName(tool);
-				return !name || keepToolNames.has(name) || !isYutoriLocalActionToolName(name);
-			})
-		: undefined;
-	const toolSet = model ? yutoriToolSetForModel(model.id) : undefined;
-	return {
-		...(payload as Record<string, unknown>),
-		...(toolSet ? { tool_set: toolSet, disable_tools: [...YUTORI_N15_EXPANDED_ACTION_TYPES] } : {}),
-		...(tools && tools.length > 0 ? { tools } : { tools: undefined }),
-	};
-}
-
-/**
- * CUA payload middleware for yutori: map local executor tools onto the native
- * tool set, then append a fresh screenshot to the latest user/tool message per
- * yutori's screenshot policy.
- */
-export async function yutoriCuaOnPayload(payload: unknown, model?: Model<Api>, context?: CuaPayloadContext): Promise<unknown | undefined> {
-	const next = yutoriNativeToolSetOnPayload(payload, model, context) ?? payload;
-	return (await appendScreenshotToLatestMessage(next, context?.getScreenshot)) ?? next;
-}
-
-async function appendScreenshotToLatestMessage(
-	payload: unknown,
-	getScreenshot: CuaPayloadContext["getScreenshot"],
-): Promise<unknown | undefined> {
-	if (!getScreenshot) return undefined;
-	if (!payload || typeof payload !== "object") return undefined;
-	const current = payload as { messages?: unknown };
-	if (!Array.isArray(current.messages) || current.messages.length === 0) return undefined;
-	const last = current.messages[current.messages.length - 1];
-	if (!last || typeof last !== "object") return undefined;
-	const lastMessage = last as { content?: unknown; role?: unknown };
-	if (lastMessage.role !== "user" && lastMessage.role !== "tool") return undefined;
-	if (contentHasImage(lastMessage.content)) return undefined;
-
-	const screenshot = await getScreenshot();
-	const content = normalizePayloadContent(lastMessage.content);
-	const nextMessages = current.messages.slice();
-	nextMessages[nextMessages.length - 1] = {
-		...(last as Record<string, unknown>),
-		content: [
-			...content,
-			{ type: "text", text: "\n\n" },
-			{
-				type: "image_url",
-				image_url: {
-					url: `data:${screenshot.mimeType};base64,${screenshot.data.toString("base64")}`,
-					detail: "high",
-				},
-			},
-		],
-	};
-	return { ...(payload as Record<string, unknown>), messages: nextMessages };
-}
-
-function normalizePayloadContent(content: unknown): Array<Record<string, unknown>> {
-	if (typeof content === "string") return [{ type: "text", text: content }];
-	if (Array.isArray(content)) {
-		return content.filter((part): part is Record<string, unknown> => Boolean(part) && typeof part === "object");
-	}
-	return [];
-}
-
-function contentHasImage(content: unknown): boolean {
-	return Array.isArray(content) && content.some((part) => {
-		return Boolean(part) && typeof part === "object" && (part as { type?: unknown }).type === "image_url";
-	});
-}
-
 async function runYutoriStream(
 	stream: ReturnType<typeof createAssistantMessageEventStream>,
 	model: Model<Api>,
@@ -130,7 +48,7 @@ async function runYutoriStream(
 		const client = new OpenAI({
 			apiKey,
 			baseURL: model.baseUrl || "https://api.yutori.com/v1",
-			defaultHeaders: model.headers,
+			defaultHeaders: { ...model.headers, ...options?.headers },
 		});
 		let payload: Record<string, unknown> = {
 			model: model.id,
@@ -140,9 +58,6 @@ async function runYutoriStream(
 		};
 		const tools = convertTools(context);
 		if (tools.length > 0) payload.tools = tools;
-		payload = yutoriNativeToolSetOnPayload(payload, model, {
-			keepToolNames: [...keepToolNamesFromContext(context), ...(options?.keepToolNames ?? [])],
-		}) as Record<string, unknown>;
 		const nextPayload = await options?.onPayload?.(payload, model);
 		if (nextPayload !== undefined) payload = nextPayload as Record<string, unknown>;
 
@@ -166,30 +81,12 @@ async function runYutoriStream(
 		for (const call of message?.tool_calls ?? []) {
 			if (call.type !== "function") continue;
 			const args = parseArguments(call.function.arguments);
-			const canonical = toCanonicalActions(call.function.name, args);
-			if (canonical && canonical.length > 0) {
-				for (let i = 0; i < canonical.length; i++) {
-					const action = canonical[i]!;
-					const contentIndex = output.content.length;
-					const toolCall: ToolCall = {
-						type: "toolCall",
-						id: canonical.length === 1 ? call.id : `${call.id}_${i}`,
-						name: canonicalToolCallName(action),
-						arguments: canonicalToolCallArguments(action),
-					};
-					output.content.push(toolCall);
-					output.stopReason = "toolUse";
-					stream.push({ type: "toolcall_start", contentIndex, partial: output });
-					stream.push({ type: "toolcall_delta", contentIndex, delta: JSON.stringify(toolCall.arguments), partial: output });
-					stream.push({ type: "toolcall_end", contentIndex, toolCall, partial: output });
-				}
-				continue;
-			}
+			const selectedName = options?.cuaIncomingToolPlan?.yutoriNames[call.function.name];
 			const contentIndex = output.content.length;
 			const toolCall: ToolCall = {
 				type: "toolCall",
 				id: call.id,
-				name: call.function.name,
+				name: selectedName ?? call.function.name,
 				arguments: args,
 			};
 			output.content.push(toolCall);
@@ -207,12 +104,6 @@ async function runYutoriStream(
 		stream.push({ type: "error", reason: output.stopReason, error: output });
 		stream.end();
 	}
-}
-
-function keepToolNamesFromContext(context: Context): string[] {
-	return (context.tools ?? [])
-		.map((tool) => tool.name)
-		.filter((name) => !isYutoriLocalActionToolName(name));
 }
 
 function initialAssistantMessage(model: Model<Api>): AssistantMessage {
@@ -321,14 +212,6 @@ function usageFromYutori(usage: unknown): AssistantMessage["usage"] {
 		totalTokens,
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 	};
-}
-
-function readToolName(tool: unknown): string | undefined {
-	if (!tool || typeof tool !== "object") return undefined;
-	const obj = tool as { function?: { name?: unknown }; name?: unknown };
-	if (typeof obj.function?.name === "string") return obj.function.name;
-	if (typeof obj.name === "string") return obj.name;
-	return undefined;
 }
 
 function readNumber(value: unknown, key: string): number {

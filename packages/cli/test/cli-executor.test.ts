@@ -40,7 +40,6 @@ function baseFlags(overrides: Partial<HarnessCliFlags> = {}): HarnessCliFlags {
 		debugTui: false,
 		jsonlIncludeDeltas: false,
 		jsonlIncludeImages: false,
-		playwright: false,
 		skillPaths: [],
 		...overrides,
 	};
@@ -223,11 +222,6 @@ describe("parseDeterministicArgs", () => {
 			ref: "e12",
 			value: "a@b.c",
 		});
-	});
-
-	it("runDeterministicCommand rejects invalid --mode and --native-tool values", async () => {
-		await expect(runDeterministicCommand("url", [], baseFlags({ mode: "bogus" }))).rejects.toThrow(/invalid --mode/);
-		await expect(runDeterministicCommand("url", [], baseFlags({ nativeTool: "bogus" }))).rejects.toThrow(/invalid --native-tool/);
 	});
 
 	it("runDeterministicCommand surfaces argv errors before touching the Kernel API", async () => {

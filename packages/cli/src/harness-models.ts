@@ -9,8 +9,8 @@ import {
 	parseCuaModelRef,
 } from "@onkernel/cua-ai";
 
-/** Default model used by the new harness wiring. */
-export const DEFAULT_CUA_MODEL_REF: CuaModelRef = "openai:gpt-5.5";
+/** Default model used by the CLI harness. */
+export const DEFAULT_CUA_MODEL_REF: CuaModelRef = "openai:gpt-5.6-sol";
 
 /**
  * Resolve a model ref from CLI input. Accepts either a provider-qualified

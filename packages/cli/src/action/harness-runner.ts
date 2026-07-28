@@ -108,6 +108,7 @@ export async function runAction(
 
 async function maybeInitialScreenshot(opts: HarnessRunOptions): Promise<ImageContent[] | undefined> {
 	if (opts.skipInitialScreenshot) return undefined;
+	if (opts.harness.inspectTools().some((tool) => tool.requestGrounding === "os-screenshot")) return undefined;
 	const hasPriorTurn = await sessionHasPriorTurn(opts.session);
 	if (hasPriorTurn) return undefined;
 	const png = await captureScreenshot(opts.browserHandle.client, opts.browserHandle.browser.session_id);
@@ -136,19 +137,18 @@ function textFromAssistant(message: AssistantMessage): string {
 }
 
 /**
- * Collect click coordinates from canonical CUA tool calls. The harness
- * dispatches batched calls via `computer_batch` (args: { actions: [...] })
- * and single-action calls via per-action tools (args: cua action without
- * the `type` field, which we recover from the tool name).
+ * Collect click coordinates from canonical CUA computer or browser tool calls.
+ * Batch tools use `{ actions: [...] }`; single-action tools omit the canonical
+ * `type`, which is recovered from the tool name.
  */
 function collectActionEvent(toolName: string, args: unknown, events: ActionEventInfo[]): void {
-	if (toolName === "computer_batch") {
+	if (toolName === "computer_batch" || toolName === "browser_batch") {
 		const actions = (args as { actions?: unknown }).actions;
 		if (Array.isArray(actions)) {
 			for (const action of actions) {
 				if (action && typeof action === "object") {
 					addClickEvent(
-						(action as { type?: unknown }).type,
+						(action as { action?: unknown }).action ?? (action as { type?: unknown }).type,
 						(action as { x?: unknown }).x,
 						(action as { y?: unknown }).y,
 						events,
@@ -161,7 +161,10 @@ function collectActionEvent(toolName: string, args: unknown, events: ActionEvent
 	if (args && typeof args === "object") {
 		const x = (args as { x?: unknown }).x;
 		const y = (args as { y?: unknown }).y;
-		addClickEvent(toolName, x, y, events);
+		const type = toolName.startsWith("computer_")
+			? toolName.slice("computer_".length)
+			: toolName.startsWith("browser_") ? toolName.slice("browser_".length) : toolName;
+		addClickEvent(type, x, y, events);
 	}
 }
 

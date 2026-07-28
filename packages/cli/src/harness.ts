@@ -1,6 +1,7 @@
 import {
 	CuaAgentHarness,
 	type CuaAgentHarnessOptions,
+	type CuaAgentTool,
 	formatSkillsForSystemPrompt,
 	type KernelBrowser,
 	NodeExecutionEnv,
@@ -10,19 +11,17 @@ import {
 } from "@onkernel/cua-agent";
 import {
 	type Api,
-	type CuaMode,
+	cua,
 	type CuaModelRef,
-	type CuaNativeToolSpec,
+	getCuaModel,
 	type Model,
 	type Models,
-	getCuaModel,
-	resolveCuaRuntimeSpec,
+	parseCuaModelRef,
 } from "@onkernel/cua-ai";
 import type Kernel from "@onkernel/sdk";
 import { createCodingTools } from "@earendil-works/pi-coding-agent";
 import type { ContextFile } from "./harness-skills";
 
-/** Options for {@link buildCuaHarness}. */
 export interface BuildCuaHarnessOptions {
 	cwd: string;
 	client: Kernel;
@@ -30,82 +29,77 @@ export interface BuildCuaHarnessOptions {
 	session: Session;
 	model: CuaModelRef;
 	skills?: Skill[];
-	/** Context files (AGENTS.md, CLAUDE.md, …) appended to the system prompt. */
 	contextFiles?: ContextFile[];
 	thinkingLevel?: ThinkingLevel;
-	/** Which canonical action plane(s) to expose: "computer" (default), "browser", or "hybrid". */
-	mode?: CuaMode;
-	/** Drive the model through a provider-native tool declaration (validated against `mode`). */
-	nativeTool?: CuaNativeToolSpec;
-	/** Expose the playwright_execute tool that runs Playwright code against the browser session. */
-	playwright?: boolean;
-	/** Override the default coding-tools extraTools (bash/read/edit/write/grep/find/ls). */
-	extraTools?: CuaAgentHarnessOptions["extraTools"];
-	/** Override the pi `Models` collection requests stream through (mainly for tests). */
+	/** Override the CLI's explicit interaction + coding tool list. */
+	tools?: CuaAgentTool[];
 	models?: Models;
-	/** Maximum tool-result images included from message history per provider request. */
 	toolResultImageReplayLimit?: CuaAgentHarnessOptions["toolResultImageReplayLimit"];
-	/**
-	 * Chain OpenAI, Meta, xAI, and Tzafon requests through provider-stored response state. Defaults to true.
-	 */
 	responseThreading?: CuaAgentHarnessOptions["responseThreading"];
-	/** Optional CUA-level retries around each provider request. Disabled by default. */
 	retry?: CuaAgentHarnessOptions["retry"];
-	/** Override the catalog `baseUrl` on the resolved model (e.g. from `<PROVIDER>_BASE_URL`). */
 	modelBaseUrl?: string;
 }
 
-/**
- * Build a `CuaAgentHarness` wired with cua-cli's defaults: pi `NodeExecutionEnv`,
- * caller-supplied jsonl `Session`, pi-coding-agent's `createCodingTools` as
- * `extraTools`, the shared CUA `Models` collection (env-var API-key
- * resolution via cua-ai conventions), and a `systemPrompt` that composes the
- * runtime spec's default prompt with the formatted skill block.
- */
+/** Build the CLI harness with one explicit tool list and a caller-owned prompt. */
 export function buildCuaHarness(opts: BuildCuaHarnessOptions): CuaAgentHarness {
 	const skills = opts.skills ?? [];
 	const contextFiles = opts.contextFiles ?? [];
-	const extraTools = opts.extraTools ?? createCodingTools(opts.cwd);
 	const model: CuaModelRef | Model<Api> = opts.modelBaseUrl
 		? { ...getCuaModel(opts.model), baseUrl: opts.modelBaseUrl }
 		: opts.model;
-	// The system-prompt callback re-resolves per turn and must see the live
-	// mode after /mode switches, so it reads it from the harness (late-bound).
-	let harness: CuaAgentHarness | undefined;
-	harness = new CuaAgentHarness({
+	const tools = opts.tools ?? [
+		...defaultInteractionTools(opts.model),
+		...createCodingTools(opts.cwd),
+	];
+	return new CuaAgentHarness({
 		env: new NodeExecutionEnv({ cwd: opts.cwd }),
 		session: opts.session,
 		model,
 		browser: opts.browser,
 		client: opts.client,
-		extraTools,
-		mode: opts.mode,
-		nativeTool: opts.nativeTool,
-		playwright: opts.playwright,
+		tools,
 		resources: { skills },
 		thinkingLevel: opts.thinkingLevel,
-		systemPrompt: ({ model: activeModel, resources }) => {
-			const runtime = resolveCuaRuntimeSpec(activeModel, {
-				mode: harness?.getMode() ?? opts.mode,
-				nativeTool: opts.nativeTool,
-			});
-			return composeSystemPrompt(runtime.defaultSystemPrompt, resources.skills ?? [], contextFiles);
-		},
+		systemPrompt: ({ resources }) => composeSystemPrompt(resources.skills ?? [], contextFiles),
 		models: opts.models,
 		toolResultImageReplayLimit: opts.toolResultImageReplayLimit,
 		responseThreading: opts.responseThreading,
 		retry: opts.retry,
 	});
-	return harness;
 }
 
-function composeSystemPrompt(base: string, skills: Skill[], contextFiles: ContextFile[]): string {
-	const sections = [base.trim()];
+/** CLI policy is explicit application composition, not a CuaAgent default. */
+export function defaultInteractionTools(model: CuaModelRef): CuaAgentTool[] {
+	const { provider, model: modelId } = parseCuaModelRef(model);
+	switch (provider) {
+		case "openai":
+			return cua.toolsets.browser();
+		case "anthropic":
+			return cua.providers.anthropic.supports.browser(modelId)
+				? [cua.providers.anthropic.tools.browser({ version: "20260701", javascript: true })]
+				: cua.toolsets.browser();
+		case "google":
+			return cua.providers.google.toolsets.browser();
+		case "tzafon":
+			return [cua.providers.tzafon.tools.computer()];
+		case "yutori":
+			return modelId.startsWith("n1.5")
+				? cua.providers.yutori.toolsets.n15Core()
+				: cua.providers.yutori.toolsets.n1();
+		case "meta":
+		case "xai":
+		case "moonshotai":
+			return cua.toolsets.browser();
+	}
+}
+
+function composeSystemPrompt(skills: Skill[], contextFiles: ContextFile[]): string {
+	const sections: string[] = [];
 	const skillBlock = formatSkillsForSystemPrompt(skills).trim();
 	if (skillBlock) sections.push(skillBlock);
 	const contextBlock = formatContextFiles(contextFiles);
 	if (contextBlock) sections.push(contextBlock);
-	return `${sections.join("\n\n")}\n`;
+	return sections.length ? `${sections.join("\n\n")}\n` : "";
 }
 
 function formatContextFiles(contextFiles: ContextFile[]): string {

@@ -1,6 +1,10 @@
+import { cua } from "@onkernel/cua-ai";
 import { describe, expect, it, vi } from "vitest";
 import { runAction } from "../src/action/harness-runner";
-import { buildTestHarness, type TestHarnessFixture } from "./fixtures/harness";
+import { buildTestHarness as buildDefaultTestHarness, type TestHarnessFixture } from "./fixtures/harness";
+
+const buildTestHarness = (options: Parameters<typeof buildDefaultTestHarness>[0]) =>
+	buildDefaultTestHarness({ ...options, tools: cua.toolsets.computer() });
 
 let fixture: TestHarnessFixture | undefined;
 
@@ -12,7 +16,7 @@ describe("action harness-runner", () => {
 					steps: [
 						{
 							type: "tool_call",
-							toolName: "click",
+							toolName: "computer_click",
 							args: { x: 123, y: 45 },
 						},
 					],
@@ -66,7 +70,7 @@ describe("action harness-runner", () => {
 		try {
 			fixture = await buildTestHarness({
 				turns: [
-					{ steps: [{ type: "tool_call", toolName: "click", args: { x: 9, y: 9 } }] },
+					{ steps: [{ type: "tool_call", toolName: "computer_click", args: { x: 9, y: 9 } }] },
 					{
 						steps: [
 							{ type: "text", text: "discarded" },
@@ -106,7 +110,7 @@ describe("action harness-runner", () => {
 			steps: [
 				{
 					type: "tool_call" as const,
-					toolName: "click",
+					toolName: "computer_click",
 					args: { x: 1, y: 1 },
 				},
 			],
