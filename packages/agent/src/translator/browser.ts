@@ -1,5 +1,6 @@
 import {
 	normalizeGotoUrl,
+	type CuaActionBrowserAct,
 	type CuaActionBrowserClick,
 	type CuaActionBrowserDrag,
 	type CuaActionBrowserFill,
@@ -12,6 +13,7 @@ import {
 	type CuaActionBrowserSnapshot,
 	type CuaActionBrowserWaitFor,
 	type CuaBrowserAction,
+	type CuaBrowserActStep,
 	type CuaBrowserExpectation,
 } from "@onkernel/cua-ai";
 import { CdpConnection, type CdpEventMessage } from "./cdp";
@@ -40,6 +42,7 @@ import {
 	type ObservationLine,
 	type RenderContext,
 } from "./browser-observation";
+import { runBrowserAct } from "./browser-act";
 import {
 	REF_STATE_VERSION,
 	RefGenerationLifecycle,
@@ -48,8 +51,8 @@ import {
 	type GenerationCapture,
 	type RefEntry,
 } from "./browser-ref-lifecycle";
-import { waitForBrowserExpectation, type BrowserExpectationEvaluation } from "./browser-wait";
-import type { BatchReadResult, BrowserWaitForResult } from "./types";
+import { evaluateBrowserExpectation, waitForBrowserExpectation, type BrowserExpectationEvaluation } from "./browser-wait";
+import type { BatchReadResult, BrowserActResult, BrowserWaitForResult } from "./types";
 
 const SNAPSHOT_CHAR_LIMIT = 50_000;
 const DEFAULT_SNAPSHOT_DEPTH = 15;
@@ -73,6 +76,15 @@ export interface BrowserFindCandidate {
 
 /**
  * Executes browser-plane canonical actions over CDP.
+ *
+ * Ownership boundary: this class owns connection-coupled mutable state and primitive
+ * browser mechanics—CDP sessions/targets, ref resolution, document generations,
+ * observation collection/rendering, and individual input operations. Multi-operation
+ * policy belongs outside this class behind narrow runtime interfaces: semantic polling
+ * lives in `browser-wait.ts`, and dependent plan control flow lives in `browser-act.ts`.
+ * A future feature should be added here only when it must directly coordinate the live
+ * CDP/ref state; orchestration expressible as observe/evaluate/execute primitives should
+ * be a separate module adapted by this executor.
  *
  * Element refs are snapshot-scoped: each snapshot/find mints `e<N>` ids
  * mapped to CDP backend node ids for the target's current generation. Any
@@ -282,6 +294,8 @@ export class BrowserExecutor {
 		switch (action.type) {
 			case "browser_snapshot":
 				return [{ type: "browser_text", label: "snapshot", text: await this.snapshot(action) }];
+			case "browser_act":
+				return [{ type: "browser_act", result: await this.act(action) }];
 			case "browser_wait_for":
 				return [{ type: "browser_wait_for", result: await this.waitFor(action) }];
 			case "browser_text":
@@ -355,16 +369,50 @@ export class BrowserExecutor {
 	}
 
 	private waitFor(action: CuaActionBrowserWaitFor): Promise<BrowserWaitForResult> {
-		return waitForBrowserExpectation(
-			{
-				selectTarget: (tabId) => this.resolveTarget(tabId),
-				observeTarget: (targetId) => this.observe(targetId),
-				dialogCount: () => this.dialogNotes.length,
-				targetExists: async (targetId) => (await this.cdp.pageTargets()).some((target) => target.targetId === targetId),
-				resolveRef: (expectation, observation) => this.evaluateRefExpectation(expectation, observation),
-			},
-			{ expect: action.expect, timeoutMs: action.timeout_ms, pollMs: action.poll_ms, tabId: action.tab_id },
-		);
+		return this.waitForExpectation(action.expect, { timeoutMs: action.timeout_ms, pollMs: action.poll_ms, tabId: action.tab_id });
+	}
+
+	private waitForExpectation(expect: CuaBrowserExpectation, options: { timeoutMs?: number; pollMs?: number; tabId?: string; baseline?: BrowserObservation; targetId?: string }): Promise<BrowserWaitForResult> {
+		return waitForBrowserExpectation({
+			selectTarget: (tabId) => this.resolveTarget(tabId),
+			observeTarget: (targetId) => this.observe(targetId, false),
+			dialogCount: () => this.dialogNotes.length,
+			targetExists: async (targetId) => (await this.cdp.pageTargets()).some((target) => target.targetId === targetId),
+			resolveRef: (expectation, observation) => this.evaluateRefExpectation(expectation, observation),
+		}, { expect, ...options });
+	}
+
+	private act(action: CuaActionBrowserAct): Promise<BrowserActResult> {
+		return runBrowserAct(action, {
+			observe: (tabId) => this.observe(tabId, false),
+			targetIds: async () => (await this.cdp.pageTargets()).map((target) => target.targetId).sort(),
+			dialogCount: () => this.dialogNotes.length,
+			liveGeneration: (frameId) => this.lifecycle.currentGeneration(frameId),
+			liveNavigationEpoch: (targetId) => this.navigationEpochs.get(targetId) ?? 0,
+			executeStep: (step, tabId, signal) => this.executeActStep(step, tabId, signal),
+			wait: (condition, baseline, targetId, tabId, timeoutMs, pollMs) => this.waitForExpectation(condition, { baseline, targetId, tabId, timeoutMs, pollMs }),
+			evaluate: (condition, observation, baseline) => evaluateBrowserExpectation(condition, observation, baseline, (ref, state) => this.evaluateRefExpectation(ref, state)),
+			present: (observation, snapshot) => this.presentObservation(observation, snapshot),
+			render: (presentation) => this.renderObservation(presentation, false),
+		});
+	}
+
+	private async executeActStep(step: CuaBrowserActStep, tabId: string | undefined, signal: AbortSignal): Promise<void> {
+		throwIfAborted(signal);
+		switch (step.type) {
+			case "click": return this.click({ type: "browser_click", ref: step.ref, button: step.button, num_clicks: step.num_clicks, modifiers: step.modifiers, tab_id: tabId }, signal);
+			case "hover": return this.hover({ type: "browser_hover", ref: step.ref, tab_id: tabId }, signal);
+			case "fill": return this.fill({ type: "browser_fill", ref: step.ref, value: step.value, tab_id: tabId }, signal);
+			case "scroll_to": return this.scrollTo({ type: "browser_scroll_to", ref: step.ref, tab_id: tabId }, signal);
+			case "key": return this.key({ type: "browser_key", text: step.text, repeat: step.repeat, tab_id: tabId }, signal);
+			case "type": {
+				const session = await this.session(tabId);
+				throwIfAborted(signal);
+				await this.cdp.send("Input.insertText", { text: step.text }, session);
+				return;
+			}
+			case "wait": return abortableDelay(step.ms ?? 0, signal);
+		}
 	}
 
 	private evaluateRefExpectation(
@@ -547,11 +595,11 @@ export class BrowserExecutor {
 		};
 	}
 
-	private renderObservation(presentation: BrowserPresentation): string {
+	private renderObservation(presentation: BrowserPresentation, comparePrevious = true): string {
 		const { observation, cacheKey, lines, shape } = presentation;
 		const cached = this.lastSnapshots.get(observation.targetId);
 		this.lastSnapshots.set(observation.targetId, { key: cacheKey, shape });
-		if (cached?.key === cacheKey && cached.shape === shape) return UNCHANGED_SNAPSHOT;
+		if (comparePrevious && cached?.key === cacheKey && cached.shape === shape) return UNCHANGED_SNAPSHOT;
 		let text = "";
 		for (const line of lines) {
 			if (text.length > SNAPSHOT_CHAR_LIMIT) break;
@@ -730,18 +778,24 @@ export class BrowserExecutor {
 		});
 	}
 
-	private async click(action: CuaActionBrowserClick): Promise<void> {
+	private async click(action: CuaActionBrowserClick, signal?: AbortSignal): Promise<void> {
+		throwIfAborted(signal);
 		const targetId = await this.resolveTarget(action.tab_id);
+		throwIfAborted(signal);
 		const session = await this.attach(targetId);
+		throwIfAborted(signal);
 		const point = await this.resolvePoint(action, targetId, session);
+		throwIfAborted(signal);
 		const modifiers = modifierBits(action.modifiers);
 		const button = action.button ?? "left";
 		const clicks = action.num_clicks ?? 1;
+		if (!Number.isInteger(clicks) || clicks < 1 || clicks > 3) throw new Error("num_clicks must be an integer between 1 and 3");
 		await this.cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y, modifiers }, point.session);
 		// Native multi-clicks are separate press/release cycles with an
 		// incrementing clickCount; a single pair with the final count is not how
 		// real input arrives and can register as one click.
 		for (let clickCount = 1; clickCount <= clicks; clickCount++) {
+			throwIfAborted(signal);
 			await this.cdp.send(
 				"Input.dispatchMouseEvent",
 				{ type: "mousePressed", x: point.x, y: point.y, button, clickCount, modifiers },
@@ -755,10 +809,14 @@ export class BrowserExecutor {
 		}
 	}
 
-	private async hover(action: CuaActionBrowserHover): Promise<void> {
+	private async hover(action: CuaActionBrowserHover, signal?: AbortSignal): Promise<void> {
+		throwIfAborted(signal);
 		const targetId = await this.resolveTarget(action.tab_id);
+		throwIfAborted(signal);
 		const session = await this.attach(targetId);
+		throwIfAborted(signal);
 		const point = await this.resolvePoint(action, targetId, session);
+		throwIfAborted(signal);
 		await this.cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y }, point.session);
 	}
 
@@ -769,15 +827,19 @@ export class BrowserExecutor {
 		await this.cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: action.to.x, y: action.to.y, button: "left", clickCount: 1 }, session);
 	}
 
-	private async fill(action: CuaActionBrowserFill): Promise<void> {
+	private async fill(action: CuaActionBrowserFill, signal?: AbortSignal): Promise<void> {
+		throwIfAborted(signal);
 		const targetId = await this.resolveTarget(action.tab_id);
 		// Attach before resolving the ref (like click/hover) so any imported document
 		// identity is reconciled first; otherwise a document that changed across the
 		// process boundary would resolve against a reused backend node id.
 		await this.attach(targetId);
+		throwIfAborted(signal);
 		const entry = this.resolveRef(action.ref, targetId);
 		const session = await this.refSession(entry);
+		throwIfAborted(signal);
 		const objectId = await this.resolveObject(entry, action.ref, session);
+		throwIfAborted(signal);
 		const { exceptionDetails } = await this.cdp.send<{ exceptionDetails?: { exception?: { description?: string } } }>(
 			"Runtime.callFunctionOn",
 			{
@@ -794,12 +856,16 @@ export class BrowserExecutor {
 		}
 	}
 
-	private async scrollTo(action: CuaActionBrowserScrollTo): Promise<void> {
+	private async scrollTo(action: CuaActionBrowserScrollTo, signal?: AbortSignal): Promise<void> {
+		throwIfAborted(signal);
 		const targetId = await this.resolveTarget(action.tab_id);
 		// Reconcile the imported document before resolving the ref; see fill().
 		await this.attach(targetId);
+		throwIfAborted(signal);
 		const entry = this.resolveRef(action.ref, targetId);
-		await this.scrollIntoView(entry, action.ref, await this.refSession(entry));
+		const session = await this.refSession(entry);
+		throwIfAborted(signal);
+		await this.scrollIntoView(entry, action.ref, session);
 	}
 
 	private async scroll(action: CuaActionBrowserScroll): Promise<void> {
@@ -811,12 +877,15 @@ export class BrowserExecutor {
 		await this.cdp.send("Input.dispatchMouseEvent", { type: "mouseWheel", x: action.x, y: action.y, deltaX, deltaY }, session);
 	}
 
-	private async key(action: CuaActionBrowserKey): Promise<void> {
+	private async key(action: CuaActionBrowserKey, signal?: AbortSignal): Promise<void> {
+		throwIfAborted(signal);
 		const session = await this.session(tabOf(action));
 		const repeat = Math.min(Math.max(1, Math.trunc(action.repeat ?? 1)), 100);
 		const chords = action.text.trim().split(/\s+/).filter(Boolean);
 		for (let iteration = 0; iteration < repeat; iteration += 1) {
 			for (const chord of chords) {
+				throwIfAborted(signal);
+				// Once keyDown starts, always pair it with keyUp before honoring cancellation.
 				await this.dispatchChord(chord, session);
 			}
 		}
@@ -1126,6 +1195,26 @@ export class BrowserExecutor {
 
 function tabOf(action: { tab_id?: string }): string | undefined {
 	return action.tab_id;
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+	if (!signal?.aborted) return;
+	throw signal.reason instanceof Error ? signal.reason : new Error("browser action aborted");
+}
+
+function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
+	throwIfAborted(signal);
+	return new Promise((resolve, reject) => {
+		const onAbort = () => {
+			clearTimeout(timer);
+			reject(signal.reason instanceof Error ? signal.reason : new Error("browser action aborted"));
+		};
+		const timer = setTimeout(() => {
+			signal.removeEventListener("abort", onAbort);
+			resolve();
+		}, ms);
+		signal.addEventListener("abort", onAbort, { once: true });
+	});
 }
 
 function normalizeState(value: unknown): boolean | "mixed" {

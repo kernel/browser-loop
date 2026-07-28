@@ -1,3 +1,5 @@
+import type { BrowserObservationDiff, BrowserObservationDiffEntry } from "./types";
+
 /** Minimal CDP accessibility node used by browser observations. */
 export interface AXNode {
 	readonly nodeId: string;
@@ -76,6 +78,31 @@ export interface BrowserPresentation {
 	readonly cacheKey: string;
 	readonly lines: readonly ObservationLine[];
 	readonly shape: string;
+}
+
+/** Compare complete presentations while normalizing away snapshot-scoped refs. */
+export function diffObservations(before: BrowserPresentation, after: BrowserPresentation): BrowserObservationDiff {
+	const beforeCounts = lineCounts(before);
+	const afterCounts = lineCounts(after);
+	const difference = (source: ReadonlyMap<string, number>, other: ReadonlyMap<string, number>): BrowserObservationDiffEntry[] =>
+		[...source].flatMap(([line, count]) => {
+			const delta = count - (other.get(line) ?? 0);
+			return delta > 0 ? [{ line, count: delta }] : [];
+		});
+	const added = difference(afterCounts, beforeCounts);
+	const removed = difference(beforeCounts, afterCounts);
+	const url = before.observation.url === after.observation.url ? undefined : { before: before.observation.url, after: after.observation.url };
+	const title = before.observation.title === after.observation.title ? undefined : { before: before.observation.title, after: after.observation.title };
+	return { changed: added.length > 0 || removed.length > 0 || !!url || !!title, added, removed, ...(url ? { url } : {}), ...(title ? { title } : {}) };
+}
+
+function lineCounts(presentation: BrowserPresentation): ReadonlyMap<string, number> {
+	const counts = new Map<string, number>();
+	for (const { text } of presentation.lines) {
+		const line = text.replace(/\u0000/g, "ref");
+		counts.set(line, (counts.get(line) ?? 0) + 1);
+	}
+	return counts;
 }
 
 /** Signals that browser state changed while an observation was collected. */

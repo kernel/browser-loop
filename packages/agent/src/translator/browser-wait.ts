@@ -17,8 +17,9 @@ export interface BrowserWaitRuntime {
 	observeTarget(targetId: string): Promise<BrowserObservation>;
 	dialogCount(): number;
 	targetExists(targetId: string): Promise<boolean>;
-	/** Reserved for runtimes that expose generation checks outside observations. */
+	/** Optional lifecycle counters for runtimes that expose out-of-band stability checks. */
 	liveGeneration?(frameId: string): number;
+	liveNavigationEpoch?(targetId: string): number;
 	resolveRef: BrowserRefResolver;
 	now?(): number;
 	delay?(ms: number): Promise<void>;
@@ -30,6 +31,9 @@ export interface BrowserWaitOptions {
 	timeoutMs?: number;
 	pollMs?: number;
 	tabId?: string;
+	/** Supply the pre-action state when verifying an action postcondition. */
+	baseline?: BrowserObservation;
+	targetId?: string;
 }
 
 function expectationNodes(observation: BrowserObservation): AXNode[] {
@@ -98,9 +102,9 @@ export async function waitForBrowserExpectation(runtime: BrowserWaitRuntime, opt
 	let targetId: string;
 	let baseline: BrowserObservation;
 	try {
-		targetId = await beforeDeadline(() => runtime.selectTarget(options.tabId), remaining(), now);
+		targetId = options.targetId ?? await beforeDeadline(() => runtime.selectTarget(options.tabId), remaining(), now);
 		if (expired()) return timedOut(started, now());
-		baseline = await runtime.observeTarget(targetId);
+		baseline = options.baseline ?? await runtime.observeTarget(targetId);
 	} catch (error) {
 		if (error instanceof WaitDeadlineError) return timedOut(started, now());
 		return failedObservation(started, now(), error);
@@ -109,12 +113,16 @@ export async function waitForBrowserExpectation(runtime: BrowserWaitRuntime, opt
 	if (initial.reason === "stale_ref" && !("any" in options.expect)) {
 		return terminal("interrupted", "unverifiable", initial, initial, started, now(), initial.reason);
 	}
+	if (options.baseline && baseline.incompleteFrames.length > 0) {
+		return terminal("unverifiable", "unverifiable", initial, initial, started, now(), "incomplete_observation");
+	}
 	if (expired()) return timedOut(started, now(), initial, initial);
-	if (initial.truth === true) return terminal("satisfied", "preexisting", initial, initial, started, now());
+	if (initial.truth === true && !options.baseline) return terminal("satisfied", "preexisting", initial, initial, started, now());
 	const dialogs = runtime.dialogCount();
 	let final = initial;
 	while (!expired()) {
-		await sleep(Math.min(poll, remaining()));
+		try { await beforeDeadline(() => sleep(Math.min(poll, remaining())), remaining(), now); }
+		catch (error) { if (error instanceof WaitDeadlineError) break; throw error; }
 		if (expired()) break;
 		let exists: boolean;
 		try { exists = await beforeDeadline(() => runtime.targetExists(targetId), remaining(), now); }
@@ -137,11 +145,11 @@ export async function waitForBrowserExpectation(runtime: BrowserWaitRuntime, opt
 			return terminal("interrupted", "unverifiable", initial, final, started, now(), final.reason);
 		}
 		if ((crossDocumentNavigation || sameDocumentNavigation) && locationExpectation) {
-			if (final.truth === true && !expired()) return terminal("satisfied", "newly_verified", initial, final, started, now());
+			if (final.truth === true && !expired()) return terminal("satisfied", satisfiedEvidence(initial), initial, final, started, now());
 			continue;
 		}
 		if (expired()) break;
-		if (final.truth === true) return terminal("satisfied", "newly_verified", initial, final, started, now());
+		if (final.truth === true) return terminal("satisfied", satisfiedEvidence(initial), initial, final, started, now());
 		if (observation.incompleteFrames.length > 0) {
 			final = { ...final, truth: undefined, reason: final.reason ?? "incomplete_observation" };
 			continue;
@@ -164,6 +172,10 @@ async function beforeDeadline<T>(operation: () => Promise<T>, remaining: number,
 		if (error instanceof WaitDeadlineError || Number.isFinite(remaining) && now() - started >= remaining) throw new WaitDeadlineError();
 		throw error;
 	}
+}
+
+function satisfiedEvidence(initial: BrowserExpectationEvidence): BrowserWaitForResult["evidence"] {
+	return initial.truth === true ? "preexisting" : "newly_verified";
 }
 
 function containsLocationExpectation(expectation: CuaBrowserExpectation): boolean {
