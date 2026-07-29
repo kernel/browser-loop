@@ -5,7 +5,7 @@ description: Drive a Kernel cloud browser from the shell using the `cua` CLI. Us
 
 # cua-cli
 
-`cua` is a single-binary CLI that drives a real Chrome session running in Kernel. It's designed for agentic use: each subcommand returns a stable result on stdout and a deterministic exit code (0 ok, 1 not_found, 2 error), so you can chain calls together and parse the output.
+`cua` is a single-binary CLI that drives a real Chrome session running in Kernel. It's designed for agentic use: each subcommand returns a stable result on stdout and a deterministic exit code documented below, so you can chain calls together and parse the output.
 
 ## One-shot subcommands
 
@@ -31,6 +31,104 @@ These run directly against the browser (CDP or OS input) — no LLM involved, no
 | `cua screenshot [--out <file\|->]` | Save a PNG (default `screenshot.png`). `--out -` writes the bytes to stdout. | the saved path; with `--out -`, stdout is exactly the PNG bytes (safe to pipe) | 0 ok, 2 error |
 
 **Element refs span invocations within a named session.** Refs printed by `snapshot`/`find` (`[e12]`) are persisted per `-s` session, so `cua -s x snapshot` then `cua -s x click e12` works. Refs self-heal across in-page DOM changes when the element is still unambiguous, but any navigation — including reloading the same URL — invalidates them; the command then exits 1 with a stale-ref message — re-run `snapshot` and use a fresh ref. Without `-s` there is no shared browser, so refs from a previous invocation are meaningless.
+
+### Verified `browser_act` plans (model-free)
+
+> **Use `cua act` when the result matters, not merely the input dispatch.** It
+> executes dependent ref-based steps and checks semantic postconditions against
+> structured browser observations, without an LLM.
+
+The one shell argument is the `browser_act` input as JSON, **without** the
+outer `"type": "browser_act"` discriminator. Each individual step still needs
+its own `type`. The complete top-level input is:
+
+```ts
+type BrowserActInput = {
+  steps: Step[];                    // required; 1–20 entries
+  expect?: Expectation;             // final plan postcondition
+  timeout_ms?: number;              // whole plan; 1–30000, default 30000
+  poll_ms?: number;                 // expectation polling; 10–1000, default 50
+  successor?: {
+    filter?: "all" | "interactive";
+    depth?: number;
+  };
+  tab_id?: string;                  // defaults to the active tab
+};
+```
+
+Supported step objects:
+
+| `type` | Required fields | Optional action fields |
+| --- | --- | --- |
+| `click` | `ref` | `button: "left"\|"right"\|"middle"`, `num_clicks: 1..3`, `modifiers: string[]` |
+| `hover` | `ref` | — |
+| `fill` | `ref`, `value: string\|number\|boolean` | — |
+| `type` | `text` | — |
+| `key` | `text` | `repeat: number` |
+| `scroll_to` | `ref` | — |
+| `wait` | — | `ms: 0..30000` |
+
+Every step also accepts `expect?: Expectation` and `timeout_ms?: 1..30000`.
+A step timeout covers both its input execution and postcondition verification
+and is capped by the plan deadline. If a step cannot establish its expectation,
+later steps are skipped. Navigation is a control-flow boundary, so put a
+navigation-producing action last and obtain fresh refs afterward.
+
+An expectation is one leaf below or a non-empty `{"all": [leaf, ...]}` /
+`{"any": [leaf, ...]}` group. Groups contain leaves, not nested groups.
+
+| Leaf | JSON shape and matching behavior |
+| --- | --- |
+| Accessible text | `{"type":"text","text":"Done","exists":true}` — case-insensitive, whitespace-normalized substring; `exists` defaults to `true` |
+| Role/name | `{"type":"role_name","role":"button","name":"Submit","exists":false}` — `role` or `name` is required; matching is exact and the name is case-sensitive |
+| Ref state | `{"type":"ref","ref":"e7","value":"ready"}` — provide at least one of `value`, `checked` (`boolean` or `"mixed"`), `selected`, or `expanded` |
+| URL/title | `{"type":"url","changed":true}` — `type` is `url` or `title`; provide at least one of `equals`, case-sensitive `contains`, or `changed` |
+
+`changed` compares against the observation captured before the step (or before
+the whole plan for top-level `expect`). Evidence counts as causal only when the
+condition was not matched before input and is matched afterward. A condition
+that was already true is reported as `preexisting`, not proof that the action
+worked.
+
+A robust verified submit/navigation pattern is:
+
+```bash
+cua -s checkout snapshot --filter interactive
+cua -s checkout act '{
+  "steps": [{
+    "type": "click",
+    "ref": "e42",
+    "expect": {
+      "any": [
+        {"type": "url", "changed": true},
+        {"type": "role_name", "role": "button", "name": "Submit", "exists": false}
+      ]
+    },
+    "timeout_ms": 30000
+  }],
+  "expect": {
+    "any": [
+      {"type": "url", "changed": true},
+      {"type": "role_name", "role": "button", "name": "Submit", "exists": false}
+    ]
+  },
+  "timeout_ms": 30000,
+  "poll_ms": 100,
+  "successor": {"filter": "all", "depth": 12}
+}'
+```
+
+The step expectation gates later steps; the top-level expectation determines
+the final plan result. `successor` controls the bounded accessibility-tree
+feedback and diff but is feedback, not proof—the expectations provide proof.
+Stdout begins with `browser_act: worked|didnt|unknown`; exit code `0` means
+`worked`, `1` means `didnt` or `unknown`, and `2` means invalid JSON/input or an
+execution error.
+
+For irreversible actions, require a postcondition that demonstrates the
+transition. If the result is `unknown` or times out, inspect with `snapshot`,
+`text`, or `url` before retrying; the input may have settled even when its
+verification did not.
 
 ### Model-mediated subcommands
 
