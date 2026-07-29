@@ -11,7 +11,7 @@ const browser = {
 	viewport: { width: 1440, height: 900 },
 } as KernelBrowser;
 
-function setup(options: { failBatch?: boolean; failPlaywright?: boolean } = {}) {
+function setup(options: { failBatch?: boolean; failPlaywright?: boolean; successfulAct?: boolean } = {}) {
 	const batches: unknown[][] = [];
 	const batch = vi.fn(async (_sessionId: string, input: { actions: unknown[] }) => {
 		batches.push(input.actions);
@@ -54,7 +54,12 @@ function setup(options: { failBatch?: boolean; failPlaywright?: boolean } = {}) 
 			}];
 			if (action.type === "browser_act") return [{
 				type: "browser_act",
-				result: {
+				result: options.successfulAct ? {
+					outcome: "worked",
+					steps: [],
+					stop_reason: "navigation",
+					successor: { status: "unavailable", error: "page navigated" },
+				} : {
 					outcome: "didnt",
 					steps: [],
 					stopped_at: 0,
@@ -153,6 +158,16 @@ describe("CuaExecutionResources results and batch boundaries", () => {
 			type: "text",
 			text: "Action 0 stopped at an unsatisfied semantic browser condition.",
 		});
+	});
+
+	it("keeps a worked browser_act navigation boundary successful", async () => {
+		const { resources } = setup({ successfulAct: true });
+		const result = await resources.materialize(cua.tools.browser.act()).execute("act", {
+			steps: [{ type: "click", x: 10, y: 20 }],
+		});
+		expect(result.details).toMatchObject({ statusText: "Actions executed successfully." });
+		expect(result.details).not.toHaveProperty("isError");
+		expect(result.content).not.toContainEqual(expect.objectContaining({ text: expect.stringContaining("unsatisfied") }));
 	});
 
 	it("shares one lazy browser executor across independently materialized tools", async () => {

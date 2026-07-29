@@ -195,7 +195,10 @@ function hasUnsatisfiedSemanticRead(reads: readonly BatchReadResult[]): boolean 
 	return reads.some((read) =>
 		read.type === "browser_wait_for"
 			? read.result.status !== "satisfied"
-			: read.type === "browser_act" && (read.result.outcome === "didnt" || read.result.stop_reason !== undefined),
+			: read.type === "browser_act" && (
+				read.result.outcome === "didnt"
+				|| (read.result.outcome === "unknown" && read.result.stop_reason !== undefined)
+			),
 	);
 }
 
