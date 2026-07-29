@@ -265,6 +265,47 @@ cua "..."                                                  # interactive TUI (re
 `--print` exits when the agent finishes; the interactive TUI keeps
 running until you Ctrl+C.
 
+### Interactive slash commands
+
+Only available in the TUI (`cua` with no `--print`); `/` opens autocomplete.
+
+| Command | Behavior |
+| --- | --- |
+| `/model` | Open a searchable model picker |
+| `/model <provider:model>` | Switch directly, no UI. An unknown ref errors, then opens the picker prefilled |
+| `/tools` | Open a menu to enable/disable this session's model-callable tools |
+| `/thinking <off\|minimal\|low\|medium\|high\|xhigh>` | Set reasoning level |
+| `/compact` | Summarize older turns |
+| `/skill:<name> [args]` | Invoke a loaded skill |
+
+Both pickers are keyboard-only and refuse to open while a turn is running.
+
+**`/model` picker** — type to fuzzy-search provider/ref/model/name, `↑`/`↓` to
+move (wraps), `enter` to select, `esc` or `ctrl+c` to cancel. Active model is
+first and marked `✓`. Selecting runs the same tool revalidation as
+`/model <ref>`.
+
+**`/tools` picker** — lists exactly the tools the CLI composed for the active
+model (interaction tools + coding tools) so you can disable a subset for
+testing. It can only remove from that list, never add unsupported tools.
+
+| Key | Action |
+| --- | --- |
+| `↑` / `↓` | Move cursor |
+| `enter` | Toggle highlighted tool |
+| `space` | Toggle highlighted tool (only while the search box is empty) |
+| `ctrl+a` / `ctrl+x` | Enable / disable everything listed (respects search) |
+| `ctrl+r` | Reset to model defaults |
+| `ctrl+s` | Apply |
+| `esc` | Cancel (discards staged edits) |
+| `ctrl+c` | Clear an active search, else cancel |
+
+Edits are staged — nothing applies until `ctrl+s`, and cancel leaves live state
+untouched. A selection rejected by catalog validation reports the error and
+changes nothing. Selections are session-only and are reset to the new model's
+defaults by `/model`. Yutori n1's native set toggles as one group; disabling
+everything is allowed and yields a text-only agent.
+
 ## Don't forget
 
 - Prefer the model-free subcommands when they can do the job — they're faster, cheaper, and deterministic. Reach for `click "<description>"` / `type` / `do` only when you need semantic matching or planning.

@@ -480,6 +480,8 @@ setActiveTools()
 
 Callers use `setTools()` for additions, removals, and replacements. CUA may use pi's registration and activation machinery internally to implement deferred loading, but that distinction must not become a second public source of truth in `CuaAgent` or `CuaAgentHarness`.
 
+The CLI's interactive `/tools` menu is an application-level consumer of exactly this contract, not a second mechanism. It holds the list it composed for the active model as the baseline, and applies a user-selected **subset** of that baseline through one `setTools()` call. It never adds a tool the application did not compose, so it cannot introduce an unsupported tool. Because tool identities are provider-specific, a `/model` change rebuilds the baseline from the new model's defaults and discards the previous selection with an explicit notice — the alternative, re-applying a selection by key across providers, is the silent replacement forbidden under Non-goals.
+
 ## System instructions and descriptions
 
 CUA should get out of the business of generating default system prompts.

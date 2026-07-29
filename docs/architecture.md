@@ -187,6 +187,37 @@ serialization, provider fields, then the caller's `onPayload` hook.
 7. exposes `cua act '<json>'` as a model-free path to the same `browser_act`
    executor and bounded formatter used by agent tool calls.
 
+### Interactive selectors
+
+`packages/cli/src/tui/main.ts` mounts pickers with pi's swap-in-place pattern:
+the editor lives in its own `editorContainer`, and a selector temporarily
+replaces it so the status line and telemetry footer stay visible. While a
+selector is mounted it owns all keyboard input; the global input listener yields
+to it so `ctrl+c` cancels the selector instead of quitting.
+
+- `tui/model-picker.ts` — searchable `/model` picker over `listCuaModels()`,
+  plus the pure helpers (`modelSearchText`, `sortModelsForPicker`,
+  `filterModelsForPicker`, `moveSelection`, `visibleWindow`) that make its
+  behavior unit-testable without a terminal.
+- `tui/tool-selection.ts` — pure `/tools` state machine: identity keys matching
+  `normalizeTool`'s scheme, group badges, atomic provider groups, and
+  toggle/bulk operations.
+- `tui/tools-picker.ts` — the `/tools` component. Staged edits applied through
+  `harness.setTools()` with a subset of the application-composed baseline, in
+  baseline order.
+- `tui/keybindings.ts` — registers `cua.tools.*` ids on top of pi-tui's
+  `TUI_KEYBINDINGS` and formats their hints.
+- `tui/mutation-queue.ts` — the serialization queue both catalog mutations run
+  through.
+
+Both catalog mutations a selector can trigger — a `/tools` apply and a `/model`
+switch — run through that one queue, because each suspends across several
+`setTools()`/`setModel()` calls. Without it an apply could land between a
+switch's `setModel()` and its final `setTools()` and fail its compile against
+the wrong provider. Selectors also refuse to open mid-turn: the agent's
+execution-scope guard only covers mutation from inside a tool's `execute`, so
+this TUI-side check is what protects a streaming request.
+
 ## Per-turn flow
 
 ```text

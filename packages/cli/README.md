@@ -68,6 +68,70 @@ cua --resume                                  # picker
 cua --session abc12345                        # by id prefix
 ```
 
+## Interactive commands
+
+Inside the TUI, `/` opens the command autocomplete. The supported commands are:
+
+| Command | Behavior |
+| --- | --- |
+| `/model` | Open an interactive, searchable model picker. |
+| `/model <provider:model>` | Switch directly, without opening the picker. An unresolvable ref reports the error and then opens the picker prefilled with what you typed. |
+| `/tools` | Open an interactive menu to enable/disable this session's model-callable tools. |
+| `/thinking <level>` | Set the reasoning level for future turns. |
+| `/compact` | Summarize older turns to free context budget. |
+| `/skill:<name> [args]` | Invoke a loaded skill. |
+
+### `/model` picker
+
+Type to fuzzy-search across the provider, ref, model id, and display name.
+`↑`/`↓` move (wrapping at both ends), `enter` selects, `esc` or `ctrl+c`
+cancels. The active model is listed first and marked with `✓`. Selecting a model
+runs the same switch as `/model <ref>`, including the tool revalidation
+described below. Nothing is written to disk except a named session's recorded
+model (`-s`).
+
+The picker lists every CUA-capable model; it does not check whether the
+provider's API key is set. Run `cua models` for the same catalog on stdout.
+
+### `/tools` picker
+
+`/tools` lists exactly the tools the CLI composed for the active model — the
+model's interaction tools plus the CLI's coding tools — and lets you disable a
+subset for the current session. It is a testing and debugging aid: it can only
+remove tools from that list, never add ones the model does not support.
+
+| Key | Action |
+| --- | --- |
+| `↑` / `↓` | Move the cursor |
+| `enter` | Toggle the highlighted tool |
+| `space` | Toggle the highlighted tool (only while the search box is empty, so queries stay typeable) |
+| `ctrl+a` / `ctrl+x` | Enable / disable everything listed (respects an active search) |
+| `ctrl+r` | Reset to the model's defaults |
+| `ctrl+s` | Apply the selection |
+| `esc` | Cancel |
+| `ctrl+c` | Clear an active search, or cancel when the search box is empty |
+
+Edits are staged: nothing is applied until `ctrl+s`, and cancelling leaves the
+live tool list untouched. Applying calls the harness's `setTools()`, which
+compiles and validates the whole catalog before mutating anything — so a
+rejected selection reports the error and leaves the session unchanged.
+
+Two constraints show up in the picker:
+
+- Provider-native action sets that cannot be partially suppressed (currently
+  Yutori n1) toggle as one group.
+- Disabling every tool is allowed and yields a text-only agent.
+
+Selections are session-only and never persisted. `/model` rebuilds the tool list
+from the new model's defaults and reports `tool selection reset to the new
+model's defaults`; tool identities are provider-specific, so a previous
+selection is not carried across a model change.
+
+Both pickers are unavailable while a turn is running: recompiling the tool
+catalog while a request is streaming is unsafe, so the TUI refuses to open them.
+(The agent's own execution-scope guard only covers mutation attempted from
+*inside* a tool's `execute`, so this TUI-side check is the protection here.)
+
 ## Models
 
 Run `cua models` to list every supported `-m` / `--model` value and the
