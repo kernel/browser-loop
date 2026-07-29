@@ -152,6 +152,22 @@ describe("compileCuaToolCatalog", () => {
 		expect(() => compile("anthropic:claude-opus-5", [callerTool("Read"), callerTool("read")])).toThrow(/after anthropic name normalization/);
 	});
 
+	it("rejects browser_act on Moonshot while keeping the complex wait_for schema", () => {
+		// Moonshot's API accepts browser_wait_for (~15KB) but rejects the request
+		// outright once browser_act's (~124KB) schema is attached, so the oversized
+		// schema is gated separately from merely-complex ones.
+		expect(() => compile("moonshotai:kimi-k3", [cua.tools.browser.act()]))
+			.toThrow('provider moonshotai does not accept the schema size of "browser_act" (cua.browser.act.v1)');
+		expect(() => compile("moonshotai:kimi-k3", [cua.tools.browser.waitFor()])).not.toThrow();
+		expect(() => compile("moonshotai:kimi-k3", cua.toolsets.browser())).not.toThrow();
+	});
+
+	it("still accepts browser_act on providers that take its schema size", () => {
+		for (const model of ["openai:gpt-5.5", "anthropic:claude-opus-5", "meta:muse-spark-1.1", "xai:grok-4.5"] as const) {
+			expect(() => compile(model, [cua.tools.browser.act()]), model).not.toThrow();
+		}
+	});
+
 	it("rejects unsafe names and incompatible native tools", () => {
 		expect(() => compile("openai:gpt-5.5", [callerTool("bad name")])).toThrow(/must match/);
 		expect(() => compile("openai:gpt-5.5", [cua.providers.anthropic.tools.computer()])).toThrow(/requires a anthropic model/);

@@ -104,8 +104,11 @@ export function defaultInteractionTools(model: CuaModelRef): CuaAgentTool[] {
 			];
 		case "meta":
 		case "xai":
-		case "moonshotai":
 			return structuredBrowserTools();
+		case "moonshotai":
+			// Moonshot's API rejects the request outright once `browser_act`'s
+			// schema is attached, so Kimi keeps the browser primitives only.
+			return cua.toolsets.browser();
 	}
 }
 

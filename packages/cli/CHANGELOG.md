@@ -8,8 +8,9 @@ Breaking: the CLI now assembles one explicit model-specific tool list.
   command.
 - Select browser-oriented provider defaults explicitly in
   `packages/cli/src/harness.ts`: CUA browser primitives plus the verified
-  `browser_act` plan tool for OpenAI, Meta, xAI, Moonshot, and older Anthropic
-  models; native browser tools for current Anthropic, Google, and Yutori
+  `browser_act` plan tool for OpenAI, Meta, xAI, and older Anthropic models;
+  browser primitives alone for Moonshot, whose API rejects `browser_act`'s
+  schema; native browser tools for current Anthropic, Google, and Yutori
   models; and Tzafon's browser-scoped native computer tool. Then append pi
   coding tools into the same list.
 - Change the default model to the verified `openai:gpt-5.6-sol`.

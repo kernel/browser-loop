@@ -103,7 +103,10 @@ Source: [Grok 4.5 docs](https://docs.x.ai/developers/grok-4-5), [function callin
 
 ## `moonshotai`
 
-CLI default interaction: CUA browser primitives plus explicit `browser_act`.
+CLI default interaction: CUA browser primitives only. Moonshot's API accepts the
+complex `browser_wait_for` schema but rejects a request outright once the much
+larger `browser_act` schema is attached, so `browser_act` is unavailable on
+Moonshot models and the catalog rejects it explicitly.
 
 Model refs use the `moonshotai:` prefix; `moonshot:` is accepted as an alias.
 

@@ -190,8 +190,10 @@ function toolsForCase(c: ProviderCase) {
 		case "openai":
 		case "meta":
 		case "xai":
-		case "moonshotai":
 			return structuredBrowserTools();
+		case "moonshotai":
+			// Moonshot's API rejects `browser_act`'s schema; Kimi runs primitives only.
+			return cua.toolsets.browser();
 		case "anthropic":
 			return [cua.providers.anthropic.tools.browser({ version: "20260701", javascript: true })];
 		case "gemini":
@@ -245,13 +247,16 @@ async function createHarnessServices(id: string) {
 
 function assertStats(stats: RunStats, c: ProviderCase, runtimeName: "agent" | "harness"): void {
 	const providerName = c.name;
+	// Provider/transport errors are asserted before the tool-call counts: an API
+	// rejection also yields zero tool calls, and only these carry a message that
+	// explains why.
+	expect(stats.toolErrors, `${providerName}/${runtimeName} emitted tool errors: ${stats.toolErrors.join(" | ")}`).toHaveLength(0);
+	expect(stats.assistantErrors, `${providerName}/${runtimeName} emitted assistant errors: ${stats.assistantErrors.join(" | ")}`).toHaveLength(0);
 	if (c.expectToolCalls) {
 		expect(stats.toolCalls).toBeGreaterThan(0);
 		expect(stats.toolResults).toBeGreaterThan(0);
 		if (c.expectReadArtifact !== false) expect(stats.hasReadArtifact).toBe(true);
 	}
-	expect(stats.toolErrors, `${providerName}/${runtimeName} emitted tool errors: ${stats.toolErrors.join(" | ")}`).toHaveLength(0);
-	expect(stats.assistantErrors, `${providerName}/${runtimeName} emitted assistant errors: ${stats.assistantErrors.join(" | ")}`).toHaveLength(0);
 	expect(stats.finalAssistant).toBeDefined();
 	if (stats.finalAssistant?.role === "assistant") {
 		expect(stats.finalAssistant.stopReason, `${providerName}/${runtimeName} ended in assistant error`).not.toBe("error");

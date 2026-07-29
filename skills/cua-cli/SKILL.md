@@ -170,8 +170,9 @@ Useful flags:
 ### Model tool policy
 
 The CLI selects its interaction tools from the model: structured CUA browser
-primitives plus `browser_act` verified plans for OpenAI, Meta, xAI, Moonshot,
-and older Anthropic models; native browser tools for current Anthropic and
+primitives plus `browser_act` verified plans for OpenAI, Meta, xAI, and older
+Anthropic models; browser primitives alone for Moonshot, whose API rejects
+`browser_act`'s schema; native browser tools for current Anthropic and
 Google models; Tzafon's native computer tool; and Yutori's documented native
 set plus an explicit screenshot tool. It also appends workspace coding tools in
 `--print`, TUI, and model-mediated action runs.

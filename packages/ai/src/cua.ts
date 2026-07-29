@@ -186,6 +186,7 @@ function browserTool(factory: BrowserFactoryName, options: CuaToolNameOptions = 
 		executorFingerprint: `browser-${action}-v1`,
 		stateMutating: !["browser_snapshot", "browser_text", "browser_find", "browser_list_tabs", "browser_screenshot", "browser_wait_for"].includes(action),
 		complexSchema: action === "browser_wait_for" || action === "browser_act",
+		largeSchema: action === "browser_act",
 	});
 }
 
@@ -573,6 +574,7 @@ function createSpec(options: {
 	executorFingerprint: string;
 	stateMutating: boolean;
 	complexSchema?: boolean;
+	largeSchema?: boolean;
 }): CuaToolSpec {
 	const name = options.name ?? options.preferredName;
 	const declaration = Object.freeze({ ...options.declaration, name });
@@ -591,6 +593,7 @@ function createSpec(options: {
 		executorFingerprint: options.executorFingerprint,
 		stateMutating: options.stateMutating,
 		...(options.complexSchema ? { complexSchema: true } : {}),
+		...(options.largeSchema ? { largeSchema: true } : {}),
 	});
 }
 

@@ -604,7 +604,7 @@ Every provider tool surface must expose the first-party source it mirrors. CUA-a
 4. **Batch overlap:** batches are mechanical; `browser_act` remains semantic; browser batches share ref state without a workflow DSL.
 5. **Dynamic loading:** `setTools()` uses pi 0.80.10 additive markers only for final, cache-preserving in-tool additions; other changes are eager.
 6. **Shared resources:** one resource pool survives tool/model changes and owns the translator and lazy CDP executor.
-7. **Provider exports:** the native OpenAI, Anthropic, Google, Tzafon, and Yutori surfaces are namespaced, cite first-party sources, and are tested against their declared contracts. Meta, xAI, and Moonshot use CUA-authored browser tools; the CLI explicitly appends `browser_act` to those structured catalogs.
+7. **Provider exports:** the native OpenAI, Anthropic, Google, Tzafon, and Yutori surfaces are namespaced, cite first-party sources, and are tested against their declared contracts. Meta, xAI, and Moonshot use CUA-authored browser tools; the CLI explicitly appends `browser_act` to the Meta and xAI catalogs. Moonshot is excluded: its API accepts the complex `browser_wait_for` schema but rejects a request carrying `browser_act`'s much larger one, so the catalog gates oversized schemas separately from merely-complex ones.
 
 ## Decisions recorded
 

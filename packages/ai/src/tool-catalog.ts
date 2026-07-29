@@ -77,6 +77,13 @@ export interface CuaToolSpec {
 	readonly stateMutating: boolean;
 	/** @internal Complex schemas are deliberately allowlisted by provider. */
 	readonly complexSchema?: boolean;
+	/**
+	 * @internal Very large union schemas are allowlisted separately from merely
+	 * complex ones, because a provider can accept a complex schema yet reject one
+	 * of this scale. `browser_act` declares roughly eight times the schema of the
+	 * largest merely-complex tool.
+	 */
+	readonly largeSchema?: boolean;
 }
 
 export type CuaAgentTool = CuaToolSpec | AgentTool;
@@ -365,6 +372,16 @@ function nameCollision(
 	return new Error(`tool name "${name}" is requested by both "${first.identity}" and "${second.identity}"${suffix}`);
 }
 
+/** Providers whose function-calling APIs accept CUA's nested union schemas. */
+const COMPLEX_SCHEMA_PROVIDERS: readonly string[] = ["openai", "anthropic", "meta", "xai", "moonshotai"];
+
+/**
+ * Providers that additionally accept a `largeSchema` declaration. Moonshot is
+ * absent deliberately: its API accepts `browser_wait_for` (~15KB) but rejects
+ * the request immediately once `browser_act` (~124KB) is attached.
+ */
+const LARGE_SCHEMA_PROVIDERS: readonly string[] = ["openai", "anthropic", "meta", "xai"];
+
 function validateToolCompatibility(model: Model<Api>, entry: CuaToolCatalogEntry): void {
 	const spec = entry.spec;
 	if (!spec) return;
@@ -379,8 +396,11 @@ function validateToolCompatibility(model: Model<Api>, entry: CuaToolCatalogEntry
 			throw new Error(`${spec.identity} requires a ${required} model; selected ${model.provider}:${model.id}`);
 		}
 	}
-	if (spec.complexSchema && !["openai", "anthropic", "meta", "xai", "moonshotai"].includes(model.provider)) {
+	if (spec.complexSchema && !COMPLEX_SCHEMA_PROVIDERS.includes(model.provider)) {
 		throw new Error(`provider ${model.provider} does not accept the schema used by "${entry.name}" (${entry.identity})`);
+	}
+	if (spec.largeSchema && !LARGE_SCHEMA_PROVIDERS.includes(model.provider)) {
+		throw new Error(`provider ${model.provider} does not accept the schema size of "${entry.name}" (${entry.identity})`);
 	}
 	if (binding?.kind === "anthropic-native") validateAnthropicNativeModel(model, spec.identity);
 }
