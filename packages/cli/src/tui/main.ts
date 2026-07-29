@@ -9,32 +9,36 @@ import {
 	type ThinkingLevel,
 } from "@onkernel/cua-agent";
 import {
+	type Component,
 	Container,
 	Editor,
 	hyperlink,
-	KeybindingsManager,
 	matchesKey,
 	ProcessTerminal,
 	Spacer,
 	Text,
 	TUI,
-	TUI_KEYBINDINGS,
 } from "@earendil-works/pi-tui";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { homedir } from "node:os";
-import type { CuaModelRef, Model } from "@onkernel/cua-ai";
+import { type CuaModelRef, listCuaModels, type Model } from "@onkernel/cua-ai";
 import type { CuaBrowserHandle } from "../harness-browser";
 import { resolveCuaModelRef } from "../harness-models";
 import { updateNamedSessionRuntime } from "../harness-named-sessions";
 import type { ContextFile } from "../harness-skills";
 import { openTuiDebugLog } from "./debug-log";
 import { applyAndSummarizeImageProtocol } from "./diagnostics";
+import { installCuaKeybindings } from "./keybindings";
 import { type AssistantBuffer, MessageList } from "./message-list";
+import { createMutationQueue } from "./mutation-queue";
+import { fitMaxVisible, ModelPickerComponent } from "./model-picker";
 import { ScreenshotWidget } from "./screenshot-widget";
 import { buildAutocompleteProvider, parseSlashCommand } from "./slash-commands";
 import { StatusLine } from "./status-line";
 import { TelemetryFooter } from "./telemetry-footer";
 import { colors, getEditorTheme } from "./themes";
+import { describeTools, toolKey } from "./tool-selection";
+import { ToolsPickerComponent } from "./tools-picker";
 import { cuaVersion } from "./version";
 
 export interface InteractiveOptions {
@@ -105,8 +109,9 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 		tui.requestRender(force);
 	};
 
-	const _keybindings = new KeybindingsManager(TUI_KEYBINDINGS);
-	void _keybindings;
+	// Publishes cua's `cua.tools.*` ids alongside pi's base bindings. Must run
+	// before any component calls getKeybindings().
+	installCuaKeybindings();
 
 	const editor = new Editor(tui, getEditorTheme());
 	editor.setAutocompleteProvider(buildAutocompleteProvider(opts.cwd, opts.skills ?? []));
@@ -154,7 +159,11 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 	tui.addChild(new Spacer(1));
 	tui.addChild(screenshot);
 	tui.addChild(new Spacer(1));
-	tui.addChild(editor);
+	// Pickers swap into the editor's slot (pi's `showSelector` pattern) so the
+	// status line and telemetry footer stay visible beneath them.
+	const editorContainer = new Container();
+	editorContainer.addChild(editor);
+	tui.addChild(editorContainer);
 	tui.addChild(status);
 	tui.addChild(footer);
 	tui.setFocus(editor);
@@ -174,6 +183,57 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 	let assistantBuffer: AssistantBuffer | undefined;
 	let inflight = 0;
 	let lastDisplayedError: string | undefined;
+
+	// Ref of the live model, kept in sync by switchModel so the picker can mark
+	// it with a ✓. Undefined when opts.modelRef is not a catalog ref.
+	let currentModelRef: CuaModelRef | undefined = tryResolveModelRef(opts.modelRef);
+	// The full list the application composed for the active model. `/tools`
+	// selections are subsets of this; it is never grown by the picker, so an
+	// unsupported tool can never be added.
+	let baselineTools: readonly CuaAgentTool[] = composeBaselineTools(opts, currentModelRef);
+	let toolSelectionCustomized = false;
+	// Serializes every catalog mutation (`/tools` applies and `/model` switches);
+	// see mutation-queue.ts for why they must not interleave.
+	const catalogQueue = createMutationQueue();
+	// Non-null while a picker owns the editor slot and all keyboard input.
+	let activeSelector: Component | null = null;
+
+	/**
+	 * Swap a picker into the editor's slot and restore the editor when it is
+	 * done. Mirrors pi's `showSelector` in interactive-mode.
+	 */
+	const showSelector = (
+		create: (done: () => void) => { component: Component; focus: Component },
+	): void => {
+		if (activeSelector) return;
+		const done = (): void => {
+			activeSelector = null;
+			editorContainer.clear();
+			editorContainer.addChild(editor);
+			tui.setFocus(editor);
+			requestRender("selector_closed");
+		};
+		const { component, focus } = create(done);
+		activeSelector = component;
+		editorContainer.clear();
+		editorContainer.addChild(component);
+		tui.setFocus(focus);
+		requestRender("selector_opened");
+	};
+
+	/**
+	 * Refuse to open a picker mid-turn. Recompiling the catalog while a request
+	 * is streaming is unsafe, and nothing downstream stops it: the agent's
+	 * execution-scope guard only rejects mutation from inside a tool's execute,
+	 * and a TUI-initiated mutation carries no such scope. This check is the only
+	 * protection, so it refuses up front rather than failing on apply.
+	 */
+	const refuseWhileBusy = (command: string): boolean => {
+		if (inflight === 0) return false;
+		messages.addError(`${command} is unavailable while a turn is running`);
+		requestRender("selector_busy", false, { command });
+		return true;
+	};
 
 	const displayAgentError = (error: unknown, reason: string): void => {
 		if (typeof error !== "string" || error.trim().length === 0) return;
@@ -299,12 +359,172 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 	const pendingPrompt = opts.initialPrompt?.trim() || "";
 	let exitRequested = false;
 
+	/**
+	 * Apply a model switch. Extracted verbatim from the previous
+	 * `applyModelCommand` so the picker and `/model <ref>` share one path,
+	 * including the three-step tool transition and its rollback.
+	 */
+	const applySwitchModel = async (resolved: CuaModelRef): Promise<void> => {
+		// The exact list installed by this switch, kept so it can become the new
+		// `/tools` baseline. Undefined when the caller supplies no interaction
+		// policy, in which case the switch never touches the tool list at all.
+		let installedTools: readonly CuaAgentTool[] | undefined;
+		if (opts.interactionToolsForModel) {
+			const previousModel = opts.harness.getModel();
+			const previousTools = opts.harness.getTools();
+			installedTools = [...opts.interactionToolsForModel(resolved), ...opts.applicationTools];
+			try {
+				// Native catalogs can be incompatible across providers. Transition
+				// through the CLI-owned application tools before selecting the new
+				// model's explicit interaction catalog.
+				await opts.harness.setTools(opts.applicationTools);
+				await opts.harness.setModel(resolved);
+				await opts.harness.setTools(installedTools);
+			} catch (error) {
+				await opts.harness.setTools(opts.applicationTools);
+				await opts.harness.setModel(previousModel);
+				await opts.harness.setTools(previousTools);
+				throw error;
+			}
+		} else {
+			await opts.harness.setModel(resolved);
+		}
+		const model = opts.harness.getModel();
+		footer.update({
+			provider: model.provider,
+			model: modelLabel(model),
+			contextWindow: model.contextWindow,
+		});
+		status.update({ model: modelLabel(model) });
+		messages.addNotice(`model → ${resolved}`);
+		currentModelRef = resolved;
+		// Only an interaction policy rebuilds the tool list; without one the switch
+		// never touched setTools, so any customization legitimately survives and
+		// announcing a reset would be a lie. Rebasing the baseline on the live list
+		// there would also shrink it permanently.
+		if (installedTools) {
+			// Adopt the very list just installed as the new baseline, so baseline keys
+			// and the live catalog can never disagree. Tool identities are
+			// provider-specific, so carrying a previous selection over would silently
+			// substitute tools; report the reset instead.
+			baselineTools = installedTools;
+			if (toolSelectionCustomized) {
+				messages.addNotice("tool selection reset to the new model's defaults");
+				toolSelectionCustomized = false;
+			}
+		}
+		await persistNamedSessionRuntime(opts, messages, { model: resolved });
+	};
+
+	/**
+	 * Serialized entry point for a model switch. Queued behind any in-flight
+	 * `/tools` apply so the apply's `setTools` cannot land between this switch's
+	 * `setModel` and its final `setTools`. Rejects with the underlying failure;
+	 * the harness has already rolled back by then.
+	 */
+	const switchModel = (resolved: CuaModelRef): Promise<void> => catalogQueue.run(() => applySwitchModel(resolved));
+
+	const openModelPicker = (initialSearch?: string): void => {
+		if (refuseWhileBusy("/model")) return;
+		showSelector((done) => {
+			const picker = new ModelPickerComponent({
+				tui,
+				currentRef: currentModelRef,
+				items: listCuaModels(),
+				initialSearch,
+				// Frame overhead: borders, hint, search, detail lines, plus the
+				// header/status/footer chrome the picker sits between.
+				maxVisible: fitMaxVisible(terminal.rows, 22),
+				onSelect: (ref) => {
+					// Close first (pi does the same) so a failing switch surfaces in
+					// the message list with the editor already restored.
+					done();
+					void switchModel(ref).catch((err: unknown) => {
+						messages.addError((err as Error).message);
+						requestRender("model_switch_error");
+					});
+				},
+				onCancel: done,
+			});
+			return { component: picker, focus: picker };
+		});
+	};
+
+	/**
+	 * Apply a staged tool selection as a subset of {@link baselineTools}, in
+	 * baseline order. `harness.setTools` compiles and validates before mutating,
+	 * so a rejected selection leaves the live catalog untouched.
+	 */
+	const applyToolSelection = (enabledKeys: ReadonlySet<string>): Promise<void> =>
+		catalogQueue.run(async () => {
+			const next = baselineTools.filter((tool) => enabledKeys.has(toolKey(tool)));
+			try {
+				await opts.harness.setTools(next);
+				toolSelectionCustomized = next.length !== baselineTools.length;
+				messages.addNotice(`tools → ${next.length}/${baselineTools.length} enabled`);
+				debug?.log("tools_applied", { enabled: next.length, baseline: baselineTools.length });
+			} catch (err) {
+				messages.addError(`tool selection rejected (tools unchanged): ${(err as Error).message}`);
+				debug?.log("tools_apply_error", { message: (err as Error).message });
+			}
+			requestRender("tools_apply");
+		});
+
+	const openToolsPicker = (): void => {
+		if (refuseWhileBusy("/tools")) return;
+		const items = describeTools(baselineTools);
+		if (items.length === 0) {
+			messages.addError("no model-callable tools are configured for this session");
+			requestRender("tools_empty");
+			return;
+		}
+		const live = new Set(opts.harness.getTools().map(toolKey));
+		showSelector((done) => {
+			const picker = new ToolsPickerComponent({
+				tui,
+				items,
+				enabledKeys: live,
+				defaultKeys: new Set(items.map((item) => item.key)),
+				maxVisible: fitMaxVisible(terminal.rows, 25),
+				onApply: (enabled) => {
+					done();
+					void applyToolSelection(enabled);
+				},
+				onCancel: done,
+			});
+			return { component: picker, focus: picker };
+		});
+	};
+
 	const runPrompt = async (text: string): Promise<void> => {
 		debug?.log("run_prompt_start", { length: text.length });
 		try {
 			const parsed = parseSlashCommand(text);
 			if (parsed?.command === "model") {
-				await applyModelCommand(opts, footer, status, messages, parsed.argument);
+				const argument = parsed.argument.trim();
+				if (!argument) {
+					openModelPicker();
+					return;
+				}
+				let resolved: CuaModelRef;
+				try {
+					resolved = resolveCuaModelRef(argument);
+				} catch (err) {
+					// Keep the diagnostic, then offer the picker prefilled with the
+					// unresolved text (pi's behavior for an unmatched /model arg).
+					messages.addError((err as Error).message);
+					openModelPicker(argument);
+					return;
+				}
+				if (refuseWhileBusy("/model")) return;
+				await switchModel(resolved);
+				return;
+			}
+			if (parsed?.command === "tools") {
+				if (parsed.argument) {
+					messages.addNotice("/tools takes no argument; opening the picker");
+				}
+				openToolsPicker();
 				return;
 			}
 			if (parsed?.command === "thinking") {
@@ -349,6 +569,10 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 	};
 
 	const removeListener = tui.addInputListener((data) => {
+		// Input listeners run before the focused component, so an open picker has
+		// to own every key: otherwise ctrl+c / ctrl+d here would quit the app
+		// instead of cancelling the picker.
+		if (activeSelector) return undefined;
 		if (matchesKey(data, "ctrl+c")) {
 			if (inflight > 0) {
 				void opts.harness.abort();
@@ -430,51 +654,24 @@ function lastErrorMessage(messages: AgentMessage[]): string | undefined {
 	return undefined;
 }
 
-async function applyModelCommand(
-	opts: InteractiveOptions,
-	footer: TelemetryFooter,
-	status: StatusLine,
-	messages: MessageList,
-	argument: string,
-): Promise<void> {
-	const ref = argument.trim();
-	if (!ref) {
-		messages.addError("usage: /model <provider:model>");
-		return;
-	}
+/** Resolve the startup ref for picker bookkeeping; undefined when not a catalog ref. */
+function tryResolveModelRef(input: string | undefined): CuaModelRef | undefined {
 	try {
-		const resolved = resolveCuaModelRef(ref);
-		if (opts.interactionToolsForModel) {
-			const previousModel = opts.harness.getModel();
-			const previousTools = opts.harness.getTools();
-			try {
-				// Native catalogs can be incompatible across providers. Transition
-				// through the CLI-owned application tools before selecting the new
-				// model's explicit interaction catalog.
-				await opts.harness.setTools(opts.applicationTools);
-				await opts.harness.setModel(resolved);
-				await opts.harness.setTools([...opts.interactionToolsForModel(resolved), ...opts.applicationTools]);
-			} catch (error) {
-				await opts.harness.setTools(opts.applicationTools);
-				await opts.harness.setModel(previousModel);
-				await opts.harness.setTools(previousTools);
-				throw error;
-			}
-		} else {
-			await opts.harness.setModel(resolved);
-		}
-		const model = opts.harness.getModel();
-		footer.update({
-			provider: model.provider,
-			model: modelLabel(model),
-			contextWindow: model.contextWindow,
-		});
-		status.update({ model: modelLabel(model) });
-		messages.addNotice(`model → ${resolved}`);
-		await persistNamedSessionRuntime(opts, messages, { model: resolved });
-	} catch (err) {
-		messages.addError((err as Error).message);
+		return resolveCuaModelRef(input);
+	} catch {
+		return undefined;
 	}
+}
+
+/**
+ * The startup baseline: exactly the list `cli-harness` assembled for the initial
+ * model. Only used once — a later switch adopts the list it installed instead,
+ * so the baseline is never rebased on `harness.getTools()`, which a `/tools`
+ * customization would have shrunk.
+ */
+function composeBaselineTools(opts: InteractiveOptions, ref: CuaModelRef | undefined): readonly CuaAgentTool[] {
+	if (!opts.interactionToolsForModel || !ref) return opts.harness.getTools();
+	return [...opts.interactionToolsForModel(ref), ...opts.applicationTools];
 }
 
 // Persistence is best-effort: the live switch already happened, so a failed
