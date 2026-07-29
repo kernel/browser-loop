@@ -5,6 +5,7 @@ export type DeterministicActionType =
 	| "open"
 	| "url"
 	| "snapshot"
+	| "act"
 	| "text"
 	| "find"
 	| "fill"
@@ -112,6 +113,7 @@ export function formatCompact(r: ActionResult): string {
 		case "fill":
 			return r.text ? `ok filled ${r.text}` : "ok filled";
 		case "observe":
+		case "act":
 		case "snapshot":
 		case "text":
 		case "find":

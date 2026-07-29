@@ -18,7 +18,8 @@ use composition instead of inheriting from pi's `Agent`/`AgentHarness`.
   provider-native changes are eager. Schema/executor replacements are treated
   as real changes, not name-only no-ops.
 - Refactor atomic tools to operation-specific argument objects while preserving
-  the existing `browser_act` schema.
+  the existing `browser_act` schema. Export `formatBrowserActResult()` so direct
+  application surfaces can render the same bounded plan feedback as agents.
 - Add mechanical `computer_batch` and `browser_batch` execution. Computer writes
   coalesce across write-only runs and flush around reads; browser actions run
   sequentially against shared ref state. Failure details include the failed

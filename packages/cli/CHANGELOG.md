@@ -21,6 +21,10 @@ Breaking: the CLI now assembles one explicit model-specific tool list.
   longer supplies provider defaults.
 - Persist only the selected model in named-session runtime metadata. Legacy mode
   and native-tool fields are no longer read or written.
+- Add model-free `cua act '<json>'` for direct `browser_act` execution with the
+  same schema and bounded semantic feedback agents receive. It exits 0 only for
+  a causally `worked` plan, 1 for `didnt`/`unknown`, and 2 for invalid input or
+  execution errors.
 - Keep action subcommands, print mode, JSONL output, named sessions, transcript
   resume, skills, and TUI model switching on the same explicit harness assembly
   path.

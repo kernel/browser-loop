@@ -183,7 +183,9 @@ serialization, provider fields, then the caller's `onPayload` hook.
 3. creates and retains its own application-level coding-tool list;
 4. passes the complete list to `CuaAgentHarness`;
 5. builds a caller-owned prompt from loaded skills and context files;
-6. uses one `Session` for transcript persistence and resume.
+6. uses one `Session` for transcript persistence and resume;
+7. exposes `cua act '<json>'` as a model-free path to the same `browser_act`
+   executor and bounded formatter used by agent tool calls.
 
 ## Per-turn flow
 

@@ -21,6 +21,7 @@ Usage:
   cua open <url|back|forward>
   cua url
   cua snapshot [--filter interactive]
+  cua act '<json>'
   cua find "<query>"
   cua text
   cua fill <ref|"query"> "<value>"
@@ -39,8 +40,9 @@ Usage:
 Subcommands above the blank line are model-free: they run directly against
 the browser (no LLM, no model API key; only KERNEL_API_KEY). \`click <x> <y>\`
 with exactly two integer arguments clicks those viewport coordinates without
-a model, and \`click e12\` / \`fill e12 ...\` target an element ref minted by
-\`snapshot\` or \`find\`; any other \`click\` argument is a natural-language
+a model, \`click e12\` / \`fill e12 ...\` target an element ref minted by
+\`snapshot\` or \`find\`, and \`act '{...}'\` runs a verified dependent browser
+plan using those refs; any other \`click\` argument is a natural-language
 description resolved by the model. With \`-s <name>\`, refs span invocations
 (re-snapshot on a stale-ref error). Exit codes: 0 ok, 1 not_found, 2 error.
 

@@ -20,6 +20,7 @@ These run directly against the browser (CDP or OS input) — no LLM involved, no
 | `cua open <url\|back\|forward>` | Navigate via CDP; `back`/`forward` walk history. | `ok` | 0 ok, 2 error |
 | `cua url` | Print the active tab's URL. | the URL | 0 ok, 2 error |
 | `cua snapshot [--filter interactive]` | Print the page's accessibility tree with element refs like `[e12]`. `--filter interactive` keeps only interactive elements. | the tree (multi-line) | 0 ok, 2 error |
+| `cua act '<json>'` | Execute one direct `browser_act` plan. JSON is the tool input without the `type` discriminator; ref steps use refs from `snapshot`/`find`. | bounded `browser_act` outcome, expectation evidence, and successor diff | 0 worked, 1 didnt/unknown, 2 invalid/error |
 | `cua find "<query>"` | Lexically score elements against the query, best first. | one match per line: `role "name" [eN]` (the quoted name is omitted when the element has none; role falls back to `node`) | 0 ok, 1 not_found, 2 error |
 | `cua text` | Print the page's visible text (`innerText`). | the text (multi-line) | 0 ok, 2 error |
 | `cua fill <ref\|"query"> "<value>"` | Set a form field's value. With a ref (`e12` from `snapshot`/`find`) it targets that exact element. With a query it finds the unique best-matching form field (textbox, searchbox, combobox, checkbox, radio, listbox, spinbutton); exit 1 with the tied matches listed if the query is ambiguous — tighten it and retry. For checkbox/radio pass `true\|false\|checked\|unchecked\|on\|off` (query form also accepts `1\|0`). `fill` leaves the field focused, so a following `cua press Return` submits the form. | `ok filled <role> "<name>"` (query) or `ok filled e12` (ref) | 0 ok, 1 not_found, 2 error |
@@ -81,9 +82,9 @@ There is no `--mode`, `--native-tool`, or `--playwright` flag. Those catalogs
 remain explicit SDK choices rather than CLI defaults. The CLI also does not
 attach screenshots automatically to the first prompt or after writes. Ask the
 model to capture a screenshot when the task specifically requires visual
-feedback. `browser_act` is model-mediated rather than a direct shell subcommand;
-use `cua do` or free-form mode when a task benefits from dependent actions with
-semantic verification.
+feedback. Use direct `cua act '<json>'` when the caller already has refs and
+needs dependent actions with semantic verification; use `cua do` or free-form
+mode when a model should construct the plan.
 
 ## Named sessions for multi-call workflows
 

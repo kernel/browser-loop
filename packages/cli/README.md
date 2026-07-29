@@ -31,6 +31,8 @@ cua --print "open https://example.com and tell me the heading"
 
 # Constrained one-shot subcommands (deterministic exit codes):
 cua open https://example.com
+cua snapshot --filter interactive
+cua act '{"steps":[{"type":"click","ref":"e12","expect":{"type":"text","text":"Done"}}]}'
 cua click "Sign in button"
 cua type "email field" "alice@example.com"
 cua press ctrl l                              # Ctrl+L (focus address bar)

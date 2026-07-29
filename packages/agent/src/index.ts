@@ -6,6 +6,7 @@ export type { CuaAgentTool, CuaToolSpec } from "@onkernel/cua-ai";
 export type { KernelBrowser } from "./translator/translator";
 export { InternalComputerTranslator } from "./translator/translator";
 export { CuaExecutionResources } from "./resources";
+export { formatBrowserActResult } from "./browser-result-format";
 export { CdpConnection } from "./translator/cdp";
 export { BrowserExecutor } from "./translator/browser";
 export type { BrowserFindCandidate } from "./translator/browser";

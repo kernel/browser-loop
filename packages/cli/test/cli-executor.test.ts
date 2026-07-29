@@ -1,4 +1,10 @@
-import type { BrowserExecutor, BrowserFindCandidate, BrowserRefState, InternalComputerTranslator as Translator } from "@onkernel/cua-agent";
+import type {
+	BrowserActResult,
+	BrowserExecutor,
+	BrowserFindCandidate,
+	BrowserRefState,
+	InternalComputerTranslator as Translator,
+} from "@onkernel/cua-agent";
 import { InternalComputerTranslator } from "@onkernel/cua-agent";
 import type { CuaBrowserAction } from "@onkernel/cua-ai";
 import { mkdtempSync } from "node:fs";
@@ -56,6 +62,7 @@ interface FakeExecutorScript {
 	candidates?: BrowserFindCandidate[];
 	url?: string;
 	texts?: Partial<Record<string, string>>;
+	actResult?: BrowserActResult;
 	failWith?: Error;
 }
 
@@ -71,6 +78,9 @@ function fakeExecutor(script: FakeExecutorScript = {}): { executor: BrowserExecu
 		async execute(action: CuaBrowserAction) {
 			if (script.failWith) throw script.failWith;
 			state.actions.push(action);
+			if (action.type === "browser_act" && script.actResult) {
+				return [{ type: "browser_act", result: script.actResult }];
+			}
 			const text = script.texts?.[action.type];
 			return text !== undefined ? [{ type: "browser_text", label: action.type, text }] : [];
 		},
@@ -151,6 +161,7 @@ describe("deterministicActionFor", () => {
 		expect(deterministicActionFor("url", [])).toBe("url");
 		expect(deterministicActionFor("open", ["https://a"])).toBe("open");
 		expect(deterministicActionFor("screenshot", [])).toBe("screenshot");
+		expect(deterministicActionFor("act", ['{"steps":[{"type":"wait"}]}'])).toBe("act");
 		expect(deterministicActionFor("click", ["10", "20"])).toBe("click");
 		expect(deterministicActionFor("click", ["e12"])).toBe("click");
 	});
@@ -187,6 +198,9 @@ describe("parseDeterministicArgs", () => {
 		expect(() => parseDeterministicArgs("fill", ["query"], baseFlags())).toThrow("usage: cua fill");
 		expect(() => parseDeterministicArgs("press", [], baseFlags())).toThrow("usage: cua press");
 		expect(() => parseDeterministicArgs("click", ["a", "b"], baseFlags())).toThrow("usage: cua click");
+		expect(() => parseDeterministicArgs("act", [], baseFlags())).toThrow("usage: cua act");
+		expect(() => parseDeterministicArgs("act", ["not-json"], baseFlags())).toThrow("invalid cua act JSON");
+		expect(() => parseDeterministicArgs("act", ['{"steps":[]}'], baseFlags())).toThrow("invalid cua act input");
 		expect(() => parseDeterministicArgs("snapshot", [], baseFlags({ filter: "everything" }))).toThrow(
 			"invalid --filter",
 		);
@@ -217,6 +231,10 @@ describe("parseDeterministicArgs", () => {
 		});
 		expect(parseDeterministicArgs("click", ["10", "20"], baseFlags())).toEqual({ action: "click", x: 10, y: 20 });
 		expect(parseDeterministicArgs("click", ["e12"], baseFlags())).toEqual({ action: "click", ref: "e12" });
+		expect(parseDeterministicArgs("act", ['{"steps":[{"type":"click","ref":"e12"}]}'], baseFlags())).toEqual({
+			action: "act",
+			input: { steps: [{ type: "click", ref: "e12" }] },
+		});
 		expect(parseDeterministicArgs("fill", ["e12", "a@b.c"], baseFlags())).toEqual({
 			action: "fill",
 			ref: "e12",
@@ -259,6 +277,33 @@ describe("runDeterministicOnHandle", () => {
 		expect(code).toBe(0);
 		expect(stdoutLines.join("")).toBe('button "Go" [e1]\n');
 		expect(t.state.actions).toEqual([{ type: "browser_snapshot", filter: "interactive" }]);
+	});
+
+	it("act prints bounded semantic feedback and exits by causal outcome", async () => {
+		const worked: BrowserActResult = {
+			outcome: "worked",
+			steps: [{ index: 0, type: "click", outcome: "worked", diagnostics: ["action dispatched"] }],
+			final_expectation: {
+				status: "newly_verified",
+				before: "not_matched",
+				after: "matched",
+				diagnostics: ["url changed"],
+			},
+			successor: { status: "unavailable", error: "test successor omitted" },
+		};
+		const success = setup({ actResult: worked });
+		const request = {
+			action: "act" as const,
+			input: { steps: [{ type: "click" as const, ref: "e12" }], expect: { type: "url" as const, changed: true } },
+		};
+		expect(await runDeterministicOnHandle(request, success.handle, success.createTranslator)).toBe(0);
+		expect(stdoutLines.join("")).toContain("browser_act: worked");
+		expect(success.state.actions).toEqual([{ type: "browser_act", ...request.input }]);
+
+		stdoutLines = [];
+		const uncertain = setup({ actResult: { ...worked, outcome: "unknown", stop_reason: "control_flow" } });
+		expect(await runDeterministicOnHandle(request, uncertain.handle, uncertain.createTranslator)).toBe(1);
+		expect(stdoutLines.join("")).toContain("browser_act: unknown");
 	});
 
 	it("text prints the page text", async () => {

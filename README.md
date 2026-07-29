@@ -196,6 +196,7 @@ deterministic code. Designed for shell agents to chain.
 | Subcommand                          | Result on stdout                                | Exit codes                  |
 | ----------------------------------- | ----------------------------------------------- | --------------------------- |
 | `cua open <url>`                    | `ok`                                            | 0 ok, 2 error               |
+| `cua act '<json>'`                  | bounded semantic plan result                    | 0 worked, 1 unmet, 2 error  |
 | `cua click "<description>"`         | `ok clicked (x, y)` or `not_found <reason>`     | 0, 1 not_found, 2 error     |
 | `cua type "<target>" "<text>"`      | `ok typed` or `not_found <reason>`              | 0, 1 not_found, 2 error     |
 | `cua press <key> [<key>...]`        | `ok pressed`                                    | 0 ok, 2 error               |
