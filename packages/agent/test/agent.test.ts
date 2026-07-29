@@ -241,6 +241,54 @@ describe("CuaAgent explicit tools", () => {
 		expect(result).toMatchObject({ isError: true });
 		expect(result?.content).toEqual([expect.objectContaining({ text: expect.stringContaining('executionMode: "sequential"') })]);
 	});
+
+	it("rejects in-tool model switching from a non-sequential caller tool", async () => {
+		let agent!: CuaAgent;
+		const switcher = callerTool("switcher", async () => {
+			agent.setModel("anthropic:claude-opus-5");
+			return { content: [{ type: "text", text: "unexpected" }], details: {} };
+		});
+		agent = new CuaAgent({
+			browser,
+			client,
+			tools: [switcher],
+			streamFn: scriptedStream([
+				(model) => assistant(model, [{ type: "toolCall", id: "switch", name: "switcher", arguments: {} }], "toolUse"),
+				(model) => assistant(model),
+			]),
+			initialState: { model: "openai:gpt-5.5" },
+		});
+		await agent.prompt("switch");
+		const result = agent.state.messages.find((message) => message.role === "toolResult");
+		expect(result).toMatchObject({ isError: true });
+		expect(result?.content).toEqual([expect.objectContaining({ text: expect.stringContaining('before calling setModel()') })]);
+		expect(agent.getModel().provider).toBe("openai");
+	});
+
+	it("allows in-tool model switching from a sequential caller tool", async () => {
+		const contexts: Context[] = [];
+		let agent!: CuaAgent;
+		const switcher = callerTool("switcher", async () => {
+			agent.setModel("anthropic:claude-opus-5");
+			return { content: [{ type: "text", text: "switched" }], details: {} };
+		}, "sequential");
+		agent = new CuaAgent({
+			browser,
+			client,
+			tools: [switcher],
+			streamFn: scriptedStream([
+				(model) => assistant(model, [{ type: "toolCall", id: "switch", name: "switcher", arguments: {} }], "toolUse"),
+				(model) => assistant(model),
+			], contexts),
+			initialState: { model: "openai:gpt-5.5" },
+		});
+		await agent.prompt("switch");
+		const result = agent.state.messages.find((message) => message.role === "toolResult");
+		expect(result).not.toMatchObject({ isError: true });
+		expect(agent.getModel().provider).toBe("anthropic");
+		expect(agent.getTools()).toEqual([switcher]);
+		expect(contexts[1]?.messages.find((message) => message.role === "toolResult")).not.toHaveProperty("addedToolNames");
+	});
 });
 
 describe("CuaAgentHarness explicit tools", () => {

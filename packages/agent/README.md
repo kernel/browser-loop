@@ -134,10 +134,12 @@ The requested catalog is recompiled on every `setTools()` or `setModel()`.
 Duplicate identities, caller-visible name collisions, provider-normalized name
 collisions, and incompatible model/tool combinations fail before state changes.
 
-Tools may call `setTools()` while they execute. Eligible ordinary function-tool
-additions are recorded for pi's deferred-loading protocol; additions outside a
-tool execution are eager. Provider-native tools are always eager. Replacing an
-existing identity's schema, executor, or coordinates is a real replacement.
+Tools may call `setTools()` or `setModel()` while they execute, but only if they
+declare `executionMode: "sequential"`; mutating the catalog from a tool that can
+run in parallel is rejected. Eligible ordinary function-tool additions are
+recorded for pi's deferred-loading protocol; additions outside a tool execution
+are eager. Provider-native tools are always eager. Replacing an existing
+identity's schema, executor, or coordinates is a real replacement.
 
 One shared execution-resource pool survives all catalog/model changes, so
 browser refs, tabs, connections, and translator state are not reset.

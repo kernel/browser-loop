@@ -38,11 +38,12 @@ export class CuaToolManager {
 	}
 
 	prepareTools(tools: readonly CuaAgentTool[]): CuaToolCatalog {
-		this.assertMutationScope();
+		this.assertMutationScope("setTools");
 		return compileCuaToolCatalog({ model: this.current.model, requestedTools: tools, resources: this.resources });
 	}
 
 	prepareModel(model: CuaModelRef | Model<Api>): CuaToolCatalog {
+		this.assertMutationScope("setModel");
 		return compileCuaToolCatalog({ model, requestedTools: this.current.requested, resources: this.resources });
 	}
 
@@ -70,10 +71,10 @@ export class CuaToolManager {
 		});
 	}
 
-	private assertMutationScope(): void {
+	private assertMutationScope(api: "setTools" | "setModel"): void {
 		const scope = this.execution.getStore();
 		if (scope && scope.executionMode !== "sequential") {
-			throw new Error(`tool "${scope.toolName}" must declare executionMode: "sequential" before calling setTools() during execution`);
+			throw new Error(`tool "${scope.toolName}" must declare executionMode: "sequential" before calling ${api}() during execution`);
 		}
 	}
 }
