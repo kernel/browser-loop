@@ -138,8 +138,9 @@ const cases: ProviderCase[] = [
 		apiKeyEnvVar: "YUTORI_API_KEY",
 		modelRef: "yutori:n1.5-latest",
 		prompt: [
-			"Use the browser tools to open https://example.com exactly once.",
-			"After the browser action result, do not call any more tools.",
+			"Use the function tool named `computer_screenshot` exactly once.",
+			"Pass empty arguments (`{}`).",
+			"Do not call any other tools.",
 		].join("\n"),
 		expectToolCalls: true,
 		expectReadArtifact: false,
