@@ -78,6 +78,8 @@ import { cua } from "@onkernel/cua-ai";
 const browser = cua.toolsets.browser();
 const computer = cua.toolsets.computer();
 const mixed = cua.toolsets.mixed();
+// Use a normalized contract when the model emits screen-relative coordinates:
+// the schema advertises 0–1000 and execution scales them to viewport pixels.
 const normalized = cua.toolsets.computer({
   coordinates: cua.coordinates.normalized([0, 1000]),
 });

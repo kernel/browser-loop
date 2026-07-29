@@ -45,12 +45,15 @@ These resolve a natural-language description with an LLM, so they need the model
 Useful flags:
 
 - `-m <model>` — pick the LLM for model-mediated subcommands (default `gpt-5.6-sol`).
-  Other good picks: `claude-opus-5`, `gemini-3.6-flash`, `n1.5-latest`.
-- `cua models` — list supported `-m` values and their providers; filter
-  with `cua models -p openai|anthropic|google|yutori|tzafon` (`gemini` is
-  accepted as an alias for `google`). Model refs print as `provider:model`
-  (e.g. `google:gemini-3.6-flash`); `-m` accepts either the full ref or
-  a bare model id that matches exactly one entry.
+  Recommended refs are `openai:gpt-5.6-sol`, `anthropic:claude-opus-5`,
+  `google:gemini-3.6-flash`, `meta:muse-spark-1.1`, `xai:grok-4.5`,
+  `moonshotai:kimi-k3`, `tzafon:tzafon.northstar-cua-fast`, and
+  `yutori:n1.5-latest`.
+- `cua models` — list supported `-m` values and their providers; filter with
+  `cua models -p openai|anthropic|google|meta|xai|moonshotai|tzafon|yutori`.
+  `gemini` aliases `google`, and `moonshot` aliases `moonshotai`. Model refs
+  print as `provider:model`; `-m` accepts either the full ref or a bare model id
+  that matches exactly one entry.
 - `--max-steps <n>` — bound the agent loop on `cua do` (default 3).
 - `--filter interactive` — restrict `cua snapshot` to interactive elements.
 - `--proxy <proxy-id-or-name>` — route the browser through a Kernel proxy.
@@ -64,6 +67,21 @@ Useful flags:
   state matters across fresh browser sessions. Changes save back by default;
   pass `--profile-no-save-changes` for a read-only run.
 - `-v` — verbose progress on stderr (provisioning, tool calls, transcript path).
+
+### Model tool policy
+
+The CLI selects its interaction tools from the model: structured CUA browser
+tools for OpenAI, Meta, xAI, Moonshot, and older Anthropic models; native
+browser tools for current Anthropic and Google models; Tzafon's native computer
+tool; and Yutori's documented native set plus an explicit screenshot tool. It
+also appends workspace coding tools in `--print`, TUI, and model-mediated action
+runs.
+
+There is no `--mode`, `--native-tool`, or `--playwright` flag. Those catalogs
+remain explicit SDK choices rather than CLI defaults. The CLI also does not
+attach screenshots automatically to the first prompt or after writes. Ask the
+model to capture a screenshot when the task specifically requires visual
+feedback.
 
 ## Named sessions for multi-call workflows
 
