@@ -31,7 +31,8 @@ use composition instead of inheriting from pi's `Agent`/`AgentHarness`.
   remaining call in that assistant turn receives the configured error result
   instead of executing against stale browser state.
 - Update shared examples to use the same browser-oriented provider catalogs as
-  the CLI, including Anthropic native-browser selection and model fallback.
+  the CLI, including explicit `browser_act` plans for structured CUA-browser
+  catalogs plus Anthropic native-browser selection and model fallback.
 
 ## 0.7.0 - 2026-07-17
 

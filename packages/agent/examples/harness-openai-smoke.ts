@@ -22,9 +22,9 @@ async function main(): Promise<void> {
 			env: new NodeExecutionEnv({ cwd: process.cwd() }),
 			model: modelRef,
 			session,
-			// Prefer structured browser refs and semantic reads for the OpenAI smoke
-			// instead of making coordinate-only computer use the application default.
-			tools: cua.toolsets.browser(),
+			// Prefer structured browser refs and semantic reads for the OpenAI smoke,
+			// and opt into verified dependent plans without changing the base toolset.
+			tools: [...cua.toolsets.browser(), cua.tools.browser.act()],
 			systemPrompt: "Use the provided computer and browser tools to interact with the page.",
 		});
 

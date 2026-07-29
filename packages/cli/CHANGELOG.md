@@ -7,10 +7,11 @@ Breaking: the CLI now assembles one explicit model-specific tool list.
 - Remove `--mode`, `--native-tool`, `--playwright`, and the interactive `/mode`
   command.
 - Select browser-oriented provider defaults explicitly in
-  `packages/cli/src/harness.ts`: standard CUA browser tools for OpenAI,
-  Meta, xAI, Moonshot, and older Anthropic models; native browser tools for
-  current Anthropic, Google, and Yutori models; and Tzafon's browser-scoped
-  native computer tool. Then append pi coding tools into the same list.
+  `packages/cli/src/harness.ts`: CUA browser primitives plus the verified
+  `browser_act` plan tool for OpenAI, Meta, xAI, Moonshot, and older Anthropic
+  models; native browser tools for current Anthropic, Google, and Yutori
+  models; and Tzafon's browser-scoped native computer tool. Then append pi
+  coding tools into the same list.
 - Change the default model to the verified `openai:gpt-5.6-sol`.
 - Stop attaching screenshots automatically to first prompts. Models request an
   explicit browser/computer screenshot tool when visual feedback is needed.

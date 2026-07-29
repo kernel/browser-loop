@@ -71,17 +71,19 @@ Useful flags:
 ### Model tool policy
 
 The CLI selects its interaction tools from the model: structured CUA browser
-tools for OpenAI, Meta, xAI, Moonshot, and older Anthropic models; native
-browser tools for current Anthropic and Google models; Tzafon's native computer
-tool; and Yutori's documented native set plus an explicit screenshot tool. It
-also appends workspace coding tools in `--print`, TUI, and model-mediated action
-runs.
+primitives plus `browser_act` verified plans for OpenAI, Meta, xAI, Moonshot,
+and older Anthropic models; native browser tools for current Anthropic and
+Google models; Tzafon's native computer tool; and Yutori's documented native
+set plus an explicit screenshot tool. It also appends workspace coding tools in
+`--print`, TUI, and model-mediated action runs.
 
 There is no `--mode`, `--native-tool`, or `--playwright` flag. Those catalogs
 remain explicit SDK choices rather than CLI defaults. The CLI also does not
 attach screenshots automatically to the first prompt or after writes. Ask the
 model to capture a screenshot when the task specifically requires visual
-feedback.
+feedback. `browser_act` is model-mediated rather than a direct shell subcommand;
+use `cua do` or free-form mode when a task benefits from dependent actions with
+semantic verification.
 
 ## Named sessions for multi-call workflows
 

@@ -15,14 +15,20 @@ import { createScriptedCuaModels } from "./fixtures/scripted-provider";
 
 describe("buildCuaHarness", () => {
 	it("chooses explicit model-specific interaction catalogs", () => {
-		expect(defaultInteractionTools("openai:gpt-5.6-sol")[0]?.name).toBe("browser_snapshot");
+		const openaiNames = defaultInteractionTools("openai:gpt-5.6-sol").map((tool) => tool.name);
+		expect(openaiNames[0]).toBe("browser_snapshot");
+		expect(openaiNames.at(-1)).toBe("browser_act");
 		expect(defaultInteractionTools("anthropic:claude-opus-5")).toEqual([
 			expect.objectContaining({ name: "browser", origin: "provider-native" }),
 		]);
-		expect(defaultInteractionTools("anthropic:claude-3-7-sonnet")[0]?.name).toBe("browser_snapshot");
-		expect(defaultInteractionTools("google:gemini-3.6-flash").map((tool) => tool.name)).toContain("take_screenshot");
+		expect(defaultInteractionTools("anthropic:claude-3-7-sonnet").map((tool) => tool.name).at(-1)).toBe("browser_act");
+		const googleNames = defaultInteractionTools("google:gemini-3.6-flash").map((tool) => tool.name);
+		expect(googleNames).toContain("take_screenshot");
+		expect(googleNames).not.toContain("browser_act");
 		for (const model of ["meta:muse-spark-1.1", "xai:grok-4.5", "moonshotai:kimi-k3"] as const) {
-			expect(defaultInteractionTools(model)[0]).toMatchObject({ name: "browser_snapshot", origin: "cua" });
+			const tools = defaultInteractionTools(model);
+			expect(tools[0]).toMatchObject({ name: "browser_snapshot", origin: "cua" });
+			expect(tools.at(-1)?.name).toBe("browser_act");
 		}
 		expect(defaultInteractionTools("tzafon:tzafon.northstar-cua-fast")[0]?.name).toBe("computer");
 		expect(defaultInteractionTools("yutori:n1.5-latest").map((tool) => tool.name)).toEqual([
@@ -45,6 +51,7 @@ describe("buildCuaHarness", () => {
 		const toolNames = harness.getTools().map((tool) => tool.name);
 		expect(toolNames).toContain("browser_click");
 		expect(toolNames).toContain("browser_screenshot");
+		expect(toolNames).toContain("browser_act");
 		const codingToolNames = createCodingTools(cwd).map((tool) => tool.name);
 		for (const name of codingToolNames) {
 			expect(toolNames).toContain(name);

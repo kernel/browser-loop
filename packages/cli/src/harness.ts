@@ -73,16 +73,24 @@ export function defaultApplicationTools(cwd: string): CuaAgentTool[] {
 	return createCodingTools(cwd);
 }
 
+/**
+ * CLI structured-browser policy. `browser_act` remains outside the reusable
+ * base toolset, so the application opts into semantic verified plans explicitly.
+ */
+function structuredBrowserTools(): CuaAgentTool[] {
+	return [...cua.toolsets.browser(), cua.tools.browser.act()];
+}
+
 /** CLI policy is explicit application composition, not a CuaAgent default. */
 export function defaultInteractionTools(model: CuaModelRef): CuaAgentTool[] {
 	const { provider, model: modelId } = parseCuaModelRef(model);
 	switch (provider) {
 		case "openai":
-			return cua.toolsets.browser();
+			return structuredBrowserTools();
 		case "anthropic":
 			return cua.providers.anthropic.supports.browser(modelId)
 				? [cua.providers.anthropic.tools.browser({ version: "20260701", javascript: true })]
-				: cua.toolsets.browser();
+				: structuredBrowserTools();
 		case "google":
 			return cua.providers.google.toolsets.browser();
 		case "tzafon":
@@ -97,7 +105,7 @@ export function defaultInteractionTools(model: CuaModelRef): CuaAgentTool[] {
 		case "meta":
 		case "xai":
 		case "moonshotai":
-			return cua.toolsets.browser();
+			return structuredBrowserTools();
 	}
 }
 

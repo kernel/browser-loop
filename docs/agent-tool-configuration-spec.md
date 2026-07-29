@@ -272,7 +272,9 @@ tools: [
 
 A toolset has no runtime meaning after expansion. It does not set or imply a mode. The runtime receives only the resulting tool specifications.
 
-Every toolset must document and test its exact members. Experimental tools such as `browser_act` should remain outside default toolsets until explicitly accepted into them:
+Every toolset must document and test its exact members. Tools such as
+`browser_act` remain outside the reusable base toolset so applications opt into
+them explicitly:
 
 ```ts
 tools: [
@@ -280,6 +282,8 @@ tools: [
   cua.tools.browser.act(),
 ]
 ```
+
+The CLI uses this explicit composition for its structured CUA-browser catalogs.
 
 Provider toolsets must expose the first-party source they mirror and must not silently include CUA-authored additions.
 
@@ -598,7 +602,7 @@ Every provider tool surface must expose the first-party source it mirrors. CUA-a
 4. **Batch overlap:** batches are mechanical; `browser_act` remains semantic; browser batches share ref state without a workflow DSL.
 5. **Dynamic loading:** `setTools()` uses pi 0.80.10 additive markers only for final, cache-preserving in-tool additions; other changes are eager.
 6. **Shared resources:** one resource pool survives tool/model changes and owns the translator and lazy CDP executor.
-7. **Provider exports:** the native OpenAI, Anthropic, Google, Tzafon, and Yutori surfaces are namespaced, cite first-party sources, and are tested against their declared contracts. Meta, xAI, and Moonshot use CUA-authored browser tools.
+7. **Provider exports:** the native OpenAI, Anthropic, Google, Tzafon, and Yutori surfaces are namespaced, cite first-party sources, and are tested against their declared contracts. Meta, xAI, and Moonshot use CUA-authored browser tools; the CLI explicitly appends `browser_act` to those structured catalogs.
 
 ## Decisions recorded
 
@@ -608,7 +612,8 @@ Every provider tool surface must expose the first-party source it mirrors. CUA-a
 - There is one current public tool list; no CUA-facing `activeToolNames` layer.
 - First-party provider-native tools are namespaced separately from CUA-authored tools.
 - Tool factories and toolsets are discoverable under a namespace, not exported as many global functions.
-- `browser_act` remains outside `cua.toolsets.browser()` until it has broader production evidence.
+- `browser_act` remains outside `cua.toolsets.browser()`; applications may opt
+  into it explicitly, and the CLI does so for structured CUA-browser catalogs.
 - Naming, payload-transform composition, result formatting, and batch overlap must be resolved before code is written.
 
 ## Acceptance criteria

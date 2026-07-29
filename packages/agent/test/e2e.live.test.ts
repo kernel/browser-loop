@@ -181,13 +181,17 @@ function shouldRunSwitchCase(c: ModelSwitchCase): boolean {
 	return shouldRunCase(c.from) && shouldRunCase(c.to);
 }
 
+function structuredBrowserTools() {
+	return [...cua.toolsets.browser(), cua.tools.browser.act()];
+}
+
 function toolsForCase(c: ProviderCase) {
 	switch (c.name) {
 		case "openai":
 		case "meta":
 		case "xai":
 		case "moonshotai":
-			return cua.toolsets.browser();
+			return structuredBrowserTools();
 		case "anthropic":
 			return [cua.providers.anthropic.tools.browser({ version: "20260701", javascript: true })];
 		case "gemini":

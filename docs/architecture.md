@@ -173,8 +173,9 @@ serialization, provider fields, then the caller's `onPayload` hook.
 
 1. resolves the provider-qualified model;
 2. chooses `defaultInteractionTools(model)` explicitly:
-   - CUA browser tools for OpenAI, Meta, xAI, Moonshot, and Anthropic models
-     without native-browser support;
+   - CUA browser primitives plus the explicit `browser_act` verified-plan tool
+     for OpenAI, Meta, xAI, Moonshot, and Anthropic models without native-browser
+     support;
    - Anthropic's native browser tool when the model supports it;
    - Google's native browser action set;
    - Tzafon's native computer tool configured for a browser;

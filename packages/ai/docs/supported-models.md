@@ -17,8 +17,9 @@ with CUA-only entries that pi-ai does not ship yet.
 
 ## `openai`
 
-Default interaction: CUA browser tools. The optional native computer tool uses
-pixel coordinates.
+CLI default interaction: CUA browser primitives plus the explicit
+`browser_act` verified-plan tool. The optional native computer tool uses pixel
+coordinates.
 
 Exact IDs:
 
@@ -32,8 +33,9 @@ Family matches (root + numeric revision/dated-snapshot suffixes):
 
 ## `anthropic`
 
-Default interaction: native `browser_20260701` on supported model families,
-with the CUA browser toolset as the model-compatibility fallback. If the active
+CLI default interaction: native `browser_20260701` on supported model families,
+with CUA browser primitives plus explicit `browser_act` as the
+model-compatibility fallback. If the active
 credential cannot access the native browser beta, CUA uses its equivalent
 function-tool transport. The optional native computer tool uses pixel
 coordinates.
@@ -72,7 +74,7 @@ Source: [Gemini computer use docs](https://ai.google.dev/gemini-api/docs/compute
 
 ## `meta`
 
-Default interaction: CUA browser tools.
+CLI default interaction: CUA browser primitives plus explicit `browser_act`.
 
 Exact IDs:
 
@@ -85,7 +87,7 @@ Source: [Meta computer-use cookbook](https://dev.meta.ai/docs/getting-started/co
 
 ## `xai`
 
-Default interaction: CUA browser tools.
+CLI default interaction: CUA browser primitives plus explicit `browser_act`.
 
 Exact IDs:
 
@@ -101,7 +103,7 @@ Source: [Grok 4.5 docs](https://docs.x.ai/developers/grok-4-5), [function callin
 
 ## `moonshotai`
 
-Default interaction: CUA browser tools.
+CLI default interaction: CUA browser primitives plus explicit `browser_act`.
 
 Model refs use the `moonshotai:` prefix; `moonshot:` is accepted as an alias.
 
