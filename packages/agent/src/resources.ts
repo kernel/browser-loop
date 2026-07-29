@@ -96,7 +96,7 @@ export class CuaExecutionResources implements CuaToolCatalogResources {
 			failure = error;
 		}
 
-		const semanticFailure = spec.execution.batch && hasUnsatisfiedSemanticRead(result.readResults);
+		const semanticFailure = hasUnsatisfiedSemanticRead(result.readResults);
 		const isError = failure !== undefined || semanticFailure;
 		const formatted = formatReadResults(result.readResults, isError);
 		if (isError) {

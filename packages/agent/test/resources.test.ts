@@ -52,6 +52,16 @@ function setup(options: { failBatch?: boolean; failPlaywright?: boolean } = {}) 
 					details: [],
 				},
 			}];
+			if (action.type === "browser_act") return [{
+				type: "browser_act",
+				result: {
+					outcome: "didnt",
+					steps: [],
+					stopped_at: 0,
+					stop_reason: "expectation_failed",
+					successor: { status: "unavailable", error: "expectation failed" },
+				},
+			}];
 			return [];
 		},
 		screenshot: browserScreenshot,
@@ -126,6 +136,23 @@ describe("CuaExecutionResources results and batch boundaries", () => {
 			{ type: "text", text: "Action 1 stopped at an unsatisfied semantic browser condition." },
 		]);
 		expect(result.details).toMatchObject({ isError: true, failedActionIndex: 1 });
+	});
+
+	it.each([
+		["browser_wait_for", cua.tools.browser.waitFor(), { expect: { type: "text", text: "Ready" } }],
+		["browser_act", cua.tools.browser.act(), { steps: [{ type: "wait" }] }],
+	] as const)("marks a failed standalone %s result as an error", async (_name, spec, input) => {
+		const { resources } = setup();
+		const result = await resources.materialize(spec).execute("standalone", input);
+		expect(result.details).toMatchObject({
+			statusText: "Actions stopped before completion.",
+			isError: true,
+			failedActionIndex: 0,
+		});
+		expect(result.content).toContainEqual({
+			type: "text",
+			text: "Action 0 stopped at an unsatisfied semantic browser condition.",
+		});
 	});
 
 	it("shares one lazy browser executor across independently materialized tools", async () => {
