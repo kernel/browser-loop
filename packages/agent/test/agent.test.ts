@@ -96,14 +96,14 @@ describe("CuaAgent explicit tools", () => {
 		const agent = new CuaAgent({ browser, client, tools: [], initialState: { model: "openai:gpt-5.5" } });
 		expect(agent).not.toBeInstanceOf(Agent);
 		expect(agent.getTools()).toEqual([]);
-		expect(agent.inspectTools()).toEqual([]);
+		expect("inspectTools" in agent).toBe(false);
 		expect(agent.state.tools).toEqual([]);
 		expect(agent.state.systemPrompt).toBe("");
 		expect("setMode" in agent).toBe(false);
 		expect("getMode" in agent).toBe(false);
 	});
 
-	it("installs exact native-only, recommended-plus-CUA, Playwright-only, and browser-act-only catalogs", () => {
+	it("installs exact native-only, native-plus-CUA, Playwright-only, and browser-act-only catalogs", () => {
 		const custom = callerTool("customer_lookup");
 		const cases = [
 			{
@@ -112,9 +112,9 @@ describe("CuaAgent explicit tools", () => {
 				names: ["browser", "customer_lookup"],
 			},
 			{
-				model: "anthropic:claude-opus-5" as const,
-				tools: [...cua.providers.anthropic.toolsets.computer(), cua.tools.browser.snapshot(), cua.tools.browser.act()],
-				names: ["computer", "computer_batch", "browser_snapshot", "browser_act"],
+				model: "openai:gpt-5.5" as const,
+				tools: [cua.providers.openai.tools.computer(), cua.tools.browser.snapshot(), cua.tools.browser.act()],
+				names: ["computer", "browser_snapshot", "browser_act"],
 			},
 			{ model: "openai:gpt-5.5" as const, tools: [cua.tools.playwright()], names: ["playwright_execute"] },
 			{ model: "openai:gpt-5.5" as const, tools: [cua.tools.browser.act()], names: ["browser_act"] },
@@ -126,23 +126,12 @@ describe("CuaAgent explicit tools", () => {
 		}
 	});
 
-	it("returns the requested specs while exposing resolved inspection", () => {
+	it("returns a copy of the exact requested specs", () => {
 		const requested = [cua.tools.browser.snapshot(), callerTool("customer_lookup")];
 		const agent = new CuaAgent({ browser, client, tools: requested, initialState: { model: "anthropic:claude-opus-5" } });
 		expect(agent.getTools()).toEqual(requested);
 		expect(agent.getTools()).not.toBe(requested);
-		expect(agent.inspectTools().map((tool) => [tool.identity, tool.name, tool.origin])).toEqual([
-			["cua.browser.snapshot.v1", "browser_snapshot", "cua"],
-			["caller.customer_lookup", "customer_lookup", "caller"],
-		]);
 		expect(agent.state.tools.map((tool) => tool.name)).toEqual(["browser_snapshot", "customer_lookup"]);
-		const requestGrounded = new CuaAgent({
-			browser,
-			client,
-			tools: cua.providers.yutori.toolsets.n15Core().slice(0, 1),
-			initialState: { model: "yutori:n1.5-latest" },
-		});
-		expect(requestGrounded.inspectTools()[0]?.requestGrounding).toBe("os-screenshot");
 	});
 
 	it("keeps the caller system prompt stable across setTools", () => {
@@ -259,6 +248,7 @@ describe("CuaAgentHarness explicit tools", () => {
 		const harness = new CuaAgentHarness({ ...(await harnessServices()), browser, client, model: "openai:gpt-5.5", tools: [] });
 		expect(harness).not.toBeInstanceOf(AgentHarness);
 		expect(harness.getTools()).toEqual([]);
+		expect("inspectTools" in harness).toBe(false);
 		expect("getActiveTools" in harness).toBe(false);
 		expect("setActiveTools" in harness).toBe(false);
 		expect("setMode" in harness).toBe(false);

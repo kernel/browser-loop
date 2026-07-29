@@ -19,7 +19,7 @@ import {
 	type ModelActionType,
 } from "./action/prompts";
 import { runAction, emitCompact } from "./action/harness-runner";
-import { buildCuaHarness, defaultInteractionTools } from "./harness";
+import { buildCuaHarness, defaultApplicationTools, defaultInteractionTools } from "./harness";
 import { provisionBrowser } from "./harness-browser";
 import { DEFAULT_CUA_MODEL_REF, listSupportedModels, resolveCuaModelRef } from "./harness-models";
 import {
@@ -350,6 +350,7 @@ interface HarnessRuntime {
 	session: Session;
 	skills: Skill[];
 	contextFiles: ContextFile[];
+	applicationTools: ReturnType<typeof defaultApplicationTools>;
 	harness: ReturnType<typeof buildCuaHarness>;
 	provider: string;
 	modelRef: CuaModelRef;
@@ -444,6 +445,7 @@ async function finishHarnessRuntime(
 
 	const thinkingLevel = mapThinkingLevel(flags.thinking);
 	const baseUrlOverride = providerBaseUrlOverride(provider);
+	const applicationTools = defaultApplicationTools(cwd);
 	const harness = buildCuaHarness({
 		cwd,
 		client: provisioned.handle.client,
@@ -453,6 +455,7 @@ async function finishHarnessRuntime(
 		skills,
 		contextFiles,
 		thinkingLevel,
+		tools: [...defaultInteractionTools(auth.modelRef), ...applicationTools],
 		modelBaseUrl: baseUrlOverride,
 	});
 
@@ -462,6 +465,7 @@ async function finishHarnessRuntime(
 		session,
 		skills,
 		contextFiles,
+		applicationTools,
 		harness,
 		provider,
 		modelRef: auth.modelRef,
@@ -517,12 +521,10 @@ export async function runPrintCommand(prompt: string, flags: HarnessCliFlags): P
 		return await runPrint({
 			harness: runtime.harness,
 			browserHandle: runtime.handle,
-			session: runtime.session,
 			modelRef: runtime.modelRef,
 			provider: runtime.provider,
 			prompt,
 			skills: runtime.skills,
-			skipInitialScreenshot: runtime.resolved?.resumed === true,
 			verbose: flags.verbose,
 			jsonlMode,
 			jsonlIncludeDeltas: flags.jsonlIncludeDeltas,
@@ -554,13 +556,13 @@ export async function runInteractiveCommand(
 			contextFiles: runtime.contextFiles,
 			modelRef: runtime.modelRef,
 			provider: runtime.provider,
+			applicationTools: runtime.applicationTools,
 			interactionToolsForModel: defaultInteractionTools,
 			initialPrompt: initialPrompt || undefined,
 			imageProtocol: flags.imageProtocol,
 			debugTui: flags.debugTui,
 			resumed: runtime.resolved?.resumed === true,
 			transcriptPath: runtime.resolved?.transcriptPath,
-			skipInitialScreenshot: runtime.resolved?.resumed === true,
 			namedSession: flags.namedSession,
 		});
 	} finally {
@@ -584,9 +586,6 @@ export async function runActionCommand(
 	try {
 		const res = await runAction(req, {
 			harness: runtime.harness,
-			browserHandle: runtime.handle,
-			session: runtime.session,
-			skipInitialScreenshot: runtime.resolved?.resumed === true,
 		});
 		return emitCompact(res);
 	} finally {

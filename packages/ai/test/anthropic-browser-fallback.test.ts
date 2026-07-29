@@ -31,9 +31,6 @@ const resources: CuaToolCatalogResources = {
 			},
 		};
 	},
-	async osScreenshot() {
-		return { data: Buffer.from("image"), mimeType: "image/png" };
-	},
 };
 
 const context: Context = {

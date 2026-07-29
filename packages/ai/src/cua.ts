@@ -1,4 +1,4 @@
-import { Type, type Static, type Tool, type TSchema } from "@earendil-works/pi-ai";
+import { Type, type Tool, type TSchema } from "@earendil-works/pi-ai";
 import {
 	CUA_COMPUTER_ACTION_TYPES,
 	createCuaBrowserActionSchemaByType,
@@ -22,7 +22,6 @@ import {
 	type CuaToolDynamicLoading,
 	type CuaToolExecution,
 	type CuaToolOrigin,
-	type CuaToolResultPolicy,
 	type CuaToolSpec,
 	type CuaToolTransport,
 } from "./tool-catalog";
@@ -74,6 +73,15 @@ export interface CuaBrowserBatchOptions extends CuaToolNameOptions {
 }
 
 const pixels = Object.freeze({ type: "pixel" as const });
+
+const providerSources = Object.freeze({
+	openai: "https://developers.openai.com/api/docs/guides/tools-computer-use",
+	anthropic: "https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool",
+	google: "https://ai.google.dev/gemini-api/docs/computer-use",
+	tzafon: "https://huggingface.co/Tzafon/Northstar-CUA-Fast",
+	yutoriN1: "https://docs.yutori.com/reference/n1",
+	yutoriN15: "https://docs.yutori.com/reference/n1-5",
+});
 
 function normalized(range: readonly [number, number]): CuaCoordinateContract {
 	if (!Number.isFinite(range[0]) || !Number.isFinite(range[1]) || range[1] <= range[0]) {
@@ -159,9 +167,6 @@ const browserDescriptions: Record<CuaBrowserActionType, string> = {
 function browserTool(factory: BrowserFactoryName, options: CuaToolNameOptions = {}): CuaToolSpec {
 	const action = browserActionByFactory[factory];
 	const preferredName = action;
-	const resultPolicy: CuaToolResultPolicy = action === "browser_act"
-		? "browser-act"
-		: action === "browser_wait_for" ? "browser-wait" : "browser";
 	return createSpec({
 		identity: `cua.browser.${action.slice("browser_".length).replaceAll("_", "-")}.v1`,
 		preferredName,
@@ -176,7 +181,6 @@ function browserTool(factory: BrowserFactoryName, options: CuaToolNameOptions = 
 			kind: "actions",
 			toActions: (input) => [{ ...asInput(input), type: action } as CuaAction],
 			coordinates: pixels,
-			resultPolicy,
 			batch: false,
 		},
 		executorFingerprint: `browser-${action}-v1`,
@@ -204,7 +208,6 @@ function computerTool(factory: ComputerFactoryName, options: CuaComputerToolOpti
 			kind: "actions",
 			toActions: (input) => [{ ...asInput(input), type: action } as CuaAction],
 			coordinates,
-			resultPolicy: "computer",
 			batch: false,
 		},
 		executorFingerprint: `computer-${action}-v1`,
@@ -234,7 +237,6 @@ function computerBatch(options: CuaComputerBatchOptions): CuaToolSpec {
 				return value.actions.map((action) => ({ ...action, type: requireString(action.action, "action") } as CuaAction));
 			},
 			coordinates,
-			resultPolicy: "computer",
 			batch: true,
 		},
 		executorFingerprint: `computer-batch-v1:${actions.join(",")}`,
@@ -274,7 +276,6 @@ function browserBatch(options: CuaBrowserBatchOptions): CuaToolSpec {
 				});
 			},
 			coordinates: pixels,
-			resultPolicy: "browser",
 			batch: true,
 		},
 		executorFingerprint: `browser-batch-v1:${actions.join(",")}`,
@@ -314,11 +315,11 @@ function anthropicNativeComputer(options: { version: "20260701"; enableZoom?: bo
 	return providerNativeSpec({
 		identity: "provider.anthropic.native.computer.20260701",
 		name: "computer",
+		source: providerSources.anthropic,
 		declaration,
 		binding: { kind: "anthropic-native", declaration, beta: "computer-use-2026-07-01" },
 		toActions: (input) => mapNativeComputerInput(asNativeInput(input)),
 		coordinates: pixels,
-		resultPolicy: "computer",
 		executorFingerprint: `anthropic-native-computer-20260701:${options.enableZoom === true}`,
 		stopTurnOnFailureMessage: "Not executed: an earlier computer action in this turn failed.",
 	});
@@ -334,6 +335,7 @@ function anthropicNativeBrowser(options: { version: "20260701"; javascript?: boo
 	return providerNativeSpec({
 		identity: "provider.anthropic.native.browser.20260701",
 		name: "browser",
+		source: providerSources.anthropic,
 		declaration,
 		binding: {
 			kind: "anthropic-native",
@@ -347,29 +349,23 @@ function anthropicNativeBrowser(options: { version: "20260701"; javascript?: boo
 		},
 		toActions: (input) => mapNativeBrowserInput(asNativeInput(input)),
 		coordinates: pixels,
-		resultPolicy: "browser",
 		executorFingerprint: `anthropic-native-browser-20260701:${options.javascript !== false}`,
 		stopTurnOnFailureMessage: "Not executed: an earlier action in this turn failed.",
 	});
 }
 
-const anthropicRecommendedComputerActions = [
-	"screenshot", "left_click", "right_click", "middle_click", "double_click", "triple_click", "left_click_drag",
-	"mouse_move", "left_mouse_down", "left_mouse_up", "scroll", "type", "key", "hold_key", "wait", "cursor_position", "zoom",
-] as const;
-const anthropicRecommendedBrowserActions = [
+const anthropicNativeBrowserActions = [
 	"navigate", "list_tabs", "new_tab", "read_page", "get_page_text", "find", "form_input", "scroll_to", "screenshot", "zoom",
 	"left_click", "right_click", "double_click", "triple_click", "hover", "left_click_drag", "scroll", "type", "key", "wait", "javascript_exec",
 ] as const;
 
-type AnthropicRecommendedComputerAction = (typeof anthropicRecommendedComputerActions)[number];
-type AnthropicRecommendedBrowserAction = (typeof anthropicRecommendedBrowserActions)[number];
+type AnthropicNativeBrowserAction = (typeof anthropicNativeBrowserActions)[number];
 
 function anthropicBrowserFunctionFallback(javascript: boolean): Record<string, unknown> {
 	const actions = javascript
-		? anthropicRecommendedBrowserActions
-		: anthropicRecommendedBrowserActions.filter((action) => action !== "javascript_exec");
-	const union = Type.Union(actions.map((action) => anthropicRecommendedActionSchema("browser", action)));
+		? anthropicNativeBrowserActions
+		: anthropicNativeBrowserActions.filter((action) => action !== "javascript_exec");
+	const union = Type.Union(actions.map(anthropicNativeBrowserActionSchema));
 	return {
 		name: "browser",
 		description: "Use a browser through structured navigation, observation, and interaction actions.",
@@ -377,98 +373,7 @@ function anthropicBrowserFunctionFallback(javascript: boolean): Record<string, u
 	};
 }
 
-interface AnthropicRecommendedToolsetOptions extends CuaToolsetOptions {
-	actions?: readonly string[];
-}
-
-function anthropicRecommendedTool(
-	plane: "computer" | "browser",
-	batch: boolean,
-	options: AnthropicRecommendedToolsetOptions = {},
-): CuaToolSpec {
-	const preferredName = batch ? `${plane}_batch` : plane;
-	const name = namespaced(preferredName, options.namespace);
-	const allowed = plane === "computer" ? anthropicRecommendedComputerActions : anthropicRecommendedBrowserActions;
-	const actions = options.actions ?? allowed;
-	for (const action of actions) if (!(allowed as readonly string[]).includes(action)) throw new Error(`unsupported Anthropic ${plane} action "${action}"`);
-	const actionSchemas = actions.map((action) => anthropicRecommendedActionSchema(plane, action));
-	const nativeSchema = actionSchemas.length === 1 ? actionSchemas[0]! : Type.Union(actionSchemas);
-	const parameters = batch
-		? Type.Object({ actions: Type.Array(nativeSchema, { minItems: 1 }) }, { additionalProperties: false })
-		: nativeSchema;
-	return createSpec({
-		identity: `provider.anthropic.recommended.${plane}${batch ? "-batch" : ""}.v1`,
-		preferredName,
-		name,
-		origin: "provider-recommended",
-		declaration: {
-			name: preferredName,
-			description: `Anthropic-recommended ${plane}${batch ? " batch" : ""} function tool. Coordinates are pixels in the latest ${plane === "browser" ? "browser viewport" : "OS"} screenshot.`,
-			parameters,
-		},
-		execution: {
-			kind: "actions",
-			toActions(input) {
-				const values = batch ? asActionsInput(input).actions : [asInput(input)];
-				return values.flatMap((value) => plane === "computer" ? mapNativeComputerInput(asNativeInput(value)) : mapNativeBrowserInput(asNativeInput(value)));
-			},
-			coordinates: pixels,
-			resultPolicy: plane,
-			batch,
-		},
-		executorFingerprint: `anthropic-recommended-${plane}-${batch ? "batch" : "single"}-v1:${actions.join(",")}`,
-		stateMutating: actions.some((action) => !(plane === "computer"
-			? ["screenshot", "cursor_position", "zoom"].includes(action)
-			: ["list_tabs", "read_page", "get_page_text", "find", "screenshot", "zoom", "wait"].includes(action))),
-		complexSchema: true,
-	});
-}
-
-function anthropicRecommendedActionSchema(plane: "computer" | "browser", action: string): TSchema {
-	return plane === "computer"
-		? anthropicRecommendedComputerActionSchema(action as AnthropicRecommendedComputerAction)
-		: anthropicRecommendedBrowserActionSchema(action as AnthropicRecommendedBrowserAction);
-}
-
-function anthropicRecommendedComputerActionSchema(action: AnthropicRecommendedComputerAction): TSchema {
-	const coordinate = () => Type.Array(Type.Integer(), { minItems: 2, maxItems: 2 });
-	const region = () => Type.Array(Type.Integer(), { minItems: 4, maxItems: 4 });
-	const click = () => Type.Object({
-		action: Type.Literal(action),
-		coordinate: coordinate(),
-		text: Type.Optional(Type.String()),
-	}, { additionalProperties: false });
-	switch (action) {
-		case "screenshot": case "left_mouse_down": case "left_mouse_up": case "cursor_position":
-			return Type.Object({ action: Type.Literal(action) }, { additionalProperties: false });
-		case "left_click": case "right_click": case "middle_click": case "double_click": case "triple_click":
-			return click();
-		case "left_click_drag":
-			return Type.Object({ action: Type.Literal(action), start_coordinate: coordinate(), coordinate: coordinate(), text: Type.Optional(Type.String()) }, { additionalProperties: false });
-		case "mouse_move":
-			return Type.Object({ action: Type.Literal(action), coordinate: coordinate() }, { additionalProperties: false });
-		case "scroll":
-			return Type.Object({
-				action: Type.Literal(action),
-				coordinate: coordinate(),
-				scroll_direction: Type.Union([Type.Literal("up"), Type.Literal("down"), Type.Literal("left"), Type.Literal("right")]),
-				scroll_amount: Type.Optional(Type.Integer({ minimum: 1 })),
-				text: Type.Optional(Type.String()),
-			}, { additionalProperties: false });
-		case "type":
-			return Type.Object({ action: Type.Literal(action), text: Type.String() }, { additionalProperties: false });
-		case "key":
-			return Type.Object({ action: Type.Literal(action), text: Type.String(), repeat: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })) }, { additionalProperties: false });
-		case "hold_key":
-			return Type.Object({ action: Type.Literal(action), text: Type.String(), duration: Type.Number({ minimum: 0, maximum: 100 }) }, { additionalProperties: false });
-		case "wait":
-			return Type.Object({ action: Type.Literal(action), duration: Type.Number({ minimum: 0, maximum: 100 }) }, { additionalProperties: false });
-		case "zoom":
-			return Type.Object({ action: Type.Literal(action), region: region() }, { additionalProperties: false });
-	}
-}
-
-function anthropicRecommendedBrowserActionSchema(action: AnthropicRecommendedBrowserAction): TSchema {
+function anthropicNativeBrowserActionSchema(action: AnthropicNativeBrowserAction): TSchema {
 	const tab = () => Type.Optional(Type.String());
 	const region = () => Type.Array(Type.Integer(), { minItems: 4, maxItems: 4 });
 	const refTarget = () => Type.Object({ type: Type.Literal("ref"), ref: Type.String() }, { additionalProperties: false });
@@ -534,11 +439,11 @@ function openaiNativeComputer(): CuaToolSpec {
 	return providerNativeSpec({
 		identity: "provider.openai.native.computer.v1",
 		name: "computer",
+		source: providerSources.openai,
 		declaration,
 		binding: { kind: "openai-native", declaration },
 		toActions: mapOpenAIComputerInput,
 		coordinates: pixels,
-		resultPolicy: "computer",
 		executorFingerprint: "openai-native-computer-v1",
 	});
 }
@@ -553,6 +458,7 @@ function tzafonNativeComputer(options: { displayWidth?: number; displayHeight?: 
 	return providerNativeSpec({
 		identity: "provider.tzafon.native.computer.v1",
 		name: "computer",
+		source: providerSources.tzafon,
 		declaration,
 		binding: { kind: "tzafon-native", declaration },
 		toActions(input) {
@@ -560,7 +466,6 @@ function tzafonNativeComputer(options: { displayWidth?: number; displayHeight?: 
 			return toTzafonActions(action).filter((value): value is CuaAction => value.type !== "answer");
 		},
 		coordinates: normalized([0, 999]),
-		resultPolicy: "computer",
 		executorFingerprint: "tzafon-native-computer-v1",
 	});
 }
@@ -579,68 +484,53 @@ function yutoriToolset(generation: "n1" | "n15"): CuaToolSpec[] {
 		return providerNativeSpec({
 			identity: `provider.yutori.native.${generation}.${identityName}.${generation === "n15" ? "20260403" : "v1"}`,
 			name: nativeName,
+			source: generation === "n1" ? providerSources.yutoriN1 : providerSources.yutoriN15,
 			declaration: { type: "function", name: nativeName },
 			binding,
 			toActions(input) {
 				return toYutoriActions(nativeName, asInput(input)) ?? [];
 			},
 			coordinates: normalized([0, 1000]),
-			resultPolicy: "request-grounded",
 			executorFingerprint: `yutori-${generation}-${nativeName}`,
 		});
 	});
 }
 
-const GOOGLE_LEGACY_ACTIONS = [
-	"open_web_browser", "wait_5_seconds", "go_back", "go_forward", "search", "navigate", "click_at",
-	"hover_at", "type_text_at", "key_combination", "scroll_document", "scroll_at", "drag_and_drop",
-] as const;
-
-const GOOGLE_CURRENT_ACTIONS = [
+const GOOGLE_BROWSER_ACTIONS = [
 	"click", "double_click", "triple_click", "middle_click", "right_click", "mouse_down", "mouse_up", "move",
 	"type", "drag_and_drop", "wait", "press_key", "key_down", "key_up", "hotkey", "take_screenshot",
 	"scroll", "go_back", "navigate", "go_forward",
 ] as const;
-
-// Gemini 3 Interactions endpoints can still expose legacy predefined functions.
-// Excluding the complete published vocabulary keeps a current catalog exact
-// without installing legacy helpers as selectable tools.
-const GOOGLE_CURRENT_EXCLUDABLE_ACTIONS = Object.freeze([
-	...GOOGLE_CURRENT_ACTIONS,
-	...GOOGLE_LEGACY_ACTIONS.filter((name) => !(GOOGLE_CURRENT_ACTIONS as readonly string[]).includes(name)),
-]);
 
 export interface GoogleBrowserToolsetOptions {
 	/** Predefined Google browser actions to disable. */
 	exclude?: readonly string[];
 }
 
-function googleToolset(generation: "legacy" | "current", options: GoogleBrowserToolsetOptions = {}): CuaToolSpec[] {
-	const names = generation === "legacy" ? GOOGLE_LEGACY_ACTIONS : GOOGLE_CURRENT_ACTIONS;
-	const allNativeNames = generation === "legacy" ? GOOGLE_LEGACY_ACTIONS : GOOGLE_CURRENT_EXCLUDABLE_ACTIONS;
-	const unknown = (options.exclude ?? []).filter((name) => !names.includes(name as never));
-	if (unknown.length > 0) throw new Error(`unknown Google ${generation} predefined action(s): ${unknown.join(", ")}`);
+function googleBrowserToolset(options: GoogleBrowserToolsetOptions = {}): CuaToolSpec[] {
+	const unknown = (options.exclude ?? []).filter((name) => !GOOGLE_BROWSER_ACTIONS.includes(name as never));
+	if (unknown.length > 0) throw new Error(`unknown Google predefined browser action(s): ${unknown.join(", ")}`);
 	const excluded = new Set(options.exclude ?? []);
-	return names.filter((name) => !excluded.has(name)).map((nativeName) => providerNativeSpec({
-		identity: `provider.google.native.${generation}.${nativeName.replaceAll("_", "-")}.v1`,
+	return GOOGLE_BROWSER_ACTIONS.filter((name) => !excluded.has(name)).map((nativeName) => providerNativeSpec({
+		identity: `provider.google.native.browser.${nativeName.replaceAll("_", "-")}.v1`,
 		name: nativeName,
+		source: providerSources.google,
 		declaration: { computerUse: { environment: "ENVIRONMENT_BROWSER" } },
-		binding: { kind: "google-native", generation, nativeName, allNativeNames },
+		binding: { kind: "google-native", nativeName, allNativeNames: GOOGLE_BROWSER_ACTIONS },
 		toActions: (input) => mapGoogleAction(nativeName, asInput(input)),
 		coordinates: normalized([0, 999]),
-		resultPolicy: "computer",
-		executorFingerprint: `google-${generation}-${nativeName}-v1`,
+		executorFingerprint: `google-browser-${nativeName}-v1`,
 	}));
 }
 
 function providerNativeSpec(options: {
 	identity: string;
 	name: string;
+	source: string;
 	declaration: Record<string, unknown>;
 	binding: CuaProviderBinding;
 	toActions: (input: unknown) => CuaAction[];
 	coordinates: CuaCoordinateContract;
-	resultPolicy: CuaToolResultPolicy;
 	executorFingerprint: string;
 	stopTurnOnFailureMessage?: string;
 }): CuaToolSpec {
@@ -648,6 +538,7 @@ function providerNativeSpec(options: {
 		identity: options.identity,
 		preferredName: options.name,
 		origin: "provider-native",
+		source: options.source,
 		transport: "native",
 		dynamicLoading: "eager-only",
 		declaration: {
@@ -659,7 +550,6 @@ function providerNativeSpec(options: {
 			kind: "actions",
 			toActions: options.toActions,
 			coordinates: options.coordinates,
-			resultPolicy: options.resultPolicy,
 			batch: true,
 			...(options.stopTurnOnFailureMessage ? { stopTurnOnFailureMessage: options.stopTurnOnFailureMessage } : {}),
 		},
@@ -674,6 +564,7 @@ function createSpec(options: {
 	preferredName: string;
 	name?: string;
 	origin: CuaToolOrigin;
+	source?: string;
 	transport?: CuaToolTransport;
 	dynamicLoading?: CuaToolDynamicLoading;
 	declaration: Tool;
@@ -691,6 +582,7 @@ function createSpec(options: {
 		preferredName: options.preferredName,
 		name,
 		origin: options.origin,
+		...(options.source ? { source: options.source } : {}),
 		transport: options.transport ?? "function",
 		dynamicLoading: options.dynamicLoading ?? "eligible",
 		declaration,
@@ -840,51 +732,42 @@ function mapGoogleAction(name: string, input: Record<string, unknown>): CuaActio
 	const x = optionalNumber(input.x) ?? optionalNumber(input.coordinate_x);
 	const y = optionalNumber(input.y) ?? optionalNumber(input.coordinate_y);
 	switch (name) {
-		case "click_at": case "click": return [{ type: "click", x: number(x), y: number(y) }];
+		case "click": return [{ type: "click", x: number(x), y: number(y) }];
 		case "double_click": return [{ type: "double_click", x: number(x), y: number(y) }];
 		case "triple_click": return [{ type: "click", x: number(x), y: number(y), num_clicks: 3 }];
 		case "middle_click": return [{ type: "click", x: number(x), y: number(y), button: "middle" }];
 		case "right_click": return [{ type: "click", x: number(x), y: number(y), button: "right" }];
 		case "mouse_down": return [{ type: "mouse_down", x: number(x), y: number(y) }];
 		case "mouse_up": return [{ type: "mouse_up", x: number(x), y: number(y) }];
-		case "hover_at": case "move": return [{ type: "move", x: number(x), y: number(y) }];
-		case "type_text_at": return [
-			{ type: "click", x: number(x), y: number(y) },
-			...(input.clear_before_typing !== false ? [{ type: "keypress", keys: ["ctrl", "a"] } as CuaAction] : []),
-			{ type: "type", text: requireString(input.text, "text") },
-			...(input.press_enter !== false ? [{ type: "keypress", keys: ["enter"] } as CuaAction] : []),
-		];
+		case "move": return [{ type: "move", x: number(x), y: number(y) }];
 		case "type": return [
 			{ type: "type", text: requireString(input.text, "text") },
 			...(input.press_enter === true ? [{ type: "keypress", keys: ["enter"] } as CuaAction] : []),
 		];
-		case "scroll_document": case "scroll_at": case "scroll": {
-			const defaultAmount = name === "scroll" ? 300 : 800;
-			const amount = optionalNumber(input.scroll_y) ?? optionalNumber(input.magnitude_in_pixels) ?? optionalNumber(input.magnitude) ?? defaultAmount;
+		case "scroll": {
+			const amount = optionalNumber(input.magnitude_in_pixels) ?? 300;
 			const direction = optionalString(input.direction);
 			return [{
 				type: "scroll",
-				x: name === "scroll_document" ? 500 : number(x),
-				y: name === "scroll_document" ? 500 : number(y),
+				x: number(x),
+				y: number(y),
 				scroll_x: optionalNumber(input.scroll_x) ?? (direction === "left" ? -amount : direction === "right" ? amount : 0),
 				scroll_y: direction === "up" ? -amount : amount,
 			}];
 		}
-		case "key_combination": case "hotkey": return [{ type: "keypress", keys: Array.isArray(input.keys) ? input.keys.map(String) : requireString(input.keys, "keys").split("+") }];
+		case "hotkey": return [{ type: "keypress", keys: Array.isArray(input.keys) ? input.keys.map(String) : requireString(input.keys, "keys").split("+") }];
 		case "press_key": return [{ type: "keypress", keys: [requireString(input.key, "key")] }];
 		case "key_down": return [{ type: "keypress", keys: [requireString(input.key, "key")], duration: 1000 }];
 		case "key_up": return [{ type: "wait", ms: 0 }];
-		case "drag_and_drop": case "drag": return [{ type: "drag", path: [
-			{ x: number(optionalNumber(input.start_x) ?? x), y: number(optionalNumber(input.start_y) ?? y) },
-			{ x: number(optionalNumber(input.end_x) ?? optionalNumber(input.destination_x)), y: number(optionalNumber(input.end_y) ?? optionalNumber(input.destination_y)) },
+		case "drag_and_drop": return [{ type: "drag", path: [
+			{ x: number(input.start_x), y: number(input.start_y) },
+			{ x: number(input.end_x), y: number(input.end_y) },
 		] }];
 		case "navigate": return [{ type: "goto", url: requireString(input.url, "url") }];
 		case "go_back": return [{ type: "back" }];
 		case "go_forward": return [{ type: "forward" }];
-		case "wait": case "wait_5_seconds": return [{ type: "wait", ms: name === "wait_5_seconds" ? 5000 : (optionalNumber(input.seconds) ?? 1) * 1000 }];
+		case "wait": return [{ type: "wait", ms: (optionalNumber(input.seconds) ?? 1) * 1000 }];
 		case "take_screenshot": return [{ type: "screenshot" }];
-		case "open_web_browser": return [{ type: "wait", ms: 0 }];
-		case "search": return [{ type: "goto", url: "https://www.google.com" }];
 		default: throw new Error(`unsupported Google computer action "${name}"`);
 	}
 }
@@ -1019,25 +902,21 @@ function computerToolset(options: CuaComputerToolsetOptions = {}): CuaToolSpec[]
 }
 
 const providers = Object.freeze({
-	openai: Object.freeze({ tools: Object.freeze({ computer: openaiNativeComputer }) }),
+	openai: Object.freeze({ source: providerSources.openai, tools: Object.freeze({ computer: openaiNativeComputer }) }),
 	anthropic: Object.freeze({
+		source: providerSources.anthropic,
 		supports: Object.freeze({ browser: supportsAnthropicNativeBrowser }),
 		tools: Object.freeze({ computer: anthropicNativeComputer, browser: anthropicNativeBrowser }),
-		toolsets: Object.freeze({
-			computer(options: AnthropicRecommendedToolsetOptions = {}) {
-				return [anthropicRecommendedTool("computer", false, options), anthropicRecommendedTool("computer", true, options)];
-			},
-			browser(options: AnthropicRecommendedToolsetOptions = {}) {
-				return [anthropicRecommendedTool("browser", false, options), anthropicRecommendedTool("browser", true, options)];
-			},
-		}),
 	}),
-	google: Object.freeze({ toolsets: Object.freeze({
-		legacyBrowser: (options?: GoogleBrowserToolsetOptions) => googleToolset("legacy", options),
-		browser: (options?: GoogleBrowserToolsetOptions) => googleToolset("current", options),
-	}) }),
-	tzafon: Object.freeze({ tools: Object.freeze({ computer: tzafonNativeComputer }) }),
-	yutori: Object.freeze({ toolsets: Object.freeze({ n1: () => yutoriToolset("n1"), n15Core: () => yutoriToolset("n15") }) }),
+	google: Object.freeze({
+		source: providerSources.google,
+		toolsets: Object.freeze({ browser: googleBrowserToolset }),
+	}),
+	tzafon: Object.freeze({ source: providerSources.tzafon, tools: Object.freeze({ computer: tzafonNativeComputer }) }),
+	yutori: Object.freeze({
+		sources: Object.freeze({ n1: providerSources.yutoriN1, n15Core: providerSources.yutoriN15 }),
+		toolsets: Object.freeze({ n1: () => yutoriToolset("n1"), n15Core: () => yutoriToolset("n15") }),
+	}),
 });
 
 /** Frozen, discoverable tool namespace shared by @onkernel/cua-ai and @onkernel/cua-agent. */

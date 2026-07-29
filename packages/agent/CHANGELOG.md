@@ -5,8 +5,8 @@
 Breaking: `CuaAgent` and `CuaAgentHarness` now require one exact `tools` list and
 use composition instead of inheriting from pi's `Agent`/`AgentHarness`.
 
-- Add `getTools()`, atomic `setTools()`, and `inspectTools()`. Model changes
-  recompile and revalidate the full requested catalog. Empty catalogs are valid;
+- Add `getTools()` and atomic `setTools()`. Model changes recompile and
+  revalidate the full requested catalog. Empty catalogs are valid;
   no tools or system-prompt text are inferred or appended.
 - Remove `mode`, `nativeTool`, `extraTools`, `playwright`, `setMode()` /
   `getMode()`, and implicit `computer_use_extra` behavior.
@@ -23,10 +23,10 @@ use composition instead of inheriting from pi's `Agent`/`AgentHarness`.
   coalesce across write-only runs and flush around reads; browser actions run
   sequentially against shared ref state. Failure details include the failed
   action index, completed reads, and skipped count.
-- Centralize grounding policy: browser writes return viewport screenshots,
-  computer writes return OS screenshots, explicit reads have no fallback image,
-  Yutori native results stay text-only for request-time grounding, and failures
-  capture no new screenshot or leak earlier images.
+- Return screenshots only for explicit screenshot or zoom actions. Ordinary
+  writes return status text, semantic tools return structured feedback, and
+  failed batches replace images from earlier explicit screenshot steps with
+  textual markers.
 - Native multi-action turns stop after the first failed tool call. Every
   remaining call in that assistant turn receives the configured error result
   instead of executing against stale browser state.

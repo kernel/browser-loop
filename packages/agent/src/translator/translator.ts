@@ -18,7 +18,6 @@ import {
 	type CuaBrowserAction,
 	type CuaDragMouseButton,
 	type CuaMouseButton,
-	type CuaScreenshotTransform,
 } from "@onkernel/cua-ai";
 import sharp from "sharp";
 import { BrowserExecutor } from "./browser";
@@ -76,29 +75,9 @@ export class InternalComputerTranslator {
 		return this.browserExecutor;
 	}
 
-	async screenshotRaw(): Promise<Buffer> {
-		return (await this.screenshot()).data;
-	}
-
-	async screenshot(transform?: CuaScreenshotTransform): Promise<{ data: Buffer; mimeType: string }> {
+	async screenshot(): Promise<{ data: Buffer; mimeType: string }> {
 		const response = await this.client.browsers.computer.captureScreenshot(this.sessionId, {});
-		let data: Buffer<ArrayBufferLike> = Buffer.from(await response.arrayBuffer());
-		let mimeType = "image/png";
-		if (transform) {
-			let pipeline = sharp(data).resize(transform.width, transform.height, { fit: "fill" });
-			if (transform.format === "webp") {
-				pipeline = pipeline.webp({ quality: transform.quality });
-				mimeType = "image/webp";
-			} else if (transform.format === "jpeg") {
-				pipeline = pipeline.jpeg({ quality: transform.quality });
-				mimeType = "image/jpeg";
-			} else {
-				pipeline = pipeline.png();
-				mimeType = "image/png";
-			}
-			data = await pipeline.toBuffer();
-		}
-		return { data, mimeType };
+		return { data: Buffer.from(await response.arrayBuffer()), mimeType: "image/png" };
 	}
 
 	async currentUrl(): Promise<string> {

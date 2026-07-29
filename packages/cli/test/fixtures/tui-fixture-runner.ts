@@ -64,7 +64,7 @@ async function main(): Promise<void> {
 		contextFiles,
 		modelRef,
 		provider: modelRef.split(":", 1)[0] ?? "openai",
-		skipInitialScreenshot: true,
+		applicationTools: [],
 	});
 	process.exit(code);
 }

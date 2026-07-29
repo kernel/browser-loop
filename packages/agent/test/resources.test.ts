@@ -18,11 +18,12 @@ function setup(options: { failBatch?: boolean; failPlaywright?: boolean } = {}) 
 		if (options.failBatch) throw new Error("kernel batch failed");
 	});
 	let captures = 0;
+	const captureScreenshot = vi.fn(async () => new Response(Buffer.from(`os-${++captures}`)));
 	const client = {
 		browsers: {
 			computer: {
 				batch,
-				captureScreenshot: async () => new Response(Buffer.from(`os-${++captures}`)),
+				captureScreenshot,
 				getMousePosition: async () => ({ x: 0, y: 0 }),
 				readClipboard: async () => ({ text: "https://example.test" }),
 			},
@@ -32,6 +33,7 @@ function setup(options: { failBatch?: boolean; failPlaywright?: boolean } = {}) 
 		},
 	} as unknown as Kernel;
 	const executed: CuaBrowserAction[] = [];
+	const browserScreenshot = vi.fn(async () => ({ data: Buffer.from("viewport"), mimeType: "image/png" }));
 	const browserExecutor = {
 		async execute(action: CuaBrowserAction): Promise<BatchReadResult[]> {
 			executed.push(action);
@@ -52,15 +54,15 @@ function setup(options: { failBatch?: boolean; failPlaywright?: boolean } = {}) 
 			}];
 			return [];
 		},
-		async screenshot() { return { data: Buffer.from("viewport"), mimeType: "image/png" }; },
+		screenshot: browserScreenshot,
 		close() {},
 	} as unknown as BrowserExecutor;
 	const createBrowserExecutor = vi.fn(() => browserExecutor);
 	const resources = new CuaExecutionResources({ browser, client, createBrowserExecutor });
-	return { resources, batches, executed, createBrowserExecutor };
+	return { resources, batches, executed, createBrowserExecutor, captureScreenshot, browserScreenshot };
 }
 
-describe("CuaExecutionResources grounding and batch boundaries", () => {
+describe("CuaExecutionResources results and batch boundaries", () => {
 	it("flushes computer writes around ordered reads without adding actions", async () => {
 		const { resources, batches } = setup();
 		const spec = cua.tools.computer.batch({ actions: ["click", "screenshot", "keypress"] });
@@ -133,17 +135,15 @@ describe("CuaExecutionResources grounding and batch boundaries", () => {
 		expect(createBrowserExecutor).toHaveBeenCalledTimes(1);
 	});
 
-	it("grounds atomic browser writes in the viewport even when they return status text", async () => {
-		const { resources } = setup();
+	it("returns status text for writes without capturing screenshots", async () => {
+		const { resources, captureScreenshot, browserScreenshot } = setup();
 		const click = await resources.materialize(cua.tools.browser.click()).execute("click", { ref: "e1" });
-		expect(click.content).toEqual([{ type: "image", data: Buffer.from("viewport").toString("base64"), mimeType: "image/png" }]);
-		expect(click.details).toMatchObject({ readResults: [{ type: "screenshot", frame: "viewport" }] });
+		expect(click.content).toEqual([{ type: "text", text: "Actions executed successfully." }]);
 
 		const navigate = await resources.materialize(cua.tools.browser.navigate()).execute("navigate", { url: "https://example.test" });
-		expect(navigate.content).toEqual([
-			{ type: "text", text: "Navigated" },
-			{ type: "image", data: Buffer.from("viewport").toString("base64"), mimeType: "image/png" },
-		]);
+		expect(navigate.content).toEqual([{ type: "text", text: "Navigated" }]);
+		expect(captureScreenshot).not.toHaveBeenCalled();
+		expect(browserScreenshot).not.toHaveBeenCalled();
 	});
 
 	it("keeps Playwright execution failures as model-readable content", async () => {
@@ -161,10 +161,11 @@ describe("CuaExecutionResources grounding and batch boundaries", () => {
 		expect(result.details).not.toHaveProperty("isError");
 	});
 
-	it("returns text-only Yutori native results so request grounding owns screenshots", async () => {
-		const { resources } = setup();
+	it("returns status text for Yutori writes without capturing a screenshot", async () => {
+		const { resources, captureScreenshot } = setup();
 		const spec = cua.providers.yutori.toolsets.n15Core().find((tool) => tool.name === "left_click")!;
 		const result = await resources.materialize(spec).execute("click", { coordinates: [100, 200] });
-		expect(result.content).toEqual([{ type: "text", text: "Action executed; a fresh screenshot will ground the next provider request." }]);
+		expect(result.content).toEqual([{ type: "text", text: "Actions executed successfully." }]);
+		expect(captureScreenshot).not.toHaveBeenCalled();
 	});
 });

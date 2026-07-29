@@ -58,19 +58,15 @@ Model refs use the `google:` prefix; `gemini:` is accepted as an alias.
 
 Exact IDs:
 
-- `gemini-3-flash-preview`
-- `gemini-3.1-flash-lite`
+- `gemini-3.6-flash` (recommended)
 - `gemini-3.5-flash`
+- `gemini-3.5-flash-lite`
 
-Current Gemini 3.x computer use is configured explicitly with
+Google computer use is configured explicitly with
 `cua.providers.google.toolsets.browser()`, which emits Google's native
-`tools.computer_use` declaration and current predefined action names. To keep
-partial catalogs exact when Gemini 3 preview endpoints surface legacy names,
-the declaration excludes unselected functions across both published
-vocabularies without installing legacy helpers.
-`gemini-2.5-computer-use-preview-10-2025` is deliberately absent from the
-curated model list because it is legacy; callers supplying a concrete legacy
-pi model may pair it with `cua.providers.google.toolsets.legacyBrowser()`.
+`tools.computer_use` declaration and current predefined browser actions.
+Partial catalogs exclude every unselected current action. Legacy and preview
+model/tool surfaces are intentionally not exposed.
 
 Source: [Gemini computer use docs](https://ai.google.dev/gemini-api/docs/computer-use).
 

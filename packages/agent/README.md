@@ -109,8 +109,8 @@ const tools = [
 ```
 
 Other provider groups include OpenAI native computer, Tzafon native computer,
-Google current/legacy predefined browser toolsets, Yutori native toolsets, and
-Anthropic recommended deferred browser/computer toolsets. Meta, xAI, and
+Google's current predefined browser toolset, and Yutori native toolsets. Every
+provider surface exposes linked first-party documentation. Meta, xAI, and
 Moonshot use the ordinary CUA browser toolset. Compilation rejects a
 provider-native tool on an incompatible model. Anthropic's native browser tool
 uses an equivalent function-tool transport when the active credential cannot
@@ -121,8 +121,7 @@ access `browser_20260701`.
 Both classes expose the same catalog controls:
 
 ```ts
-agent.getTools();       // exact requested inputs
-agent.inspectTools();   // identities, names, origin, transport, schemas, coordinates
+agent.getTools();       // copy of the exact requested inputs
 agent.setTools(next);   // atomic compile + replace
 agent.setModel(nextModel);
 ```
@@ -158,15 +157,14 @@ count.
 
 ## Action feedback
 
-Tool results are deliberately policy-specific:
+Tools return only requested feedback:
 
-- browser writes: viewport screenshot;
-- computer writes: OS screenshot;
-- explicit reads: requested text/data and no fallback image;
-- Yutori native actions: text only, with one request-time screenshot supplied by
-  the provider transform;
-- failures: no fresh screenshot, and earlier successful images become textual
-  placeholders.
+- write actions return concise status text;
+- read actions return their requested text or structured data;
+- explicit screenshot and zoom actions return images;
+- `browser_act` returns causal outcomes and a bounded successor diff;
+- failed batches replace images from earlier explicit screenshot steps with
+  textual markers.
 
 `toolResultImageReplayLimit` controls how many recent tool-result images remain
 in model context (`4` by default, or `false` to disable projection).
@@ -198,8 +196,8 @@ collision and fingerprint rules.
 
 `CuaAgent` delegates pi's prompt/continue/steer/follow-up/abort lifecycle and
 subscriptions. `CuaAgentHarness` delegates harness events and session APIs.
-`CuaAgent.state.tools` is the active materialized list; use `getTools()` for the
-requested catalog and `inspectTools()` for diagnostics.
+`CuaAgent.state.tools` is the active materialized list; use `getTools()` for a
+copy of the exact requested catalog.
 
 ## Development
 

@@ -12,11 +12,10 @@
 The array may contain:
 
 - CUA-authored tools, such as browser snapshots, browser action plans, browser waits, batches, and `playwright_execute`
-- provider-defined native browser or computer tools
-- CUA implementations of other provider-recommended tool shapes and toolsets
+- provider-defined native browser or computer tools and predefined toolsets
 - ordinary caller-provided `AgentTool` objects
 
-Provider-recommended tools are intentionally distinct from CUA-authored tools. The former reproduce the basic tools or schemas a model provider recommends in its computer-use examples; the latter are additional capabilities designed and maintained by CUA. A caller should be able to combine either category with custom application tools while seeing exactly what the model receives.
+Provider namespaces expose only surfaces justified by linked first-party documentation. CUA-authored capabilities remain separate under `cua.tools` and `cua.toolsets`. A caller can combine either category with custom application tools while seeing exactly what the model receives.
 
 The former `extraTools`, `mode`, `nativeTool`, and `playwright` constructor options are removed. `activeToolNames`, `setActiveTools()`, `setMode()`, `getMode()`, `computer_use_extra`, and CUA-generated default system prompts are also removed. No global or derived mode replaces them.
 
@@ -63,8 +62,8 @@ This terminology must also be used consistently in the architecture document, pa
 
 1. Make the exact model-facing tool catalog obvious at the constructor call site.
 2. Support minimal and empty configurations without hidden additions.
-3. Distinguish provider-recommended tools from additional CUA-authored capabilities.
-4. Allow provider-native, provider-recommended, CUA-authored, Playwright, and caller tools to compose in one list.
+3. Distinguish first-party provider surfaces from CUA-authored capabilities.
+4. Allow provider-native, CUA-authored, Playwright, and caller tools to compose in one list.
 5. Let every tool own the runtime policy required to execute it correctly.
 6. Support cache-aware mid-conversation tool additions, removals, and replacements.
 7. Validate tool/model and tool/tool incompatibilities directly and early.
@@ -99,20 +98,20 @@ cua.toolsets.computer()
 cua.toolsets.mixed()
 ```
 
-Provider-defined and provider-recommended surfaces live under the provider namespace:
+Provider-defined surfaces live under provider namespaces and carry their first-party source:
 
 ```ts
+cua.providers.anthropic.source
 cua.providers.anthropic.tools.browser(...)
 cua.providers.anthropic.tools.computer(...)
-cua.providers.anthropic.toolsets.computer()
 
+cua.providers.google.source
 cua.providers.google.toolsets.browser()
-cua.providers.google.toolsets.legacyBrowser()
 ```
 
 The distinction is deliberate:
 
-- `cua.providers.<provider>` mirrors native declarations or the basic tool shapes and sets recommended by that provider.
+- `cua.providers.<provider>` contains only documented native declarations or predefined toolsets. Each namespace exposes its first-party `source` or versioned `sources`, and every returned spec carries the applicable URL.
 - `cua.tools` contains additional tools CUA designed, such as snapshots, semantic waits, browser action plans, browser batches, and Playwright execution.
 - `cua.toolsets` contains CUA-curated combinations of CUA-authored tools.
 
@@ -184,18 +183,6 @@ tools: [
 
 The model receives exactly the native browser tool and `customer_lookup`. CUA must not add canonical browser tools, navigation helpers, screenshots, batches, or Playwright.
 
-### Provider-recommended computer tools plus CUA additions
-
-```ts
-tools: [
-  ...cua.providers.anthropic.toolsets.computer(),
-  cua.tools.browser.snapshot(),
-  cua.tools.browser.act(),
-]
-```
-
-The provider namespace supplies the basic tools Anthropic recommends. The additional snapshot and action-plan tools are visibly CUA-authored choices.
-
 ### Playwright only
 
 ```ts
@@ -263,7 +250,7 @@ No tool is added implicitly.
 Convenience helpers provide ordinary arrays:
 
 ```ts
-tools: cua.providers.anthropic.toolsets.computer()
+tools: cua.providers.google.toolsets.browser()
 ```
 
 ```ts
@@ -294,7 +281,7 @@ tools: [
 ]
 ```
 
-Provider-recommended toolsets must cite or test against the provider surface they mirror. They should not silently include CUA-authored additions.
+Provider toolsets must expose the first-party source they mirror and must not silently include CUA-authored additions.
 
 ## No global or derived mode
 
@@ -309,8 +296,7 @@ Instead, each `CuaToolSpec` supplies the policy needed for that tool to do its w
 - request headers and payload transformation, when required
 - incoming native-call normalization, when required
 - coordinate contract and conversion, when applicable
-- browser viewport or OS display grounding behavior, when applicable
-- post-action observation behavior
+- explicit result formatting
 - conflicts with other tool specifications
 
 Examples:
@@ -321,19 +307,19 @@ Examples:
 - `playwright_execute` owns its execution context and does not imply screenshot or computer tools.
 - `browser_act` owns semantic polling, plan deadlines, and stable successor collection.
 
-No shared mode is needed to decide which screenshot to return. A tool that needs post-action grounding declares the appropriate observation source itself. A tool that returns structured text may declare that no automatic image is needed.
+Screenshots are returned only when the model explicitly calls a screenshot or zoom action. Write actions do not capture an image automatically; semantic tools such as `browser_act` return their own structured successor feedback.
 
 Tools may share internal resources such as one CDP connection, ref lifecycle, or Kernel client. Resource sharing must be explicit runtime infrastructure and must not create a hidden mode or alter the caller's tool list.
 
 ## Tool names and collisions
 
-A tool specification has a stable identity and a preferred model-facing name. The final model-facing name is returned by inspection APIs and persisted with tool calls.
+A tool specification has a stable identity and a preferred model-facing name. The compiled catalog resolves its final model-facing name.
 
 Composition sees the complete requested list and must detect name collisions before the first request. It must never silently shadow a tool.
 
 The implemented naming policy is:
 
-1. Keep preferred provider-recommended names when unique.
+1. Keep preferred declared names when unique.
 2. Reject collisions by default with an error naming both tool identities.
 3. Permit an explicit alias or namespace option when the underlying provider allows renaming.
 4. Reject aliases for native tools whose server-defined name is fixed.
@@ -341,7 +327,7 @@ The implemented naming policy is:
 
 A toolset factory should not need hidden global state. The central composer sees all expanded tool specs and applies the collision policy. A toolset may expose explicit naming or namespace options, but automatic context-sensitive aliasing must not make the resulting catalog unpredictable.
 
-Catalog tests cover provider-recommended computer tools composed with CUA browser and caller tools.
+Catalog tests cover provider-native tools composed with CUA browser and caller tools, and verify first-party sources for every provider surface.
 
 ## Tools and actions
 
@@ -388,7 +374,7 @@ cua.tools.computer.batch({
 })
 ```
 
-A CUA or provider-recommended toolset may choose and document a default batch configuration, but constructing the batch tool directly must make its allowed actions visible. The batch must not gain actions merely because unrelated individual tools are present.
+A CUA toolset may choose and document a default batch configuration, but constructing the batch tool directly must make its allowed actions visible. The batch must not gain actions merely because unrelated individual tools are present.
 
 ### Browser batch
 
@@ -400,7 +386,7 @@ cua.tools.browser.batch({
 })
 ```
 
-The browser batch executes browser/CDP operations sequentially over one shared ref table and returns ordered read results. It short-circuits on the first failed or unsatisfied boundary, reports the failed index and skipped count, and follows the browser result-grounding policy.
+The browser batch executes browser/CDP operations sequentially over one shared ref table and returns ordered read results. It short-circuits on the first failed or unsatisfied boundary and reports the failed index and skipped count. Images appear only for explicit screenshot steps.
 
 ### Browser batch versus browser act
 
@@ -413,7 +399,7 @@ The implemented batch is intentionally not a restricted action-plan tool. Ref-pr
 
 ### Native action restrictions
 
-A server-defined native tool may not permit action restriction. Its factory must reject unsupported configuration rather than pretend to narrow the provider schema. Provider-recommended function-tool mirrors may expose restrictions only when the outgoing schema actually enforces them.
+A server-defined native tool may not permit action restriction. Its factory must reject unsupported configuration rather than pretend to narrow the provider schema.
 
 ## Tool composition
 
@@ -490,8 +476,6 @@ setActiveTools()
 
 Callers use `setTools()` for additions, removals, and replacements. CUA may use pi's registration and activation machinery internally to implement deferred loading, but that distinction must not become a second public source of truth in `CuaAgent` or `CuaAgentHarness`.
 
-Tool changes must be persisted in harness sessions so resumed and branched conversations reconstruct the tool catalog that applied at each transcript point.
-
 ## System instructions and descriptions
 
 CUA should get out of the business of generating default system prompts.
@@ -500,7 +484,7 @@ The model should learn what is available from the exact tool names, descriptions
 
 For example, `browser_act` must explain that ref-based steps require current refs from `browser_snapshot` or `browser_find`, that refs must not be invented, and that navigation may require a fresh snapshot.
 
-Provider-recommended toolsets may reproduce provider tool shapes, but selecting them must not silently install the provider's example system prompt. The caller owns the system prompt.
+Selecting a provider-native tool or predefined toolset must not silently install the provider's example system prompt. The caller owns the system prompt.
 
 CUA tool specifications should not contribute `promptSnippet`, `promptGuidelines`, or active-tool-specific system-prompt fragments by default. This keeps tool additions cache-friendly and makes `tools: []` genuinely free of CUA interaction instructions.
 
@@ -531,7 +515,6 @@ Tzafon and Yutori adapters compose by selected identity: Tzafon replaces only it
 No replacement navigation helper is added automatically or under a new hidden name. A caller who needs navigation chooses an explicit capability, such as:
 
 - a provider-native browser tool
-- a provider-recommended toolset that genuinely includes navigation
 - `cua.tools.browser.navigate()`
 - `cua.tools.playwright()`
 - a caller-provided navigation tool
@@ -603,19 +586,19 @@ The implementation updates:
 - `docs/architecture.md` with the tool-spec composition and provider-adapter ownership boundaries
 - package READMEs with exact constructor examples and no legacy mode terminology
 - API documentation with the definitions of tool, action, and toolset
-- user-facing examples for native-only, provider-recommended plus CUA, Playwright-only, browser-act-only, empty, batch, and dynamic-loading configurations
+- user-facing examples for native-only, provider-native plus CUA, Playwright-only, browser-act-only, empty, batch, and dynamic-loading configurations
 
-Provider-recommended toolsets must link to or name the provider guidance they mirror. CUA-authored additions must be described as CUA capabilities rather than provider defaults.
+Every provider tool surface must expose the first-party source it mirrors. CUA-authored additions must be described as CUA capabilities rather than provider defaults.
 
 ## Implemented design resolutions
 
 1. **Name composition:** exact and provider-normalized collisions reject; caller aliases/namespaces are explicit; native names are fixed.
 2. **Payload transforms:** transforms consume stable identities, declare static write claims, and compose in a fixed phase order.
-3. **Grounding ownership:** each tool carries browser, computer, request-grounded, read, or failure behavior as data.
+3. **Result ownership:** each tool returns only requested reads, explicit screenshots, or its own structured semantic feedback.
 4. **Batch overlap:** batches are mechanical; `browser_act` remains semantic; browser batches share ref state without a workflow DSL.
 5. **Dynamic loading:** `setTools()` uses pi 0.80.10 additive markers only for final, cache-preserving in-tool additions; other changes are eager.
 6. **Shared resources:** one resource pool survives tool/model changes and owns the translator and lazy CDP executor.
-7. **Provider exports:** Anthropic's recommended function toolsets and the native OpenAI, Anthropic, Google, Tzafon, and Yutori surfaces are namespaced and tested against their declared contracts. Meta, xAI, and Moonshot use CUA-authored browser tools.
+7. **Provider exports:** the native OpenAI, Anthropic, Google, Tzafon, and Yutori surfaces are namespaced, cite first-party sources, and are tested against their declared contracts. Meta, xAI, and Moonshot use CUA-authored browser tools.
 
 ## Decisions recorded
 
@@ -623,18 +606,18 @@ Provider-recommended toolsets must link to or name the provider guidance they mi
 - CUA does not generate a default system prompt.
 - `computer_use_extra` is removed with no implicit replacement.
 - There is one current public tool list; no CUA-facing `activeToolNames` layer.
-- Provider-native and provider-recommended tools are namespaced separately from CUA-authored tools.
+- First-party provider-native tools are namespaced separately from CUA-authored tools.
 - Tool factories and toolsets are discoverable under a namespace, not exported as many global functions.
 - `browser_act` remains outside `cua.toolsets.browser()` until it has broader production evidence.
-- Naming, payload-transform composition, grounding, and batch overlap must be resolved before code is written.
+- Naming, payload-transform composition, result formatting, and batch overlap must be resolved before code is written.
 
 ## Acceptance criteria
 
 - Both constructors have one required tool-selection source of truth and accept `tools: []`.
 - The current tool-related constructor options, active-tool option, and mode methods are removed.
 - `computer_use_extra` and CUA-generated default system prompts are removed.
-- CUA-authored, provider-native, and provider-recommended tools are exposed through distinct, discoverable namespaces.
-- Exact native-browser-only, provider-recommended-plus-CUA, Playwright-only, browser-act-only, and empty configurations are tested.
+- CUA-authored and first-party provider-native tools are exposed through distinct, discoverable namespaces.
+- Exact native-browser-only, provider-native-plus-CUA, Playwright-only, browser-act-only, and empty configurations are tested.
 - No undeclared helper tool is installed.
 - `computer_batch` exposes explicit action control, and a browser batch design is resolved and tested.
 - Mid-conversation additive tool loading uses provider-native deferred loading where supported and preserves the prompt cache.
@@ -642,5 +625,5 @@ Provider-recommended toolsets must link to or name the provider guidance they mi
 - Model switching preserves the requested tool catalog or reports a named incompatibility.
 - Tool descriptions mention only their own selected capabilities and prerequisites.
 - Provider adapters compose explicit tool transformations rather than classify tools by ambiguous names.
-- Coordinate conversion and post-action grounding are tool-owned, with no global or derived mode.
+- Coordinate conversion and result formatting are tool-owned; screenshots require explicit screenshot or zoom actions.
 - Architecture, API, README, and user-facing terminology consistently distinguish tools, actions, and toolsets.

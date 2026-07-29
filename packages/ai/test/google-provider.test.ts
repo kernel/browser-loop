@@ -3,16 +3,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { getCuaModel } from "../src/index";
 import * as google from "../src/providers/google/provider";
 
-const model = getCuaModel("google:gemini-3-flash-preview") as Model<typeof google.GOOGLE_CUA_INTERACTIONS_API>;
+const model = getCuaModel("google:gemini-3.6-flash") as Model<typeof google.GOOGLE_CUA_INTERACTIONS_API>;
 const incoming = {
 	googleNames: { click: "click" },
-	googleExcludedNames: ["open_web_browser"],
+	googleExcludedNames: ["take_screenshot"],
 	yutoriNames: {},
 	nativeToolNames: ["click"],
 };
 const screenshotIncoming = {
 	googleNames: { take_screenshot: "take_screenshot" },
-	googleExcludedNames: ["open_web_browser"],
+	googleExcludedNames: ["click"],
 	yutoriNames: {},
 	nativeToolNames: ["take_screenshot"],
 };
@@ -43,7 +43,7 @@ describe("Google Interactions computer-use adapter", () => {
 		expect(message.responseId).toBe("interaction_1");
 		const request = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as Record<string, unknown>;
 		expect(request).toMatchObject({
-			model: "gemini-3-flash-preview",
+			model: "gemini-3.6-flash",
 			store: true,
 			system_instruction: "Use the browser.",
 			input: [{ type: "user_input", content: [{ type: "text", text: "click search" }] }],
@@ -56,7 +56,7 @@ describe("Google Interactions computer-use adapter", () => {
 		const fetch = vi.fn(async () => new Response(JSON.stringify({
 			id: "interaction_excluded",
 			status: "requires_action",
-			steps: [{ type: "function_call", id: "call_excluded", name: "open_web_browser", arguments: {} }],
+			steps: [{ type: "function_call", id: "call_excluded", name: "click", arguments: {} }],
 		}), { status: 200, headers: { "content-type": "application/json" } }));
 		vi.stubGlobal("fetch", fetch);
 
@@ -67,10 +67,10 @@ describe("Google Interactions computer-use adapter", () => {
 
 		expect(message.stopReason).toBe("error");
 		expect(message.errorMessage).toBe(
-			'Google exact tool catalog rejected function "open_web_browser"; selected Google native tools: "take_screenshot"; ordinary function tools: none',
+			'Google exact tool catalog rejected function "click"; selected Google native tools: "take_screenshot"; ordinary function tools: none',
 		);
-		expect(message.content).not.toContainEqual(expect.objectContaining({ type: "toolCall", name: "open_web_browser" }));
-		expect(message.errorMessage).not.toMatch(/Tool open_web_browser not found/);
+		expect(message.content).not.toContainEqual(expect.objectContaining({ type: "toolCall", name: "click" }));
+		expect(message.errorMessage).not.toMatch(/Tool click not found/);
 	});
 
 	it("maps only the observed screenshot aliases when take_screenshot is selected", async () => {

@@ -30,9 +30,6 @@ const catalog = compileCuaToolCatalog({
 				},
 			};
 		},
-		async osScreenshot() {
-			return { data: screenshot, mimeType: "image/png" };
-		},
 	},
 });
 

@@ -34,13 +34,13 @@ describe("CUA model refs", () => {
 	});
 
 	it("accepts gemini: as an alias for google:", () => {
-		expect(parseCuaModelRef("gemini:gemini-3-flash-preview")).toEqual({
+		expect(parseCuaModelRef("gemini:gemini-3.6-flash")).toEqual({
 			provider: "google",
-			model: "gemini-3-flash-preview",
+			model: "gemini-3.6-flash",
 		});
-		const model = getCuaModel("gemini:gemini-3-flash-preview" as never);
+		const model = getCuaModel("gemini:gemini-3.6-flash" as never);
 		expect(model.provider).toBe("google");
-		expect(model.id).toBe("gemini-3-flash-preview");
+		expect(model.id).toBe("gemini-3.6-flash");
 	});
 
 	it("lists curated model refs without a default", () => {
@@ -69,6 +69,14 @@ describe("CUA model refs", () => {
 			cost: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
 		});
 		expect(opus.compat).toMatchObject({ forceAdaptiveThinking: true, supportsTemperature: false });
+
+		const googleOverrides = cuaOverrideModels("google").map((entry) => entry.id);
+		expect(googleOverrides).toEqual(["gemini-3.6-flash", "gemini-3.5-flash-lite"]);
+		expect(getCuaModel("google:gemini-3.6-flash")).toMatchObject({
+			provider: "google",
+			api: GOOGLE_CUA_INTERACTIONS_API,
+			contextWindow: 1_048_576,
+		});
 
 		const muse = getCuaModel("meta:muse-spark-1.1");
 		expect(muse.provider).toBe("meta");
@@ -123,7 +131,7 @@ describe("CUA model refs", () => {
 		expect(getCuaModel("openai:gpt-5.6-sol").api).toBe(OPENAI_CUA_RESPONSES_API);
 		expect(getCuaModel("openai:gpt-5.5").api).toBe(OPENAI_CUA_RESPONSES_API);
 		expect(getCuaModel("openai:gpt-5.4-mini").api).toBe(OPENAI_CUA_RESPONSES_API);
-		expect(getCuaModel("google:gemini-3-flash-preview").api).toBe(GOOGLE_CUA_INTERACTIONS_API);
+		expect(getCuaModel("google:gemini-3.6-flash").api).toBe(GOOGLE_CUA_INTERACTIONS_API);
 		expect(getCuaModel("meta:muse-spark-1.1").api).toBe(META_RESPONSES_API);
 		expect(getCuaModel("xai:grok-4.5").api).toBe(XAI_CUA_RESPONSES_API);
 	});
@@ -182,7 +190,7 @@ describe("CUA support annotations", () => {
 	it("matches exact-id annotations", () => {
 		expect(findCuaAnnotation("openai", "gpt-5.6-sol")?.match).toEqual({ kind: "exact", id: "gpt-5.6-sol" });
 		expect(findCuaAnnotation("openai", "gpt-5.6-sol-20260728")).toBeUndefined();
-		expect(findCuaAnnotation("google", "gemini-3-flash-preview")).toBeDefined();
+		expect(findCuaAnnotation("google", "gemini-3.6-flash")).toBeDefined();
 		expect(findCuaAnnotation("meta", "muse-spark-1.1")).toBeDefined();
 		expect(findCuaAnnotation("xai", "grok-4.5")).toBeDefined();
 		expect(findCuaAnnotation("xai", "grok-4.5-latest")).toBeUndefined();
@@ -190,23 +198,26 @@ describe("CUA support annotations", () => {
 		expect(findCuaAnnotation("moonshotai", "kimi-k3")).toBeDefined();
 		expect(findCuaAnnotation("moonshotai", "kimi-k2.5")).toBeUndefined();
 		expect(findCuaAnnotation("moonshotai", "kimi-latest")).toBeUndefined();
-		expect(findCuaAnnotation("google", "gemini-3.1-flash-lite")).toBeDefined();
+		expect(findCuaAnnotation("google", "gemini-3.5-flash-lite")).toBeDefined();
 		expect(findCuaAnnotation("yutori", "n1.5-latest")).toBeDefined();
 		expect(findCuaAnnotation("tzafon", "tzafon.northstar-cua-fast")).toBeDefined();
 		expect(findCuaAnnotation("tzafon", "tzafon.northstar-cua-fast-1.6")).toBeDefined();
 	});
 
-	it("no longer advertises the Gemini 2.5 computer-use preview", () => {
-		// The model rejects the function-declaration tools this package sends;
-		// it needs Google's native tools.computer_use wrapper.
-		expect(findCuaAnnotation("google", "gemini-2.5-computer-use-preview-10-2025")).toBeUndefined();
-		expect(listCuaModels("google").map((model) => model.model)).not.toContain("gemini-2.5-computer-use-preview-10-2025");
-		expect(() => getCuaModel("google:gemini-2.5-computer-use-preview-10-2025")).toThrow(/unsupported CUA model/);
-	});
-
-	it("no longer advertises the retired gemini-3-pro-preview", () => {
-		// Google removed the model; the API now 404s "model no longer available".
-		expect(findCuaAnnotation("google", "gemini-3-pro-preview")).toBeUndefined();
-		expect(listCuaModels("google").map((model) => model.model)).not.toContain("gemini-3-pro-preview");
+	it("advertises only Google's current documented computer-use models", () => {
+		expect(listCuaModels("google").map((model) => model.model)).toEqual([
+			"gemini-3.5-flash",
+			"gemini-3.5-flash-lite",
+			"gemini-3.6-flash",
+		]);
+		for (const retired of [
+			"gemini-2.5-computer-use-preview-10-2025",
+			"gemini-3-flash-preview",
+			"gemini-3.1-flash-lite",
+			"gemini-3-pro-preview",
+		]) {
+			expect(findCuaAnnotation("google", retired)).toBeUndefined();
+			expect(() => getCuaModel(`google:${retired}` as CuaModelRef)).toThrow(/unsupported CUA model/);
+		}
 	});
 });

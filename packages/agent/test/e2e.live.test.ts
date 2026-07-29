@@ -20,7 +20,7 @@ type ProviderCase = {
 	modelRef:
 		| "openai:gpt-5.6-sol"
 		| "anthropic:claude-opus-5"
-		| "google:gemini-3-flash-preview"
+		| "google:gemini-3.6-flash"
 		| "meta:muse-spark-1.1"
 		| "xai:grok-4.5"
 		| "moonshotai:kimi-k3"
@@ -71,7 +71,7 @@ const cases: ProviderCase[] = [
 	{
 		name: "gemini",
 		apiKeyEnvVar: "GOOGLE_API_KEY",
-		modelRef: "google:gemini-3-flash-preview",
+		modelRef: "google:gemini-3.6-flash",
 		prompt: [
 			"Use the predefined `take_screenshot` browser action exactly once.",
 			"Do not call any other tools.",
@@ -194,7 +194,7 @@ function toolsForCase(c: ProviderCase) {
 		case "tzafon":
 			return [cua.providers.tzafon.tools.computer()];
 		case "yutori":
-			return cua.providers.yutori.toolsets.n15Core();
+			return [...cua.providers.yutori.toolsets.n15Core(), cua.tools.computer.screenshot()];
 	}
 }
 

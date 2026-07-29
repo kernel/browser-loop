@@ -4,9 +4,7 @@ import type Kernel from "@onkernel/sdk";
 import {
 	type CuaAction,
 	type CuaCoordinateContract,
-	type CuaScreenshotTransform,
 	type CuaToolCatalogResources,
-	type CuaToolResultPolicy,
 	type CuaToolSpec,
 } from "@onkernel/cua-ai";
 import { formatBrowserActResult } from "./browser-result-format";
@@ -72,10 +70,6 @@ export class CuaExecutionResources implements CuaToolCatalogResources {
 		return this.translator.executeBatch(actions, coordinateContract, signal);
 	}
 
-	async osScreenshot(transform?: CuaScreenshotTransform): Promise<{ data: Buffer; mimeType: string }> {
-		return this.translator.screenshot(transform);
-	}
-
 	browserExecutor() {
 		return this.translator.browser();
 	}
@@ -104,11 +98,7 @@ export class CuaExecutionResources implements CuaToolCatalogResources {
 
 		const semanticFailure = spec.execution.batch && hasUnsatisfiedSemanticRead(result.readResults);
 		const isError = failure !== undefined || semanticFailure;
-		const formatted = formatReadResults(result.readResults, spec.execution.resultPolicy, isError);
-		const browserWriteNeedsGrounding = spec.execution.resultPolicy === "browser" && !actions.some(isExplicitBrowserRead);
-		if (!isError && (browserWriteNeedsGrounding || formatted.content.length === 0)) {
-			await this.appendGrounding(formatted.content, formatted.details, spec.execution.resultPolicy);
-		}
+		const formatted = formatReadResults(result.readResults, isError);
 		if (isError) {
 			const message = failure
 				? `Action ${failure.failedActionIndex} failed: ${errorMessage(failure.cause)}`
@@ -132,26 +122,6 @@ export class CuaExecutionResources implements CuaToolCatalogResources {
 				...(isError ? { isError: true } : {}),
 			},
 		};
-	}
-
-	private async appendGrounding(
-		content: ToolContent,
-		details: Array<Record<string, unknown>>,
-		policy: CuaToolResultPolicy,
-	): Promise<void> {
-		if (policy === "browser") {
-			const screenshot = await this.browserExecutor().screenshot();
-			content.push(toImage(screenshot));
-			details.push({ type: "screenshot", frame: "viewport", bytes: screenshot.data.length });
-			return;
-		}
-		if (policy === "computer") {
-			const screenshot = await this.osScreenshot();
-			content.push(toImage(screenshot));
-			details.push({ type: "screenshot", frame: "os", bytes: screenshot.data.length });
-			return;
-		}
-		if (policy === "request-grounded") content.push({ type: "text", text: "Action executed; a fresh screenshot will ground the next provider request." });
 	}
 
 	private async executePlaywright(name: string, input: unknown): Promise<AgentToolResult<CuaExecutionDetails>> {
@@ -183,22 +153,8 @@ export class CuaExecutionResources implements CuaToolCatalogResources {
 	}
 }
 
-function isExplicitBrowserRead(action: CuaAction): boolean {
-	return [
-		"browser_snapshot",
-		"browser_text",
-		"browser_find",
-		"browser_list_tabs",
-		"browser_screenshot",
-		"browser_evaluate",
-		"browser_wait_for",
-		"browser_act",
-	].includes(action.type);
-}
-
 function formatReadResults(
 	reads: readonly BatchReadResult[],
-	policy: CuaToolResultPolicy,
 	replaceImages: boolean,
 ): { content: ToolContent; details: Array<Record<string, unknown>> } {
 	const content: ToolContent = [];
@@ -227,11 +183,8 @@ function formatReadResults(
 				break;
 			case "screenshot":
 				details.push({ type: "screenshot", bytes: read.data.length });
-				if (replaceImages || policy === "request-grounded") {
-					content.push({ type: "text", text: `[screenshot captured: ${read.data.length} bytes]` });
-				} else {
-					content.push(toImage(read));
-				}
+				if (replaceImages) content.push({ type: "text", text: `[screenshot captured: ${read.data.length} bytes]` });
+				else content.push(toImage(read));
 				break;
 		}
 	}

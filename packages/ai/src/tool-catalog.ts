@@ -11,16 +11,9 @@ import {
 
 export const CUA_TOOL_SPEC_KIND = "@onkernel/cua-tool-spec/v1" as const;
 
-export type CuaToolOrigin = "cua" | "provider-native" | "provider-recommended";
+export type CuaToolOrigin = "cua" | "provider-native";
 export type CuaToolTransport = "function" | "native";
 export type CuaToolDynamicLoading = "eligible" | "eager-only";
-export type CuaToolResultPolicy =
-	| "computer"
-	| "browser"
-	| "browser-act"
-	| "browser-wait"
-	| "playwright"
-	| "request-grounded";
 
 export type CuaCoordinateContract =
 	| { readonly type: "pixel" }
@@ -31,7 +24,6 @@ export type CuaToolExecution =
 			readonly kind: "actions";
 			readonly toActions: (input: unknown) => CuaAction[];
 			readonly coordinates: CuaCoordinateContract;
-			readonly resultPolicy: CuaToolResultPolicy;
 			readonly batch: boolean;
 			/** Block later calls in the same assistant turn after this tool fails. */
 			readonly stopTurnOnFailureMessage?: string;
@@ -59,7 +51,6 @@ export type CuaProviderBinding =
 	  }
 	| {
 			readonly kind: "google-native";
-			readonly generation: "legacy" | "current";
 			readonly nativeName: string;
 			readonly allNativeNames: readonly string[];
 	  };
@@ -71,6 +62,8 @@ export interface CuaToolSpec {
 	readonly preferredName: string;
 	readonly name: string;
 	readonly origin: CuaToolOrigin;
+	/** First-party documentation for a provider-native tool surface. */
+	readonly source?: string;
 	readonly transport: CuaToolTransport;
 	readonly dynamicLoading: CuaToolDynamicLoading;
 	readonly declaration: Tool;
@@ -92,26 +85,17 @@ export interface CuaToolInfo {
 	identity: string;
 	name: string;
 	preferredName: string;
-	origin: "cua" | "provider-native" | "provider-recommended" | "caller";
+	origin: "cua" | "provider-native" | "caller";
+	source?: string;
 	transport: CuaToolTransport;
 	dynamicLoading: CuaToolDynamicLoading;
 	declaration: Tool | Record<string, unknown>;
 	coordinates?: CuaCoordinateContract;
-	/** The provider composer supplies a fresh image before every request. */
-	requestGrounding?: "os-screenshot";
 }
 
 export interface CuaToolCatalogResources {
 	readonly viewport: { readonly width: number; readonly height: number };
 	materialize(spec: CuaToolSpec): AgentTool;
-	osScreenshot(transform?: CuaScreenshotTransform): Promise<{ data: Buffer; mimeType: string }>;
-}
-
-export interface CuaScreenshotTransform {
-	readonly width: number;
-	readonly height: number;
-	readonly format: "png" | "jpeg" | "webp";
-	readonly quality?: number;
 }
 
 export interface CuaHeaderRequirement {
@@ -130,7 +114,7 @@ export interface CuaPayloadTransform {
 	identity: string;
 	consumesToolIdentities?: readonly string[];
 	writes?: readonly string[];
-	phase: "model-preparation" | "tool-declarations" | "provider-fields" | "grounding";
+	phase: "model-preparation" | "tool-declarations" | "provider-fields";
 	apply(payload: unknown, model: Model<Api>, names: ReadonlyMap<string, string>): unknown | Promise<unknown>;
 }
 
@@ -260,11 +244,11 @@ function normalizeTool(tool: CuaAgentTool, resources: CuaToolCatalogResources): 
 			name: tool.name,
 			preferredName: tool.preferredName,
 			origin: tool.origin,
+			...(tool.source ? { source: tool.source } : {}),
 			transport: tool.transport,
 			dynamicLoading: tool.dynamicLoading,
 			declaration: inspectedDeclaration,
 			...(tool.execution.kind === "actions" ? { coordinates: tool.execution.coordinates } : {}),
-			...(tool.execution.kind === "actions" && tool.execution.resultPolicy === "request-grounded" ? { requestGrounding: "os-screenshot" as const } : {}),
 			requested: tool,
 			agentTool: resources.materialize(tool),
 			schemaFingerprint,
@@ -385,6 +369,9 @@ function validateToolCompatibility(model: Model<Api>, entry: CuaToolCatalogEntry
 	const spec = entry.spec;
 	if (!spec) return;
 	const binding = spec.providerBinding;
+	if (spec.origin === "provider-native" && !/^https:\/\//.test(spec.source ?? "")) {
+		throw new Error(`${spec.identity} must cite first-party provider documentation`);
+	}
 	if (binding) {
 		const provider = binding.kind.split("-")[0];
 		const required = provider === "google" ? "google" : provider;
@@ -392,20 +379,10 @@ function validateToolCompatibility(model: Model<Api>, entry: CuaToolCatalogEntry
 			throw new Error(`${spec.identity} requires a ${required} model; selected ${model.provider}:${model.id}`);
 		}
 	}
-	if (spec.origin === "provider-recommended" && !spec.identity.startsWith(`provider.${model.provider}.`)) {
-		const provider = spec.identity.split(".")[1];
-		throw new Error(`${spec.identity} mirrors ${provider} tools and requires a ${provider} model; selected ${model.provider}:${model.id}`);
-	}
 	if (spec.complexSchema && !["openai", "anthropic", "meta", "xai", "moonshotai"].includes(model.provider)) {
 		throw new Error(`provider ${model.provider} does not accept the schema used by "${entry.name}" (${entry.identity})`);
 	}
 	if (binding?.kind === "anthropic-native") validateAnthropicNativeModel(model, spec.identity);
-	if (binding?.kind === "google-native") {
-		const isLegacy = model.id.startsWith("gemini-2.5-computer-use");
-		if ((binding.generation === "legacy") !== isLegacy) {
-			throw new Error(`${spec.identity} requires a ${binding.generation === "legacy" ? "Gemini 2.5 computer-use" : "Gemini 3.x"} model; selected google:${model.id}`);
-		}
-	}
 }
 
 function validateAnthropicNativeModel(model: Model<Api>, identity: string): void {
@@ -520,7 +497,7 @@ function compilePayloadTransforms(
 	}
 
 	const yutori = entries.filter((entry) => entry.spec?.providerBinding?.kind === "yutori-native");
-	if (yutori.length > 0) transforms.push(...createYutoriTransforms(yutori, resources));
+	if (yutori.length > 0) transforms.push(createYutoriTransform(yutori));
 	const google = entries.filter((entry) => entry.spec?.providerBinding?.kind === "google-native");
 	if (google.length > 0) transforms.push(createGoogleTransform(google));
 
@@ -537,10 +514,7 @@ function compilePayloadTransforms(
 	return transforms;
 }
 
-function createYutoriTransforms(
-	entries: readonly CuaToolCatalogEntry[],
-	resources: CuaToolCatalogResources,
-): CuaPayloadTransform[] {
+function createYutoriTransform(entries: readonly CuaToolCatalogEntry[]): CuaPayloadTransform {
 	const firstBinding = entries[0]!.spec!.providerBinding;
 	if (firstBinding?.kind !== "yutori-native") throw new Error("invalid Yutori catalog entry");
 	const generations = new Set(entries.map((entry) => {
@@ -552,47 +526,30 @@ function createYutoriTransforms(
 	const selectedSet = new Set(selectedNativeNames);
 	const disabled = firstBinding.allNativeNames.filter((name) => !selectedSet.has(name));
 	const identity = `provider.yutori.native.${firstBinding.generation}`;
-	return [
-		{
-			identity,
-			consumesToolIdentities: entries.map((entry) => entry.identity),
-			writes: ["tools", "tool_set", "disable_tools"],
-			phase: "tool-declarations",
-			apply(payload, _model, names) {
-				const stripped = removeSerializedTools(payload, entries.map((entry) => names.get(entry.identity)!));
-				if (!isRecord(stripped)) return stripped;
-				return {
-					...stripped,
-					...(firstBinding.toolSet ? { tool_set: firstBinding.toolSet } : {}),
-					disable_tools: disabled,
-				};
-			},
+	return {
+		identity,
+		consumesToolIdentities: entries.map((entry) => entry.identity),
+		writes: ["tools", "tool_set", "disable_tools"],
+		phase: "tool-declarations",
+		apply(payload, _model, names) {
+			const stripped = removeSerializedTools(payload, entries.map((entry) => names.get(entry.identity)!));
+			if (!isRecord(stripped)) return stripped;
+			return {
+				...stripped,
+				...(firstBinding.toolSet ? { tool_set: firstBinding.toolSet } : {}),
+				disable_tools: disabled,
+			};
 		},
-		{
-			identity: `${identity}.grounding`,
-			writes: ["messages.grounding"],
-			phase: "grounding",
-			async apply(payload) {
-				if (!isRecord(payload)) return payload;
-				const screenshot = await resources.osScreenshot({ width: 1280, height: 800, format: "webp", quality: 90 });
-				return appendImageToLatestMessage(payload, screenshot);
-			},
-		},
-	];
+	};
 }
 
 function createGoogleTransform(entries: readonly CuaToolCatalogEntry[]): CuaPayloadTransform {
 	const firstBinding = entries[0]!.spec!.providerBinding;
 	if (firstBinding?.kind !== "google-native") throw new Error("invalid Google catalog entry");
-	const generations = new Set(entries.map((entry) => {
-		const binding = entry.spec!.providerBinding;
-		return binding?.kind === "google-native" ? binding.generation : "";
-	}));
-	if (generations.size !== 1) throw new Error("Google legacy and current native computer toolsets cannot be combined");
 	const selected = new Set(entries.map((entry) => (entry.spec!.providerBinding as Extract<CuaProviderBinding, { kind: "google-native" }>).nativeName));
 	const excludedPredefinedFunctions = firstBinding.allNativeNames.filter((name) => !selected.has(name));
 	return {
-		identity: `provider.google.native.${firstBinding.generation}`,
+		identity: "provider.google.native.browser",
 		consumesToolIdentities: entries.map((entry) => entry.identity),
 		writes: ["tools.computer_use"],
 		phase: "tool-declarations",
@@ -632,7 +589,6 @@ function createPayloadPlan(
 		"model-preparation": 0,
 		"tool-declarations": 1,
 		"provider-fields": 2,
-		grounding: 3,
 	};
 	const ordered = Object.freeze([...transforms].sort((a, b) => phases[a.phase] - phases[b.phase]));
 	return Object.freeze({
@@ -710,30 +666,6 @@ function serializedToolName(tool: unknown): string | undefined {
 	if (!isRecord(tool)) return undefined;
 	if (typeof tool.name === "string") return tool.name;
 	return isRecord(tool.function) && typeof tool.function.name === "string" ? tool.function.name : undefined;
-}
-
-function appendImageToLatestMessage(
-	payload: Record<string, unknown>,
-	screenshot: { data: Buffer; mimeType: string },
-): Record<string, unknown> {
-	if (!Array.isArray(payload.messages) || payload.messages.length === 0) return payload;
-	const messages = [...payload.messages];
-	const last = messages.at(-1);
-	if (!isRecord(last) || (last.role !== "user" && last.role !== "tool")) return payload;
-	const content = typeof last.content === "string"
-		? [{ type: "text", text: last.content }]
-		: Array.isArray(last.content) ? [...last.content] : [];
-	messages[messages.length - 1] = {
-		...last,
-		content: [
-			...content,
-			{
-				type: "image_url",
-				image_url: { url: `data:${screenshot.mimeType};base64,${screenshot.data.toString("base64")}`, detail: "high" },
-			},
-		],
-	};
-	return { ...payload, messages };
 }
 
 function stableStringify(value: unknown): string {

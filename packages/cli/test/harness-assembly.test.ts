@@ -5,6 +5,7 @@ import {
 	type Skill,
 } from "@onkernel/cua-agent";
 import { createCodingTools } from "@earendil-works/pi-coding-agent";
+import { cua } from "@onkernel/cua-ai";
 import { tmpdir } from "node:os";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
@@ -19,12 +20,15 @@ describe("buildCuaHarness", () => {
 			expect.objectContaining({ name: "browser", origin: "provider-native" }),
 		]);
 		expect(defaultInteractionTools("anthropic:claude-3-7-sonnet")[0]?.name).toBe("browser_snapshot");
-		expect(defaultInteractionTools("google:gemini-3-flash-preview").map((tool) => tool.name)).toContain("take_screenshot");
+		expect(defaultInteractionTools("google:gemini-3.6-flash").map((tool) => tool.name)).toContain("take_screenshot");
 		for (const model of ["meta:muse-spark-1.1", "xai:grok-4.5", "moonshotai:kimi-k3"] as const) {
 			expect(defaultInteractionTools(model)[0]).toMatchObject({ name: "browser_snapshot", origin: "cua" });
 		}
 		expect(defaultInteractionTools("tzafon:tzafon.northstar-cua-fast")[0]?.name).toBe("computer");
-		expect(defaultInteractionTools("yutori:n1.5-latest")[0]?.name).toBe("left_click");
+		expect(defaultInteractionTools("yutori:n1.5-latest").map((tool) => tool.name)).toEqual([
+			...cua.providers.yutori.toolsets.n15Core().map((tool) => tool.name),
+			"computer_screenshot",
+		]);
 	});
 
 	it("installs interaction and coding tools in one explicit default list", async () => {

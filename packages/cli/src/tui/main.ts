@@ -4,7 +4,6 @@ import {
 	type CuaAgentHarness,
 	type CuaAgentTool,
 	estimateContextTokens,
-	formatSkillInvocation,
 	type Session,
 	type Skill,
 	type ThinkingLevel,
@@ -23,8 +22,8 @@ import {
 } from "@earendil-works/pi-tui";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { homedir } from "node:os";
-import type { CuaModelRef, ImageContent, Model } from "@onkernel/cua-ai";
-import { captureScreenshot, type CuaBrowserHandle } from "../harness-browser";
+import type { CuaModelRef, Model } from "@onkernel/cua-ai";
+import type { CuaBrowserHandle } from "../harness-browser";
 import { resolveCuaModelRef } from "../harness-models";
 import { updateNamedSessionRuntime } from "../harness-named-sessions";
 import type { ContextFile } from "../harness-skills";
@@ -49,13 +48,13 @@ export interface InteractiveOptions {
 	/** CUA model ref currently active. Used for the status line and `/model` default. */
 	modelRef: string;
 	provider: string;
+	/** Coding tools explicitly owned by the CLI and retained across /model switches. */
+	applicationTools: readonly CuaAgentTool[];
 	/** Optional CLI application policy for replacing interaction tools on /model. */
 	interactionToolsForModel?: (model: CuaModelRef) => readonly CuaAgentTool[];
 	initialPrompt?: string;
 	/** Image protocol override: kitty | iterm2 | none | auto (default: auto). */
 	imageProtocol?: string;
-	/** Skip the first-prompt screenshot (resume case). */
-	skipInitialScreenshot?: boolean;
 	/** True when seeding the agent from a previously persisted session. */
 	resumed?: boolean;
 	/** Display path of the on-disk transcript, when one exists. */
@@ -174,7 +173,6 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 
 	let assistantBuffer: AssistantBuffer | undefined;
 	let inflight = 0;
-	let firstPromptSent = false;
 	let lastDisplayedError: string | undefined;
 
 	const displayAgentError = (error: unknown, reason: string): void => {
@@ -327,21 +325,10 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 				messages.addNotice(`invoking /skill:${skill.name}`);
 				requestRender("skill_invocation");
 				const skillRemainder = parsed.remainder || undefined;
-				const skillImages = await maybeInitialScreenshot(opts, firstPromptSent);
-				firstPromptSent = true;
-				if (skillImages) {
-					// `harness.skill` has no images option; fall back to `prompt`
-					// with the formatted skill invocation so the first turn sees
-					// the browser screenshot.
-					await opts.harness.prompt(formatSkillInvocation(skill, skillRemainder), { images: skillImages });
-				} else {
-					await opts.harness.skill(skill.name, skillRemainder);
-				}
+				await opts.harness.skill(skill.name, skillRemainder);
 				return;
 			}
-			const images = await maybeInitialScreenshot(opts, firstPromptSent);
-			firstPromptSent = true;
-			await opts.harness.prompt(text, images ? { images } : undefined);
+			await opts.harness.prompt(text);
 		} catch (err) {
 			messages.addError((err as Error).message);
 			debug?.log("run_prompt_error", { message: (err as Error).message });
@@ -443,29 +430,6 @@ function lastErrorMessage(messages: AgentMessage[]): string | undefined {
 	return undefined;
 }
 
-async function maybeInitialScreenshot(
-	opts: InteractiveOptions,
-	firstPromptSent: boolean,
-): Promise<ImageContent[] | undefined> {
-	if (firstPromptSent) return undefined;
-	if (opts.skipInitialScreenshot) return undefined;
-	if (opts.harness.inspectTools().some((tool) => tool.requestGrounding === "os-screenshot")) return undefined;
-	if (await sessionHasPriorTurn(opts.session)) return undefined;
-	const png = await captureScreenshot(opts.browserHandle.client, opts.browserHandle.browser.session_id);
-	if (!png) return undefined;
-	return [{ type: "image", data: png.toString("base64"), mimeType: "image/png" }];
-}
-
-async function sessionHasPriorTurn(session: Session): Promise<boolean> {
-	const entries = await session.getBranch();
-	for (const entry of entries) {
-		if (entry.type === "message" && (entry.message.role === "user" || entry.message.role === "assistant")) {
-			return true;
-		}
-	}
-	return false;
-}
-
 async function applyModelCommand(
 	opts: InteractiveOptions,
 	footer: TelemetryFooter,
@@ -483,17 +447,15 @@ async function applyModelCommand(
 		if (opts.interactionToolsForModel) {
 			const previousModel = opts.harness.getModel();
 			const previousTools = opts.harness.getTools();
-			const inspection = opts.harness.inspectTools();
-			const applicationTools = previousTools.filter((_tool, index) => inspection[index]?.origin === "caller");
 			try {
-				// Provider-recommended catalogs can be incompatible across providers.
-				// Transition through application tools, then select the CLI policy's
-				// explicit interaction catalog for the new model.
-				await opts.harness.setTools(applicationTools);
+				// Native catalogs can be incompatible across providers. Transition
+				// through the CLI-owned application tools before selecting the new
+				// model's explicit interaction catalog.
+				await opts.harness.setTools(opts.applicationTools);
 				await opts.harness.setModel(resolved);
-				await opts.harness.setTools([...opts.interactionToolsForModel(resolved), ...applicationTools]);
+				await opts.harness.setTools([...opts.interactionToolsForModel(resolved), ...opts.applicationTools]);
 			} catch (error) {
-				await opts.harness.setTools(applicationTools);
+				await opts.harness.setTools(opts.applicationTools);
 				await opts.harness.setModel(previousModel);
 				await opts.harness.setTools(previousTools);
 				throw error;

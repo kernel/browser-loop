@@ -44,7 +44,7 @@ cua models
 cua models -p openai
 cua --print --model openai:gpt-5.6-sol "..."
 cua --print --model anthropic:claude-opus-5 "..."
-cua --print --model google:gemini-3-flash-preview "..."
+cua --print --model google:gemini-3.6-flash "..."
 cua --print --model meta:muse-spark-1.1 "..."
 cua --print --model xai:grok-4.5 "..."
 cua --print --model moonshotai:kimi-k3 "..."

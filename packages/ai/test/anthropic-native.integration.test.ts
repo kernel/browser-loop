@@ -21,7 +21,6 @@ const resources = {
 			},
 		};
 	},
-	async osScreenshot() { return { data: Buffer.from("image"), mimeType: "image/png" }; },
 };
 
 const cases = [

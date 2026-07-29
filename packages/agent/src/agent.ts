@@ -28,7 +28,6 @@ import {
 	type CuaIncomingToolPlan,
 	type CuaModelRef,
 	type CuaSimpleStreamOptions,
-	type CuaToolInfo,
 	getCuaEnvApiKey,
 	type ImageContent,
 	type Model,
@@ -241,10 +240,6 @@ export class CuaAgent {
 		this.runtimeDirty = true;
 	}
 
-	inspectTools(): readonly CuaToolInfo[] {
-		return this.tools.inspectTools();
-	}
-
 	getModel(): Model<Api> {
 		return this.tools.catalog.model;
 	}
@@ -398,7 +393,6 @@ export class CuaAgentHarness<
 		this.tools.commit(catalog);
 	}
 
-	inspectTools(): readonly CuaToolInfo[] { return this.tools.inspectTools(); }
 	getModel(): Model<Api> { return this.tools.catalog.model; }
 
 	async setModel(model: CuaModelInput): Promise<void> {

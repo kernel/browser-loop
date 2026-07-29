@@ -21,9 +21,6 @@ const resources: CuaToolCatalogResources = {
 			},
 		};
 	},
-	async osScreenshot() {
-		return { data: Buffer.from("image"), mimeType: "image/webp" };
-	},
 };
 
 function compile(model: Parameters<typeof compileCuaToolCatalog>[0]["model"], requestedTools: Parameters<typeof compileCuaToolCatalog>[0]["requestedTools"]) {
@@ -40,28 +37,6 @@ function callerTool(name: string): AgentTool {
 			return { content: [{ type: "text", text: "ok" }], details: {} };
 		},
 	};
-}
-
-interface TestSchema {
-	additionalProperties?: boolean;
-	anyOf?: TestSchema[];
-	const?: unknown;
-	items?: TestSchema;
-	properties?: Record<string, TestSchema>;
-	required?: string[];
-}
-
-function anthropicRequiredFields(spec: CuaToolSpec, batch: boolean): Record<string, string[]> {
-	const parameters = spec.declaration.parameters as TestSchema;
-	const actionSchema = batch ? parameters.properties?.actions?.items : parameters;
-	if (!actionSchema) throw new Error(`missing action schema for ${spec.name}`);
-	const variants = actionSchema.anyOf ?? [actionSchema];
-	return Object.fromEntries(variants.map((variant) => {
-		expect(variant.additionalProperties).toBe(false);
-		const action = variant.properties?.action?.const;
-		if (typeof action !== "string") throw new Error(`missing action discriminator for ${spec.name}`);
-		return [action, variant.required ?? []];
-	}));
 }
 
 describe("cua tool namespace", () => {
@@ -102,76 +77,33 @@ describe("cua tool namespace", () => {
 		expect(JSON.stringify(browserBatch.declaration.parameters)).not.toMatch(/saveAs|\$ref|workflow|branch/i);
 	});
 
-	it("exposes Google's exact current and legacy predefined browser action sets", () => {
+	it("exposes Google's exact current predefined browser action set", () => {
 		expect(cua.providers.google.toolsets.browser().map((tool) => tool.name)).toEqual([
 			"click", "double_click", "triple_click", "middle_click", "right_click", "mouse_down", "mouse_up", "move",
 			"type", "drag_and_drop", "wait", "press_key", "key_down", "key_up", "hotkey", "take_screenshot",
 			"scroll", "go_back", "navigate", "go_forward",
 		]);
-		const legacy = cua.providers.google.toolsets.legacyBrowser();
-		expect(legacy.map((tool) => tool.name)).toEqual([
-			"open_web_browser", "wait_5_seconds", "go_back", "go_forward", "search", "navigate", "click_at",
-			"hover_at", "type_text_at", "key_combination", "scroll_document", "scroll_at", "drag_and_drop",
-		]);
-		const legacyType = legacy.find((tool) => tool.name === "type_text_at")!;
-		if (legacyType.execution.kind !== "actions") throw new Error("expected Google action tool");
-		expect(legacyType.execution.toActions({ x: 10, y: 20, text: "hello" }).map((action) => action.type)).toEqual([
-			"click", "keypress", "type", "keypress",
-		]);
 	});
 
-	it("gives every Anthropic recommended computer action its full required fields", () => {
-		const [single, batch] = cua.providers.anthropic.toolsets.computer();
-		const expected = {
-			screenshot: ["action"],
-			left_click: ["action", "coordinate"],
-			right_click: ["action", "coordinate"],
-			middle_click: ["action", "coordinate"],
-			double_click: ["action", "coordinate"],
-			triple_click: ["action", "coordinate"],
-			left_click_drag: ["action", "start_coordinate", "coordinate"],
-			mouse_move: ["action", "coordinate"],
-			left_mouse_down: ["action"],
-			left_mouse_up: ["action"],
-			scroll: ["action", "coordinate", "scroll_direction"],
-			type: ["action", "text"],
-			key: ["action", "text"],
-			hold_key: ["action", "text", "duration"],
-			wait: ["action", "duration"],
-			cursor_position: ["action"],
-			zoom: ["action", "region"],
-		};
-		expect(anthropicRequiredFields(single!, false)).toEqual(expected);
-		expect(anthropicRequiredFields(batch!, true)).toEqual(expected);
-	});
-
-	it("gives every Anthropic recommended browser action its full required fields", () => {
-		const [single, batch] = cua.providers.anthropic.toolsets.browser();
-		const expected = {
-			navigate: ["action", "url"],
-			list_tabs: ["action"],
-			new_tab: ["action"],
-			read_page: ["action"],
-			get_page_text: ["action"],
-			find: ["action", "query"],
-			form_input: ["action", "target", "value"],
-			scroll_to: ["action", "target"],
-			screenshot: ["action"],
-			zoom: ["action", "region"],
-			left_click: ["action", "target"],
-			right_click: ["action", "target"],
-			double_click: ["action", "target"],
-			triple_click: ["action", "target"],
-			hover: ["action", "target"],
-			left_click_drag: ["action", "from", "target"],
-			scroll: ["action", "target", "scroll_direction"],
-			type: ["action", "text"],
-			key: ["action", "text"],
-			wait: ["action", "duration"],
-			javascript_exec: ["action", "text"],
-		};
-		expect(anthropicRequiredFields(single!, false)).toEqual(expected);
-		expect(anthropicRequiredFields(batch!, true)).toEqual(expected);
+	it("cites first-party documentation for every provider tool surface", () => {
+		expect("toolsets" in cua.providers.anthropic).toBe(false);
+		expect("legacyBrowser" in cua.providers.google.toolsets).toBe(false);
+		const surfaces: Array<[string, CuaToolSpec[]]> = [
+			[cua.providers.openai.source, [cua.providers.openai.tools.computer()]],
+			[cua.providers.anthropic.source, [
+				cua.providers.anthropic.tools.browser(),
+				cua.providers.anthropic.tools.computer(),
+			]],
+			[cua.providers.google.source, cua.providers.google.toolsets.browser()],
+			[cua.providers.tzafon.source, [cua.providers.tzafon.tools.computer()]],
+			[cua.providers.yutori.sources.n1, cua.providers.yutori.toolsets.n1()],
+			[cua.providers.yutori.sources.n15Core, cua.providers.yutori.toolsets.n15Core()],
+		];
+		for (const [source, tools] of surfaces) {
+			expect(source).toMatch(/^https:\/\//);
+			expect(tools.length).toBeGreaterThan(0);
+			expect(tools.every((tool) => tool.source === source)).toBe(true);
+		}
 	});
 
 	it("uses the same CUA-authored browser toolset with custom-function providers", () => {
@@ -269,33 +201,32 @@ describe("compileCuaToolCatalog", () => {
 		expect(catalog.entries[0]?.dynamicLoading).toBe("eager-only");
 	});
 
-	it("serializes Google's current native declaration and rejects generation/model mismatches", async () => {
+	it("serializes Google's current native declaration", async () => {
 		const selected = cua.providers.google.toolsets.browser({ exclude: ["right_click", "triple_click"] });
-		const catalog = compile("google:gemini-3-flash-preview", selected);
+		const catalog = compile("google:gemini-3.6-flash", selected);
 		const next = await catalog.payload.apply({ tools: selected.map((tool) => ({ type: "function", name: tool.name })) }, catalog.model) as { tools: unknown[] };
 		expect(next.tools).toEqual([{
 			type: "computer_use",
 			environment: "browser",
-			excluded_predefined_functions: [
-				"triple_click", "right_click", "open_web_browser", "wait_5_seconds", "search", "click_at",
-				"hover_at", "type_text_at", "key_combination", "scroll_document", "scroll_at",
-			],
+			excluded_predefined_functions: ["triple_click", "right_click"],
 		}]);
 		expect(catalog.entries[0]?.declaration).toEqual(next.tools[0]);
 		expect(catalog.entries[0]?.coordinates).toEqual({ type: "normalized", range: [0, 999] });
-		expect(() => compile("google:gemini-3-flash-preview", cua.providers.google.toolsets.legacyBrowser())).toThrow(/requires a Gemini 2\.5/);
 		const click = selected.find((tool) => tool.name === "click")!;
 		if (click.execution.kind !== "actions") throw new Error("expected Google action tool");
 		expect(() => click.execution.toActions({ x: 1, y: 2, safety_decision: { decision: "require_confirmation" } })).toThrow(/was not executed/);
+		const scroll = selected.find((tool) => tool.name === "scroll")!;
+		if (scroll.execution.kind !== "actions") throw new Error("expected Google scroll tool");
+		expect(scroll.execution.toActions({ x: 500, y: 500, direction: "up", magnitude_in_pixels: 250 })).toEqual([
+			{ type: "scroll", x: 500, y: 500, scroll_x: 0, scroll_y: -250 },
+		]);
 	});
 
-	it("excludes every other live Google predefined function from a take_screenshot-only catalog", async () => {
+	it("excludes every other Google browser function from a take_screenshot-only catalog", async () => {
 		const current = cua.providers.google.toolsets.browser();
-		const legacy = cua.providers.google.toolsets.legacyBrowser();
 		const screenshot = current.find((tool) => tool.name === "take_screenshot")!;
-		const allPublishedNames = [...new Set([...current, ...legacy].map((tool) => tool.name))];
-		const expectedExcludedNames = allPublishedNames.filter((name) => name !== screenshot.name);
-		const catalog = compile("google:gemini-3-flash-preview", [screenshot]);
+		const expectedExcludedNames = current.map((tool) => tool.name).filter((name) => name !== screenshot.name);
+		const catalog = compile("google:gemini-3.6-flash", [screenshot]);
 		const next = await catalog.payload.apply({
 			tools: [{ type: "function", name: screenshot.name }],
 		}, catalog.model) as { tools: Array<{ excluded_predefined_functions: string[] }> };
@@ -305,7 +236,7 @@ describe("compileCuaToolCatalog", () => {
 			environment: "browser",
 			excluded_predefined_functions: expectedExcludedNames,
 		}]);
-		expect(next.tools[0]!.excluded_predefined_functions).toContain("open_web_browser");
+		expect(next.tools[0]!.excluded_predefined_functions).toContain("click");
 		expect(next.tools[0]!.excluded_predefined_functions).not.toContain("take_screenshot");
 		expect(catalog.incoming.googleNames).toEqual({ take_screenshot: "take_screenshot" });
 		expect(catalog.incoming.googleExcludedNames).toEqual(expectedExcludedNames);
@@ -329,13 +260,13 @@ describe("compileCuaToolCatalog", () => {
 			tool_set: string;
 			disable_tools: string[];
 			tools: Array<{ function: { name: string } }>;
-			messages: Array<{ content: unknown[] }>;
+			messages: Array<{ content: unknown }>;
 		};
 		expect(next.tool_set).toBe("browser_tools_core-20260403");
 		expect(next.disable_tools).not.toContain(selected[0]?.name);
 		expect(next.disable_tools).toContain("right_click");
 		expect(next.tools.map((tool) => tool.function.name)).toEqual(["custom"]);
-		expect(next.messages[0]?.content).toEqual(expect.arrayContaining([expect.objectContaining({ type: "image_url" })]));
+		expect(next.messages).toEqual(payload.messages);
 	});
 
 	it("rejects partial n1 selection and incompatible model changes", () => {

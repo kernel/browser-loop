@@ -63,9 +63,11 @@ The main groups are:
 - `cua.tools.computer.*`: Kernel OS input/read tools, using pixel coordinates by
   default.
 - `cua.tools.playwright()`: a Playwright code execution tool.
-- `cua.toolsets.browser()`, `computer()`, and `mixed()`: convenience lists only;
-  they do not imply a runtime mode.
-- `cua.providers.*`: provider-native tools and predefined toolsets.
+- `cua.toolsets.browser()`, `computer()`, and `mixed()`: ordinary convenience
+  arrays of CUA-authored tools.
+- `cua.providers.*`: only provider-native tools and predefined toolsets backed
+  by linked first-party documentation. Each provider namespace exposes its
+  `source` (or versioned `sources`), and every returned spec carries that URL.
 
 Each CUA-owned tool has a stable identity independent of its caller-visible
 name. Compilation preserves requested order and derives provider-safe names,
@@ -81,7 +83,6 @@ before a model request.
 ```ts
 agent.getTools();
 agent.setTools(nextTools);
-agent.inspectTools();
 agent.setModel(nextModel);
 ```
 
@@ -92,9 +93,8 @@ Anthropic-compatible `addedToolNames` marker only when that provider/model can
 defer ordinary function tools. Additions outside a tool call are eager.
 Provider-native tools are always eager.
 
-The transcript stores pi's active-tool change entries, so catalog transitions
-remain visible in session history. Model changes revalidate the entire requested
-catalog; incompatible combinations fail without partial mutation.
+Model changes revalidate the entire requested catalog; incompatible
+combinations fail without partial mutation.
 
 ## Shared execution resources
 
@@ -120,15 +120,14 @@ Canonical actions live under `packages/ai/src/actions/`:
   browser's raw CDP websocket. Element refs are snapshot-scoped and stale refs
   fail with a request to snapshot again.
 
-Result feedback is tool-policy data compiled by `cua-ai`:
+Tools return only the result requested by the model:
 
-- Browser mechanical writes return a viewport screenshot.
-- Computer mechanical writes return an OS screenshot.
-- Explicit read actions return their requested data without a fallback image.
-- Yutori native calls return text only; its request transform injects one fresh
-  1280×800 screenshot into the latest outgoing provider message.
-- Failed actions never capture a new screenshot. Any images from successful
-  earlier actions in the same failing batch are replaced by textual markers.
+- Write actions return concise success text.
+- Read actions return their requested text or structured data.
+- Screenshot and zoom actions return images.
+- `browser_act` returns causal outcomes and a bounded successor diff.
+- Failed batches replace images captured by earlier explicit screenshot steps
+  with textual markers.
 
 ## Mechanical batches
 
@@ -156,21 +155,17 @@ catalog:
 - Anthropic's native browser tool falls back to an equivalent function-tool
   declaration when the active credential cannot access `browser_20260701`;
   the selected tool identity, name, schema, and executor remain unchanged.
-- Google current and legacy predefined browser toolsets serialize one
-  `computer_use` declaration plus exact exclusions through the CUA-owned
-  Interactions API adapter. Current declarations exclude unselected names from
-  both published vocabularies because Gemini 3 preview endpoints can still
-  surface legacy names; excluded calls fail with a named catalog error instead
-  of reaching generic tool dispatch. Action sets and coordinate contracts
-  remain version-specific.
+- Google's current predefined browser toolset serializes one `computer_use`
+  declaration plus exact exclusions through the CUA-owned Interactions API
+  adapter. Excluded calls fail with a named catalog error instead of reaching
+  generic tool dispatch.
 - Yutori emits its native `tool_set`/`disable_tools` fields while preserving
-  custom functions and adds a fresh screenshot to each request.
+  ordinary function tools.
 - Meta, xAI, and Moonshot disable parallel tool calls when the selected catalog
   can mutate browser state.
 
 Generated payload processing has fixed order: model preparation, tool
-serialization, provider fields, screenshot injection, then the caller's
-`onPayload` hook.
+serialization, provider fields, then the caller's `onPayload` hook.
 
 ## CLI composition
 
@@ -183,8 +178,8 @@ serialization, provider fields, screenshot injection, then the caller's
    - Anthropic's native browser tool when the model supports it;
    - Google's native browser action set;
    - Tzafon's native computer tool configured for a browser;
-   - Yutori's native N1 or N1.5 browser set;
-3. appends `createCodingTools(cwd)` to that same list;
+   - Yutori's native N1 or N1.5 browser set plus an explicit screenshot tool;
+3. creates and retains its own application-level coding-tool list;
 4. passes the complete list to `CuaAgentHarness`;
 5. builds a caller-owned prompt from loaded skills and context files;
 6. uses one `Session` for transcript persistence and resume.

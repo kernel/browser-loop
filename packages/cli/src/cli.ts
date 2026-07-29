@@ -52,7 +52,7 @@ Options:
                                  Recommended:
                                    openai:    openai:gpt-5.6-sol
                                    anthropic: anthropic:claude-opus-5
-                                   google:    google:gemini-3-flash-preview
+                                   google:    google:gemini-3.6-flash
                                    meta:      meta:muse-spark-1.1
                                    xai:       xai:grok-4.5
                                    moonshot:  moonshotai:kimi-k3

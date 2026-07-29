@@ -91,7 +91,7 @@ npx tsx packages/cli/src/cli.ts --help
 # set API keys via env vars
 export OPENAI_API_KEY=sk-...                 # for gpt-5.6-sol
 export ANTHROPIC_API_KEY=sk-ant-...          # for claude-opus-5
-export GOOGLE_API_KEY=...                    # for gemini-3-flash-preview
+export GOOGLE_API_KEY=...                    # for gemini-3.6-flash
 export META_API_KEY=...                      # for muse-spark-1.1
 export XAI_API_KEY=xai-...                   # for grok-4.5
 export MOONSHOT_API_KEY=sk-...               # for kimi-k3
@@ -108,7 +108,7 @@ cua models
 cua -p --model claude-opus-5 "Same prompt"
 
 # Gemini 3 Flash (built-in computer use)
-cua -p --model gemini-3-flash-preview "Same prompt"
+cua -p --model gemini-3.6-flash "Same prompt"
 
 # Meta Muse Spark
 cua -p --model meta:muse-spark-1.1 "Same prompt"
@@ -157,8 +157,8 @@ cua -p -o jsonl "open example.com and tell me the heading"
    (`--print`), JSONL events (`-o jsonl`), or an interactive pi-tui
    front-end.
 4. **Browser** — a fresh Kernel cloud browser session per run (or per
-   resume) with optional named profile load/save. Action screenshots come from
-   the live browser or VM according to the selected tool's result policy.
+   resume) with optional named profile load/save. The model requests screenshots
+   explicitly when it needs visual feedback.
 
 See [`docs/architecture.md`](docs/architecture.md) for the full
 end-to-end flow.

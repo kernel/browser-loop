@@ -7,7 +7,6 @@ import {
 	type CuaAgentTool,
 	type CuaModelRef,
 	type CuaToolCatalog,
-	type CuaToolInfo,
 } from "@onkernel/cua-ai";
 import { CuaExecutionResources } from "./resources";
 
@@ -36,20 +35,6 @@ export class CuaToolManager {
 
 	getTools(): readonly CuaAgentTool[] {
 		return [...this.current.requested];
-	}
-
-	inspectTools(): readonly CuaToolInfo[] {
-		return this.current.entries.map((entry) => ({
-			identity: entry.identity,
-			name: entry.name,
-			preferredName: entry.preferredName,
-			origin: entry.origin,
-			transport: entry.transport,
-			dynamicLoading: entry.dynamicLoading,
-			declaration: entry.declaration,
-			...(entry.coordinates ? { coordinates: entry.coordinates } : {}),
-			...(entry.requestGrounding ? { requestGrounding: entry.requestGrounding } : {}),
-		}));
 	}
 
 	prepareTools(tools: readonly CuaAgentTool[]): CuaToolCatalog {

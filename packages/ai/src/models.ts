@@ -8,7 +8,7 @@ import { XAI_CUA_RESPONSES_API } from "./providers/xai/provider";
 /** Providers with curated computer-use model support. */
 export type CuaProvider = "openai" | "anthropic" | "google" | "meta" | "xai" | "moonshotai" | "tzafon" | "yutori";
 
-/** Provider-qualified model reference, e.g. `"openai:gpt-5.6-sol"` or `"google:gemini-3-flash-preview"`. */
+/** Provider-qualified model reference, e.g. `"openai:gpt-5.6-sol"` or `"google:gemini-3.6-flash"`. */
 export type CuaModelRef = `${CuaProvider}:${string}`;
 
 /** One entry returned by {@link listCuaModels}. */
@@ -73,15 +73,10 @@ export const CUA_MODEL_ANNOTATIONS: Record<CuaProvider, readonly CuaModelAnnotat
 		{ match: { kind: "family", family: "claude-haiku-4" }, source: "https://docs.anthropic.com/en/docs/build-with-claude/computer-use" },
 		{ match: { kind: "family", family: "claude-fable-5" }, source: "https://docs.anthropic.com/en/docs/build-with-claude/computer-use" },
 	],
-	// gemini-2.5-computer-use-preview-10-2025 is deliberately absent: it
-	// rejects the standard function declarations this package sends and
-	// requires Google's native tools.computer_use wrapper instead.
 	google: [
-		{ match: { kind: "exact", id: "gemini-3-flash-preview" }, source: "https://ai.google.dev/gemini-api/docs/computer-use" },
-		{ match: { kind: "exact", id: "gemini-3.1-flash-lite" }, source: "https://ai.google.dev/gemini-api/docs/computer-use" },
+		{ match: { kind: "exact", id: "gemini-3.6-flash" }, source: "https://ai.google.dev/gemini-api/docs/computer-use" },
+		{ match: { kind: "exact", id: "gemini-3.5-flash-lite" }, source: "https://ai.google.dev/gemini-api/docs/computer-use" },
 		{ match: { kind: "exact", id: "gemini-3.5-flash" }, source: "https://ai.google.dev/gemini-api/docs/computer-use" },
-		// gemini-3-pro-preview is intentionally absent: Google retired it and
-		// the API now returns 404 "model no longer available".
 	],
 	meta: [
 		{ match: { kind: "exact", id: "muse-spark-1.1" }, source: "https://dev.meta.ai/docs/getting-started/cookbook/computer-use-macos" },
@@ -118,7 +113,12 @@ const CUA_MODEL_OVERRIDES: Record<CuaProvider, readonly Model<Api>[]> = {
 	// Opus 5 is live in Anthropic's API and models.dev but is newer than the
 	// pinned pi-ai catalog. Remove this override after the next pi-ai bump.
 	anthropic: [anthropicOpus5Model()],
-	google: [],
+	// Google's current computer-use models are live but newer than the pinned
+	// pi-ai catalog. Remove each override after pi-ai adds it.
+	google: [
+		cuaModel("google", "gemini-3.6-flash", "Gemini 3.6 Flash"),
+		cuaModel("google", "gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite"),
+	],
 	// pi-ai 0.80.10 still lacks Meta's models.dev catalog entry.
 	meta: [cuaModel("meta", "muse-spark-1.1", "Muse Spark 1.1")],
 	xai: [],

@@ -17,25 +17,25 @@ implicit-tool, and runtime-spec APIs are removed.
   legacy native-tool switches, implicit navigation tools, and provider-owned
   default prompt selection from the public API.
 - Provider-native declarations now compose by selected identity with ordinary
-  functions. Add fixed-version Anthropic computer/browser factories,
-  Anthropic-recommended deferred toolsets, OpenAI native computer composition,
-  Tzafon viewport-aware declaration replacement, exact current/legacy Google
-  predefined browser toolsets, and identity-scoped Yutori native selection.
+  functions. Add fixed-version Anthropic computer/browser factories, OpenAI
+  native computer composition, Tzafon viewport-aware declaration replacement,
+  Google's current predefined browser toolset, and identity-scoped Yutori
+  native selection. Every provider surface exposes its first-party source.
 - Add deterministic provider composition: generated model preparation, tool
-  serialization, provider fields, request grounding, then caller payload hooks.
+  serialization, provider fields, then caller payload hooks.
   Header requirements merge without overwriting unrelated caller headers.
-- Add a Google Interactions API adapter plus current `computer_use` action names
-  and `[0, 999]` coordinates; legacy Gemini 2.5 actions remain explicit and
-  generation-incompatible. Current exact-subset declarations also exclude the
-  published legacy vocabulary to suppress Gemini 3 preview fallback calls, and
-  excluded incoming calls fail with a named catalog error.
+- Add a Google Interactions API adapter plus current `computer_use` browser
+  action names and `[0, 999]` coordinates. Exact-subset declarations exclude
+  every unselected current action, and excluded incoming calls fail with a
+  named catalog error. Support the documented `gemini-3.6-flash`,
+  `gemini-3.5-flash`, and `gemini-3.5-flash-lite` models.
 - Add `anthropic:claude-opus-5` with its 1M-token context window, 128k output
   limit, adaptive thinking levels, and July 2026 native-tool compatibility.
   Native `browser_20260701` transparently retries through an equivalent
   function-tool declaration when the active credential lacks beta access.
 - Add the verified `openai:gpt-5.6-sol` model.
-- Rename Google's predefined action factories to `browser()` and
-  `legacyBrowser()`. Remove the Meta/xAI/Moonshot coordinate toolsets; those
+- Expose Google's predefined actions through `browser()` only. Remove legacy
+  Google actions and the Meta/xAI/Moonshot coordinate toolsets; those
   custom-function providers use the standard CUA browser toolset.
 - Native tool execution metadata carries stop-on-first-failure policy without
   introducing provider branches in cua-agent.

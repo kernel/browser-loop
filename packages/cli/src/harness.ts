@@ -49,7 +49,7 @@ export function buildCuaHarness(opts: BuildCuaHarnessOptions): CuaAgentHarness {
 		: opts.model;
 	const tools = opts.tools ?? [
 		...defaultInteractionTools(opts.model),
-		...createCodingTools(opts.cwd),
+		...defaultApplicationTools(opts.cwd),
 	];
 	return new CuaAgentHarness({
 		env: new NodeExecutionEnv({ cwd: opts.cwd }),
@@ -68,6 +68,11 @@ export function buildCuaHarness(opts: BuildCuaHarnessOptions): CuaAgentHarness {
 	});
 }
 
+/** Coding tools owned by the CLI application rather than inferred from a compiled catalog. */
+export function defaultApplicationTools(cwd: string): CuaAgentTool[] {
+	return createCodingTools(cwd);
+}
+
 /** CLI policy is explicit application composition, not a CuaAgent default. */
 export function defaultInteractionTools(model: CuaModelRef): CuaAgentTool[] {
 	const { provider, model: modelId } = parseCuaModelRef(model);
@@ -83,9 +88,12 @@ export function defaultInteractionTools(model: CuaModelRef): CuaAgentTool[] {
 		case "tzafon":
 			return [cua.providers.tzafon.tools.computer()];
 		case "yutori":
-			return modelId.startsWith("n1.5")
-				? cua.providers.yutori.toolsets.n15Core()
-				: cua.providers.yutori.toolsets.n1();
+			return [
+				...(modelId.startsWith("n1.5")
+					? cua.providers.yutori.toolsets.n15Core()
+					: cua.providers.yutori.toolsets.n1()),
+				cua.tools.computer.screenshot(),
+			];
 		case "meta":
 		case "xai":
 		case "moonshotai":

@@ -148,13 +148,12 @@ Available groups:
 ```ts
 cua.providers.openai.tools.computer();
 
+cua.providers.anthropic.source;
 cua.providers.anthropic.tools.computer({ version: "20260701" });
 cua.providers.anthropic.tools.browser({ version: "20260701" });
-cua.providers.anthropic.toolsets.computer(); // recommended deferred ordinary tools
-cua.providers.anthropic.toolsets.browser();
 
+cua.providers.google.source;
 cua.providers.google.toolsets.browser({ exclude: ["right_click"] });
-cua.providers.google.toolsets.legacyBrowser({ exclude: ["drag_and_drop"] });
 
 // Meta, xAI, and Moonshot use the ordinary CUA browser tools.
 cua.toolsets.browser();
@@ -164,25 +163,18 @@ cua.providers.yutori.toolsets.n1();
 cua.providers.yutori.toolsets.n15Core();
 ```
 
-The current Google browser set exposes the current predefined action names and
-uses normalized coordinates in `[0, 999]`. Its native `computer_use`
-declaration excludes every unselected name across Google's published current
-and legacy vocabularies because Gemini 3 preview endpoints can still surface
-legacy predefined functions. This compatibility exclusion does not install
-legacy helpers. If Google emits an excluded name anyway, the adapter returns a
-named exact-catalog error instead of forwarding an undeclared tool call. The
-legacy set remains distinct and is only compatible with a Gemini 2.5
-computer-use model.
+The Google browser set exposes the current predefined action names and uses
+normalized coordinates in `[0, 999]`. Its native `computer_use` declaration
+excludes every unselected browser action. If Google emits an excluded name
+anyway, the adapter returns a named exact-catalog error instead of forwarding
+an undeclared tool call.
 
 Provider-native caller-visible names are fixed by protocol. Version/tool/model
 mismatches fail during catalog compilation. If an Anthropic credential cannot
 access `browser_20260701`, CUA retries with an equivalent `browser` function
-tool and remembers that choice for the credential and process. The mirrored sets track the
-providers' published guidance: [Anthropic computer use](https://docs.anthropic.com/en/docs/build-with-claude/computer-use),
-[Google computer use](https://ai.google.dev/gemini-api/docs/computer-use),
-[Meta computer use](https://dev.meta.ai/docs/getting-started/cookbook/computer-use-macos),
-[xAI function calling](https://docs.x.ai/developers/tools/function-calling), and
-[Moonshot tool use](https://platform.kimi.ai/docs/api/tool-use).
+tool and remembers that choice for the credential and process. Every
+`cua.providers.*` tool surface exposes its first-party `source` (or versioned
+`sources`), and every returned provider spec carries the applicable URL.
 
 ## Catalog compilation
 
@@ -223,8 +215,7 @@ Generated payload processing has deterministic order:
 1. model preparation;
 2. tool declaration serialization;
 3. provider request fields;
-4. visual grounding;
-5. caller `onPayload` (applied by `cua-agent`).
+4. caller `onPayload` (applied by `cua-agent`).
 
 Generated header requirements merge with caller headers. Comma-list headers are
 unioned and deduplicated; exact-value conflicts throw.
@@ -240,17 +231,16 @@ additions through pi's active-tool change entries.
 
 - **OpenAI**: CUA-owned Responses transport for native computer plus ordinary
   function composition and response threading.
-- **Anthropic**: exact native declarations, beta-header composition, adaptive
-  model preparation, and recommended deferred function toolsets.
-- **Google**: a CUA-owned Interactions API adapter plus current and legacy
-  predefined browser sets with explicit exclusions and generation-specific
-  coordinate contracts.
+- **Anthropic**: exact native declarations, beta-header composition, and
+  adaptive model preparation.
+- **Google**: a CUA-owned Interactions API adapter plus the current predefined
+  browser set with explicit exclusions.
 - **Meta/xAI/Moonshot**: ordinary function tools with serial tool calls when the
   selected catalog mutates browser state.
 - **Tzafon**: identity-scoped native declaration replacement with actual viewport
   dimensions.
-- **Yutori**: identity-scoped native `tool_set`/`disable_tools` fields and one
-  fresh request-time screenshot in the latest provider message.
+- **Yutori**: identity-scoped native `tool_set`/`disable_tools` fields while
+  preserving ordinary function tools such as an explicitly selected screenshot.
 
 ## API keys
 
