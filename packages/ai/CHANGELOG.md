@@ -42,6 +42,9 @@ implicit-tool, and runtime-spec APIs are removed.
   compilation now rejects `browser_act`, whose larger schema its API refuses.
 - Native tool execution metadata carries stop-on-first-failure policy without
   introducing provider branches in cua-agent.
+- Declare `engines.node` `>=22.19.0`. This is not a new requirement: every
+  `@earendil-works/pi-*` dependency already declares the same floor, so it was
+  previously enforced only transitively and never stated on this package.
 
 ## 0.7.0 - 2026-07-17
 

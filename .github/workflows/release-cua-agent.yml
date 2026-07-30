@@ -80,12 +80,15 @@ jobs:
           npm init -y > /dev/null
           npm install /tmp/pack/*.tgz
           cat > smoke.mjs <<'EOF'
-          import { CuaAgent, CuaAgentHarness, createCuaComputerTools, NodeExecutionEnv } from "@onkernel/cua-agent";
+          import { cua, CuaAgent, CuaAgentHarness, formatBrowserActResult, NodeExecutionEnv } from "@onkernel/cua-agent";
 
-          for (const [name, value] of Object.entries({ CuaAgent, CuaAgentHarness, createCuaComputerTools, NodeExecutionEnv })) {
+          for (const [name, value] of Object.entries({ CuaAgent, CuaAgentHarness, formatBrowserActResult, NodeExecutionEnv })) {
             if (typeof value !== "function") {
               throw new Error(`expected ${name} to be a function, got ${typeof value}`);
             }
+          }
+          if (typeof cua !== "object" || cua === null) {
+            throw new Error(`expected cua to be an object, got ${typeof cua}`);
           }
           console.log("ESM import smoke OK");
           EOF

@@ -61,3 +61,46 @@ Breaking: the CLI now assembles one explicit model-specific tool list.
   global input listener now yields all input to an open picker.
 - Register cua's `cua.tools.*` keybindings instead of constructing an unused
   `KeybindingsManager`, so bulk-action keys resolve and their hints render.
+- Security: inherits the `sharp` `^0.35.3` upgrade through
+  `@onkernel/cua-agent` 0.8.0 (GHSA-f88m-g3jw-g9cj). See that package's
+  changelog for the installer-visible packaging notes.
+
+### Known unfixed advisories
+
+Installing this release still reports two vulnerable packages (three advisory
+IDs). `npm audit` counts them as 1 high + 1 moderate, and both are reachable
+only through `@earendil-works/pi-coding-agent` 0.80.10, which publishes its own
+`npm-shrinkwrap.json` and therefore pins its subtree verbatim:
+
+- **`brace-expansion` 5.0.6** (high) via that subtree's `minimatch` 10.2.5.
+  This single package is flagged by two separate advisories:
+  GHSA-mh99-v99m-4gvg (`<=5.0.7`, CVSS 7.5, unbounded expansion length causing
+  an out-of-memory process crash) and GHSA-3jxr-9vmj-r5cp (`>=3.0.0 <5.0.7`,
+  CVSS 5.3, exponential-time expansion of consecutive non-expanding `{}`
+  groups). Both are denial of service on pathological glob patterns; the impact
+  is a hung or OOM-killed local `cua` process, with no effect on the cloud
+  browser or on other users.
+- **`protobufjs` 7.6.4** (moderate, GHSA-j3f2-48v5-ccww) via `@google/genai`.
+  Unreachable here: it is loaded only by `@google/genai`'s opt-in local
+  tokenizer entry point, which this CLI never imports, and the advisory needs
+  untrusted `.proto` source text, which the CLI never parses.
+
+Neither is suppressed or filtered out of `npm audit`. npm `overrides` were
+tried and verified to be silently ignored across a dependency's published
+shrinkwrap (the pins stay at 5.0.6/7.6.4 and the audit count does not move), so
+adding them would be dead configuration and false assurance.
+
+`protobufjs` is fixed in `pi-coding-agent` 0.82.0+ (which pins 7.6.5); that
+upgrade is deferred to a follow-up release because it is a two-minor bump of
+the agent framework carrying a customer-visible provider behavior change
+(pi-ai 0.82 revises Kimi K3's `compat` to `supportsReasoningEffort: true` and
+`thinkingFormat` `"deepseek"` -> `"openai"`, altering the request payload sent
+to Moonshot), which cannot be validated offline and is not worth bundling into
+a security patch for an advisory that is unreachable from this CLI.
+
+`brace-expansion` cannot be fully resolved from this repository at all. The
+newest published `pi-coding-agent`, 0.83.0, pins 5.0.7, which clears
+GHSA-3jxr-9vmj-r5cp but *not* GHSA-mh99-v99m-4gvg, whose range is `<=5.0.7`.
+Clearing the remaining high requires an upstream shrinkwrap refresh to
+`minimatch` 10.2.6, which is the first release to depend on
+`brace-expansion` `^5.0.8`.

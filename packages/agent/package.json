@@ -31,6 +31,9 @@
   "publishConfig": {
     "access": "public"
   },
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "scripts": {
     "build": "tsdown",
     "clean": "tsc -b --clean && rm -rf dist dist-tsc",
@@ -44,7 +47,7 @@
     "@earendil-works/pi-ai": "0.80.10",
     "@onkernel/cua-ai": "0.8.0",
     "@onkernel/sdk": "0.49.0",
-    "sharp": "^0.34.5"
+    "sharp": "^0.35.3"
   },
   "devDependencies": {
     "tsdown": "^0.22.2",

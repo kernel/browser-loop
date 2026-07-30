@@ -36,6 +36,20 @@ use composition instead of inheriting from pi's `Agent`/`AgentHarness`.
   the CLI: explicit `browser_act` plans where the provider accepts the schema,
   browser primitives alone for Moonshot, and Anthropic native-browser selection
   with model fallback.
+- Security: require `sharp` `^0.35.3` (was `^0.34.5`) to pick up the libvips
+  fixes for GHSA-f88m-g3jw-g9cj (CVE-2026-33327, CVE-2026-33328, CVE-2026-35590,
+  CVE-2026-35591). `sharp` decodes cloud-browser screenshots inside the
+  translator's `zoom()`, so this is the one advisory in this release that
+  touched attacker-influenced bytes. The APIs this package uses are unchanged by
+  sharp 0.35, and no source changes were needed. Two packaging notes for
+  installers: sharp 0.35 no longer ships an `install` lifecycle script, and it
+  no longer falls back to building from source — installing with
+  `--omit=optional`, or on a platform with no prebuilt `@img/sharp-*` binary,
+  now fails at import instead of silently compiling. sharp 0.35 requires Node
+  `>=20.9.0`, well below this package's floor.
+- Declare `engines.node` `>=22.19.0`. This is not a new requirement: every
+  `@earendil-works/pi-*` dependency already declares the same floor, so it was
+  previously enforced only transitively and never stated on this package.
 
 ## 0.7.0 - 2026-07-17
 
