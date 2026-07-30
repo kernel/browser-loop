@@ -233,8 +233,4 @@ export class ModelPickerComponent extends Container implements Focusable {
 	private handleSelect(item: CuaModelInfo): void {
 		this.onSelectCallback(item.ref);
 	}
-
-	getSearchInput(): Input {
-		return this.searchInput;
-	}
 }

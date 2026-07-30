@@ -34,9 +34,10 @@ All of them expect you to:
 
 ```
 packages/
-├── ai/      # @onkernel/cua-ai    - computer-use model catalog + tool schemas + provider adapters
-├── agent/   # @onkernel/cua-agent - agent APIs for running tools against a Kernel browser
-└── cli/     # @onkernel/cua-cli   - the `cua` binary; built on cua-agent + cua-ai
+├── ai/         # @onkernel/cua-ai    - model catalog, tool schemas, provider adapters
+├── agent/      # @onkernel/cua-agent - Kernel-browser tool execution
+├── cli/        # @onkernel/cua-cli   - the `cua` binary
+└── ptywright/  # @onkernel/ptywright - development-only PTY/TUI test infrastructure
 ```
 
 **Building your own agent? Start here:** [`packages/agent`](packages/agent)
@@ -67,7 +68,8 @@ flowchart LR
 | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | [`@onkernel/cua-ai`](packages/ai)       | Computer-use model catalog, tool factories/toolsets, compatibility checks, and provider adapters.                         |
 | [`@onkernel/cua-agent`](packages/agent) | Agent and harness APIs that run selected computer-use tools against a Kernel browser.                                    |
-| [`@onkernel/cua-cli`](packages/cli)     | The `cua` binary: argv parsing, sessions, skills, JSONL output, pi-tui front-end.                                                        |
+| [`@onkernel/cua-cli`](packages/cli)     | The `cua` binary: argv parsing, sessions, skills, JSONL output, pi-tui front-end.                                         |
+| [`@onkernel/ptywright`](packages/ptywright) | Development-only PTY/TUI test infrastructure.                                                                         |
 
 ---
 
@@ -175,6 +177,9 @@ Highlights:
 - `-p`/`--print` for single-shot mode; `-o jsonl` for structured output.
 - `cua models` to list supported `-m`/`--model` values and their providers.
 - `-m`/`--model <id>` to choose one of those supported models.
+- `/model` in the TUI for a searchable model picker; `/model <id>` still
+  switches directly.
+- `/tools` in the TUI to enable or disable tools for the current session.
 - `-s`/`--session-name <name>` to reuse a `cua session start`-allocated
   Kernel browser across calls.
 - `-c`/`--continue`, `-r`/`--resume`, `--session <ref>` for transcript
@@ -249,10 +254,10 @@ agent behavior.
 `~/.local/share/cua/sessions/`). For named sessions, the exact path is
 in the `transcript_path` field of `cua session show <name>`.
 
-**Format**: one JSON object per line. Roles: `user`, `assistant`,
-`toolResult` (from pi-coding-agent's `SessionManager`). There's also a
-custom `cua-browser` entry written once per session with
-`kernel_session_id` / `live_url` / `profile_id`.
+**Format**: one pi `SessionManager` record per line. Conversation records have
+`type: "message"`; their role and content are nested under `.message`. A custom
+record with `customType: "cua-browser"` stores `sessionId`, `liveUrl`, and
+optional `profileId` under `.data`.
 
 **Opting out**: `--no-session` keeps the run in-memory only. One-shot
 action subcommands (without `-s`) also skip the transcript, since
@@ -264,18 +269,20 @@ they're already self-contained.
 TRANSCRIPT=~/.local/share/cua/sessions/<cwd>/<id>.jsonl
 
 # Every tool call the agent made, in order
-jq -c 'select(.role == "assistant") | .content[]?
-       | select(.type == "tool_use") | {name, input}' \
-   "$TRANSCRIPT"
+jq -c 'select(.type == "message" and .message.role == "assistant")
+       | .message.content[]? | select(.type == "toolCall")
+       | {name, arguments}' "$TRANSCRIPT"
 
 # Largest tool-result screenshot (handy when chasing context-window blowups)
-jq -c 'select(.role == "toolResult") | .content[]?
-       | select(.type == "image") | {len: (.data | length)}' \
-   "$TRANSCRIPT" | sort -t: -k2 -n | tail -1
+jq -c 'select(.type == "message" and .message.role == "toolResult")
+       | .message.content[]? | select(.type == "image")
+       | {len: (.data | length)}' "$TRANSCRIPT" \
+  | sort -t: -k2 -n | tail -1
 
 # Final assistant text (the answer)
-jq -r 'select(.role == "assistant") | .content[]?
-       | select(.type == "text") | .text' "$TRANSCRIPT" | tail -1
+jq -r 'select(.type == "message" and .message.role == "assistant")
+       | .message.content[]? | select(.type == "text") | .text' \
+  "$TRANSCRIPT" | tail -1
 ```
 
 `--print -o jsonl` is a separate live-event stream (one event per line
@@ -330,7 +337,8 @@ skills/
 packages/
 ├── ai/              # @onkernel/cua-ai — model layer (see packages/ai/README.md)
 ├── agent/           # @onkernel/cua-agent — Kernel-browser execution layer (see packages/agent/README.md)
-└── cli/             # @onkernel/cua-cli — the `cua` binary (see packages/cli/README.md)
+├── cli/             # @onkernel/cua-cli — the `cua` binary (see packages/cli/README.md)
+└── ptywright/       # @onkernel/ptywright — development-only PTY/TUI test infrastructure
 ```
 
 ---

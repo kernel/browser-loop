@@ -30,7 +30,7 @@ export function parseBrowserActInput(raw: string): BrowserActInput {
 		}
 		optionalNumber(successor.depth, "$.successor.depth");
 	}
-	return input as unknown as BrowserActInput;
+	return { ...input, steps } as BrowserActInput;
 }
 
 function validateStep(value: unknown, path: string): void {

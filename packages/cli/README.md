@@ -177,12 +177,13 @@ default `low`) for providers that support reasoning effort.
 
 The CLI chooses one explicit interaction catalog and appends pi's coding tools:
 CUA browser primitives plus the verified `browser_act` plan tool for OpenAI,
-Meta, xAI, Moonshot, and older Anthropic models; Anthropic's native browser tool
+Meta, xAI, and older Anthropic models; browser primitives alone for Moonshot,
+whose API rejects `browser_act`'s larger schema; Anthropic's native browser tool
 when supported; Google's native browser action set; Tzafon's native computer
 tool in a browser environment; and Yutori's native N1/N1.5 browser set. If the
-active Anthropic credential cannot access `browser_20260701`, the same selected browser tool uses its equivalent function
-transport. Library callers can select any catalog directly; see
-[`@onkernel/cua-agent`](../agent).
+active Anthropic credential cannot access `browser_20260701`, the same selected
+browser tool uses its equivalent function transport. Library callers can select
+any catalog directly; see [`@onkernel/cua-agent`](../agent).
 
 ## Output formats
 

@@ -112,11 +112,11 @@ const tools = [
 
 Other provider groups include OpenAI native computer, Tzafon native computer,
 Google's current predefined browser toolset, and Yutori native toolsets. Every
-provider surface exposes linked first-party documentation. Meta, xAI, and
-Moonshot use CUA browser primitives. The provider-matrix examples explicitly
-append `cua.tools.browser.act()` for verified dependent plans while leaving the
-base toolset unchanged. Compilation rejects a provider-native tool on an
-incompatible model. Anthropic's native browser tool
+provider surface exposes linked first-party documentation. Meta and xAI use CUA
+browser primitives plus `cua.tools.browser.act()` in the provider-matrix
+examples. Moonshot uses browser primitives alone because its API rejects
+`browser_act`'s larger schema. Compilation rejects incompatible tool/model
+combinations before a request. Anthropic's native browser tool
 uses an equivalent function-tool transport when the active credential cannot
 access `browser_20260701`.
 

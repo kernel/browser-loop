@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 - 2026-07-29
 
 Breaking: agent tools are now one explicit, identity-keyed catalog. The mode,
 implicit-tool, and runtime-spec APIs are removed.
@@ -37,6 +37,9 @@ implicit-tool, and runtime-spec APIs are removed.
 - Expose Google's predefined actions through `browser()` only. Remove legacy
   Google actions and the Meta/xAI/Moonshot coordinate toolsets; those
   custom-function providers use the standard CUA browser toolset.
+- Validate large function schemas separately from ordinary nested schemas.
+  Moonshot retains CUA browser primitives and `browser_wait_for`, but catalog
+  compilation now rejects `browser_act`, whose larger schema its API refuses.
 - Native tool execution metadata carries stop-on-first-failure policy without
   introducing provider branches in cua-agent.
 

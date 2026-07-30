@@ -1,12 +1,12 @@
 ---
 name: release
-description: Prepare and publish @onkernel/cua-ai and @onkernel/cua-agent npm releases from kernel/cua. Use when checking release readiness, choosing package versions, writing package changelogs, committing release metadata to main, pushing package-prefixed tags, or monitoring release workflows.
+description: Prepare and publish @onkernel/cua-ai, @onkernel/cua-agent, and @onkernel/cua-cli npm releases from kernel/cua. Use when checking release readiness, choosing package versions, writing package changelogs, committing release metadata to main, pushing package-prefixed tags, or monitoring release workflows.
 ---
 
 # Release
 
-Use this workflow to release `@onkernel/cua-ai` and `@onkernel/cua-agent`. The
-packages do not need to release in lockstep.
+Use this workflow to release `@onkernel/cua-ai`, `@onkernel/cua-agent`, and
+`@onkernel/cua-cli`. The packages do not need to release in lockstep.
 
 If a release run hits an unexpected bump, unclear decision, missing command, or
 avoidable manual step, update this skill as part of the release cleanup. Keep
@@ -19,9 +19,11 @@ error-prone.
 | --- | --- | --- | --- |
 | `@onkernel/cua-ai` | `packages/ai` | `cua-ai/v` | `release-cua-ai.yml` |
 | `@onkernel/cua-agent` | `packages/agent` | `cua-agent/v` | `release-cua-agent.yml` |
+| `@onkernel/cua-cli` | `packages/cli` | `cua-cli/v` | `release-cua-cli.yml` |
 
-Release `@onkernel/cua-ai` before `@onkernel/cua-agent` when both are changing
-or when the agent package depends on the new AI package version.
+When all three change, release in dependency order: `cua-ai`, then `cua-agent`,
+then `cua-cli`. The CLI production workflow verifies that its exact AI and agent
+dependency versions already exist on npm.
 
 ## Quick Start
 
@@ -39,8 +41,10 @@ git fetch --tags origin
 git status --short
 npm view @onkernel/cua-ai versions --json
 npm view @onkernel/cua-agent versions --json
+npm view @onkernel/cua-cli versions --json
 test -f .github/workflows/release-cua-ai.yml
 test -f .github/workflows/release-cua-agent.yml
+test -f .github/workflows/release-cua-cli.yml
 ```
 
 3. For each package, find the previous release tag:
@@ -48,6 +52,7 @@ test -f .github/workflows/release-cua-agent.yml
 ```bash
 git tag --list "cua-ai/v*" --sort=-v:refname | head -1
 git tag --list "cua-agent/v*" --sort=-v:refname | head -1
+git tag --list "cua-cli/v*" --sort=-v:refname | head -1
 ```
 
 If no tag exists, treat the next release as the package's current
@@ -61,10 +66,13 @@ git diff --name-status <last-tag>..HEAD -- packages/ai package.json package-lock
 
 git log --oneline <last-tag>..HEAD -- packages/agent packages/ai package.json package-lock.json tsconfig.base.json
 git diff --name-status <last-tag>..HEAD -- packages/agent packages/ai package.json package-lock.json tsconfig.base.json
+
+git log --oneline <last-tag>..HEAD -- packages/cli packages/agent packages/ai package.json package-lock.json tsconfig.base.json
+git diff --name-status <last-tag>..HEAD -- packages/cli packages/agent packages/ai package.json package-lock.json tsconfig.base.json
 ```
 
-For `@onkernel/cua-agent`, include `packages/ai` changes only when they affect
-the published agent dependency or runtime behavior.
+For a dependent package, include upstream package changes only when they affect
+its published dependency version or runtime behavior.
 
 ## Version Choice
 
@@ -89,6 +97,7 @@ Update only the changelog for packages being released:
 
 - `packages/ai/CHANGELOG.md`
 - `packages/agent/CHANGELOG.md`
+- `packages/cli/CHANGELOG.md`
 
 Add a new top entry:
 
@@ -110,12 +119,12 @@ Set versions explicitly:
 ```bash
 npm pkg set version=<version> --workspace @onkernel/cua-ai
 npm pkg set version=<version> --workspace @onkernel/cua-agent
+npm pkg set version=<version> --workspace @onkernel/cua-cli
 ```
 
-When releasing `@onkernel/cua-agent`, ensure its `@onkernel/cua-ai` dependency
-points at the intended published AI package version. Edit
-`packages/agent/package.json` directly if `npm pkg set` is awkward for the
-scoped dependency key.
+Ensure exact internal dependencies point at the versions that will be published
+first: agent to AI, and CLI to both AI and agent. Edit the package manifests
+directly if `npm pkg set` is awkward for scoped dependency keys.
 
 Refresh the lockfile:
 
@@ -143,6 +152,17 @@ npm test --workspace @onkernel/cua-agent
 npm pack --workspace @onkernel/cua-agent --dry-run
 ```
 
+For `@onkernel/cua-cli`:
+
+```bash
+npm run build --workspace @onkernel/cua-ai
+npm run build --workspace @onkernel/cua-agent
+npm run build --workspace @onkernel/ptywright
+npm run build --workspace @onkernel/cua-cli
+PTYWRIGHT_REQUIRED=1 npm test --workspace @onkernel/cua-cli
+npm pack --workspace @onkernel/cua-cli --dry-run
+```
+
 Run the full unit suites — do not pass individual test files. `cua-ai`
 excludes integration/live tests by default (`npm run test:integration
 --workspace @onkernel/cua-ai` runs them separately), and the `cua-agent` live
@@ -157,7 +177,7 @@ limited to package versions, changelogs, and `package-lock.json`.
 
 ```bash
 git status --short
-git add package-lock.json packages/ai/package.json packages/ai/CHANGELOG.md packages/agent/package.json packages/agent/CHANGELOG.md
+git add package-lock.json packages/ai/package.json packages/ai/CHANGELOG.md packages/agent/package.json packages/agent/CHANGELOG.md packages/cli/package.json packages/cli/CHANGELOG.md
 git commit -m "Release CUA packages"
 git push origin main
 ```
@@ -180,10 +200,13 @@ For the agent package:
 ```bash
 git tag -a cua-agent/v<version> -m "@onkernel/cua-agent v<version>"
 git push origin cua-agent/v<version>
+
+git tag -a cua-cli/v<version> -m "@onkernel/cua-cli v<version>"
+git push origin cua-cli/v<version>
 ```
 
-Push the AI tag first and wait for it to publish before pushing the agent tag
-when the agent depends on that AI version.
+Push and verify each dependency tag before the next one: AI, then agent, then
+CLI.
 
 ## Monitor
 
@@ -195,6 +218,9 @@ gh run watch <run-id> --exit-status
 
 gh run list --workflow release-cua-agent.yml --json databaseId,status,conclusion,headBranch,displayTitle,url --limit 10
 gh run watch <run-id> --exit-status
+
+gh run list --workflow release-cua-cli.yml --json databaseId,status,conclusion,headBranch,displayTitle,url --limit 10
+gh run watch <run-id> --exit-status
 ```
 
 After a workflow succeeds, verify npm:
@@ -204,6 +230,8 @@ npm view @onkernel/cua-ai@<version> version
 npm dist-tag ls @onkernel/cua-ai
 npm view @onkernel/cua-agent@<version> version
 npm dist-tag ls @onkernel/cua-agent
+npm view @onkernel/cua-cli@<version> version
+npm dist-tag ls @onkernel/cua-cli
 ```
 
 Then verify the published artifact actually imports — `npm view` only proves
@@ -217,7 +245,8 @@ node --input-type=module -e "import('@onkernel/cua-ai').then((m) => { if (typeof
 ```
 
 For `@onkernel/cua-agent`, install `@onkernel/cua-agent@<version>` the same
-way and check `typeof m.CuaAgent === "function"`.
+way and check `typeof m.CuaAgent === "function"`. For the CLI, install it in a
+fresh directory and verify `./node_modules/.bin/cua --help` prints `Usage:`.
 
 If a workflow fails after a tag is pushed, do not reuse the same package
 version unless npm did not publish it. Fix forward with a new commit and a new

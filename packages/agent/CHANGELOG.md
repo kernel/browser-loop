@@ -1,13 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 - 2026-07-29
 
 Breaking: `CuaAgent` and `CuaAgentHarness` now require one exact `tools` list and
 use composition instead of inheriting from pi's `Agent`/`AgentHarness`.
 
 - Add `getTools()` and atomic `setTools()`. Model changes recompile and
   revalidate the full requested catalog. Empty catalogs are valid;
-  no tools or system-prompt text are inferred or appended.
+  no tools or system-prompt text are inferred or appended. Catalog changes from
+  inside a tool require sequential execution, including model changes.
 - Remove `mode`, `nativeTool`, `extraTools`, `playwright`, `setMode()` /
   `getMode()`, and implicit `computer_use_extra` behavior.
 - Add one shared `CuaExecutionResources` pool per agent/harness. Catalog and
@@ -32,8 +33,9 @@ use composition instead of inheriting from pi's `Agent`/`AgentHarness`.
   remaining call in that assistant turn receives the configured error result
   instead of executing against stale browser state.
 - Update shared examples to use the same browser-oriented provider catalogs as
-  the CLI, including explicit `browser_act` plans for structured CUA-browser
-  catalogs plus Anthropic native-browser selection and model fallback.
+  the CLI: explicit `browser_act` plans where the provider accepts the schema,
+  browser primitives alone for Moonshot, and Anthropic native-browser selection
+  with model fallback.
 
 ## 0.7.0 - 2026-07-17
 

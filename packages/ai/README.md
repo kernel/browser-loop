@@ -169,6 +169,10 @@ excludes every unselected browser action. If Google emits an excluded name
 anyway, the adapter returns a named exact-catalog error instead of forwarding
 an undeclared tool call.
 
+Moonshot accepts the ordinary browser toolset, including `browser_wait_for`,
+but rejects `browser_act`'s substantially larger function schema. Catalog
+compilation rejects that specific combination before a provider request.
+
 Provider-native caller-visible names are fixed by protocol. Version/tool/model
 mismatches fail during catalog compilation. If an Anthropic credential cannot
 access `browser_20260701`, CUA retries with an equivalent `browser` function
