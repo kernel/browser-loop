@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.0 - 2026-07-29
+## 0.6.0 - 2026-07-31
 
 Breaking: the CLI now assembles one explicit model-specific tool list.
 

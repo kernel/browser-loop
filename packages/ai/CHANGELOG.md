@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.8.0 - 2026-07-29
+## 0.8.0 - 2026-07-31
 
 Breaking: agent tools are now one explicit, identity-keyed catalog. The mode,
 implicit-tool, and runtime-spec APIs are removed.

@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.8.0 - 2026-07-29
+## 0.8.0 - 2026-07-31
 
 Breaking: `CuaAgent` and `CuaAgentHarness` now require one exact `tools` list and
 use composition instead of inheriting from pi's `Agent`/`AgentHarness`.
