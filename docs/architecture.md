@@ -16,7 +16,7 @@ both explicitly and may use pi's orchestration primitives directly.
   factories/toolsets, provider declarations, compatibility validation, headers,
   payload transforms, and incoming native-call normalization. Catalog
   compilation is declaration-only and deterministic; the package has no
-  execution types and no `pi-agent-core` dependency.
+  `AgentTool` or materialization types and no `pi-agent-core` dependency.
 - `@onkernel/cua-agent` is provider-neutral runtime glue around
   `pi-agent-core`. It defines `CuaAgentTool`, materializes catalog specs
   exactly once per shared resource pool against a Kernel browser, owns
