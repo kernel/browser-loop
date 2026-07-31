@@ -1,4 +1,5 @@
 import {
+	type CuaAgentTool,
 	InMemorySessionRepo,
 	type Session,
 	type Skill,
@@ -6,7 +7,7 @@ import {
 import { tmpdir } from "node:os";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
-import { parseCuaModelRef, type CuaAgentTool } from "@onkernel/cua-ai";
+import { parseCuaModelRef } from "@onkernel/cua-ai";
 import { buildCuaHarness, defaultInteractionTools } from "../../src/harness";
 import { createFakeKernelEnvironment, type FakeKernelEnvironment } from "./fake-kernel";
 import type { ScriptedProviderHandle, ScriptedTurn } from "./scripted-provider";

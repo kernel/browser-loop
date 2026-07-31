@@ -1,4 +1,5 @@
-import { type CuaAgentTool, isCuaToolSpec } from "@onkernel/cua-ai";
+import { callerToolIdentity, isCuaToolSpec } from "@onkernel/cua-ai";
+import type { CuaAgentTool } from "@onkernel/cua-agent";
 
 /** Where a tool came from, used purely as a display badge. */
 export type ToolGroup = "native" | "cua" | "application";
@@ -6,9 +7,9 @@ export type ToolGroup = "native" | "cua" | "application";
 /** One row in the `/tools` picker, derived from a caller-owned tool. */
 export interface ToolSelectionItem {
 	/**
-	 * Stable key matching `normalizeTool`'s identity scheme in
-	 * `@onkernel/cua-ai`: a spec's own `identity`, or `caller.<name>` for a
-	 * plain pi `AgentTool`.
+	 * Stable key matching the catalog compiler's identity scheme in
+	 * `@onkernel/cua-ai`: a spec's own `identity`, or `callerToolIdentity(name)`
+	 * for a plain pi `AgentTool`.
 	 */
 	key: string;
 	/** Model-facing tool name. */
@@ -23,9 +24,9 @@ export interface ToolSelectionItem {
 	atomicGroup?: string;
 }
 
-/** Identity key for a caller-owned tool. Mirrors `normalizeTool` in cua-ai. */
+/** Identity key for a caller-owned tool, using cua-ai's canonical identity helper. */
 export function toolKey(tool: CuaAgentTool): string {
-	return isCuaToolSpec(tool) ? tool.identity : `caller.${tool.name}`;
+	return isCuaToolSpec(tool) ? tool.identity : callerToolIdentity(tool.name);
 }
 
 function toolGroup(tool: CuaAgentTool): ToolGroup {
