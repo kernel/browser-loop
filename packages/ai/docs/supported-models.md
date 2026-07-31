@@ -17,7 +17,13 @@ with CUA-only entries that pi-ai does not ship yet.
 
 ## `openai`
 
-Coordinates: pixel
+CLI default interaction: CUA browser primitives plus the explicit
+`browser_act` verified-plan tool. The optional native computer tool uses pixel
+coordinates.
+
+Exact IDs:
+
+- `gpt-5.6-sol` ([docs](https://developers.openai.com/api/docs/models/gpt-5.6-sol))
 
 Family matches (root + numeric revision/dated-snapshot suffixes):
 
@@ -27,7 +33,12 @@ Family matches (root + numeric revision/dated-snapshot suffixes):
 
 ## `anthropic`
 
-Coordinates: pixel
+CLI default interaction: native `browser_20260701` on supported model families,
+with CUA browser primitives plus explicit `browser_act` as the
+model-compatibility fallback. If the active
+credential cannot access the native browser beta, CUA uses its equivalent
+function-tool transport. The optional native computer tool uses pixel
+coordinates.
 
 Family matches (root + numeric revision/dated-snapshot suffixes):
 
@@ -49,19 +60,21 @@ Model refs use the `google:` prefix; `gemini:` is accepted as an alias.
 
 Exact IDs:
 
-- `gemini-3-flash-preview`
-- `gemini-3.1-flash-lite`
+- `gemini-3.6-flash` (recommended)
 - `gemini-3.5-flash`
+- `gemini-3.5-flash-lite`
 
-`gemini-2.5-computer-use-preview-10-2025` is deliberately not annotated: it
-rejects the standard function declarations this package sends and requires
-Google's native `tools.computer_use` request wrapper instead.
+Google computer use is configured explicitly with
+`cua.providers.google.toolsets.browser()`, which emits Google's native
+`tools.computer_use` declaration and current predefined browser actions.
+Partial catalogs exclude every unselected current action. Legacy and preview
+model/tool surfaces are intentionally not exposed.
 
 Source: [Gemini computer use docs](https://ai.google.dev/gemini-api/docs/computer-use).
 
 ## `meta`
 
-Coordinates: normalized 0–1000
+CLI default interaction: CUA browser primitives plus explicit `browser_act`.
 
 Exact IDs:
 
@@ -74,16 +87,15 @@ Source: [Meta computer-use cookbook](https://dev.meta.ai/docs/getting-started/co
 
 ## `xai`
 
-Coordinates: normalized 0–1000 (CUA function-tool contract)
+CLI default interaction: CUA browser primitives plus explicit `browser_act`.
 
 Exact IDs:
 
 - `grok-4.5`
 
-Grok 4.5 uses xAI's OpenAI-compatible Responses API with screenshot input and
-ordinary function tools. xAI does not define a native computer tool or
-coordinate protocol, so CUA supplies the browser actions and normalized
-coordinate instructions. Tool loops continue through `previous_response_id`.
+Grok 4.5 uses xAI's OpenAI-compatible Responses API with ordinary CUA browser
+function tools. xAI does not define a native computer tool. Tool loops continue
+through `previous_response_id`.
 CUA adds xAI's doubled token-price tier above 200k input tokens to pi-ai's
 Grok 4.5 model metadata.
 
@@ -91,7 +103,10 @@ Source: [Grok 4.5 docs](https://docs.x.ai/developers/grok-4-5), [function callin
 
 ## `moonshotai`
 
-Coordinates: normalized 0–1 fractions (CUA function-tool contract)
+CLI default interaction: CUA browser primitives only. Moonshot's API accepts the
+complex `browser_wait_for` schema but rejects a request outright once the much
+larger `browser_act` schema is attached, so `browser_act` is unavailable on
+Moonshot models and the catalog rejects it explicitly.
 
 Model refs use the `moonshotai:` prefix; `moonshot:` is accepted as an alias.
 
@@ -99,12 +114,10 @@ Exact IDs:
 
 - `kimi-k3`
 
-Kimi K3 uses Moonshot's OpenAI-compatible chat completions API with screenshot
-input and ordinary function tools. Moonshot does not define a native computer
-tool or coordinate protocol; Kimi's visual grounding emits width/height
-fractions from 0 to 1, so CUA declares that contract and scales to viewport
-pixels at execution. K3 launched with max-only thinking effort — other levels
-are clamped away until Moonshot ships them.
+Kimi K3 uses Moonshot's OpenAI-compatible chat completions API with ordinary
+CUA browser function tools. Moonshot does not define a native computer tool.
+K3 launched with max-only thinking effort—other levels are clamped away until
+Moonshot ships them.
 
 Source: [Kimi K3 announcement](https://www.kimi.com/blog/kimi-k3), [tool use](https://platform.kimi.ai/docs/api/tool-use), and [vision input](https://platform.kimi.ai/docs/guide/use-kimi-vision-model).
 

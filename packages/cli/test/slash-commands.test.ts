@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseSlashCommand } from "../src/tui/slash-commands";
+import { buildAutocompleteProvider, parseSlashCommand } from "../src/tui/slash-commands";
 
 describe("parseSlashCommand", () => {
 	it("returns undefined for non-slash input", () => {
@@ -13,6 +13,14 @@ describe("parseSlashCommand", () => {
 			argument: "openai:gpt-5.5",
 		});
 		expect(parseSlashCommand("/model")).toEqual({ command: "model", argument: "" });
+	});
+
+	it("parses /tools with and without an argument", () => {
+		expect(parseSlashCommand("/tools")).toEqual({ command: "tools", argument: "" });
+		expect(parseSlashCommand("/tools something")).toEqual({
+			command: "tools",
+			argument: "something",
+		});
 	});
 
 	it("parses /thinking with a reasoning level", () => {
@@ -41,5 +49,19 @@ describe("parseSlashCommand", () => {
 
 	it("returns undefined for unknown slash commands", () => {
 		expect(parseSlashCommand("/totally-unknown-command")).toBeUndefined();
+	});
+});
+
+describe("buildAutocompleteProvider", () => {
+	it("offers /tools alongside the other built-in commands", async () => {
+		const provider = buildAutocompleteProvider(process.cwd(), []);
+		const result = await provider.getSuggestions(["/"], 0, 1, {
+			signal: new AbortController().signal,
+		});
+		const names = (result?.items ?? []).map((item) => item.value);
+		expect(names).toContain("tools");
+		expect(names).toContain("model");
+		expect(names).toContain("thinking");
+		expect(names).toContain("compact");
 	});
 });

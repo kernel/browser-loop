@@ -81,11 +81,6 @@ function formatToolCall(name: string, args: unknown): string {
 			const more = actions.length > 4 ? colors.dim(` +${actions.length - 4} more`) : "";
 			return parts.join(colors.dim(" → ")) + more;
 		}
-		case "computer_use_extra": {
-			const action = typeof obj.action === "string" ? obj.action : "?";
-			if (action === "goto" && typeof obj.url === "string") return `goto(${obj.url})`;
-			return action;
-		}
 		case "playwright_execute":
 			return colors.dim(typeof obj.code === "string" ? truncate(obj.code.replace(/\s+/g, " ").trim(), 80) : "");
 		case "bash":
@@ -105,7 +100,7 @@ function truncate(text: string, max: number): string {
 }
 
 function describeAction(action: Record<string, unknown>): string {
-	const t = typeof action.type === "string" ? action.type : "";
+	const t = typeof action.action === "string" ? action.action : typeof action.type === "string" ? action.type : "";
 	const num = (v: unknown) => (typeof v === "number" ? Math.trunc(v) : 0);
 	switch (t) {
 		case "click":

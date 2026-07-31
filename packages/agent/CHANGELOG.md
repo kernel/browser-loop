@@ -1,11 +1,63 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 - 2026-07-29
 
-- Native Anthropic multi-action turns now stop after the first failed tool call.
-  Every remaining call in that assistant turn receives the provider-required
-  error result instead of executing against stale browser state. This applies
-  to both `CuaAgent` and `CuaAgentHarness` via provider-neutral runtime data.
+Breaking: `CuaAgent` and `CuaAgentHarness` now require one exact `tools` list and
+use composition instead of inheriting from pi's `Agent`/`AgentHarness`.
+
+- Add `getTools()` and atomic `setTools()`. Model changes recompile and
+  revalidate the full requested catalog. Empty catalogs are valid;
+  no tools or system-prompt text are inferred or appended. Catalog changes from
+  inside a tool require sequential execution, including model changes.
+- Remove `mode`, `nativeTool`, `extraTools`, `playwright`, `setMode()` /
+  `getMode()`, and implicit `computer_use_extra` behavior.
+- Add one shared `CuaExecutionResources` pool per agent/harness. Catalog and
+  model changes preserve the canonical translator, lazy raw-CDP browser
+  executor, refs, tabs, screenshots, and Playwright capability.
+- Define and export `CuaAgentTool` here (moved out of cua-ai, which now
+  compiles declaration-only catalogs). cua-agent owns all `AgentTool`
+  materialization — each CUA spec is materialized exactly once per shared
+  execution-resource pool — and owns implementation identity for
+  cache-preserving deferred-tool decisions: a reused `execute` function keeps
+  its identity across wrappers, a new `execute` or freshly created spec object
+  is a conservative replacement, and the same objects stay stable across model
+  recompilation.
+- Integrate pi 0.80.10 dynamic tool loading. Eligible additions made from inside
+  a running tool emit `addedToolNames`; outside-tool additions and all
+  provider-native changes are eager. Schema/executor replacements are treated
+  as real changes, not name-only no-ops.
+- Refactor atomic tools to operation-specific argument objects while preserving
+  the existing `browser_act` schema. Export `formatBrowserActResult()` so direct
+  application surfaces can render the same bounded plan feedback as agents.
+- Add mechanical `computer_batch` and `browser_batch` execution. Computer writes
+  coalesce across write-only runs and flush around reads; browser actions run
+  sequentially against shared ref state. Failure details include the failed
+  action index, completed reads, and skipped count.
+- Return screenshots only for explicit screenshot or zoom actions. Ordinary
+  writes return status text, semantic tools return structured feedback, and
+  failed batches replace images from earlier explicit screenshot steps with
+  textual markers.
+- Native multi-action turns stop after the first failed tool call. Every
+  remaining call in that assistant turn receives the configured error result
+  instead of executing against stale browser state.
+- Update shared examples to use the same browser-oriented provider catalogs as
+  the CLI: explicit `browser_act` plans where the provider accepts the schema,
+  browser primitives alone for Moonshot, and Anthropic native-browser selection
+  with model fallback.
+- Security: require `sharp` `^0.35.3` (was `^0.34.5`) to pick up the libvips
+  fixes for GHSA-f88m-g3jw-g9cj (CVE-2026-33327, CVE-2026-33328, CVE-2026-35590,
+  CVE-2026-35591). `sharp` decodes cloud-browser screenshots inside the
+  translator's `zoom()`, so this is the one advisory in this release that
+  touched attacker-influenced bytes. The APIs this package uses are unchanged by
+  sharp 0.35, and no source changes were needed. Two packaging notes for
+  installers: sharp 0.35 no longer ships an `install` lifecycle script, and it
+  no longer falls back to building from source — installing with
+  `--omit=optional`, or on a platform with no prebuilt `@img/sharp-*` binary,
+  now fails at import instead of silently compiling. sharp 0.35 requires Node
+  `>=20.9.0`, well below this package's floor.
+- Declare `engines.node` `>=22.19.0`. This is not a new requirement: every
+  `@earendil-works/pi-*` dependency already declares the same floor, so it was
+  previously enforced only transitively and never stated on this package.
 
 ## 0.7.0 - 2026-07-17
 

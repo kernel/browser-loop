@@ -1,7 +1,5 @@
-import type { AgentHarnessEvent, CuaAgentHarness, Session, Skill } from "@onkernel/cua-agent";
-import type { ImageContent } from "@onkernel/cua-ai";
+import type { AgentHarnessEvent, CuaAgentHarness, Skill } from "@onkernel/cua-agent";
 import { stderr, stdout } from "node:process";
-import { captureScreenshot } from "./harness-browser";
 import type { CuaBrowserHandle } from "./harness-browser";
 import { attachHarnessJsonlSink } from "./output/harness-jsonl";
 import { parseSkillInvocation } from "./harness-skills";
@@ -9,13 +7,10 @@ import { parseSkillInvocation } from "./harness-skills";
 export interface RunPrintOptions {
 	harness: CuaAgentHarness;
 	browserHandle: CuaBrowserHandle;
-	session: Session;
 	modelRef: string;
 	provider: string;
 	prompt: string;
 	skills?: Skill[];
-	/** When true, skip the auto-attached first-prompt screenshot (resume case). */
-	skipInitialScreenshot?: boolean;
 	verbose?: boolean;
 	jsonlMode?: boolean;
 	jsonlIncludeDeltas?: boolean;
@@ -64,8 +59,7 @@ export async function runPrint(opts: RunPrintOptions): Promise<number> {
 			if (opts.verbose) stderr.write(`[cua] expanded /skill:${invocation.skill.name}\n`);
 			assistant = await opts.harness.skill(invocation.skill.name, invocation.remainder || undefined);
 		} else {
-			const images = await maybeInitialScreenshot(opts);
-			assistant = await opts.harness.prompt(opts.prompt, images ? { images } : undefined);
+			assistant = await opts.harness.prompt(opts.prompt);
 		}
 		if (assistant.stopReason === "error" || assistant.stopReason === "aborted") {
 			throw new Error(assistant.errorMessage ?? `agent stopped with ${assistant.stopReason}`);
@@ -90,32 +84,4 @@ export async function runPrint(opts: RunPrintOptions): Promise<number> {
 		unsubscribeJsonl?.();
 	}
 	return exitCode;
-}
-
-async function maybeInitialScreenshot(opts: RunPrintOptions): Promise<ImageContent[] | undefined> {
-	if (opts.skipInitialScreenshot) return undefined;
-	// Browser mode's only frame is the viewport; skip the OS-display capture
-	// rather than mix coordinate frames on the first turn.
-	if (opts.harness.getMode() === "browser") return undefined;
-	const hasPriorTurn = await sessionHasPriorTurn(opts.session);
-	if (hasPriorTurn) return undefined;
-	const png = await captureScreenshot(opts.browserHandle.client, opts.browserHandle.browser.session_id);
-	if (!png) return undefined;
-	return [
-		{
-			type: "image",
-			data: png.toString("base64"),
-			mimeType: "image/png",
-		},
-	];
-}
-
-async function sessionHasPriorTurn(session: Session): Promise<boolean> {
-	const entries = await session.getBranch();
-	for (const entry of entries) {
-		if (entry.type === "message" && (entry.message.role === "user" || entry.message.role === "assistant")) {
-			return true;
-		}
-	}
-	return false;
 }

@@ -1,16 +1,11 @@
-import type { AgentHarnessEvent, CuaAgentHarness, Session } from "@onkernel/cua-agent";
-import type { AssistantMessage, ImageContent } from "@onkernel/cua-ai";
+import type { AgentHarnessEvent, CuaAgentHarness } from "@onkernel/cua-agent";
+import type { AssistantMessage } from "@onkernel/cua-ai";
 import { stderr, stdout } from "node:process";
-import { captureScreenshot, type CuaBrowserHandle } from "../harness-browser";
 import { type ActionRequest, buildPrompt, DEFAULT_MAX_TURNS } from "./prompts";
 import { type ActionEventInfo, type ActionResult, exitCodeFor, formatCompact, parseResult } from "./result";
 
 export interface HarnessRunOptions {
 	harness: CuaAgentHarness;
-	browserHandle: CuaBrowserHandle;
-	session: Session;
-	/** Skip the auto-attached first-prompt screenshot (resume case). */
-	skipInitialScreenshot?: boolean;
 	maxTurns?: number;
 }
 
@@ -73,8 +68,7 @@ export async function runAction(
 	let runError: Error | undefined;
 	let assistant: AssistantMessage | undefined;
 	try {
-		const images = await maybeInitialScreenshot(opts);
-		assistant = await opts.harness.prompt(prompt, images ? { images } : undefined);
+		assistant = await opts.harness.prompt(prompt);
 		if (assistant.stopReason === "error") {
 			runError = new Error(assistant.errorMessage ?? "agent stopped with error");
 		}
@@ -106,25 +100,6 @@ export async function runAction(
 	return { result, exitCode: exitCodeFor(result) };
 }
 
-async function maybeInitialScreenshot(opts: HarnessRunOptions): Promise<ImageContent[] | undefined> {
-	if (opts.skipInitialScreenshot) return undefined;
-	const hasPriorTurn = await sessionHasPriorTurn(opts.session);
-	if (hasPriorTurn) return undefined;
-	const png = await captureScreenshot(opts.browserHandle.client, opts.browserHandle.browser.session_id);
-	if (!png) return undefined;
-	return [{ type: "image", data: png.toString("base64"), mimeType: "image/png" }];
-}
-
-async function sessionHasPriorTurn(session: Session): Promise<boolean> {
-	const entries = await session.getBranch();
-	for (const entry of entries) {
-		if (entry.type === "message" && (entry.message.role === "user" || entry.message.role === "assistant")) {
-			return true;
-		}
-	}
-	return false;
-}
-
 function textFromAssistant(message: AssistantMessage): string {
 	const parts: string[] = [];
 	for (const block of message.content) {
@@ -136,19 +111,18 @@ function textFromAssistant(message: AssistantMessage): string {
 }
 
 /**
- * Collect click coordinates from canonical CUA tool calls. The harness
- * dispatches batched calls via `computer_batch` (args: { actions: [...] })
- * and single-action calls via per-action tools (args: cua action without
- * the `type` field, which we recover from the tool name).
+ * Collect click coordinates from canonical CUA computer or browser tool calls.
+ * Batch tools use `{ actions: [...] }`; single-action tools omit the canonical
+ * `type`, which is recovered from the tool name.
  */
 function collectActionEvent(toolName: string, args: unknown, events: ActionEventInfo[]): void {
-	if (toolName === "computer_batch") {
+	if (toolName === "computer_batch" || toolName === "browser_batch") {
 		const actions = (args as { actions?: unknown }).actions;
 		if (Array.isArray(actions)) {
 			for (const action of actions) {
 				if (action && typeof action === "object") {
 					addClickEvent(
-						(action as { type?: unknown }).type,
+						(action as { action?: unknown }).action ?? (action as { type?: unknown }).type,
 						(action as { x?: unknown }).x,
 						(action as { y?: unknown }).y,
 						events,
@@ -161,7 +135,10 @@ function collectActionEvent(toolName: string, args: unknown, events: ActionEvent
 	if (args && typeof args === "object") {
 		const x = (args as { x?: unknown }).x;
 		const y = (args as { y?: unknown }).y;
-		addClickEvent(toolName, x, y, events);
+		const type = toolName.startsWith("computer_")
+			? toolName.slice("computer_".length)
+			: toolName.startsWith("browser_") ? toolName.slice("browser_".length) : toolName;
+		addClickEvent(type, x, y, events);
 	}
 }
 

@@ -137,13 +137,12 @@ describe("InternalComputerTranslator", () => {
 		const translator = new InternalComputerTranslator({
 			browser: { ...browser, viewport: { width: 1920, height: 1080 } },
 			client,
-			coordinateSystem: { type: "normalized", range: [0, 1000] },
 		});
 
 		await translator.executeBatch([
 			{ type: "click", x: 500, y: 250 },
 			{ type: "drag", path: [{ x: 0, y: 0 }, { x: 1000, y: 1000 }] },
-		]);
+		], { type: "normalized", range: [0, 1000] });
 
 		expect(batches).toEqual([
 			[

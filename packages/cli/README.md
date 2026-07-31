@@ -31,6 +31,8 @@ cua --print "open https://example.com and tell me the heading"
 
 # Constrained one-shot subcommands (deterministic exit codes):
 cua open https://example.com
+cua snapshot --filter interactive
+cua act '{"steps":[{"type":"click","ref":"e12","expect":{"type":"text","text":"Done"}}]}'
 cua click "Sign in button"
 cua type "email field" "alice@example.com"
 cua press ctrl l                              # Ctrl+L (focus address bar)
@@ -42,9 +44,9 @@ cua do "buy a pair of socks on amazon" --max-steps 20
 # List and pick supported models:
 cua models
 cua models -p openai
-cua --print --model openai:gpt-5.5 "..."
+cua --print --model openai:gpt-5.6-sol "..."
 cua --print --model anthropic:claude-opus-5 "..."
-cua --print --model google:gemini-3-flash-preview "..."
+cua --print --model google:gemini-3.6-flash "..."
 cua --print --model meta:muse-spark-1.1 "..."
 cua --print --model xai:grok-4.5 "..."
 cua --print --model moonshotai:kimi-k3 "..."
@@ -66,6 +68,70 @@ cua --resume                                  # picker
 cua --session abc12345                        # by id prefix
 ```
 
+## Interactive commands
+
+Inside the TUI, `/` opens the command autocomplete. The supported commands are:
+
+| Command | Behavior |
+| --- | --- |
+| `/model` | Open an interactive, searchable model picker. |
+| `/model <provider:model>` | Switch directly, without opening the picker. An unresolvable ref reports the error and then opens the picker prefilled with what you typed. |
+| `/tools` | Open an interactive menu to enable/disable this session's model-callable tools. |
+| `/thinking <level>` | Set the reasoning level for future turns. |
+| `/compact` | Summarize older turns to free context budget. |
+| `/skill:<name> [args]` | Invoke a loaded skill. |
+
+### `/model` picker
+
+Type to fuzzy-search across the provider, ref, model id, and display name.
+`↑`/`↓` move (wrapping at both ends), `enter` selects, `esc` or `ctrl+c`
+cancels. The active model is listed first and marked with `✓`. Selecting a model
+runs the same switch as `/model <ref>`, including the tool revalidation
+described below. Nothing is written to disk except a named session's recorded
+model (`-s`).
+
+The picker lists every CUA-capable model; it does not check whether the
+provider's API key is set. Run `cua models` for the same catalog on stdout.
+
+### `/tools` picker
+
+`/tools` lists exactly the tools the CLI composed for the active model — the
+model's interaction tools plus the CLI's coding tools — and lets you disable a
+subset for the current session. It is a testing and debugging aid: it can only
+remove tools from that list, never add ones the model does not support.
+
+| Key | Action |
+| --- | --- |
+| `↑` / `↓` | Move the cursor |
+| `enter` | Toggle the highlighted tool |
+| `space` | Toggle the highlighted tool (only while the search box is empty, so queries stay typeable) |
+| `ctrl+a` / `ctrl+x` | Enable / disable everything listed (respects an active search) |
+| `ctrl+r` | Reset to the model's defaults |
+| `ctrl+s` | Apply the selection |
+| `esc` | Cancel |
+| `ctrl+c` | Clear an active search, or cancel when the search box is empty |
+
+Edits are staged: nothing is applied until `ctrl+s`, and cancelling leaves the
+live tool list untouched. Applying calls the harness's `setTools()`, which
+compiles and validates the whole catalog before mutating anything — so a
+rejected selection reports the error and leaves the session unchanged.
+
+Two constraints show up in the picker:
+
+- Provider-native action sets that cannot be partially suppressed (currently
+  Yutori n1) toggle as one group.
+- Disabling every tool is allowed and yields a text-only agent.
+
+Selections are session-only and never persisted. `/model` rebuilds the tool list
+from the new model's defaults and reports `tool selection reset to the new
+model's defaults`; tool identities are provider-specific, so a previous
+selection is not carried across a model change.
+
+Both pickers are unavailable while a turn is running: recompiling the tool
+catalog while a request is streaming is unsafe, so the TUI refuses to open them.
+(The agent's own execution-scope guard only covers mutation attempted from
+*inside* a tool's `execute`, so this TUI-side check is the protection here.)
+
 ## Models
 
 Run `cua models` to list every supported `-m` / `--model` value and the
@@ -75,8 +141,8 @@ provider it routes to. Filter by provider with `cua models -p openai`,
 (alias: `moonshot`), or `cua models -p yutori`.
 
 `-m` / `--model` accepts a provider-qualified `provider:model` ref (e.g.
-`openai:gpt-5.5`) or a bare model id when it matches exactly one catalog
-entry. The default is `openai:gpt-5.5`.
+`openai:gpt-5.6-sol`) or a bare model id when it matches exactly one catalog
+entry. The default is `openai:gpt-5.6-sol`.
 
 ## Configuration
 
@@ -109,15 +175,15 @@ Configuration is by environment variable. There is no config file.
 Use `--thinking <level>` (`off | minimal | low | medium | high | xhigh | max`,
 default `low`) for providers that support reasoning effort.
 
-## Playwright escape hatch
-
-Pass `--playwright` to expose the `playwright_execute` tool, letting the
-model run Playwright/TypeScript directly against the live browser session
-for steps that are awkward as raw pointer/keyboard actions (precise DOM
-reads, form fills, data extraction, waiting on selectors). `page`,
-`context`, and `browser` are in scope; the code may `return` a
-JSON-serializable value. Off by default. Verified e2e with Anthropic,
-Tzafon, and Yutori CUA models.
+The CLI chooses one explicit interaction catalog and appends pi's coding tools:
+CUA browser primitives plus the verified `browser_act` plan tool for OpenAI,
+Meta, xAI, and older Anthropic models; browser primitives alone for Moonshot,
+whose API rejects `browser_act`'s larger schema; Anthropic's native browser tool
+when supported; Google's native browser action set; Tzafon's native computer
+tool in a browser environment; and Yutori's native N1/N1.5 browser set. If the
+active Anthropic credential cannot access `browser_20260701`, the same selected
+browser tool uses its equivalent function transport. Library callers can select
+any catalog directly; see [`@onkernel/cua-agent`](../agent).
 
 ## Output formats
 
@@ -135,7 +201,7 @@ Add `--jsonl-include-deltas` for assistant-token deltas and
 The first event of every `--print -o jsonl` run is
 `session_created` with a `schema_version` field. The current schema
 version is `1`. The `model` field carries a provider-qualified ref
-(e.g. `openai:gpt-5.5`); use `parseCuaModelRef` from `@onkernel/cua-ai`
+(e.g. `openai:gpt-5.6-sol`); use `parseCuaModelRef` from `@onkernel/cua-ai`
 if you only need the bare model id.
 
 ## Sessions and transcripts

@@ -1,12 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Model, ToolCall } from "@earendil-works/pi-ai";
-import { getCuaModel, tzafon } from "../src/index";
+import { getCuaModel } from "../src/index";
+import * as tzafon from "../src/providers/tzafon/provider";
 
-const { responsesCreate } = vi.hoisted(() => ({ responsesCreate: vi.fn() }));
+const { lightconeConstructor, responsesCreate } = vi.hoisted(() => ({
+	lightconeConstructor: vi.fn(),
+	responsesCreate: vi.fn(),
+}));
 
 vi.mock("@tzafon/lightcone", () => ({
 	default: class {
 		responses = { create: responsesCreate };
+		constructor(options: unknown) {
+			lightconeConstructor(options);
+		}
 	},
 }));
 
@@ -17,6 +24,18 @@ function toolCalls(content: Array<{ type: string }>): ToolCall[] {
 }
 
 describe("streamTzafonResponses", () => {
+	it("configures the resolvable Tzafon API endpoint", async () => {
+		responsesCreate.mockResolvedValueOnce({ id: "resp_endpoint", usage: {}, output: [] });
+
+		await tzafon.streamTzafonResponses(model, { messages: [] }, { apiKey: "test" }).result();
+
+		expect(model.baseUrl).toBe("https://api.tzafon.ai");
+		expect(lightconeConstructor).toHaveBeenLastCalledWith(expect.objectContaining({
+			apiKey: "test",
+			baseURL: "https://api.tzafon.ai",
+		}));
+	});
+
 	it("derives unique ids when one computer_call expands to multiple actions", () => {
 		expect(tzafon.tzafonToolCallId("call_1", 0)).toBe("call_1");
 		expect(tzafon.tzafonToolCallId("call_1", 1)).toBe("call_1:1");
@@ -55,12 +74,15 @@ describe("streamTzafonResponses", () => {
 			output: [{ type: "computer_call", call_id: "call_2", action: { type: "left_click", x: "500", y: "250" } }],
 		});
 
-		const message = await tzafon.streamTzafonResponses(model, { messages: [] }, { apiKey: "test" }).result();
+		const message = await tzafon.streamTzafonResponses(model, { messages: [] }, {
+			apiKey: "test",
+			cuaIncomingToolPlan: { tzafonComputerName: "computer", yutoriNames: {}, googleNames: {}, googleExcludedNames: [], nativeToolNames: ["computer"] },
+		}).result();
 		expect(message.stopReason).toBe("toolUse");
 		const calls = toolCalls(message.content);
 		expect(calls).toHaveLength(1);
-		expect(calls[0]!.name).toBe("click");
-		expect(calls[0]!.arguments).toEqual({ x: 500, y: 250 });
+		expect(calls[0]!.name).toBe("computer");
+		expect(calls[0]!.arguments).toEqual({ action: { type: "left_click", x: "500", y: "250" } });
 	});
 
 	it("degrades malformed function-call arguments to empty args instead of failing the turn", async () => {
@@ -73,12 +95,15 @@ describe("streamTzafonResponses", () => {
 			],
 		});
 
-		const message = await tzafon.streamTzafonResponses(model, { messages: [] }, { apiKey: "test" }).result();
+		const message = await tzafon.streamTzafonResponses(model, { messages: [] }, {
+			apiKey: "test",
+			cuaIncomingToolPlan: { tzafonComputerName: "computer", yutoriNames: {}, googleNames: {}, googleExcludedNames: [], nativeToolNames: ["computer"] },
+		}).result();
 		expect(message.stopReason).toBe("toolUse");
 		expect(message.errorMessage).toBeUndefined();
 		const calls = toolCalls(message.content);
 		expect(calls).toHaveLength(2);
 		expect(calls[0]!).toMatchObject({ name: "custom_tool", arguments: {} });
-		expect(calls[1]!).toMatchObject({ name: "click", arguments: { x: 1, y: 2 } });
+		expect(calls[1]!).toMatchObject({ name: "computer", arguments: { action: { type: "left_click", x: 1, y: 2 } } });
 	});
 });

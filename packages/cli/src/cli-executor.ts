@@ -1,9 +1,17 @@
-import { InternalComputerTranslator, type BatchReadResult, type BrowserFindCandidate, type BrowserRefState } from "@onkernel/cua-agent";
+import {
+	formatBrowserActResult,
+	InternalComputerTranslator,
+	type BatchReadResult,
+	type BrowserFindCandidate,
+	type BrowserRefState,
+} from "@onkernel/cua-agent";
+import type { CuaActionBrowserAct } from "@onkernel/cua-ai";
 import { writeFile } from "node:fs/promises";
 import { stderr, stdout } from "node:process";
 import { emitCompact, type RunActionResult } from "./action/harness-runner";
 import { exitCodeFor, type ActionResult, type DeterministicActionType } from "./action/result";
-import { parseMode, parseNativeTool, provisionForFlags, requireKernelApiKey, type HarnessCliFlags } from "./cli-harness";
+import { parseBrowserActInput } from "./browser-act-input";
+import { provisionForFlags, requireKernelApiKey, type HarnessCliFlags } from "./cli-harness";
 import { readNamedSessionRefs, writeNamedSessionRefs } from "./harness-named-sessions";
 import { captureScreenshot, type CuaBrowserHandle } from "./harness-browser";
 
@@ -17,6 +25,7 @@ export type DeterministicRequest =
 	| { action: "open"; url: string }
 	| { action: "url" }
 	| { action: "snapshot"; filter?: "interactive" }
+	| { action: "act"; input: Omit<CuaActionBrowserAct, "type"> }
 	| { action: "text" }
 	| { action: "find"; query: string }
 	| { action: "fill"; query: string; value: string }
@@ -31,6 +40,7 @@ export const DETERMINISTIC_SUBCOMMANDS: ReadonlySet<string> = new Set<Determinis
 	"open",
 	"url",
 	"snapshot",
+	"act",
 	"text",
 	"find",
 	"fill",
@@ -117,6 +127,9 @@ export function parseDeterministicArgs(
 			}
 			return { action, ...(filter === "interactive" ? { filter } : {}) };
 		}
+		case "act":
+			if (rest.length !== 1) throw new Error("usage: cua act '<json>'");
+			return { action, input: parseBrowserActInput(rest[0]!) };
 		case "text":
 			if (rest.length > 0) throw new Error("usage: cua text");
 			return { action };
@@ -171,10 +184,6 @@ export async function runDeterministicCommand(
 	flags: HarnessCliFlags,
 ): Promise<number> {
 	const req = parseDeterministicArgs(action, rest, flags);
-	// Deterministic commands ignore the runtime mode, but an invalid value is
-	// still a usage error, same as the harness-backed entry points.
-	parseMode(flags.mode);
-	parseNativeTool(flags.nativeTool);
 	const { apiKey, baseUrl } = requireKernelApiKey();
 	const provisioned = await provisionForFlags(flags, { kernelApiKey: apiKey, kernelBaseUrl: baseUrl });
 	const name = flags.namedSession;
@@ -247,6 +256,13 @@ async function executeDeterministic(
 			case "snapshot": {
 				const reads = await translator.browser().execute({ type: "browser_snapshot", ...(req.filter ? { filter: req.filter } : {}) });
 				return finish({ action: req.action, status: "ok", text: readText(reads) });
+			}
+			case "act": {
+				const reads = await translator.browser().execute({ type: "browser_act", ...req.input });
+				const result = reads.find((read) => read.type === "browser_act")?.result;
+				if (!result) throw new Error("browser_act returned no plan result");
+				const completed = finish({ action: req.action, status: "ok", text: formatBrowserActResult(result) });
+				return { ...completed, exitCode: result.outcome === "worked" ? 0 : 1 };
 			}
 			case "text": {
 				const reads = await translator.browser().execute({ type: "browser_text" });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { type CuaAction, yutori } from "../src/index";
+import type { CuaAction } from "../src/index";
+import * as yutori from "../src/providers/yutori/actions";
 
 const n15CoreActionArgs = {
 	left_click: { coordinates: [500, 250] },

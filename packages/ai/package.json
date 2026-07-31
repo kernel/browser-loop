@@ -1,6 +1,6 @@
 {
   "name": "@onkernel/cua-ai",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Kernel-curated computer-use model access built on pi-ai",
   "license": "MIT",
   "type": "module",
@@ -31,6 +31,9 @@
   ],
   "publishConfig": {
     "access": "public"
+  },
+  "engines": {
+    "node": ">=22.19.0"
   },
   "scripts": {
     "build": "tsdown",

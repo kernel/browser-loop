@@ -8,8 +8,8 @@ import { listCuaModels } from "@onkernel/cua-ai";
 
 /**
  * Build an autocomplete provider for the TUI editor with the slash commands
- * the interactive app supports: `/model`, `/thinking`, `/compact`, plus a
- * `/skill:<name>` entry per loaded skill.
+ * the interactive app supports: `/model`, `/tools`, `/thinking`, `/compact`,
+ * plus a `/skill:<name>` entry per loaded skill.
  *
  * Model and thinking values are exposed as `getArgumentCompletions` so
  * users can tab through CUA refs and reasoning levels.
@@ -22,16 +22,14 @@ export function buildAutocompleteProvider(
 
 	commands.push({
 		name: "model",
-		description: "Switch the active CUA model",
+		description: "Switch the active CUA model (no argument opens the picker)",
 		argumentHint: "<provider:model>",
 		getArgumentCompletions: (prefix: string) => modelCompletions(prefix),
 	});
 
 	commands.push({
-		name: "mode",
-		description: "Switch the action plane(s): computer | browser | hybrid",
-		argumentHint: "<computer|browser|hybrid>",
-		getArgumentCompletions: (prefix: string) => modeCompletions(prefix),
+		name: "tools",
+		description: "Enable/disable model-callable tools for this session",
 	});
 
 	commands.push({
@@ -65,18 +63,6 @@ function modelCompletions(prefix: string): AutocompleteItem[] {
 	return filtered.map((m) => ({ value: m.ref, label: m.ref, description: m.name }));
 }
 
-const MODES: ReadonlyArray<{ value: string; description: string }> = [
-	{ value: "computer", description: "OS-level input only (default)" },
-	{ value: "browser", description: "CDP page tools: snapshot, find, click-by-ref, navigate, tabs" },
-	{ value: "hybrid", description: "Both planes: computer_* input + ref-only browser_* tools" },
-];
-
-function modeCompletions(prefix: string): AutocompleteItem[] {
-	const trimmed = prefix.trim().toLowerCase();
-	const filtered = trimmed ? MODES.filter((m) => m.value.startsWith(trimmed)) : MODES;
-	return filtered.map((m) => ({ value: m.value, label: m.value, description: m.description }));
-}
-
 const THINKING_LEVELS: ReadonlyArray<{ value: string; description: string }> = [
 	{ value: "off", description: "Disable reasoning" },
 	{ value: "minimal", description: "Minimal reasoning" },
@@ -94,7 +80,7 @@ function thinkingCompletions(prefix: string): AutocompleteItem[] {
 
 export type ParsedSlashCommand =
 	| { command: "model"; argument: string }
-	| { command: "mode"; argument: string }
+	| { command: "tools"; argument: string }
 	| { command: "thinking"; argument: string }
 	| { command: "compact"; argument: string }
 	| { command: "skill"; name: string; remainder: string };
@@ -111,11 +97,11 @@ export function parseSlashCommand(text: string): ParsedSlashCommand | undefined 
 		const [, name, rest] = skillMatch;
 		return { command: "skill", name: name ?? "", remainder: (rest ?? "").trim() };
 	}
-	const builtinMatch = trimmed.match(/^\/(model|mode|thinking|compact)\s*(.*)$/);
+	const builtinMatch = trimmed.match(/^\/(model|tools|thinking|compact)\s*(.*)$/);
 	if (builtinMatch) {
 		const [, name, rest] = builtinMatch;
 		return {
-			command: name as "model" | "mode" | "thinking" | "compact",
+			command: name as "model" | "tools" | "thinking" | "compact",
 			argument: (rest ?? "").trim(),
 		};
 	}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Context, Message, Model } from "@earendil-works/pi-ai";
-import { tzafon } from "../src/index";
+import * as tzafon from "../src/providers/tzafon/provider";
 
 const model = { id: "tzafon.northstar-cua-fast", maxTokens: 4096 } as Model<typeof tzafon.TZAFON_RESPONSES_API>;
 

@@ -12,30 +12,18 @@ cua "go to news.ycombinator.com and tell me the top 3 story titles"
 
 ## Why this exists
 
-Frontier models expose computer use through different tool protocols:
-
-- **OpenAI gpt-5.5**: a built-in `computer` tool that emits actions like
-  `{type:"click", x, y}`, `{type:"scroll", x, y, scroll_x, scroll_y}`,
-  `{type:"keypress", keys:[...]}`, …
-- **Anthropic claude-opus-5**: a built-in `computer_20251124` tool that
-  emits `{action:"left_click", coordinate:[x, y]}`,
-  `{action:"scroll", scroll_direction, scroll_amount}`, …
-- **Google gemini-2.5-pro / gemini-3.x**: a set of predefined
-  computer-use functions (`click_at`, `type_text_at`, `scroll_at`,
-  `navigate`, `go_back`, …) with 0-1000 normalized coordinates.
-- **Meta Muse Spark 1.1**: OpenAI-compatible Responses API function calls
-  paired with screenshot inputs and 0-1000 normalized coordinates.
-- **xAI Grok 4.5**: OpenAI-compatible Responses API function calls with
-  screenshot inputs, reasoning controls, and 0-1000 normalized coordinates.
-- **Yutori Navigator n1 / n1.5**: OpenAI-compatible `chat.completions`
-  responses with built-in browser action `tool_calls` like `left_click`,
-  `goto_url`, `type`, and `scroll` in 0-1000 normalized coordinates.
+Frontier models expose computer use through different protocols: native
+computer/browser declarations, predefined browser action sets, ordinary
+function tools, different coordinate systems, and different screenshot/result
+contracts. `@onkernel/cua-ai` represents those differences as an explicit,
+identity-keyed tool catalog. Callers choose the exact tools; provider transforms
+compose only the declarations and request fields required by those identities.
 
 All of them expect you to:
 
 1. Run a real browser somewhere (locally is annoying, on a server is hard).
 2. Translate every action into an actual SDK call against that browser.
-3. Capture a fresh screenshot after each action and feed it back to the model so it can verify what happened and plan the next step.
+3. Capture appropriate feedback from each action so the model can verify whether it had the intended effect.
 4. Keep doing this in a loop until the task is done.
 
 `cua` does all of this for you. The repo is structured as several focused npm packages so the per-provider plumbing is also reusable outside of this binary (e.g. by agents of your own spun up via [`kernel/cli`](https://github.com/kernel/cli) templates).
@@ -46,9 +34,10 @@ All of them expect you to:
 
 ```
 packages/
-├── ai/      # @onkernel/cua-ai    - CUA model catalog + tool schemas + provider adapters (on npm)
-├── agent/   # @onkernel/cua-agent - CuaAgent/CuaAgentHarness Kernel-browser execution loop (on npm)
-└── cli/     # @onkernel/cua-cli   - the `cua` binary; built on cua-agent + cua-ai
+├── ai/         # @onkernel/cua-ai    - model catalog, tool schemas, provider adapters
+├── agent/      # @onkernel/cua-agent - Kernel-browser tool execution
+├── cli/        # @onkernel/cua-cli   - the `cua` binary
+└── ptywright/  # @onkernel/ptywright - development-only PTY/TUI test infrastructure
 ```
 
 **Building your own agent? Start here:** [`packages/agent`](packages/agent)
@@ -57,7 +46,7 @@ computer-use loop against a Kernel browser. It sits on
 [`packages/ai`](packages/ai) (`@onkernel/cua-ai`), the model layer with the
 curated computer-use model catalog, canonical tool schemas, and per-provider
 adapters on top of pi-ai; reach for cua-ai directly only when you bring your
-own execution. Both are published to npm.
+own execution.
 
 ```mermaid
 flowchart LR
@@ -77,9 +66,10 @@ flowchart LR
 
 | Package                                 | What it ships                                                                                                                            |
 | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| [`@onkernel/cua-ai`](packages/ai)       | Computer-use model catalog (`getCuaModel`/`listCuaModels`), canonical CUA tool schemas, and provider adapters/runtime specs built on pi-ai. On npm. |
-| [`@onkernel/cua-agent`](packages/agent) | `CuaAgent`/`CuaAgentHarness` classes that execute cua-ai tool calls against a Kernel browser, screenshot loop included. On npm.          |
-| [`@onkernel/cua-cli`](packages/cli)     | The `cua` binary: argv parsing, sessions, skills, JSONL output, pi-tui front-end.                                                        |
+| [`@onkernel/cua-ai`](packages/ai)       | Computer-use model catalog, tool factories/toolsets, compatibility checks, and provider adapters.                         |
+| [`@onkernel/cua-agent`](packages/agent) | Agent and harness APIs that run selected computer-use tools against a Kernel browser.                                    |
+| [`@onkernel/cua-cli`](packages/cli)     | The `cua` binary: argv parsing, sessions, skills, JSONL output, pi-tui front-end.                                         |
+| [`@onkernel/ptywright`](packages/ptywright) | Development-only PTY/TUI test infrastructure.                                                                         |
 
 ---
 
@@ -101,9 +91,9 @@ npx tsx packages/cli/src/cli.ts --help
 #   cua() { "$CUA_REPO/node_modules/.bin/tsx" "$CUA_REPO/packages/cli/src/cli.ts" "$@"; }
 
 # set API keys via env vars
-export OPENAI_API_KEY=sk-...                 # for gpt-5.5
+export OPENAI_API_KEY=sk-...                 # for gpt-5.6-sol
 export ANTHROPIC_API_KEY=sk-ant-...          # for claude-opus-5
-export GOOGLE_API_KEY=...                    # for gemini-3-flash-preview
+export GOOGLE_API_KEY=...                    # for gemini-3.6-flash
 export META_API_KEY=...                      # for muse-spark-1.1
 export XAI_API_KEY=xai-...                   # for grok-4.5
 export MOONSHOT_API_KEY=sk-...               # for kimi-k3
@@ -120,7 +110,7 @@ cua models
 cua -p --model claude-opus-5 "Same prompt"
 
 # Gemini 3 Flash (built-in computer use)
-cua -p --model gemini-3-flash-preview "Same prompt"
+cua -p --model gemini-3.6-flash "Same prompt"
 
 # Meta Muse Spark
 cua -p --model meta:muse-spark-1.1 "Same prompt"
@@ -156,23 +146,21 @@ cua -p -o jsonl "open example.com and tell me the heading"
 
 ## How it works
 
-1. **Model layer** — `@onkernel/cua-ai` owns the curated computer-use
-   model catalog (`getCuaModel`/`listCuaModels`), the canonical CUA
-   tool-call schemas, and per-provider adapters on top of `pi-ai` so
-   every model emits the same `CuaAction` vocabulary.
-2. **Execution layer** — `@onkernel/cua-agent` wraps `pi-agent-core`'s
-   `Agent`/`AgentHarness`. `CuaAgentHarness` runs the
-   prompt/screenshot/tool loop against a Kernel browser: it dispatches
-   canonical CUA tool calls into Kernel SDK `browsers.computer.*` calls
-   and captures a fresh screenshot back to the model on every turn.
+1. **Model layer** — `@onkernel/cua-ai` owns the curated model catalog,
+   stable tool identities, explicit tool factories/toolsets, compatibility
+   checks, and provider declarations/headers/payload transforms.
+2. **Execution layer** — `@onkernel/cua-agent` composes around
+   `pi-agent-core`'s `Agent`/`AgentHarness`. It materializes the caller's exact
+   catalog over one shared resource pool and executes canonical actions through
+   Kernel's computer API or a raw-CDP browser executor.
 3. **CLI** — `@onkernel/cua-cli` assembles a `CuaAgentHarness` from
    command-line flags, env-var-based API keys, a `JsonlSessionRepo` for
    transcripts, and pi skills; renders the result either as plain text
    (`--print`), JSONL events (`-o jsonl`), or an interactive pi-tui
    front-end.
 4. **Browser** — a fresh Kernel cloud browser session per run (or per
-   resume) with optional named profile load/save. Every screenshot the
-   model sees is a real PNG of a real browser tab.
+   resume) with optional named profile load/save. The model requests screenshots
+   explicitly when it needs visual feedback.
 
 See [`docs/architecture.md`](docs/architecture.md) for the full
 end-to-end flow.
@@ -189,6 +177,9 @@ Highlights:
 - `-p`/`--print` for single-shot mode; `-o jsonl` for structured output.
 - `cua models` to list supported `-m`/`--model` values and their providers.
 - `-m`/`--model <id>` to choose one of those supported models.
+- `/model` in the TUI for a searchable model picker; `/model <id>` still
+  switches directly.
+- `/tools` in the TUI to enable or disable tools for the current session.
 - `-s`/`--session-name <name>` to reuse a `cua session start`-allocated
   Kernel browser across calls.
 - `-c`/`--continue`, `-r`/`--resume`, `--session <ref>` for transcript
@@ -210,6 +201,7 @@ deterministic code. Designed for shell agents to chain.
 | Subcommand                          | Result on stdout                                | Exit codes                  |
 | ----------------------------------- | ----------------------------------------------- | --------------------------- |
 | `cua open <url>`                    | `ok`                                            | 0 ok, 2 error               |
+| `cua act '<json>'`                  | bounded semantic plan result                    | 0 worked, 1 unmet, 2 error  |
 | `cua click "<description>"`         | `ok clicked (x, y)` or `not_found <reason>`     | 0, 1 not_found, 2 error     |
 | `cua type "<target>" "<text>"`      | `ok typed` or `not_found <reason>`              | 0, 1 not_found, 2 error     |
 | `cua press <key> [<key>...]`        | `ok pressed`                                    | 0 ok, 2 error               |
@@ -241,7 +233,7 @@ cua session list           # tab-formatted: NAME, KERNEL_ID, AGE, LIVE_URL
 cua session show login     # full JSON: kernel_session_id, live_url, transcript_path, ...
 ```
 
-`-s <name>` works for ALL modes (action subcommands, `--print`, the
+`-s <name>` works for all invocation styles (action subcommands, `--print`, the
 interactive TUI). Liveness is checked before each attach: if the Kernel
 browser timed out, the call fails with a clear "session no longer
 alive" error suggesting `cua session stop <name> && cua session start
@@ -262,10 +254,10 @@ agent behavior.
 `~/.local/share/cua/sessions/`). For named sessions, the exact path is
 in the `transcript_path` field of `cua session show <name>`.
 
-**Format**: one JSON object per line. Roles: `user`, `assistant`,
-`toolResult` (from pi-coding-agent's `SessionManager`). There's also a
-custom `cua-browser` entry written once per session with
-`kernel_session_id` / `live_url` / `profile_id`.
+**Format**: one pi `SessionManager` record per line. Conversation records have
+`type: "message"`; their role and content are nested under `.message`. A custom
+record with `customType: "cua-browser"` stores `sessionId`, `liveUrl`, and
+optional `profileId` under `.data`.
 
 **Opting out**: `--no-session` keeps the run in-memory only. One-shot
 action subcommands (without `-s`) also skip the transcript, since
@@ -277,18 +269,20 @@ they're already self-contained.
 TRANSCRIPT=~/.local/share/cua/sessions/<cwd>/<id>.jsonl
 
 # Every tool call the agent made, in order
-jq -c 'select(.role == "assistant") | .content[]?
-       | select(.type == "tool_use") | {name, input}' \
-   "$TRANSCRIPT"
+jq -c 'select(.type == "message" and .message.role == "assistant")
+       | .message.content[]? | select(.type == "toolCall")
+       | {name, arguments}' "$TRANSCRIPT"
 
 # Largest tool-result screenshot (handy when chasing context-window blowups)
-jq -c 'select(.role == "toolResult") | .content[]?
-       | select(.type == "image") | {len: (.data | length)}' \
-   "$TRANSCRIPT" | sort -t: -k2 -n | tail -1
+jq -c 'select(.type == "message" and .message.role == "toolResult")
+       | .message.content[]? | select(.type == "image")
+       | {len: (.data | length)}' "$TRANSCRIPT" \
+  | sort -t: -k2 -n | tail -1
 
 # Final assistant text (the answer)
-jq -r 'select(.role == "assistant") | .content[]?
-       | select(.type == "text") | .text' "$TRANSCRIPT" | tail -1
+jq -r 'select(.type == "message" and .message.role == "assistant")
+       | .message.content[]? | select(.type == "text") | .text' \
+  "$TRANSCRIPT" | tail -1
 ```
 
 `--print -o jsonl` is a separate live-event stream (one event per line
@@ -343,7 +337,8 @@ skills/
 packages/
 ├── ai/              # @onkernel/cua-ai — model layer (see packages/ai/README.md)
 ├── agent/           # @onkernel/cua-agent — Kernel-browser execution layer (see packages/agent/README.md)
-└── cli/             # @onkernel/cua-cli — the `cua` binary (see packages/cli/README.md)
+├── cli/             # @onkernel/cua-cli — the `cua` binary (see packages/cli/README.md)
+└── ptywright/       # @onkernel/ptywright — development-only PTY/TUI test infrastructure
 ```
 
 ---

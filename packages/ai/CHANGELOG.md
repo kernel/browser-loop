@@ -1,20 +1,58 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 - 2026-07-29
 
+Breaking: agent tools are now one explicit, identity-keyed catalog. The mode,
+implicit-tool, and runtime-spec APIs are removed.
+
+- Add the frozen `cua` namespace with atomic browser/computer/Playwright tools,
+  `browser`/`computer`/`mixed` convenience toolsets, mechanical batch tools,
+  coordinate contracts, and provider-native tools/toolsets.
+- Add `compileCuaToolCatalog()` with stable identities; exact requested-order
+  preservation; schema/catalog fingerprints; exact and
+  provider-normalized collision checks; model compatibility checks; inspectable
+  declarations; dynamic-loading eligibility; generated header composition;
+  ordered payload transforms; and incoming native-call plans.
+- Catalog compilation is declaration-only and deterministic: it accepts CUA
+  specs and sanitized caller `Tool` declarations plus a viewport, returns
+  pi-ai `Tool` declarations (`catalog.toolDeclarations`) and provider plans,
+  and never constructs executable tools or retains the requested inputs.
+  `callerToolIdentity()` is the single canonical identity scheme for caller
+  tools, shared with cua-agent and cua-cli. The package no longer depends on
+  `@earendil-works/pi-agent-core`; materialization and implementation identity
+  live in `@onkernel/cua-agent`.
+- Remove `resolveCuaRuntimeSpec`, `CuaRuntimeSpec`, `CuaMode`, mode inference,
+  legacy native-tool switches, implicit navigation tools, and provider-owned
+  default prompt selection from the public API.
+- Provider-native declarations now compose by selected identity with ordinary
+  functions. Add fixed-version Anthropic computer/browser factories, OpenAI
+  native computer composition, Tzafon viewport-aware declaration replacement,
+  Google's current predefined browser toolset, and identity-scoped Yutori
+  native selection. Every provider surface exposes its first-party source.
+- Add deterministic provider composition: generated model preparation, tool
+  serialization, provider fields, then caller payload hooks.
+  Header requirements merge without overwriting unrelated caller headers.
+- Add a Google Interactions API adapter plus current `computer_use` browser
+  action names and `[0, 999]` coordinates. Exact-subset declarations exclude
+  every unselected current action, and excluded incoming calls fail with a
+  named catalog error. Support the documented `gemini-3.6-flash`,
+  `gemini-3.5-flash`, and `gemini-3.5-flash-lite` models.
 - Add `anthropic:claude-opus-5` with its 1M-token context window, 128k output
-  limit, adaptive thinking levels, and current pricing. Opus 5 is also accepted
-  by both July 2026 Anthropic native tools.
-- Fail locally when `computer_20260701` or `browser_20260701` is paired with
-  an Anthropic model that the live early-access API rejects. The verified
-  computer models are Claude Fable 5, Claude Opus 4.8, Claude Opus 5, and
-  Claude Sonnet 5; the verified browser models are Claude Opus 4.8, Claude
-  Opus 5, and Claude Sonnet 5.
-- Carry each native tool's stop-on-first-failure result contract through
-  `CuaRuntimeSpec`, allowing cua-agent to skip unsafe remaining actions without
-  a provider conditional.
-- Add opt-in live integration coverage for the beta header, native declaration,
-  and pi-ai serialization path of both July 2026 tools.
+  limit, adaptive thinking levels, and July 2026 native-tool compatibility.
+  Native `browser_20260701` transparently retries through an equivalent
+  function-tool declaration when the active credential lacks beta access.
+- Add the verified `openai:gpt-5.6-sol` model.
+- Expose Google's predefined actions through `browser()` only. Remove legacy
+  Google actions and the Meta/xAI/Moonshot coordinate toolsets; those
+  custom-function providers use the standard CUA browser toolset.
+- Validate large function schemas separately from ordinary nested schemas.
+  Moonshot retains CUA browser primitives and `browser_wait_for`, but catalog
+  compilation now rejects `browser_act`, whose larger schema its API refuses.
+- Native tool execution metadata carries stop-on-first-failure policy without
+  introducing provider branches in cua-agent.
+- Declare `engines.node` `>=22.19.0`. This is not a new requirement: every
+  `@earendil-works/pi-*` dependency already declares the same floor, so it was
+  previously enforced only transitively and never stated on this package.
 
 ## 0.7.0 - 2026-07-17
 

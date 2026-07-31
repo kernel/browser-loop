@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getCuaModel } from "../src/models";
-import { anthropicAdaptiveThinkingOnPayload } from "../src/providers/anthropic";
+import { anthropicAdaptiveThinkingOnPayload } from "../src/providers/anthropic/adaptive-thinking";
 
 describe("anthropicAdaptiveThinkingOnPayload", () => {
 	it("converts Sonnet 5 manual thinking to adaptive thinking with effort", () => {

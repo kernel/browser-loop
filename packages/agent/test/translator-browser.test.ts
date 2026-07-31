@@ -1,11 +1,11 @@
 import type Kernel from "@onkernel/sdk";
 import sharp from "sharp";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { CuaBrowserAction } from "@onkernel/cua-ai";
 import { BrowserExecutor } from "../src/translator/browser";
 import type { BrowserRefState } from "../src/translator/browser-ref-lifecycle";
 import { CdpProtocolError, type CdpConnection } from "../src/translator/cdp";
-import { buildCuaComputerTools, formatBrowserActResult } from "../src/tools";
+import { formatBrowserActResult } from "../src/browser-result-format";
 import { runBrowserAct, type BrowserActRuntime } from "../src/translator/browser-act";
 import { evaluateBrowserExpectation, waitForBrowserExpectation } from "../src/translator/browser-wait";
 import { diffObservations, type BrowserObservation, type BrowserPresentation } from "../src/translator/browser-observation";
@@ -580,6 +580,11 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 	let cursorBackendIds: number[] = [];
 	let loaderId: string | undefined = "L0";
 	let mainFrameId = "TARGET-1";
+	let runtimeValue: unknown = "hello";
+	let autoNavigationLifecycle = true;
+	let historyNavigationMode: "load" | "bfcache" = "load";
+	let navigationSequence = 0;
+	const navigationHistory = { currentIndex: 1, entries: [{ id: 1, url: "https://before.test" }, { id: 2, url: "https://a.test" }, { id: 3, url: "https://after.test" }] };
 	const sessionTrees = new Map<string, Array<{ backendDOMNodeId?: number }>>();
 	const frameTrees = new Map<string, Array<{ backendDOMNodeId?: number }>>();
 	const iframeFrameIds = new Map<number, string>();
@@ -681,7 +686,31 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 					return { object: { objectId: "node-obj" } };
 				case "Runtime.evaluate":
 					if (params.returnByValue === false) return { result: { objectId: "cursor-scan" } };
-					return { result: { value: "hello" } };
+					return { result: { value: runtimeValue } };
+				case "Page.navigate": {
+					const nextLoaderId = `NAV-${++navigationSequence}`;
+					if (autoNavigationLifecycle) {
+						emit({ method: "Page.frameNavigated", params: { frame: { id: mainFrameId, loaderId: nextLoaderId } }, sessionId });
+						emit({ method: "Page.lifecycleEvent", params: { frameId: mainFrameId, loaderId: nextLoaderId, name: "load" }, sessionId });
+					}
+					return { frameId: mainFrameId, loaderId: nextLoaderId };
+				}
+				case "Page.getNavigationHistory":
+					return navigationHistory;
+				case "Page.navigateToHistoryEntry": {
+					const nextLoaderId = `HISTORY-${++navigationSequence}`;
+					if (historyNavigationMode === "bfcache") {
+						emit({
+							method: "Page.frameNavigated",
+							params: { frame: { id: mainFrameId, loaderId: nextLoaderId }, type: "BackForwardCacheRestore" },
+							sessionId,
+						});
+					} else {
+						emit({ method: "Page.frameNavigated", params: { frame: { id: mainFrameId, loaderId: nextLoaderId }, type: "Navigation" }, sessionId });
+						emit({ method: "Page.lifecycleEvent", params: { frameId: mainFrameId, loaderId: nextLoaderId, name: "load" }, sessionId });
+					}
+					return {};
+				}
 				case "Runtime.getProperties":
 					return {
 						result: [
@@ -728,6 +757,15 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 	const setMainFrameId = (id: string) => {
 		mainFrameId = id;
 	};
+	const setRuntimeValue = (value: unknown) => {
+		runtimeValue = value;
+	};
+	const setNavigationAutoLifecycle = (enabled: boolean) => {
+		autoNavigationLifecycle = enabled;
+	};
+	const setHistoryNavigationMode = (mode: "load" | "bfcache") => {
+		historyNavigationMode = mode;
+	};
 	const setFrameLoaderId = (frameKey: string, id: string) => {
 		frameLoaderIds.set(frameKey, id);
 	};
@@ -767,6 +805,9 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 		setBoxModel,
 		setLoaderId,
 		setMainFrameId,
+		setRuntimeValue,
+		setNavigationAutoLifecycle,
+		setHistoryNavigationMode,
 		setFrameLoaderId,
 		addAutoAttachFrame,
 		failOn,
@@ -881,27 +922,215 @@ describe("BrowserExecutor ref lifecycle", () => {
 	});
 
 	it("does not let a same-document navigation suppress the next real navigation's invalidation", async () => {
-		const { cdp, emit } = createFakeCdp(BUTTON_TREE);
-		const executor = new BrowserExecutor(cdp);
-		await executor.execute({ type: "browser_navigate", url: "https://a.test/#section" } as CuaBrowserAction);
-		emit({ method: "Page.navigatedWithinDocument", params: { frameId: "TARGET-1", url: "https://a.test/#section" }, sessionId: "session-1" });
+		const fake = createFakeCdp(BUTTON_TREE);
+		fake.setNavigationAutoLifecycle(false);
+		let commandSent!: () => void;
+		const sent = new Promise<void>((resolve) => { commandSent = resolve; });
+		fake.setSendHook((method) => { if (method === "Page.navigate") commandSent(); });
+		const executor = new BrowserExecutor(fake.cdp);
+		const navigation = executor.execute({ type: "browser_navigate", url: "https://a.test/#section" } as CuaBrowserAction);
+		await sent;
+		fake.emit({ method: "Page.navigatedWithinDocument", params: { frameId: "TARGET-1", url: "https://a.test/#section" }, sessionId: "session-1" });
+		await navigation;
 		await snapshotText(executor);
 
-		emit({ method: "Page.frameNavigated", params: { frame: { id: "TARGET-1" } }, sessionId: "session-1" });
+		fake.emit({ method: "Page.frameNavigated", params: { frame: { id: "TARGET-1" } }, sessionId: "session-1" });
 		await expect(executor.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction)).rejects.toThrow(/stale/);
 	});
 
 	it("does not double-bump the generation for its own navigate", async () => {
-		const { cdp, emit } = createFakeCdp(BUTTON_TREE);
+		const { cdp } = createFakeCdp(BUTTON_TREE);
 		const executor = new BrowserExecutor(cdp);
 		await executor.execute({ type: "browser_navigate", url: "https://b.test" } as CuaBrowserAction);
 		const text = await snapshotText(executor);
 		expect(text).toContain('button "Save" [e1]');
-
-		emit({ method: "Page.frameNavigated", params: { frame: { id: "F1" } }, sessionId: "session-1" });
 		await expect(executor.execute({ type: "browser_click", ref: "e1" } as CuaBrowserAction)).resolves.toEqual([]);
 	});
 });
+
+describe("BrowserExecutor navigation stabilization", () => {
+	it("registers lifecycle observation before navigate and accepts a load completed before command acknowledgement", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		const executor = new BrowserExecutor(fake.cdp);
+
+		await expect(executor.execute({ type: "browser_navigate", url: "https://fast.test" } as CuaBrowserAction)).resolves.toEqual([
+			expect.objectContaining({ type: "browser_text", label: "navigate" }),
+		]);
+
+		const lifecycleEnable = fake.sent.findIndex((command) => command.method === "Page.setLifecycleEventsEnabled");
+		const navigate = fake.sent.findIndex((command) => command.method === "Page.navigate");
+		expect(lifecycleEnable).toBeGreaterThanOrEqual(0);
+		expect(lifecycleEnable).toBeLessThan(navigate);
+	});
+
+	it("ignores lifecycle events from other targets and frames", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		fake.setMainFrameId("FRAME-1");
+		fake.setNavigationAutoLifecycle(false);
+		let commandSent!: () => void;
+		const sent = new Promise<void>((resolve) => { commandSent = resolve; });
+		fake.setSendHook((method) => { if (method === "Page.navigate") commandSent(); });
+		const executor = new BrowserExecutor(fake.cdp);
+		let settled = false;
+		const navigation = executor.execute({ type: "browser_navigate", url: "https://new.test" } as CuaBrowserAction)
+			.then((result) => { settled = true; return result; });
+
+		await sent;
+		fake.emit({ method: "Page.lifecycleEvent", params: { frameId: "FRAME-1", loaderId: "NAV-1", name: "load" }, sessionId: "session-2" });
+		fake.emit({ method: "Page.lifecycleEvent", params: { frameId: "CHILD-1", loaderId: "NAV-1", name: "load" }, sessionId: "session-1" });
+		await flushMicrotasks();
+		expect(settled).toBe(false);
+
+		fake.emit({ method: "Page.lifecycleEvent", params: { frameId: "FRAME-1", loaderId: "NAV-1", name: "load" }, sessionId: "session-1" });
+		await expect(navigation).resolves.toEqual([expect.objectContaining({ type: "browser_text", label: "navigate" })]);
+	});
+
+	it("waits for the final main-frame loader when navigation redirects", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		fake.setNavigationAutoLifecycle(false);
+		let commandSent!: () => void;
+		const sent = new Promise<void>((resolve) => { commandSent = resolve; });
+		fake.setSendHook((method) => { if (method === "Page.navigate") commandSent(); });
+		const executor = new BrowserExecutor(fake.cdp);
+		let settled = false;
+		const navigation = executor.execute({ type: "browser_navigate", url: "https://redirect.test" } as CuaBrowserAction)
+			.then((result) => { settled = true; return result; });
+
+		await sent;
+		fake.emit({ method: "Page.frameNavigated", params: { frame: { id: "TARGET-1", loaderId: "NAV-1" } }, sessionId: "session-1" });
+		fake.emit({ method: "Page.frameNavigated", params: { frame: { id: "TARGET-1", loaderId: "REDIRECT-2" } }, sessionId: "session-1" });
+		fake.emit({ method: "Page.lifecycleEvent", params: { frameId: "TARGET-1", loaderId: "NAV-1", name: "load" }, sessionId: "session-1" });
+		await flushMicrotasks();
+		expect(settled).toBe(false);
+
+		fake.emit({ method: "Page.lifecycleEvent", params: { frameId: "TARGET-1", loaderId: "REDIRECT-2", name: "load" }, sessionId: "session-1" });
+		await expect(navigation).resolves.toEqual([expect.objectContaining({ type: "browser_text", label: "navigate" })]);
+	});
+
+	it("returns fresh text after navigate in one mechanical batch", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		fake.setNavigationAutoLifecycle(false);
+		let loaded = false;
+		fake.setTargetProvider(() => [{
+			targetId: "TARGET-1",
+			type: "page",
+			title: loaded ? "Fresh" : "Stale",
+			url: loaded ? "https://fresh.test" : "https://stale.test",
+		}]);
+		let commandSent!: () => void;
+		const sent = new Promise<void>((resolve) => { commandSent = resolve; });
+		fake.setSendHook((method) => { if (method === "Page.navigate") commandSent(); });
+		const { client } = createClient();
+		const translator = new InternalComputerTranslator({
+			browser,
+			client,
+			createBrowserExecutor: () => new BrowserExecutor(fake.cdp),
+		});
+		let settled = false;
+		const batch = translator.executeBatch([
+			{ type: "browser_navigate", url: "https://fresh.test" },
+			{ type: "browser_text" },
+		]).then((result) => { settled = true; return result; });
+
+		await sent;
+		await flushMicrotasks();
+		expect(settled).toBe(false);
+		expect(fake.sent.some((command) => command.method === "Runtime.evaluate")).toBe(false);
+		loaded = true;
+		fake.setRuntimeValue("fresh body");
+		fake.emit({ method: "Page.frameNavigated", params: { frame: { id: "TARGET-1", loaderId: "NAV-1" } }, sessionId: "session-1" });
+		fake.emit({ method: "Page.lifecycleEvent", params: { frameId: "TARGET-1", loaderId: "NAV-1", name: "load" }, sessionId: "session-1" });
+
+		const result = await batch;
+		expect(result.readResults).toEqual([
+			expect.objectContaining({ type: "browser_text", label: "navigate", text: expect.stringContaining('"Fresh" (https://fresh.test)') }),
+			{ type: "browser_text", label: "text", text: "fresh body" },
+		]);
+	});
+
+	it("cleans up promptly when navigation is interrupted", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		fake.setNavigationAutoLifecycle(false);
+		let commandSent!: () => void;
+		const sent = new Promise<void>((resolve) => { commandSent = resolve; });
+		fake.setSendHook((method) => { if (method === "Page.navigate") commandSent(); });
+		const executor = new BrowserExecutor(fake.cdp);
+		const controller = new AbortController();
+		const navigation = executor.execute({ type: "browser_navigate", url: "https://slow.test" } as CuaBrowserAction, controller.signal);
+		await sent;
+		await flushMicrotasks();
+		controller.abort(new Error("stop navigation"));
+
+		await expect(navigation).rejects.toThrow("stop navigation");
+		expect((executor as unknown as { pendingNavigations: Map<string, unknown> }).pendingNavigations.size).toBe(0);
+		expect((executor as unknown as { selfNavigations: Set<string> }).selfNavigations.size).toBe(0);
+	});
+
+	it("owns a bounded stabilization timeout and invalidates refs atomically", async () => {
+		vi.useFakeTimers();
+		try {
+			const fake = createFakeCdp(BUTTON_TREE);
+			fake.setNavigationAutoLifecycle(false);
+			const executor = new BrowserExecutor(fake.cdp);
+			await snapshotText(executor);
+			const navigation = executor.execute({ type: "browser_navigate", url: "https://never-loads.test" } as CuaBrowserAction);
+			await flushMicrotasks(12);
+			expect(fake.sent.some((command) => command.method === "Page.navigate")).toBe(true);
+			expect(refsOf(executor).size).toBe(0);
+			const rejected = expect(navigation).rejects.toThrow(/timed out after 10000ms waiting for main-frame load/);
+			await vi.advanceTimersByTimeAsync(10_000);
+			await rejected;
+			expect((executor as unknown as { pendingNavigations: Map<string, unknown> }).pendingNavigations.size).toBe(0);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("completes a non-bfcache history navigation after its fresh loader emits load", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		fake.setHistoryNavigationMode("load");
+		const executor = new BrowserExecutor(fake.cdp);
+
+		await expect(executor.execute({ type: "browser_navigate", url: "back" } as CuaBrowserAction)).resolves.toEqual([
+			expect.objectContaining({ type: "browser_text", label: "navigate", text: expect.stringContaining("Navigated back") }),
+		]);
+		expect(fake.sent).toContainEqual(expect.objectContaining({ method: "Page.navigateToHistoryEntry", params: { entryId: 1 } }));
+	});
+
+	it.each([
+		["back", 1],
+		["forward", 3],
+	] as const)("completes %s promptly when history restores from bfcache without load events", async (direction, entryId) => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		fake.setHistoryNavigationMode("bfcache");
+		let commandSent!: () => void;
+		const sent = new Promise<void>((resolve) => { commandSent = resolve; });
+		fake.setSendHook((method) => { if (method === "Page.navigateToHistoryEntry") commandSent(); });
+		const executor = new BrowserExecutor(fake.cdp);
+		const controller = new AbortController();
+		let settled = false;
+		let result: Awaited<ReturnType<BrowserExecutor["execute"]>> | undefined;
+		const navigation = executor.execute({ type: "browser_navigate", url: direction } as CuaBrowserAction, controller.signal)
+			.then((value) => { settled = true; result = value; return value; });
+
+		await sent;
+		await flushMicrotasks(12);
+		try {
+			expect(settled).toBe(true);
+			expect(result).toEqual([
+				expect.objectContaining({ type: "browser_text", label: "navigate", text: expect.stringContaining(`Navigated ${direction}`) }),
+			]);
+		} finally {
+			if (!settled) controller.abort(new Error("bfcache navigation did not settle promptly"));
+			await navigation.catch(() => {});
+		}
+		expect(fake.sent).toContainEqual(expect.objectContaining({ method: "Page.navigateToHistoryEntry", params: { entryId } }));
+	});
+});
+
+async function flushMicrotasks(count = 6): Promise<void> {
+	for (let index = 0; index < count; index += 1) await Promise.resolve();
+}
 
 describe("BrowserExecutor snapshot rendering", () => {
 	it("indents by rendered depth so skipped wrappers neither indent nor consume the depth budget", async () => {
@@ -1894,50 +2123,6 @@ describe("BrowserExecutor observation fencing", () => {
 		).rejects.toThrow(/observation changed/i);
 		expect(fake.sent.filter((command) => command.method === "Accessibility.getFullAXTree")).toHaveLength(3);
 		expect(refsOf(executor).size).toBe(0);
-	});
-});
-
-describe("navigation tool grounding frame", () => {
-	const navTool = (mode: "computer" | "browser" | "hybrid") => {
-		const { client, batches } = createClient();
-		const { executor, executed } = createFakeBrowserExecutor();
-		const translator = new InternalComputerTranslator({ browser, client, mode, createBrowserExecutor: () => executor });
-		const tool = buildCuaComputerTools({ toolExecutors: [], mode }, translator).find((tool) => tool.name === "computer_use_extra")!;
-		return { tool, batches, executed };
-	};
-
-	it("captures the viewport in browser mode and the OS display otherwise", async () => {
-		const viewportData = Buffer.from("png").toString("base64");
-
-		const browserResult = await navTool("browser").tool.execute("call_1", { action: "back" });
-		const viewportImage = browserResult.content.find((block) => block.type === "image");
-		expect(viewportImage).toMatchObject({ type: "image", data: viewportData });
-
-		const computerResult = await navTool("computer").tool.execute("call_2", { action: "back" });
-		const osImage = computerResult.content.find((block) => block.type === "image");
-		expect(osImage?.type).toBe("image");
-		expect((osImage as { data: string }).data).not.toBe(viewportData);
-	});
-
-	it("navigates on the browser plane in browser and hybrid modes and the OS plane in computer mode", async () => {
-		const inBrowser = navTool("browser");
-		await inBrowser.tool.execute("call_1", { action: "goto", url: "https://example.com" });
-		await inBrowser.tool.execute("call_2", { action: "back" });
-		expect(inBrowser.executed).toEqual([
-			{ type: "browser_navigate", url: "https://example.com" },
-			{ type: "browser_navigate", url: "back" },
-		]);
-		expect(inBrowser.batches).toEqual([]);
-
-		const inHybrid = navTool("hybrid");
-		await inHybrid.tool.execute("call_3", { action: "forward" });
-		expect(inHybrid.executed).toEqual([{ type: "browser_navigate", url: "forward" }]);
-		expect(inHybrid.batches).toEqual([]);
-
-		const inComputer = navTool("computer");
-		await inComputer.tool.execute("call_4", { action: "back" });
-		expect(inComputer.executed).toEqual([]);
-		expect(inComputer.batches).toHaveLength(1);
 	});
 });
 

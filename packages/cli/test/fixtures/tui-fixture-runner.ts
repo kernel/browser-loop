@@ -9,7 +9,7 @@ import { InMemorySessionRepo, type Skill } from "@onkernel/cua-agent";
 import { parseCuaModelRef, type CuaModelRef } from "@onkernel/cua-ai";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { buildCuaHarness } from "../../src/harness";
+import { buildCuaHarness, defaultApplicationTools, defaultInteractionTools } from "../../src/harness";
 import type { ContextFile } from "../../src/harness-skills";
 import { runInteractive } from "../../src/tui/main";
 import { createFakeKernelEnvironment } from "./fake-kernel";
@@ -20,6 +20,12 @@ interface TuiFixture {
 	turns: ScriptedTurn[];
 	skills?: Skill[];
 	contextFiles?: ContextFile[];
+	/**
+	 * Assemble the real CLI tool policy (interaction tools for the model plus
+	 * the coding tools) instead of an empty list, so `/tools` and `/model` tool
+	 * revalidation have a genuine baseline to work with.
+	 */
+	tools?: boolean;
 }
 
 async function main(): Promise<void> {
@@ -39,6 +45,8 @@ async function main(): Promise<void> {
 	const cwd = process.cwd();
 	const skills = fixture.skills ?? [];
 	const contextFiles = fixture.contextFiles ?? [];
+	const applicationTools = fixture.tools ? defaultApplicationTools(cwd) : [];
+	const interactionToolsForModel = fixture.tools ? defaultInteractionTools : undefined;
 	const harness = buildCuaHarness({
 		cwd,
 		client: kernel.client,
@@ -47,7 +55,9 @@ async function main(): Promise<void> {
 		model: modelRef as CuaModelRef,
 		skills,
 		contextFiles,
-		extraTools: [],
+		tools: fixture.tools
+			? [...defaultInteractionTools(modelRef as CuaModelRef), ...applicationTools]
+			: [],
 		models: scripted.models,
 	});
 
@@ -64,7 +74,8 @@ async function main(): Promise<void> {
 		contextFiles,
 		modelRef,
 		provider: modelRef.split(":", 1)[0] ?? "openai",
-		skipInitialScreenshot: true,
+		applicationTools,
+		interactionToolsForModel,
 	});
 	process.exit(code);
 }

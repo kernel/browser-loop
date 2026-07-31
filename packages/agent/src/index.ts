@@ -1,8 +1,13 @@
 export * from "@earendil-works/pi-agent-core";
 export { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
+export { cua } from "@onkernel/cua-ai";
+export type { CuaToolSpec } from "@onkernel/cua-ai";
+export type { CuaAgentTool } from "./tool-manager";
 
 export type { KernelBrowser } from "./translator/translator";
 export { InternalComputerTranslator } from "./translator/translator";
+export { CuaExecutionResources } from "./resources";
+export { formatBrowserActResult } from "./browser-result-format";
 export { CdpConnection } from "./translator/cdp";
 export { BrowserExecutor } from "./translator/browser";
 export type { BrowserFindCandidate } from "./translator/browser";
@@ -26,20 +31,13 @@ export type {
 	BrowserWaitForResult,
 	BrowserWaitReason,
 } from "./translator/types";
-export { createCuaComputerTools } from "./tools";
-export type {
-	BatchDetails,
-	ComputerToolOptions,
-	CuaExecutorTool,
-	NavigationDetails,
-	PlaywrightDetails,
-} from "./tools";
 export { CuaAgent, CuaAgentHarness } from "./agent";
 export type {
 	CuaAgentHarnessOptions,
 	CuaAgentOptions,
 	CuaAgentState,
 	CuaEmptyResponseRecoveryOptions,
+	CuaSystemPromptCallback,
 	ToolResultImageReplayLimit,
 } from "./agent";
 export type { CuaRetryOptions } from "./provider-retry";

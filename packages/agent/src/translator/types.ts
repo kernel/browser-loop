@@ -171,6 +171,8 @@ export type BatchReadResult =
 
 export interface BatchExecutionResult {
 	readResults: BatchReadResult[];
+	/** Action that stopped at an unsatisfied semantic boundary without throwing. */
+	stoppedActionIndex?: number;
 	/** Remaining canonical actions skipped after an unsatisfied wait or browser-plan control-flow boundary. */
 	skippedActions?: number;
 }

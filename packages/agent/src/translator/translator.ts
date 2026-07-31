@@ -3,7 +3,7 @@ import type { BrowserCreateResponse, BrowserRetrieveResponse } from "@onkernel/s
 import {
 	isCuaBrowserAction,
 	normalizeGotoUrl,
-	type ComputerToolCoordinateSystem,
+	type CuaCoordinateContract,
 	type CuaAction,
 	type CuaActionClick,
 	type CuaActionDoubleClick,
@@ -18,7 +18,6 @@ import {
 	type CuaBrowserAction,
 	type CuaDragMouseButton,
 	type CuaMouseButton,
-	type CuaScreenshotSpec,
 } from "@onkernel/cua-ai";
 import sharp from "sharp";
 import { BrowserExecutor } from "./browser";
@@ -30,17 +29,24 @@ export type KernelBrowser = BrowserCreateResponse | BrowserRetrieveResponse;
 export interface InternalComputerTranslatorOptions {
 	browser: KernelBrowser;
 	client: Kernel;
-	coordinateSystem?: ComputerToolCoordinateSystem;
-	screenshot?: CuaScreenshotSpec;
 	/** Browser executor factory, overridable for tests. Defaults to a raw-CDP executor on the browser's cdp_ws_url. */
 	createBrowserExecutor?: (cdpWsUrl: string) => BrowserExecutor;
+}
+
+export class BatchExecutionError extends Error {
+	constructor(
+		readonly result: BatchExecutionResult,
+		readonly failedActionIndex: number,
+		cause: unknown,
+	) {
+		super(cause instanceof Error ? cause.message : String(cause), { cause });
+		this.name = "BatchExecutionError";
+	}
 }
 
 export class InternalComputerTranslator {
 	private readonly sessionId: string;
 	private readonly client: Kernel;
-	private readonly coordinateSystem: ComputerToolCoordinateSystem;
-	private readonly screenshotSpec?: CuaScreenshotSpec;
 	private readonly viewport: { width: number; height: number };
 	private readonly cdpWsUrl?: string;
 	private readonly browserExecutorFactory: (cdpWsUrl: string) => BrowserExecutor;
@@ -49,8 +55,6 @@ export class InternalComputerTranslator {
 	constructor(opts: InternalComputerTranslatorOptions) {
 		this.sessionId = opts.browser.session_id;
 		this.client = opts.client;
-		this.coordinateSystem = opts.coordinateSystem ?? { type: "pixel" };
-		this.screenshotSpec = opts.screenshot;
 		this.viewport = opts.browser.viewport ?? { width: 1920, height: 1080 };
 		this.cdpWsUrl = opts.browser.cdp_ws_url;
 		this.browserExecutorFactory = opts.createBrowserExecutor ?? ((cdpWsUrl) => new BrowserExecutor(cdpWsUrl));
@@ -71,30 +75,9 @@ export class InternalComputerTranslator {
 		return this.browserExecutor;
 	}
 
-	async screenshotRaw(): Promise<Buffer> {
-		return (await this.screenshot()).data;
-	}
-
 	async screenshot(): Promise<{ data: Buffer; mimeType: string }> {
 		const response = await this.client.browsers.computer.captureScreenshot(this.sessionId, {});
-		let data: Buffer<ArrayBufferLike> = Buffer.from(await response.arrayBuffer());
-		let mimeType = "image/png";
-		const transform = this.screenshotSpec?.transform;
-		if (transform) {
-			let pipeline = sharp(data).resize(transform.width, transform.height, { fit: "fill" });
-			if (transform.format === "webp") {
-				pipeline = pipeline.webp({ quality: transform.quality });
-				mimeType = "image/webp";
-			} else if (transform.format === "jpeg") {
-				pipeline = pipeline.jpeg({ quality: transform.quality });
-				mimeType = "image/jpeg";
-			} else {
-				pipeline = pipeline.png();
-				mimeType = "image/png";
-			}
-			data = await pipeline.toBuffer();
-		}
-		return { data, mimeType };
+		return { data: Buffer.from(await response.arrayBuffer()), mimeType: "image/png" };
 	}
 
 	async currentUrl(): Promise<string> {
@@ -122,123 +105,144 @@ export class InternalComputerTranslator {
 		});
 	}
 
-	async executeBatch(actions: CuaAction[]): Promise<BatchExecutionResult> {
+	async executeBatch(
+		actions: CuaAction[],
+		coordinateSystem: CuaCoordinateContract = { type: "pixel" },
+		signal?: AbortSignal,
+	): Promise<BatchExecutionResult> {
 		const result: BatchExecutionResult = { readResults: [] };
 		const pending: KernelBatchAction[] = [];
+		let actionIndex = 0;
 
 		const flush = async (): Promise<void> => {
 			if (pending.length === 0) return;
+			throwIfAborted(signal);
 			await this.runKernelBatch(pending.splice(0));
 		};
 
-		for (let index = 0; index < actions.length; index += 1) {
-			const action = actions[index]!;
-			if (isCuaBrowserAction(action)) {
-				await flush();
-				const reads = await this.browser().execute(action);
-				result.readResults.push(...reads);
-				// A worked plan can still end at a navigation/dialog boundary. Stop the
-				// enclosing canonical batch so trailing actions cannot reuse old-page assumptions.
-				const stopped = reads.some((read) =>
-					read.type === "browser_wait_for"
-						? read.result.status !== "satisfied"
-						: read.type === "browser_act" && read.result.stop_reason !== undefined,
-				);
-				if (stopped) {
-					const skippedActions = actions.length - index - 1;
-					if (skippedActions > 0) result.skippedActions = skippedActions;
-					break;
-				}
-				continue;
-			}
-			switch (action.type) {
-				case "screenshot":
+		try {
+			for (let index = 0; index < actions.length; index += 1) {
+				actionIndex = index;
+				throwIfAborted(signal);
+				const action = actions[index]!;
+				if (isCuaBrowserAction(action)) {
 					await flush();
-					result.readResults.push({ type: "screenshot", ...(await this.screenshot()) });
-					break;
-				case "zoom":
-					await flush();
-					result.readResults.push({ type: "screenshot", ...(await this.zoom(action)) });
-					break;
-				case "url":
-					await flush();
-					result.readResults.push({ type: "url", url: await this.currentUrl() });
-					break;
-				case "cursor_position":
-					await flush();
-					result.readResults.push({ type: "cursor_position", ...(await this.currentMousePosition()) });
-					break;
-				case "goto":
-					pending.push(
-						keypress(["Control", "l"]),
-						{ type: "type_text", type_text: { text: normalizeGotoUrl(action.url) ?? "" } },
-						keypress(["Enter"]),
+					const reads = await this.browser().execute(action, signal);
+					result.readResults.push(...reads);
+					// A worked plan can still end at a navigation/dialog boundary. Stop the
+					// enclosing canonical batch so trailing actions cannot reuse old-page assumptions.
+					const stopped = reads.some((read) =>
+						read.type === "browser_wait_for"
+							? read.result.status !== "satisfied"
+							: read.type === "browser_act" && read.result.stop_reason !== undefined,
 					);
-					break;
-				case "back":
-					pending.push(keypress(["Alt", "Left"]));
-					break;
-				case "forward":
-					pending.push(keypress(["Alt", "Right"]));
-					break;
-				default:
-					// Native computer mappings may omit click coordinates, meaning
-					// "at the current cursor position" — resolve before batching.
-					if (
-						(action.type === "click" || action.type === "mouse_down" || action.type === "mouse_up") &&
-						(action.x === undefined || action.y === undefined)
-					) {
-						await flush();
-						const position = await this.currentMousePosition();
-						pending.push(this.toSdkAction({ ...action, x: action.x ?? position.x, y: action.y ?? position.y }));
+					if (stopped) {
+						result.stoppedActionIndex = index;
+						const skippedActions = actions.length - index - 1;
+						if (skippedActions > 0) result.skippedActions = skippedActions;
 						break;
 					}
-					pending.push(this.toSdkAction(action));
-					break;
+					continue;
+				}
+				switch (action.type) {
+					case "screenshot":
+						await flush();
+						result.readResults.push({ type: "screenshot", ...(await this.screenshot()) });
+						break;
+					case "zoom":
+						await flush();
+						result.readResults.push({ type: "screenshot", ...(await this.zoom(action, coordinateSystem)) });
+						break;
+					case "url":
+						await flush();
+						result.readResults.push({ type: "url", url: await this.currentUrl() });
+						break;
+					case "cursor_position":
+						await flush();
+						result.readResults.push({ type: "cursor_position", ...(await this.currentMousePosition()) });
+						break;
+					case "goto":
+						pending.push(
+							keypress(["Control", "l"]),
+							{ type: "type_text", type_text: { text: normalizeGotoUrl(action.url) ?? "" } },
+							keypress(["Enter"]),
+						);
+						break;
+					case "back":
+						pending.push(keypress(["Alt", "Left"]));
+						break;
+					case "forward":
+						pending.push(keypress(["Alt", "Right"]));
+						break;
+					default:
+						// Native computer mappings may omit click coordinates, meaning
+						// "at the current cursor position" — resolve before batching.
+						if (
+							(action.type === "click" || action.type === "mouse_down" || action.type === "mouse_up") &&
+							(action.x === undefined || action.y === undefined)
+						) {
+							await flush();
+							const position = await this.currentMousePosition();
+							pending.push(this.toSdkAction({ ...action, x: action.x ?? position.x, y: action.y ?? position.y }, coordinateSystem));
+							break;
+						}
+						pending.push(this.toSdkAction(action, coordinateSystem));
+						break;
+				}
 			}
-		}
 
-		await flush();
-		return result;
+			await flush();
+			return result;
+		} catch (cause) {
+			const skippedActions = Math.max(0, actions.length - actionIndex - 1);
+			if (skippedActions > 0) result.skippedActions = skippedActions;
+			throw new BatchExecutionError(result, actionIndex, cause);
+		}
 	}
 
 	/** Crop the OS screenshot to a region; coordinates stay in the full-screenshot frame. */
-	async zoom(action: CuaActionZoom): Promise<{ data: Buffer; mimeType: string }> {
+	async zoom(
+		action: CuaActionZoom,
+		coordinateSystem: CuaCoordinateContract = { type: "pixel" },
+	): Promise<{ data: Buffer; mimeType: string }> {
 		const screenshot = await this.screenshot();
-		const [x0, y0, x1, y1] = action.region;
-		const left = Math.max(0, Math.trunc(Math.min(x0, x1)));
-		const top = Math.max(0, Math.trunc(Math.min(y0, y1)));
-		const width = Math.max(1, Math.trunc(Math.abs(x1 - x0)));
-		const height = Math.max(1, Math.trunc(Math.abs(y1 - y0)));
+		const [rawX0, rawY0, rawX1, rawY1] = action.region;
+		const start = this.toViewportPoint(rawX0, rawY0, coordinateSystem);
+		const end = this.toViewportPoint(rawX1, rawY1, coordinateSystem);
+		const left = Math.max(0, Math.trunc(Math.min(start.x, end.x)));
+		const top = Math.max(0, Math.trunc(Math.min(start.y, end.y)));
+		const width = Math.max(1, Math.trunc(Math.abs(end.x - start.x)));
+		const height = Math.max(1, Math.trunc(Math.abs(end.y - start.y)));
 		const data = await sharp(screenshot.data).extract({ left, top, width, height }).png().toBuffer();
 		return { data, mimeType: "image/png" };
 	}
 
 	private toSdkAction(
 		action: Exclude<CuaAction, CuaBrowserAction | { type: "screenshot" | "zoom" | "url" | "cursor_position" | "goto" | "back" | "forward" }>,
+		coordinateSystem: CuaCoordinateContract,
 	): KernelBatchAction {
 		switch (action.type) {
 			case "click":
 				return this.clickAction(action, {
 					button: mouseButton(action.button),
 					...(action.num_clicks !== undefined && action.num_clicks > 1 ? { num_clicks: Math.trunc(action.num_clicks) } : {}),
-				});
+				}, coordinateSystem);
 			case "double_click":
-				return this.clickAction(action, { num_clicks: 2 });
+				return this.clickAction(action, { num_clicks: 2 }, coordinateSystem);
 			case "mouse_down":
-				return this.clickAction(action, { button: mouseButton(action.button), click_type: "down" });
+				return this.clickAction(action, { button: mouseButton(action.button), click_type: "down" }, coordinateSystem);
 			case "mouse_up":
-				return this.clickAction(action, { button: mouseButton(action.button), click_type: "up" });
+				return this.clickAction(action, { button: mouseButton(action.button), click_type: "up" }, coordinateSystem);
 			case "type":
 				return typeText(action);
 			case "keypress":
 				return keypress(action.keys, action.duration);
 			case "scroll":
-				return this.scrollAction(action);
+				return this.scrollAction(action, coordinateSystem);
 			case "move":
-				return this.moveAction(action);
+				return this.moveAction(action, coordinateSystem);
 			case "drag":
-				return this.dragAction(action);
+				return this.dragAction(action, coordinateSystem);
 			case "wait":
 				return waitAction(action);
 			default:
@@ -249,8 +253,9 @@ export class InternalComputerTranslator {
 	private clickAction(
 		action: CuaActionClick | CuaActionDoubleClick | CuaActionMouseDown | CuaActionMouseUp,
 		extra: { button?: CuaMouseButton; num_clicks?: number; click_type?: "down" | "up" },
+		coordinateSystem: CuaCoordinateContract,
 	): KernelBatchAction {
-		const point = this.toViewportPoint(action.x ?? 0, action.y ?? 0);
+		const point = this.toViewportPoint(action.x ?? 0, action.y ?? 0, coordinateSystem);
 		return {
 			type: "click_mouse",
 			click_mouse: {
@@ -262,8 +267,8 @@ export class InternalComputerTranslator {
 		};
 	}
 
-	private scrollAction(action: CuaActionScroll): KernelBatchAction {
-		const point = this.toViewportPoint(action.x ?? 0, action.y ?? 0);
+	private scrollAction(action: CuaActionScroll, coordinateSystem: CuaCoordinateContract): KernelBatchAction {
+		const point = this.toViewportPoint(action.x ?? 0, action.y ?? 0, coordinateSystem);
 		return {
 			type: "scroll",
 			scroll: {
@@ -276,17 +281,17 @@ export class InternalComputerTranslator {
 		};
 	}
 
-	private moveAction(action: CuaActionMove): KernelBatchAction {
-		const point = this.toViewportPoint(action.x, action.y);
+	private moveAction(action: CuaActionMove, coordinateSystem: CuaCoordinateContract): KernelBatchAction {
+		const point = this.toViewportPoint(action.x, action.y, coordinateSystem);
 		return { type: "move_mouse", move_mouse: { x: point.x, y: point.y } };
 	}
 
-	private dragAction(action: CuaActionDrag): KernelBatchAction {
+	private dragAction(action: CuaActionDrag, coordinateSystem: CuaCoordinateContract): KernelBatchAction {
 		return {
 			type: "drag_mouse",
 			drag_mouse: {
 				path: action.path.map((point) => {
-					const transformed = this.toViewportPoint(point.x, point.y);
+					const transformed = this.toViewportPoint(point.x, point.y, coordinateSystem);
 					return [transformed.x, transformed.y] as [number, number];
 				}),
 				button: dragButton(action.button),
@@ -295,9 +300,13 @@ export class InternalComputerTranslator {
 		};
 	}
 
-	private toViewportPoint(x: number, y: number): { x: number; y: number } {
-		if (this.coordinateSystem.type === "pixel") return { x: Math.trunc(x), y: Math.trunc(y) };
-		const [min, max] = this.coordinateSystem.range;
+	private toViewportPoint(
+		x: number,
+		y: number,
+		coordinateSystem: CuaCoordinateContract,
+	): { x: number; y: number } {
+		if (coordinateSystem.type === "pixel") return { x: Math.trunc(x), y: Math.trunc(y) };
+		const [min, max] = coordinateSystem.range;
 		const scale = max - min;
 		if (scale <= 0) return { x: Math.trunc(x), y: Math.trunc(y) };
 		return {
@@ -358,6 +367,11 @@ function keypress(keys: string[], duration?: number): KernelBatchAction {
 			...(typeof duration === "number" && Number.isFinite(duration) && duration > 0 ? { duration: Math.trunc(duration) } : {}),
 		},
 	};
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+	if (!signal?.aborted) return;
+	throw signal.reason instanceof Error ? signal.reason : new Error("computer action aborted");
 }
 
 function clamp(value: number, min: number, max: number): number {

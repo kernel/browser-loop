@@ -1,5 +1,6 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { getBuiltinModel, getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
+import { GOOGLE_CUA_INTERACTIONS_API } from "./providers/google/provider";
 import { META_RESPONSES_API } from "./providers/meta/provider";
 import { OPENAI_CUA_RESPONSES_API } from "./providers/openai/provider";
 import { XAI_CUA_RESPONSES_API } from "./providers/xai/provider";
@@ -7,7 +8,7 @@ import { XAI_CUA_RESPONSES_API } from "./providers/xai/provider";
 /** Providers with curated computer-use model support. */
 export type CuaProvider = "openai" | "anthropic" | "google" | "meta" | "xai" | "moonshotai" | "tzafon" | "yutori";
 
-/** Provider-qualified model reference, e.g. `"openai:gpt-5.5"` or `"google:gemini-3-flash-preview"`. */
+/** Provider-qualified model reference, e.g. `"openai:gpt-5.6-sol"` or `"google:gemini-3.6-flash"`. */
 export type CuaModelRef = `${CuaProvider}:${string}`;
 
 /** One entry returned by {@link listCuaModels}. */
@@ -58,6 +59,7 @@ export interface CuaModelAnnotation {
  */
 export const CUA_MODEL_ANNOTATIONS: Record<CuaProvider, readonly CuaModelAnnotation[]> = {
 	openai: [
+		{ match: { kind: "exact", id: "gpt-5.6-sol" }, source: "https://developers.openai.com/api/docs/models/gpt-5.6-sol" },
 		{ match: { kind: "family", family: "gpt-5.4" }, source: "https://developers.openai.com/api/docs/models/gpt-5.4" },
 		{ match: { kind: "family", family: "gpt-5.4-mini" }, source: "https://developers.openai.com/api/docs/models/gpt-5.4-mini" },
 		{ match: { kind: "family", family: "gpt-5.5" }, source: "https://developers.openai.com/api/docs/models/gpt-5.5" },
@@ -71,15 +73,10 @@ export const CUA_MODEL_ANNOTATIONS: Record<CuaProvider, readonly CuaModelAnnotat
 		{ match: { kind: "family", family: "claude-haiku-4" }, source: "https://docs.anthropic.com/en/docs/build-with-claude/computer-use" },
 		{ match: { kind: "family", family: "claude-fable-5" }, source: "https://docs.anthropic.com/en/docs/build-with-claude/computer-use" },
 	],
-	// gemini-2.5-computer-use-preview-10-2025 is deliberately absent: it
-	// rejects the standard function declarations this package sends and
-	// requires Google's native tools.computer_use wrapper instead.
 	google: [
-		{ match: { kind: "exact", id: "gemini-3-flash-preview" }, source: "https://ai.google.dev/gemini-api/docs/computer-use" },
-		{ match: { kind: "exact", id: "gemini-3.1-flash-lite" }, source: "https://ai.google.dev/gemini-api/docs/computer-use" },
+		{ match: { kind: "exact", id: "gemini-3.6-flash" }, source: "https://ai.google.dev/gemini-api/docs/computer-use" },
+		{ match: { kind: "exact", id: "gemini-3.5-flash-lite" }, source: "https://ai.google.dev/gemini-api/docs/computer-use" },
 		{ match: { kind: "exact", id: "gemini-3.5-flash" }, source: "https://ai.google.dev/gemini-api/docs/computer-use" },
-		// gemini-3-pro-preview is intentionally absent: Google retired it and
-		// the API now returns 404 "model no longer available".
 	],
 	meta: [
 		{ match: { kind: "exact", id: "muse-spark-1.1" }, source: "https://dev.meta.ai/docs/getting-started/cookbook/computer-use-macos" },
@@ -116,7 +113,12 @@ const CUA_MODEL_OVERRIDES: Record<CuaProvider, readonly Model<Api>[]> = {
 	// Opus 5 is live in Anthropic's API and models.dev but is newer than the
 	// pinned pi-ai catalog. Remove this override after the next pi-ai bump.
 	anthropic: [anthropicOpus5Model()],
-	google: [],
+	// Google's current computer-use models are live but newer than the pinned
+	// pi-ai catalog. Remove each override after pi-ai adds it.
+	google: [
+		cuaModel("google", "gemini-3.6-flash", "Gemini 3.6 Flash"),
+		cuaModel("google", "gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite"),
+	],
 	// pi-ai 0.80.10 still lacks Meta's models.dev catalog entry.
 	meta: [cuaModel("meta", "muse-spark-1.1", "Muse Spark 1.1")],
 	xai: [],
@@ -140,7 +142,7 @@ export function cuaOverrideModels(provider: CuaProvider): readonly Model<Api>[] 
 }
 
 /**
- * Split a provider-qualified ref like `"openai:gpt-5.5"` into its parts.
+ * Split a provider-qualified ref like `"openai:gpt-5.6-sol"` into its parts.
  *
  * `"gemini:"` is accepted as an alias for the canonical `"google:"` prefix
  * and normalizes to provider `"google"`; `"moonshot:"` likewise normalizes
@@ -215,10 +217,12 @@ export function getCuaModel(ref: CuaModelRef): Model<Api> {
 	throw new Error(`CUA model "${ref}" is supported but not registered. Add it to pi-ai (models.dev) or CUA_MODEL_OVERRIDES.`);
 }
 
-// Route OpenAI-compatible CUA models to provider-specific Responses transports
-// that thread previous_response_id. Registry-resolved models otherwise carry
-// pi-ai's builtin API ids.
+// Route CUA models to provider-specific transports. Registry-resolved models
+// otherwise carry pi-ai's builtin API ids.
 export function routeCuaApi(model: Model<Api>): Model<Api> {
+	if (model.provider === "google" && model.api !== GOOGLE_CUA_INTERACTIONS_API) {
+		return { ...model, api: GOOGLE_CUA_INTERACTIONS_API };
+	}
 	if (model.provider === "openai" && model.api !== OPENAI_CUA_RESPONSES_API) {
 		return { ...model, api: OPENAI_CUA_RESPONSES_API };
 	}
@@ -332,7 +336,7 @@ function cuaModel(provider: Exclude<CuaProvider, "xai" | "moonshotai">, id: stri
 				compat: { supportsDeveloperRole: true, sessionAffinityFormat: "openai-nosession", supportsLongCacheRetention: true },
 			} as Model<Api>;
 		case "tzafon":
-			return { ...base, api: "tzafon-responses", baseUrl: "https://api.lightcone.ai", contextWindow: 128_000, maxTokens: 4_096 } as Model<Api>;
+			return { ...base, api: "tzafon-responses", baseUrl: "https://api.tzafon.ai", contextWindow: 128_000, maxTokens: 4_096 } as Model<Api>;
 		case "yutori":
 			return { ...base, api: "yutori-chat-completions", baseUrl: "https://api.yutori.com/v1", contextWindow: 128_000, maxTokens: 4_096 } as Model<Api>;
 	}

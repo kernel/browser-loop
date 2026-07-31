@@ -1,181 +1,43 @@
 # Architecture
 
-This document explains how `cua` is wired together. It's aimed at
-someone who wants to read the code, contribute, or fork.
+This document explains how `cua` is wired together for contributors and
+integrators.
 
 ## Product principles
 
-These are the evergreen product principles for Kernel's computer-use SDK
-packages. They explain the *why* behind the technical invariants below.
+Kernel packages own the repetitive browser plumbing: browser-session wiring,
+provider payload quirks, coordinate conversion, action execution, and action
+feedback. They do **not** choose an agent's tools or system prompt. Callers own
+both explicitly and may use pi's orchestration primitives directly.
 
-### Package the boring plumbing
+## Package boundaries
 
-Kernel's SDK packages should make the common browser-control work disappear:
-
-- Kernel browser session wiring
-- screenshots and screenshot reinjection
-- coordinate normalization
-- provider-specific computer-tool schemas
-- tool execution against Kernel browser APIs
-- provider registration
-- context and payload quirks
-- sensible default prompts
-
-These details are common to most CUA agents and are easy to get subtly wrong.
-
-### Do not over-own the agent
-
-The SDK should not hide the agent architecture from users. Builders keep
-control over:
-
-- system prompts
-- context and memory strategy
-- custom tools
-- streaming UI
-- orchestration policy
-- transport hooks and payload inspection
-
-The default path stays pleasant, but pi's primitives remain visible and
-replaceable.
-
-### Keep model refs explicit
-
-CUA model refs are provider-qualified — for example `openai:gpt-5.5` or
-`yutori:n1.5-latest`. This keeps examples, logs, persisted config, and
-transcripts unambiguous. The SDK does not export a default CUA model.
-
-## Design goals and invariants
-
-- `@onkernel/cua-ai` owns provider-specific policy: the curated
-  computer-use model catalog, canonical CUA tool-call schemas, provider
-  default system prompts, and provider payload transforms / protocol
-  quirks.
+- `@onkernel/cua-ai` owns the model catalog, stable tool identities, tool
+  factories/toolsets, provider declarations, compatibility validation, headers,
+  payload transforms, and incoming native-call normalization. Catalog
+  compilation is declaration-only and deterministic; the package has no
+  `AgentTool` or materialization types and no `pi-agent-core` dependency.
 - `@onkernel/cua-agent` is provider-neutral runtime glue around
-  `pi-agent-core`'s `Agent` / `AgentHarness`. It executes canonical CUA
-  tool calls against Kernel cloud browsers via `@onkernel/sdk` and never
-  branches on provider identity — every provider difference arrives as
-  data through `CuaRuntimeSpec`.
-- `@onkernel/cua-cli` owns orchestration: argv parsing, env-var-based
-  auth, session and skill resolution, JSONL/plain-text output, and the
-  pi-tui interactive front-end. It composes `CuaAgentHarness` from
-  cua-agent and the model catalog from cua-ai.
-- `@onkernel/ptywright` is development/test infrastructure for terminal
-  and TUI regression tests. It is part of the monorepo build graph, but
-  not part of the runtime browser/model path.
+  `pi-agent-core`. It defines `CuaAgentTool`, materializes catalog specs
+  exactly once per shared resource pool against a Kernel browser, owns
+  implementation identity for replacement detection, owns shared execution
+  resources, and applies catalog plans supplied as data.
+- `@onkernel/cua-cli` owns application policy: it chooses an explicit tool list
+  for each selected model, adds pi coding tools, supplies the system prompt,
+  resolves credentials/sessions/skills, and renders text, JSONL, or TUI output.
+- `@onkernel/ptywright` is development-only PTY/TUI test infrastructure.
 
-## `cua-ai` vs `cua-agent` ownership boundary
-
-`@onkernel/cua-ai` and `@onkernel/cua-agent` intentionally split concerns:
-
-- `@onkernel/cua-ai` owns provider-specific policy:
-  - provider model refs and provider resolution
-  - provider default system prompts
-  - provider payload transforms and protocol quirks
-  - canonical CUA tool-definition exports
-- `@onkernel/cua-agent` owns browser execution orchestration:
-  - `CuaAgent` / `CuaAgentHarness` wiring around
-    `@earendil-works/pi-agent-core`
-  - executing canonical CUA tool calls against Kernel browsers
-  - typed executor coverage and screenshot handling
-
-The boundary is a single data seam. Every provider difference arrives in
-`@onkernel/cua-agent` as data through `CuaRuntimeSpec` — `toolDefinitions`,
-`toolExecutors`, `defaultSystemPrompt`, `coordinateSystem`, `screenshot`, and
-`onPayload` — resolved per model by `resolveCuaRuntimeSpec()`. In the other
-direction, the agent supplies capabilities back to provider middleware through
-`CuaPayloadContext` (`keepToolNames`, `getScreenshot`): the provider hook
-decides *whether and how* to use a capability (policy), the agent decides
-*how it is performed* against the Kernel browser (mechanism).
-
-The invariant: `packages/agent/src` contains no provider names and no
-provider conditionals. A new provider difference is a new or extended
-`CuaRuntimeSpec`/`CuaPayloadContext` field plus provider code in
-`@onkernel/cua-ai` — never a branch in `@onkernel/cua-agent`.
-
-## Action planes and modes
-
-The canonical action vocabulary is split into two planes, delineated in code
-under `packages/ai/src/actions/`:
-
-- **Computer plane** (`actions/computer.ts`) — real OS-level input against the browser
-  VM: mouse, keyboard, display capture, executed through Kernel's
-  `browsers.computer` REST API. Coordinates are pixels in the OS screenshot
-  frame.
-- **Browser plane** (`actions/browser.ts`, ids prefixed `browser_`) — CDP-driven page
-  tools: accessibility snapshots with element refs, element-targeted
-  interaction, navigation, tabs, viewport screenshots. Executed by
-  `packages/agent/src/translator/browser.ts` (`BrowserExecutor`) over a raw CDP websocket
-  (`translator/cdp.ts`) to the browser's `cdp_ws_url` — no Playwright.
-  Coordinates, where used, are viewport pixels.
-
-A `CuaMode` selects which plane(s) the model sees:
-
-| mode | tools | coordinate frame |
-| --- | --- | --- |
-| `computer` (default) | computer actions under their canonical ids (`click`, `screenshot`, …) | OS screenshot pixels |
-| `browser` | browser actions with the `browser_` prefix stripped (`snapshot`, `click`, …) plus `wait` | none for refs; viewport pixels where coordinates are allowed |
-| `hybrid` | both planes, one tool per capability: computer actions as `computer_*`, browser reads/element-writes as `browser_*` (ref-only) | OS screenshot pixels — the single live frame |
-
-Hybrid deduplicates capabilities: navigation and tabs live on the browser plane,
-pointer/keyboard input and the (only) screenshot live on the computer plane, and
-hybrid browser tools take element refs only so exactly one coordinate frame exists.
-Element refs are snapshot-scoped (`e12`); a stale ref resolves to an error
-string that tells the model to re-snapshot.
-
-The mode is set at construction (`mode` on `CuaAgent`/`CuaAgentHarness`,
-`--mode` in the CLI) and can be switched at runtime with `setMode()` (the
-TUI's `/mode` command), which refreshes CUA-owned tools and the default
-system prompt.
-
-**Native tools.** `resolveCuaRuntimeSpec(model, { nativeTool })` can drive an
-Anthropic model through an allowlisted, Anthropic-API-only early-access tool
-schema instead of the canonical function tools: `computer_20260701` pairs with
-`computer` mode and `browser_20260701` with `browser` mode. Model and mode
-mismatches throw locally before a browser is provisioned. The live-verified
-model families are `claude-fable-5`, `claude-opus-4-8`, `claude-opus-5`, and
-`claude-sonnet-5` for `computer_20260701`; `claude-opus-4-8`, `claude-opus-5`,
-and `claude-sonnet-5` support `browser_20260701`. The API key's organization
-must also have the matching beta entitlement.
-
-The spec routes the model to a CUA-owned api id; the registered `anthropic`
-provider dispatches it to pi's builtin `anthropic-messages` transport with the
-tool-specific `anthropic-beta` header, an `onPayload` hook swaps the placeholder
-tool for the native declaration, and `providers/anthropic/native.ts` maps
-incoming `tool_use` inputs onto the same canonical actions the mode uses. The
-runtime spec also carries the native tool's stop-on-first-failure result text,
-which cua-agent applies without a provider conditional. Canonical vs native is
-therefore a wire-format and turn-contract difference over one execution path.
-
-## Layers
-
-`cua` is a thin TypeScript monorepo on top of the
-[pi monorepo](https://github.com/earendil-works/pi):
-
-```text
-@onkernel/cua-cli (the binary)
-├── @onkernel/cua-agent      (CuaAgent/CuaAgentHarness; pi-agent-core wrapper)
-│   └── @onkernel/cua-ai     (model catalog, tool schemas, provider adapters)
-└── @onkernel/cua-ai         (also depended on directly for the model catalog)
-
-Dev/test:
-└── @onkernel/ptywright      (PTY-backed TUI regression harness)
-
-External:
-├── @earendil-works/pi-agent-core   # Agent loop, tool execution, streaming, steering
-│   └── @earendil-works/pi-ai       # Provider transport (OpenAI Responses, Anthropic Messages, Google GenAI, Tzafon, Yutori)
-├── @earendil-works/pi-coding-agent # bash / read / write / edit / grep / find / ls AgentTools
-├── @earendil-works/pi-tui          # Terminal, Editor, Image, differential renderer
-└── @onkernel/sdk                   # Kernel cloud browser API
-```
+The invariant is that `packages/agent/src` contains no provider-name branches.
+Adding provider behavior means adding data and transforms in `cua-ai`, not a
+conditional in `cua-agent`.
 
 ```mermaid
 flowchart LR
-  ai[("@onkernel/cua-ai")]
-  agent[("@onkernel/cua-agent")]
-  cli[("@onkernel/cua-cli")]
-  pty[("@onkernel/ptywright")]
-  pi[("pi-agent-core / pi-ai / pi-tui / pi-coding-agent")]
-  sdk[("@onkernel/sdk")]
+  ai["@onkernel/cua-ai"]
+  agent["@onkernel/cua-agent"]
+  cli["@onkernel/cua-cli"]
+  pi["pi-agent-core / pi-ai / pi-tui / pi-coding-agent"]
+  sdk["@onkernel/sdk"]
   ai --> agent
   agent --> cli
   ai --> cli
@@ -183,183 +45,207 @@ flowchart LR
   pi --> cli
   sdk --> agent
   sdk --> cli
-  pty --> cli
 ```
 
-`tsc -b` from the repo root builds packages in dependency order via
-TypeScript project references. `npm install` symlinks workspace packages
-so each package's `@onkernel/cua-*` import resolves to the local `dist/`.
-The root `npm run build` also runs `@onkernel/ptywright`'s native
-Ghostty-backed addon build when present.
+## Explicit tool catalog
 
-## Per-package responsibilities
+`cua-ai` exposes one frozen namespace:
 
-### `@onkernel/cua-ai`
+```ts
+import { cua } from "@onkernel/cua-ai";
 
-The model layer. Curates the supported computer-use model catalog and
-the canonical CUA tool-call schemas every provider conforms to.
+const tools = [
+  cua.tools.browser.snapshot(),
+  cua.tools.browser.click(),
+  cua.tools.computer.screenshot(),
+];
+```
 
-- `getCuaModel(ref)` / `listCuaModels()` / `parseCuaModelRef(ref)` /
-  `CuaModelRef` — catalog lookup keyed on `provider:model` refs.
-- `resolveCuaRuntimeSpec(model)` — returns the `CuaRuntimeSpec`
-  consumed by `@onkernel/cua-agent`: `toolDefinitions`, `toolExecutors`,
-  `defaultSystemPrompt`, `coordinateSystem`, `screenshot`, `onPayload`.
-- Provider adapters on top of `pi-ai` for OpenAI, Anthropic, Google,
-  Tzafon, and Yutori — including each provider's payload transforms and
-  protocol quirks (Anthropic computer-use beta header, Gemini 0-1000
-  coord denormalization, …).
-- API-key env-var conventions:
-  `cuaApiKeyEnvVarsForProvider(provider)`, `getCuaEnvApiKey(provider)`,
-  `requireCuaEnvApiKey(provider)`, plus the `…ForModel(refOrModel)`
-  variants.
+The main groups are:
 
-### `@onkernel/cua-agent`
+- `cua.tools.browser.*`: CDP/page tools, using element refs and viewport pixels.
+- `cua.tools.computer.*`: Kernel OS input/read tools, using pixel coordinates by
+  default.
+- `cua.tools.playwright()`: a Playwright code execution tool.
+- `cua.toolsets.browser()`, `computer()`, and `mixed()`: ordinary convenience
+  arrays of CUA-authored tools.
+- `cua.providers.*`: only provider-native tools and predefined toolsets backed
+  by linked first-party documentation. Each provider namespace exposes its
+  `source` (or versioned `sources`), and every returned spec carries that URL.
 
-The execution layer. Wraps `pi-agent-core` with Kernel-browser plumbing
-for canonical CUA tools.
+Each CUA-owned tool has a stable identity independent of its caller-visible
+name. Compilation preserves requested order and derives provider-safe names,
+schema fingerprints, coordinate contracts, loading eligibility,
+headers, payload transforms, and native input mappings. Duplicate identities,
+name collisions, transform conflicts, and model/tool incompatibilities fail
+before a model request.
 
-- `CuaAgent` — direct `pi-agent-core` `Agent` integration for bounded
-  loops and raw message-state access.
-- `CuaAgentHarness` — `pi-agent-core` `AgentHarness` integration with
-  session-backed transcripts (`prompt`, `subscribe`, `compact`,
-  `setModel`, `followUp`, `steer`, …).
-- Re-exports the full `pi-agent-core` 0.79 surface that consumers (like
-  `cua-cli`) need: `JsonlSessionRepo`, `Session`, `loadSkills`,
-  `loadPromptTemplates`, `formatSkillsForSystemPrompt`,
-  `compact()` / `shouldCompact` / `estimateContextTokens`,
-  `NodeExecutionEnv`, and harness event types.
-- Executes canonical CUA tool calls (the `CuaAction` vocabulary) against
-  the Kernel SDK: coalesces consecutive write actions, dispatches via
-  `client.browsers.computer.batch`, and captures fresh screenshots via
-  `client.browsers.computer.captureScreenshot` for the model to see.
+## Dynamic catalogs
 
-### `@onkernel/cua-cli`
+`CuaAgent` and `CuaAgentHarness` use composition around pi and expose:
 
-The `cua` binary itself. Composes a `CuaAgentHarness` from argv flags,
-env-var-based API keys, a `JsonlSessionRepo`, pi skills, and the pi
-coding tools, then renders the result to text, JSONL, or pi-tui.
+```ts
+agent.getTools();
+agent.setTools(nextTools);
+agent.setModel(nextModel);
+```
 
-- `cli.ts` — argv parsing, mode dispatch.
-- `cli-harness.ts` — shared dispatch layer behind `cli.ts`; exports
-  `runModelsSubcommand`, `runSessionSubcommand`,
-  `runPrintCommand`, `runActionCommand`, and `runInteractiveCommand`.
-  The harness-driven entry points share `setupHarnessRuntime`, which
-  resolves the model, browser, session, and skills before calling
-  `buildCuaHarness` and routing into `print.ts`, `action/`, or
-  `tui/main.ts`.
-- `harness.ts` — `buildCuaHarness(opts)`: one assembly function that
-  produces the `CuaAgentHarness` shared by `--print`, action
-  subcommands, and the interactive TUI.
-- `harness-browser.ts` — Kernel SDK browser lifecycle
-  (`client.browsers.create`/`retrieve`/`deleteByID`) with optional
-  named-profile load/save.
-- `harness-models.ts` — `-m` / `--model` resolution over
-  `listCuaModels()`; `cua models` printer over the same catalog.
-- `harness-sessions.ts` — `JsonlSessionRepo` wiring for `--continue`,
-  `--resume`, `--session <ref>`, and the `cua-browser` custom entry.
-- `harness-named-sessions.ts` — persisted Kernel browser metadata for
-  `cua session start|stop|list|show` and `-s <name>`.
-- `harness-skills.ts` — skill and context discovery via pi's
-  `DefaultResourceLoader` (the loader pi's own TUI uses), so the set
-  includes pi-installed packages plus `~/.agents/skills`,
-  `<cwd>/.agents/skills`, the pi agent dir, and `--skill <path>`.
-  pi extensions are not loaded — cua drives the lower-level
-  `AgentHarness`, which cannot bind pi `AgentSession` extensions.
-  Also handles `/skill:<name>` expansion.
-- `action/` — constrained one-shot prompts (`open|click|type|press|observe|url|screenshot|do`)
-  and a bounded harness-driven runner.
-- `print.ts` — single-shot `--print` text output.
-- `output/harness-jsonl.ts` — JSONL event sink for `-o jsonl`.
-- `tui/` — pi-tui 0.79 interactive front-end styled with pi's theme
-  system: `Markdown` message list, `Image` screenshot widget, status
-  line, telemetry footer, `Editor` with autocomplete-backed slash
-  commands (`/model`, `/thinking`, `/compact`, `/skill:<name>`), and a
-  startup preamble with `[Context]` and `[Skills]` sections.
+`setTools()` recompiles atomically before mutating pi state. Existing tool
+identity with a changed schema, executor, or coordinates counts as a real
+replacement. Additions made from inside a running tool are recorded in pi's
+Anthropic-compatible `addedToolNames` marker only when that provider/model can
+defer ordinary function tools. Additions outside a tool call are eager.
+Provider-native tools are always eager.
 
-### `@onkernel/ptywright`
+Model changes revalidate the entire requested catalog; incompatible
+combinations fail without partial mutation.
 
-PTY-backed TUI regression harness used by `@onkernel/cua-cli` tests.
-It is a workspace package and `cua-cli` dev dependency, not a runtime
-browser or provider adapter.
+## Shared execution resources
 
-- `terminal.ts` — in-memory Ghostty VT parser wrapper for rendered
-  terminal snapshots.
-- `session.ts` — PTY child-process driver for end-to-end TUI/CLI tests.
-- `keys.ts` — key helpers for driving terminal sessions.
-- `native-loader.ts` — loads the native Ghostty-backed addon.
-- `scripts/build-ghostty.mjs` — downloads, verifies, and builds the
-  pinned Ghostty `libghostty-vt` source used by the native addon.
+A single `CuaExecutionResources` pool is created per agent/harness and survives
+catalog and model changes. It owns:
+
+- the Kernel client and browser handle;
+- one canonical computer translator;
+- one lazily created raw-CDP `BrowserExecutor`;
+- browser element-ref and frame state;
+- screenshot and Playwright execution capabilities.
+
+This prevents `setTools()` from resetting refs, tabs, browser state, or caches.
+Tools are materialized as small adapters over that shared pool, exactly once
+per spec object.
+
+## Action planes and result feedback
+
+Canonical actions live under `packages/ai/src/actions/`:
+
+- **Computer actions** use Kernel's `browsers.computer` API and OS screenshot
+  coordinates.
+- **Browser actions** use `packages/agent/src/translator/browser.ts` over the
+  browser's raw CDP websocket. Element refs are snapshot-scoped and stale refs
+  fail with a request to snapshot again.
+
+Tools return only the result requested by the model:
+
+- Write actions return concise success text.
+- Read actions return their requested text or structured data.
+- Screenshot and zoom actions return images.
+- `browser_act` returns causal outcomes and a bounded successor diff.
+- Failed batches replace images captured by earlier explicit screenshot steps
+  with textual markers.
+
+## Mechanical batches
+
+`computer_batch` and `browser_batch` are bounded lists of primitive actions.
+They do not contain a workflow DSL, references, branching, or saved values.
+
+Computer batches coalesce consecutive writes into Kernel batch calls and flush
+around reads so results stay ordered. Browser batches execute sequentially over
+the shared `BrowserExecutor`, so refs from a snapshot can be consumed later in
+the same batch. Failure stops at the first failing action and reports the failed
+index, completed read results, and skipped count.
+
+## Provider composition
+
+Catalog compilation composes provider behavior rather than replacing the whole
+catalog:
+
+- Ordinary function tools stay ordinary.
+- Anthropic native browser/computer declarations replace only their own
+  placeholders and merge required beta headers with caller headers.
+- OpenAI native computer uses a CUA-owned Responses adapter and can coexist with
+  ordinary functions.
+- Tzafon replaces only the selected computer identity and fills declaration
+  dimensions from the actual viewport.
+- Anthropic's native browser tool falls back to an equivalent function-tool
+  declaration when the active credential cannot access `browser_20260701`;
+  the selected tool identity, name, schema, and executor remain unchanged.
+- Google's current predefined browser toolset serializes one `computer_use`
+  declaration plus exact exclusions through the CUA-owned Interactions API
+  adapter. Excluded calls fail with a named catalog error instead of reaching
+  generic tool dispatch.
+- Yutori emits its native `tool_set`/`disable_tools` fields while preserving
+  ordinary function tools.
+- Meta, xAI, and Moonshot disable parallel tool calls when the selected catalog
+  can mutate browser state.
+
+Generated payload processing has fixed order: model preparation, tool
+serialization, provider fields, then the caller's `onPayload` hook.
+
+## CLI composition
+
+`packages/cli/src/harness.ts` is the application composition root. It:
+
+1. resolves the provider-qualified model;
+2. chooses `defaultInteractionTools(model)` explicitly:
+   - CUA browser primitives plus the explicit `browser_act` verified-plan tool
+     for OpenAI, Meta, xAI, and Anthropic models without native-browser support;
+   - CUA browser primitives alone for Moonshot, whose API rejects
+     `browser_act`'s larger schema;
+   - Anthropic's native browser tool when the model supports it;
+   - Google's native browser action set;
+   - Tzafon's native computer tool configured for a browser;
+   - Yutori's native N1 or N1.5 browser set plus an explicit screenshot tool;
+3. creates and retains its own application-level coding-tool list;
+4. passes the complete list to `CuaAgentHarness`;
+5. builds a caller-owned prompt from loaded skills and context files;
+6. uses one `Session` for transcript persistence and resume;
+7. exposes `cua act '<json>'` as a model-free path to the same `browser_act`
+   executor and bounded formatter used by agent tool calls.
+
+### Interactive selectors
+
+`packages/cli/src/tui/main.ts` mounts pickers with pi's swap-in-place pattern:
+the editor lives in its own `editorContainer`, and a selector temporarily
+replaces it so the status line and telemetry footer stay visible. While a
+selector is mounted it owns all keyboard input; the global input listener yields
+to it so `ctrl+c` cancels the selector instead of quitting.
+
+- `tui/model-picker.ts` — searchable `/model` picker over `listCuaModels()`,
+  plus the pure helpers (`modelSearchText`, `sortModelsForPicker`,
+  `filterModelsForPicker`, `moveSelection`, `visibleWindow`) that make its
+  behavior unit-testable without a terminal.
+- `tui/tool-selection.ts` — pure `/tools` state machine: identity keys matching
+  `normalizeTool`'s scheme, group badges, atomic provider groups, and
+  toggle/bulk operations.
+- `tui/tools-picker.ts` — the `/tools` component. Staged edits applied through
+  `harness.setTools()` with a subset of the application-composed baseline, in
+  baseline order.
+- `tui/keybindings.ts` — registers `cua.tools.*` ids on top of pi-tui's
+  `TUI_KEYBINDINGS` and formats their hints.
+- `tui/mutation-queue.ts` — the serialization queue both catalog mutations run
+  through.
+
+Both catalog mutations a selector can trigger — a `/tools` apply and a `/model`
+switch — run through that one queue, because each suspends across several
+`setTools()`/`setModel()` calls. Without it an apply could land between a
+switch's `setModel()` and its final `setTools()` and fail its compile against
+the wrong provider. Selectors also refuse to open mid-turn: the agent's
+execution-scope guard only covers mutation from inside a tool's `execute`, so
+this TUI-side check is what protects a streaming request.
 
 ## Per-turn flow
 
 ```text
 user prompt
-  └─► /skill:<name> expansion (if matched)
-        └─► harness.prompt(text, { images })
-              ├─► (first turn only, fresh transcript) attach a Kernel screenshot
-              └─► pi-agent-core agentLoop
-                    ├─► resolveCuaRuntimeSpec(model) provides toolDefinitions,
-                    │   toolExecutors, defaultSystemPrompt, onPayload, …
-                    ├─► onPayload (cua-ai) — provider payload transforms
-                    ├─► pi Models.streamSimple (cuaModels) → provider HTTP SSE
-                    │   (OpenAI Responses / Anthropic Messages / Google GenAI / Tzafon / Yutori)
-                    ├─► tool_call events carry canonical CuaAction args
-                    │   └─► cua-agent executor
-                    │         ├─► coalesce writes; flush via client.browsers.computer.batch
-                    │         ├─► inline url() / read actions
-                    │         └─► fresh screenshot via captureScreenshot
-                    └─► assistant text + harness events → TUI / stdout / JSONL
+  -> CuaAgentHarness / pi agent loop
+     -> active identity-keyed catalog
+     -> generated headers and payload transforms
+     -> caller onPayload
+     -> provider stream
+     -> incoming native/function call normalization
+     -> shared CuaExecutionResources
+        -> Kernel computer API or raw-CDP BrowserExecutor
+     -> policy-specific action result
+     -> transcript + TUI/stdout/JSONL
 ```
 
-The CLI's `buildCuaHarness` in `packages/cli/src/harness.ts`:
+## Validation and test ownership
 
-1. Resolves the model via `getCuaModel(ref)` / `listCuaModels()` from
-   `@onkernel/cua-ai`.
-2. Wires `JsonlSessionRepo` and a `Session` for transcript persistence
-   and resume.
-3. Discovers skills and context files through pi's
-   `DefaultResourceLoader` (installed packages, `~/.agents/skills`,
-   `<cwd>/.agents/skills`, the pi agent dir, and `--skill <path>`) and
-   exposes the skills via `resources.skills`.
-4. Provides `extraTools` from `createCodingTools(cwd)`
-   (`@earendil-works/pi-coding-agent`) for bash/read/edit/write/grep/find/ls.
-5. Resolves the API key via `requireCuaEnvApiKeyForModel(ref)` and
-   spreads any `<PROVIDER>_BASE_URL` env override onto the model object.
-6. Composes the `systemPrompt` callback from
-   `resolveCuaRuntimeSpec(model).defaultSystemPrompt`,
-   `formatSkillsForSystemPrompt(resources.skills)`, and the loaded
-   context files so it stays correct across `setModel()`.
-
-## Component map
-
-```mermaid
-flowchart LR
-  cli["cli/src/cli.ts"]
-  cli --> harness["cli/src/harness.ts (buildCuaHarness)"]
-  harness --> browserMod["cli/src/harness-browser.ts"]
-  browserMod --> sdk[("@onkernel/sdk")]
-  harness --> agentPkg["cua-agent: CuaAgentHarness"]
-  agentPkg --> piHarness["pi-agent-core AgentHarness"]
-  piHarness --> piAi["pi Models.streamSimple (cuaModels)"]
-  piAi -->|"openai-responses"| openai[("api.openai.com /v1/responses")]
-  piAi -->|"anthropic-messages + beta header"| anthro[("api.anthropic.com /v1/messages")]
-  piAi -->|"google-generative-ai"| gemini[("generativelanguage.googleapis.com")]
-  piAi -->|"tzafon / yutori"| others[("provider HTTP APIs")]
-  agentPkg --> sdk
-  harness --> aiPkg["cua-ai: getCuaModel / resolveCuaRuntimeSpec"]
-  aiPkg --> piAi
-  harness --> coding["bash/read/edit/write/... (pi-coding-agent)"]
-  harness --> sessions["JsonlSessionRepo (re-exported from cua-agent)"]
-  harness --> skillsMod["DefaultResourceLoader (pi-coding-agent): skills + context"]
-  cli --> tui["cli/src/tui/main.ts (pi-tui)"]
-  cli --> jsonl["cli/src/output/harness-jsonl.ts"]
-  pty["ptywright (dev/test only)"] --> tui
-```
-
-## Out of scope (today)
-
-| Feature                                            | Status   | Notes                                             |
-| -------------------------------------------------- | -------- | ------------------------------------------------- |
-| `--local` Docker-backed browser                    | deferred | Remote Kernel cloud only                          |
-| pi-tui `SelectList`-based session picker for `-r`  | deferred | Plain readline picker today                       |
-| Auto-compaction in the harness run loop            | deferred | Manual `/compact` from the TUI; `shouldCompact` + `estimateContextTokens` are available from cua-agent re-exports for a future auto-trigger |
+- `packages/ai/test/tool-catalog.test.ts`: identities, collisions, provider
+  composition, compatibility, declarations, and coordinate contracts.
+- `packages/agent/test/resources.test.ts`: action feedback and batch boundaries.
+- `packages/agent/test/agent.test.ts`: exact catalogs and dynamic replacement.
+- `packages/agent/test/translator-browser.test.ts`: browser behavior and ref
+  lifecycle.
+- `packages/cli/test/`: explicit CLI assembly, sessions, actions, and TUI flows.

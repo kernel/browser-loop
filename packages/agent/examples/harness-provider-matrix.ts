@@ -1,10 +1,14 @@
 import Kernel from "@onkernel/sdk";
-import { requireCuaEnvApiKeyForModel, type CuaModelRef } from "@onkernel/cua-ai";
+import {
+	requireCuaEnvApiKeyForModel,
+	type CuaModelRef,
+} from "@onkernel/cua-ai";
 import { CuaAgentHarness, InMemorySessionRepo, NodeExecutionEnv } from "../src/index";
 import { logAgentEvent, logAssistant } from "./shared/logging";
 import { SCENARIOS } from "./shared/scenarios";
+import { toolsForModel } from "./shared/tools";
 
-const modelRef = (process.env.MODEL_REF as CuaModelRef | undefined) ?? "openai:gpt-5.5";
+const modelRef = (process.env.MODEL_REF as CuaModelRef | undefined) ?? "openai:gpt-5.6-sol";
 const scenarioName = process.env.SCENARIO ?? SCENARIOS[0]!.name;
 
 async function main(): Promise<void> {
@@ -24,6 +28,8 @@ async function main(): Promise<void> {
 			env: new NodeExecutionEnv({ cwd: process.cwd() }),
 			model: modelRef,
 			session,
+			tools: toolsForModel(modelRef),
+			systemPrompt: "Use the provided computer and browser tools to interact with the page.",
 		});
 		harness.subscribe(logAgentEvent);
 		console.log(`model=${modelRef} scenario=${scenario.name}`);

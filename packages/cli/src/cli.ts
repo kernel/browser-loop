@@ -21,6 +21,7 @@ Usage:
   cua open <url|back|forward>
   cua url
   cua snapshot [--filter interactive]
+  cua act '<json>'
   cua find "<query>"
   cua text
   cua fill <ref|"query"> "<value>"
@@ -39,8 +40,9 @@ Usage:
 Subcommands above the blank line are model-free: they run directly against
 the browser (no LLM, no model API key; only KERNEL_API_KEY). \`click <x> <y>\`
 with exactly two integer arguments clicks those viewport coordinates without
-a model, and \`click e12\` / \`fill e12 ...\` target an element ref minted by
-\`snapshot\` or \`find\`; any other \`click\` argument is a natural-language
+a model, \`click e12\` / \`fill e12 ...\` target an element ref minted by
+\`snapshot\` or \`find\`, and \`act '{...}'\` runs a verified dependent browser
+plan using those refs; any other \`click\` argument is a natural-language
 description resolved by the model. With \`-s <name>\`, refs span invocations
 (re-snapshot on a stale-ref error). Exit codes: 0 ok, 1 not_found, 2 error.
 
@@ -50,9 +52,9 @@ Options:
                                  Accepts \`provider:model\` refs or bare ids that
                                  match exactly one entry in \`cua models\`.
                                  Recommended:
-                                   openai:    openai:gpt-5.5
+                                   openai:    openai:gpt-5.6-sol
                                    anthropic: anthropic:claude-opus-5
-                                   google:    google:gemini-3-flash-preview
+                                   google:    google:gemini-3.6-flash
                                    meta:      meta:muse-spark-1.1
                                    xai:       xai:grok-4.5
                                    moonshot:  moonshotai:kimi-k3
@@ -66,18 +68,6 @@ Options:
       --profile-no-save-changes  Do not persist changes back to the profile
       --browser-timeout <s>      Browser inactivity timeout in seconds (default 300)
       --max-steps <n>            Max turns for action subcommands (default 3)
-      --playwright               Add the playwright_execute tool so the model can run
-                                 Playwright code against the browser session
-      --mode <mode>              Action plane(s) to expose: computer (default) | browser | hybrid
-                                 computer: OS-level input only. browser: CDP page tools
-                                 (snapshot, find, click-by-ref, navigate, tabs).
-                                 hybrid: both, deduplicated (computer_* + browser_* tools).
-      --native-tool <type>       Drive an entitled Anthropic API key through an early-access
-                                 native schema. computer_20260701 requires --mode computer
-                                 and claude-fable-5, claude-opus-4-8, claude-opus-5,
-                                 or claude-sonnet-5. browser_20260701 requires --mode
-                                 browser and claude-opus-4-8, claude-opus-5, or
-                                 claude-sonnet-5.
       --out <file|->             Output file for screenshot subcommand
       --filter <interactive>     Restrict \`cua snapshot\` to interactive elements
   -o, --output <fmt>             Output format for --print: text (default) | jsonl
@@ -138,9 +128,6 @@ interface CliFlags {
 	debugTui: boolean;
 	jsonlIncludeDeltas: boolean;
 	jsonlIncludeImages: boolean;
-	playwright: boolean;
-	mode?: string;
-	nativeTool?: string;
 	model?: string;
 	thinking?: string;
 	browserProfile?: string;
@@ -193,9 +180,6 @@ function parseCliArgs(argv: string[]): CliFlags {
 				output: { type: "string", short: "o" },
 				"jsonl-include-deltas": { type: "boolean", default: false },
 				"jsonl-include-images": { type: "boolean", default: false },
-				playwright: { type: "boolean", default: false },
-				mode: { type: "string" },
-				"native-tool": { type: "string" },
 			},
 			allowPositionals: true,
 			strict: true,
@@ -217,15 +201,6 @@ function parseCliArgs(argv: string[]): CliFlags {
 			);
 		}
 	}
-	const modeRaw = parsed.values.mode as string | undefined;
-	if (modeRaw !== undefined && !["computer", "browser", "hybrid"].includes(modeRaw.trim().toLowerCase())) {
-		throw new Error(`invalid --mode value "${modeRaw}"; expected one of: computer | browser | hybrid`);
-	}
-	const nativeToolRaw = parsed.values["native-tool"] as string | undefined;
-	if (nativeToolRaw !== undefined && !["computer_20260701", "browser_20260701"].includes(nativeToolRaw.trim().toLowerCase())) {
-		throw new Error(`invalid --native-tool value "${nativeToolRaw}"; expected one of: computer_20260701 | browser_20260701`);
-	}
-
 	return {
 		help: !!parsed.values.help,
 		print: !!parsed.values.print,
@@ -252,9 +227,6 @@ function parseCliArgs(argv: string[]): CliFlags {
 		output: parsed.values.output as string | undefined,
 		jsonlIncludeDeltas: !!parsed.values["jsonl-include-deltas"],
 		jsonlIncludeImages: !!parsed.values["jsonl-include-images"],
-		playwright: !!parsed.values.playwright,
-		mode: parsed.values.mode as string | undefined,
-		nativeTool: parsed.values["native-tool"] as string | undefined,
 		positionals: parsed.positionals,
 	};
 }
@@ -270,9 +242,6 @@ function toHarnessFlags(flags: CliFlags): HarnessCliFlags {
 		debugTui: flags.debugTui,
 		jsonlIncludeDeltas: flags.jsonlIncludeDeltas,
 		jsonlIncludeImages: flags.jsonlIncludeImages,
-		playwright: flags.playwright,
-		mode: flags.mode,
-		nativeTool: flags.nativeTool,
 		model: flags.model,
 		thinking: flags.thinking,
 		browserProfile: flags.browserProfile,

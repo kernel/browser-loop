@@ -1,6 +1,10 @@
+import { cua } from "@onkernel/cua-ai";
 import { describe, expect, it, vi } from "vitest";
 import { runAction } from "../src/action/harness-runner";
-import { buildTestHarness, type TestHarnessFixture } from "./fixtures/harness";
+import { buildTestHarness as buildDefaultTestHarness, type TestHarnessFixture } from "./fixtures/harness";
+
+const buildTestHarness = (options: Parameters<typeof buildDefaultTestHarness>[0]) =>
+	buildDefaultTestHarness({ ...options, tools: cua.toolsets.computer() });
 
 let fixture: TestHarnessFixture | undefined;
 
@@ -12,7 +16,7 @@ describe("action harness-runner", () => {
 					steps: [
 						{
 							type: "tool_call",
-							toolName: "click",
+							toolName: "computer_click",
 							args: { x: 123, y: 45 },
 						},
 					],
@@ -24,7 +28,7 @@ describe("action harness-runner", () => {
 		});
 		const res = await runAction(
 			{ action: "click", target: "the button" },
-			{ harness: fixture.harness, browserHandle: handleFor(fixture), session: fixture.session, maxTurns: 5 },
+			{ harness: fixture.harness, maxTurns: 5 },
 		);
 		expect(res.exitCode).toBe(0);
 		expect(res.result.coordinates).toEqual([123, 45]);
@@ -41,7 +45,7 @@ describe("action harness-runner", () => {
 		});
 		const res = await runAction(
 			{ action: "click", target: "missing" },
-			{ harness: fixture.harness, browserHandle: handleFor(fixture), session: fixture.session, maxTurns: 5 },
+			{ harness: fixture.harness, maxTurns: 5 },
 		);
 		expect(res.exitCode).toBe(1);
 		expect(res.result.status).toBe("not_found");
@@ -54,7 +58,7 @@ describe("action harness-runner", () => {
 		});
 		const res = await runAction(
 			{ action: "do", text: "fail" },
-			{ harness: fixture.harness, browserHandle: handleFor(fixture), session: fixture.session, maxTurns: 3 },
+			{ harness: fixture.harness, maxTurns: 3 },
 		);
 		expect(res.exitCode).toBe(2);
 		expect(res.result.status).toBe("error");
@@ -66,7 +70,7 @@ describe("action harness-runner", () => {
 		try {
 			fixture = await buildTestHarness({
 				turns: [
-					{ steps: [{ type: "tool_call", toolName: "click", args: { x: 9, y: 9 } }] },
+					{ steps: [{ type: "tool_call", toolName: "computer_click", args: { x: 9, y: 9 } }] },
 					{
 						steps: [
 							{ type: "text", text: "discarded" },
@@ -79,7 +83,7 @@ describe("action harness-runner", () => {
 			});
 			const resultPromise = runAction(
 				{ action: "do", text: "recover" },
-				{ harness: fixture.harness, browserHandle: handleFor(fixture), session: fixture.session, maxTurns: 3 },
+				{ harness: fixture.harness, maxTurns: 3 },
 			);
 
 			await vi.advanceTimersByTimeAsync(1_999);
@@ -106,7 +110,7 @@ describe("action harness-runner", () => {
 			steps: [
 				{
 					type: "tool_call" as const,
-					toolName: "click",
+					toolName: "computer_click",
 					args: { x: 1, y: 1 },
 				},
 			],
@@ -124,34 +128,24 @@ describe("action harness-runner", () => {
 		};
 		await runAction(
 			{ action: "do", text: "loop" },
-			{ harness: fixture.harness, browserHandle: handleFor(fixture), session: fixture.session, maxTurns: 2 },
+			{ harness: fixture.harness, maxTurns: 2 },
 		);
 		expect(abortCalls).toBeGreaterThanOrEqual(1);
 	});
 
-	it("attaches a screenshot to the first user message on a fresh session", async () => {
+	it("does not attach a screenshot to the first user message", async () => {
 		fixture = await buildTestHarness({
 			turns: [{ steps: [{ type: "text", text: "ok" }] }],
 		});
 		await runAction(
 			{ action: "do", text: "look" },
-			{ harness: fixture.harness, browserHandle: handleFor(fixture), session: fixture.session, maxTurns: 3 },
+			{ harness: fixture.harness, maxTurns: 3 },
 		);
-		expect(fixture.kernel.screenshots).toBeGreaterThanOrEqual(1);
+		expect(fixture.kernel.screenshots).toBe(0);
 		const entries = await fixture.session.getBranch();
 		const firstUser = entries.find((e) => e.type === "message" && e.message.role === "user");
 		expect(firstUser).toBeDefined();
-		const content = (firstUser as { message: { content: unknown[] } }).message.content as Array<{
-			type: string;
-		}>;
-		expect(content.some((c) => c.type === "image")).toBe(true);
+		const content = (firstUser as { message: { content: unknown[] } }).message.content;
+		expect(content.some((entry) => entry && typeof entry === "object" && (entry as { type?: unknown }).type === "image")).toBe(false);
 	});
 });
-
-function handleFor(fixture: TestHarnessFixture) {
-	return {
-		client: fixture.kernel.client,
-		browser: fixture.kernel.browser,
-		async close(): Promise<void> {},
-	};
-}
