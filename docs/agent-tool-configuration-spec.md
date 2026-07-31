@@ -150,6 +150,7 @@ const harness = new CuaAgentHarness({
 Conceptually:
 
 ```ts
+// Defined and exported by @onkernel/cua-agent.
 type CuaAgentTool = CuaToolSpec | AgentTool;
 
 interface CuaAgentOptions {
@@ -163,7 +164,7 @@ interface CuaAgentHarnessOptions {
 }
 ```
 
-A `CuaToolSpec` is declarative because CUA must materialize it against the Kernel browser, SDK client, selected model, and provider transport. An `AgentTool` is already executable and can be installed directly.
+A `CuaToolSpec` is declarative because `@onkernel/cua-agent` must materialize it against the Kernel browser, SDK client, selected model, and provider transport. An `AgentTool` is already executable and can be installed directly; cua-agent projects it into a fresh declaration-only object before cua-ai compiles the catalog, so cua-ai never sees executors.
 
 There is one current tool list, not separate installed and active lists. `setTools()` changes that list for subsequent provider requests.
 
@@ -295,7 +296,7 @@ Instead, each `CuaToolSpec` supplies the policy needed for that tool to do its w
 
 - stable tool identity and preferred model-facing name
 - description and schema or native declaration
-- local executor construction
+- declarative local-execution policy (action conversion, coordinate contract)
 - provider and model compatibility checks
 - request headers and payload transformation, when required
 - incoming native-call normalization, when required

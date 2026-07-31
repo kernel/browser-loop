@@ -14,6 +14,14 @@ use composition instead of inheriting from pi's `Agent`/`AgentHarness`.
 - Add one shared `CuaExecutionResources` pool per agent/harness. Catalog and
   model changes preserve the canonical translator, lazy raw-CDP browser
   executor, refs, tabs, screenshots, and Playwright capability.
+- Define and export `CuaAgentTool` here (moved out of cua-ai, which now
+  compiles declaration-only catalogs). cua-agent owns all `AgentTool`
+  materialization — each CUA spec is materialized exactly once per shared
+  execution-resource pool — and owns implementation identity for
+  cache-preserving deferred-tool decisions: a reused `execute` function keeps
+  its identity across wrappers, a new `execute` or freshly created spec object
+  is a conservative replacement, and the same objects stay stable across model
+  recompilation.
 - Integrate pi 0.80.10 dynamic tool loading. Eligible additions made from inside
   a running tool emit `addedToolNames`; outside-tool additions and all
   provider-native changes are eager. Schema/executor replacements are treated

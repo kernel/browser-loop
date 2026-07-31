@@ -9,10 +9,18 @@ implicit-tool, and runtime-spec APIs are removed.
   `browser`/`computer`/`mixed` convenience toolsets, mechanical batch tools,
   coordinate contracts, and provider-native tools/toolsets.
 - Add `compileCuaToolCatalog()` with stable identities; exact requested-order
-  preservation; schema/executor/catalog fingerprints; exact and
+  preservation; schema/catalog fingerprints; exact and
   provider-normalized collision checks; model compatibility checks; inspectable
   declarations; dynamic-loading eligibility; generated header composition;
   ordered payload transforms; and incoming native-call plans.
+- Catalog compilation is declaration-only and deterministic: it accepts CUA
+  specs and sanitized caller `Tool` declarations plus a viewport, returns
+  pi-ai `Tool` declarations (`catalog.toolDeclarations`) and provider plans,
+  and never constructs executable tools or retains the requested inputs.
+  `callerToolIdentity()` is the single canonical identity scheme for caller
+  tools, shared with cua-agent and cua-cli. The package no longer depends on
+  `@earendil-works/pi-agent-core`; materialization and implementation identity
+  live in `@onkernel/cua-agent`.
 - Remove `resolveCuaRuntimeSpec`, `CuaRuntimeSpec`, `CuaMode`, mode inference,
   legacy native-tool switches, implicit navigation tools, and provider-owned
   default prompt selection from the public API.

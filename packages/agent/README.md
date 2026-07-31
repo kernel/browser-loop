@@ -195,8 +195,15 @@ const lookup = {
 agent.setTools([lookup, ...cua.toolsets.browser()]);
 ```
 
-Caller tools receive identity `caller.<name>` and participate in the same
-collision and fingerprint rules.
+Caller tools receive identity `caller.<name>` through cua-ai's canonical
+`callerToolIdentity()` helper and participate in the same collision and
+fingerprint rules. `CuaAgentTool` is defined and exported by this package:
+cua-ai compiles declaration-only catalogs and never sees executors, while
+cua-agent projects caller `AgentTool`s into fresh declarations, joins compiled
+entries back by identity, materializes each CUA spec exactly once per shared
+execution-resource pool, and owns implementation identity for replacement
+detection (a reused `execute` function keeps its identity across wrappers; a
+new `execute` or freshly created spec object is a conservative replacement).
 
 ## Events and state
 

@@ -188,20 +188,26 @@ tool and remembers that choice for the credential and process. Every
 ```ts
 const catalog = compileCuaToolCatalog({
   model: "anthropic:claude-opus-5",
-  requestedTools: tools,
-  resources,
+  requestedTools: tools, // CUA specs and plain pi-ai Tool declarations
+  viewport: { width: 1440, height: 900 },
 });
 
-catalog.requested;      // exact caller list
-catalog.entries;        // identities, fingerprints, declarations, coordinates
-catalog.agentTools;     // materialized pi AgentTools
+catalog.entries;          // identities, fingerprints, declarations, coordinates
+catalog.toolDeclarations; // pi-ai Tool declarations for Context.tools
 catalog.headers.merge(callerHeaders);
 await catalog.payload.apply(payload, catalog.model);
 catalog.incoming;
 ```
 
+Compilation is declaration-only and deterministic: identical declaration,
+model, and viewport inputs produce identical catalogs, and compilation never
+constructs executable tools or retains the requested input objects. cua-ai has
+no `pi-agent-core` dependency — `@onkernel/cua-agent` materializes specs
+against a Kernel browser and owns implementation identity.
+
 A CUA-owned identity remains stable when its name is customized. Caller tools
-receive `caller.<name>` identities. Compilation rejects:
+receive `caller.<name>` identities through the canonical `callerToolIdentity()`
+helper shared with cua-agent and cua-cli. Compilation rejects:
 
 - duplicate identities;
 - exact or provider-normalized caller-visible name collisions;
@@ -210,9 +216,10 @@ receive `caller.<name>` identities. Compilation rejects:
 - conflicting payload-transform write claims;
 - partial provider-native selections that violate a provider contract.
 
-The catalog fingerprint includes model, order, identity, name, schema,
-coordinates, and executor identity. Schema or executor replacement therefore
-cannot masquerade as a no-op.
+The catalog fingerprint includes model, order, identity, name, schema, and
+coordinates. cua-agent composes these declaration fingerprints with its own
+implementation identity, so a schema or executor replacement cannot
+masquerade as a no-op.
 
 Generated payload processing has deterministic order:
 

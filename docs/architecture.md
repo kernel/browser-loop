@@ -14,10 +14,14 @@ both explicitly and may use pi's orchestration primitives directly.
 
 - `@onkernel/cua-ai` owns the model catalog, stable tool identities, tool
   factories/toolsets, provider declarations, compatibility validation, headers,
-  payload transforms, and incoming native-call normalization.
+  payload transforms, and incoming native-call normalization. Catalog
+  compilation is declaration-only and deterministic; the package has no
+  execution types and no `pi-agent-core` dependency.
 - `@onkernel/cua-agent` is provider-neutral runtime glue around
-  `pi-agent-core`. It materializes catalog entries against a Kernel browser,
-  owns shared execution resources, and applies catalog plans supplied as data.
+  `pi-agent-core`. It defines `CuaAgentTool`, materializes catalog specs
+  exactly once per shared resource pool against a Kernel browser, owns
+  implementation identity for replacement detection, owns shared execution
+  resources, and applies catalog plans supplied as data.
 - `@onkernel/cua-cli` owns application policy: it chooses an explicit tool list
   for each selected model, adds pi coding tools, supplies the system prompt,
   resolves credentials/sessions/skills, and renders text, JSONL, or TUI output.
@@ -71,7 +75,7 @@ The main groups are:
 
 Each CUA-owned tool has a stable identity independent of its caller-visible
 name. Compilation preserves requested order and derives provider-safe names,
-schema/executor fingerprints, coordinate contracts, loading eligibility,
+schema fingerprints, coordinate contracts, loading eligibility,
 headers, payload transforms, and native input mappings. Duplicate identities,
 name collisions, transform conflicts, and model/tool incompatibilities fail
 before a model request.
@@ -108,7 +112,8 @@ catalog and model changes. It owns:
 - screenshot and Playwright execution capabilities.
 
 This prevents `setTools()` from resetting refs, tabs, browser state, or caches.
-Tools are materialized as small adapters over that shared pool.
+Tools are materialized as small adapters over that shared pool, exactly once
+per spec object.
 
 ## Action planes and result feedback
 
