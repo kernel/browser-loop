@@ -1,7 +1,8 @@
 export * from "@earendil-works/pi-agent-core";
 export { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
 export { cua } from "@onkernel/cua-ai";
-export type { CuaAgentTool, CuaToolSpec } from "@onkernel/cua-ai";
+export type { CuaToolSpec } from "@onkernel/cua-ai";
+export type { CuaAgentTool } from "./tool-manager";
 
 export type { KernelBrowser } from "./translator/translator";
 export { InternalComputerTranslator } from "./translator/translator";

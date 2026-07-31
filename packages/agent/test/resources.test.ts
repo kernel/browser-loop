@@ -210,4 +210,13 @@ describe("CuaExecutionResources results and batch boundaries", () => {
 		expect(result.content).toEqual([{ type: "text", text: "Actions executed successfully." }]);
 		expect(captureScreenshot).not.toHaveBeenCalled();
 	});
+
+	it("materializes each spec exactly once per resource pool", () => {
+		const { resources } = setup();
+		const spec = cua.tools.browser.snapshot();
+		const first = resources.materialize(spec);
+		expect(resources.materialize(spec)).toBe(first);
+		// A freshly created spec object is conservatively a different implementation.
+		expect(resources.materialize(cua.tools.browser.snapshot())).not.toBe(first);
+	});
 });

@@ -4,7 +4,6 @@ import type Kernel from "@onkernel/sdk";
 import {
 	type CuaAction,
 	type CuaCoordinateContract,
-	type CuaToolCatalogResources,
 	type CuaToolSpec,
 } from "@onkernel/cua-ai";
 import { formatBrowserActResult } from "./browser-result-format";
@@ -32,11 +31,13 @@ type ToolContent = Array<TextContent | ImageContent>;
  * One per-agent browser resource pool. Tool catalogs may be rebuilt without
  * replacing this object, its lazy CDP connection, refs, or tab lifecycle.
  */
-export class CuaExecutionResources implements CuaToolCatalogResources {
+export class CuaExecutionResources {
 	readonly browser: KernelBrowser;
 	readonly client: Kernel;
 	readonly viewport: { readonly width: number; readonly height: number };
 	private readonly translator: InternalComputerTranslator;
+	/** Each spec is materialized exactly once per resource pool. */
+	private readonly materialized = new WeakMap<CuaToolSpec, AgentTool>();
 
 	constructor(options: {
 		browser: KernelBrowser;
@@ -51,8 +52,10 @@ export class CuaExecutionResources implements CuaToolCatalogResources {
 	}
 
 	materialize(spec: CuaToolSpec): AgentTool {
+		const cached = this.materialized.get(spec);
+		if (cached) return cached;
 		const definition = spec.declaration;
-		return {
+		const tool: AgentTool = {
 			name: spec.name,
 			label: spec.name,
 			description: definition.description,
@@ -64,6 +67,8 @@ export class CuaExecutionResources implements CuaToolCatalogResources {
 				return this.executeActions(spec, actions, signal);
 			},
 		};
+		this.materialized.set(spec, tool);
+		return tool;
 	}
 
 	async computer(actions: CuaAction[], coordinateContract: CuaCoordinateContract, signal?: AbortSignal): Promise<BatchExecutionResult> {

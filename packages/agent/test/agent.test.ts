@@ -220,6 +220,114 @@ describe("CuaAgent explicit tools", () => {
 		expect(await run("replace")).not.toHaveProperty("addedToolNames");
 	});
 
+	it("keeps deferred additions when a replacement wrapper reuses the same execute function", async () => {
+		const contexts: Context[] = [];
+		let agent!: CuaAgent;
+		const sharedExecute: AgentTool["execute"] = async () => ({ content: [{ type: "text", text: "ok" }], details: {} });
+		const original = callerTool("original", sharedExecute);
+		const added = callerTool("added");
+		const loader = callerTool("loader", async () => {
+			const rewrapped = { ...original };
+			expect(rewrapped).not.toBe(original);
+			agent.setTools([rewrapped, loader, added]);
+			return { content: [{ type: "text", text: "loaded" }], details: {} };
+		}, "sequential");
+		agent = new CuaAgent({
+			browser,
+			client,
+			tools: [original, loader],
+			streamFn: scriptedStream([
+				(model) => assistant(model, [{ type: "toolCall", id: "load", name: "loader", arguments: {} }], "toolUse"),
+				(model) => assistant(model),
+			], contexts),
+			initialState: { model: "openai:gpt-5.5" },
+		});
+		await agent.prompt("load");
+		expect(contexts[1]?.messages.find((message) => message.role === "toolResult")).toMatchObject({ addedToolNames: ["added"] });
+	});
+
+	it("installs and invokes a replacement executor with an identical name and schema", async () => {
+		const contexts: Context[] = [];
+		const calls: string[] = [];
+		let agent!: CuaAgent;
+		const workerV1 = callerTool("worker", async () => {
+			calls.push("v1");
+			return { content: [{ type: "text", text: "v1" }], details: {} };
+		});
+		const loader = callerTool("loader", async () => {
+			const workerV2 = callerTool("worker", async () => {
+				calls.push("v2");
+				return { content: [{ type: "text", text: "v2" }], details: {} };
+			});
+			agent.setTools([loader, workerV2]);
+			return { content: [{ type: "text", text: "replaced" }], details: {} };
+		}, "sequential");
+		agent = new CuaAgent({
+			browser,
+			client,
+			tools: [loader, workerV1],
+			streamFn: scriptedStream([
+				(model) => assistant(model, [{ type: "toolCall", id: "load", name: "loader", arguments: {} }], "toolUse"),
+				(model) => assistant(model, [{ type: "toolCall", id: "work", name: "worker", arguments: {} }], "toolUse"),
+				(model) => assistant(model),
+			], contexts),
+			initialState: { model: "openai:gpt-5.5" },
+		});
+		await agent.prompt("replace then work");
+		expect(calls).toEqual(["v2"]);
+		expect(contexts[1]?.messages.find((message) => message.role === "toolResult")).not.toHaveProperty("addedToolNames");
+	});
+
+	it("treats a freshly created spec object as a replacement but the same object as stable", async () => {
+		const run = async (reuseSpec: boolean) => {
+			const contexts: Context[] = [];
+			let agent!: CuaAgent;
+			const spec = cua.tools.browser.snapshot();
+			const added = callerTool("added");
+			const loader = callerTool("loader", async () => {
+				agent.setTools([reuseSpec ? spec : cua.tools.browser.snapshot(), loader, added]);
+				return { content: [{ type: "text", text: "loaded" }], details: {} };
+			}, "sequential");
+			agent = new CuaAgent({
+				browser,
+				client,
+				tools: [spec, loader],
+				streamFn: scriptedStream([
+					(model) => assistant(model, [{ type: "toolCall", id: "load", name: "loader", arguments: {} }], "toolUse"),
+					(model) => assistant(model),
+				], contexts),
+				initialState: { model: "openai:gpt-5.5" },
+			});
+			await agent.prompt("load");
+			return contexts[1]?.messages.find((message) => message.role === "toolResult");
+		};
+		expect(await run(true)).toMatchObject({ addedToolNames: ["added"] });
+		expect(await run(false)).not.toHaveProperty("addedToolNames");
+	});
+
+	it("leaves model, requested tools, and installed executables untouched when setTools fails", () => {
+		const spec = cua.tools.browser.snapshot();
+		const keep = callerTool("keep");
+		const agent = new CuaAgent({ browser, client, tools: [spec, keep], initialState: { model: "openai:gpt-5.5" } });
+		const installed = agent.state.tools;
+		expect(() => agent.setTools([cua.providers.anthropic.tools.browser()])).toThrow(/requires a anthropic model/);
+		expect(() => agent.setTools([callerTool("keep"), callerTool("keep")])).toThrow(/caller\.keep/);
+		expect(agent.getModel().id).toBe("gpt-5.5");
+		expect(agent.getTools()).toEqual([spec, keep]);
+		expect(agent.state.tools).toEqual(installed);
+		agent.state.tools.forEach((tool, index) => expect(tool).toBe(installed[index]));
+	});
+
+	it("leaves model, requested tools, and installed executables untouched when setModel fails", () => {
+		const spec = cua.providers.anthropic.tools.browser();
+		const agent = new CuaAgent({ browser, client, tools: [spec], initialState: { model: "anthropic:claude-opus-5" } });
+		const installed = agent.state.tools;
+		expect(() => agent.setModel("openai:gpt-5.5")).toThrow(/requires a anthropic model/);
+		expect(agent.getModel().provider).toBe("anthropic");
+		expect(agent.getTools()).toEqual([spec]);
+		agent.state.tools.forEach((tool, index) => expect(tool).toBe(installed[index]));
+	});
+
 	it("rejects in-tool mutation from a non-sequential caller tool", async () => {
 		let agent!: CuaAgent;
 		const loader = callerTool("loader", async () => {
@@ -313,6 +421,14 @@ describe("CuaAgentHarness explicit tools", () => {
 		await expect(harness.setModel("openai:gpt-5.5")).rejects.toThrow(/requires a anthropic model/);
 		expect(harness.getModel().provider).toBe("anthropic");
 		expect(harness.getTools()[0]?.identity).toBe("provider.anthropic.native.browser.20260701");
+	});
+
+	it("keeps the harness catalog and executors unchanged when setTools fails", async () => {
+		const keep = callerTool("keep");
+		const harness = new CuaAgentHarness({ ...(await harnessServices()), browser, client, model: "openai:gpt-5.5", tools: [keep] });
+		await expect(harness.setTools([cua.providers.anthropic.tools.browser()])).rejects.toThrow(/requires a anthropic model/);
+		expect(harness.getModel().id).toBe("gpt-5.5");
+		expect(harness.getTools()).toEqual([keep]);
 	});
 
 	it("persists exact tool-name changes and anchors additive in-tool loading", async () => {

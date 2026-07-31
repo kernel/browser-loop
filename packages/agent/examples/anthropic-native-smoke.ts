@@ -4,8 +4,8 @@
 //
 // CONFIG selects the requested catalog; CuaAgent never infers or appends tools.
 import Kernel from "@onkernel/sdk";
-import { cua, requireCuaEnvApiKeyForModel, type CuaAgentTool, type CuaModelRef } from "@onkernel/cua-ai";
-import { CuaAgent } from "../src/index";
+import { cua, requireCuaEnvApiKeyForModel, type CuaModelRef } from "@onkernel/cua-ai";
+import { CuaAgent, type CuaAgentTool } from "../src/index";
 import { logAgentEvent, logAssistant } from "./shared/logging";
 
 const modelRef = (process.env.MODEL_REF as CuaModelRef | undefined) ?? "anthropic:claude-opus-5";

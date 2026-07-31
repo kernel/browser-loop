@@ -24,7 +24,6 @@ import {
 	type Api,
 	type Context,
 	cuaModels,
-	type CuaAgentTool,
 	type CuaIncomingToolPlan,
 	type CuaModelRef,
 	type CuaSimpleStreamOptions,
@@ -42,7 +41,7 @@ import {
 	withProviderRetryModels,
 } from "./provider-retry";
 import { CuaExecutionResources, type CuaExecutionDetails } from "./resources";
-import { CuaToolManager } from "./tool-manager";
+import { CuaToolManager, type CuaAgentTool } from "./tool-manager";
 import type { KernelBrowser } from "./translator/translator";
 
 /** A registered CUA model reference or an already resolved pi model. */
@@ -234,9 +233,9 @@ export class CuaAgent {
 	}
 
 	setTools(tools: readonly CuaAgentTool[]): void {
-		const catalog = this.tools.prepareTools(tools);
-		this.coreAgent.state.tools = this.tools.agentTools(catalog);
-		this.tools.commit(catalog);
+		const prepared = this.tools.prepareTools(tools);
+		this.coreAgent.state.tools = this.tools.agentTools(prepared);
+		this.tools.commit(prepared);
 		this.runtimeDirty = true;
 	}
 
@@ -245,10 +244,10 @@ export class CuaAgent {
 	}
 
 	setModel(model: CuaModelInput): void {
-		const catalog = this.tools.prepareModel(model);
-		this.coreAgent.state.model = catalog.model;
-		this.coreAgent.state.tools = this.tools.agentTools(catalog);
-		this.tools.commit(catalog);
+		const prepared = this.tools.prepareModel(model);
+		this.coreAgent.state.model = prepared.catalog.model;
+		this.coreAgent.state.tools = this.tools.agentTools(prepared);
+		this.tools.commit(prepared);
 		this.runtimeDirty = true;
 	}
 
@@ -380,35 +379,34 @@ export class CuaAgentHarness<
 	getTools(): readonly CuaAgentTool[] { return this.tools.getTools(); }
 
 	async setTools(tools: readonly CuaAgentTool[]): Promise<void> {
-		const previous = this.tools.catalog;
-		const previousTools = this.tools.agentTools(previous);
-		const catalog = this.tools.prepareTools(tools);
-		const materialized = this.tools.agentTools(catalog);
+		const previousTools = this.tools.agentTools();
+		const prepared = this.tools.prepareTools(tools);
+		const materialized = this.tools.agentTools(prepared);
 		try {
 			await this.coreHarness.setTools(materialized, materialized.map((tool) => tool.name));
 		} catch (error) {
 			await this.coreHarness.setTools(previousTools, previousTools.map((tool) => tool.name));
 			throw error;
 		}
-		this.tools.commit(catalog);
+		this.tools.commit(prepared);
 	}
 
 	getModel(): Model<Api> { return this.tools.catalog.model; }
 
 	async setModel(model: CuaModelInput): Promise<void> {
-		const previous = this.tools.catalog;
-		const previousTools = this.tools.agentTools(previous);
-		const catalog = this.tools.prepareModel(model);
-		const materialized = this.tools.agentTools(catalog);
+		const previousModel = this.tools.catalog.model;
+		const previousTools = this.tools.agentTools();
+		const prepared = this.tools.prepareModel(model);
+		const materialized = this.tools.agentTools(prepared);
 		try {
-			await this.coreHarness.setModel(catalog.model);
+			await this.coreHarness.setModel(prepared.catalog.model);
 			await this.coreHarness.setTools(materialized, materialized.map((tool) => tool.name));
 		} catch (error) {
-			await this.coreHarness.setModel(previous.model);
+			await this.coreHarness.setModel(previousModel);
 			await this.coreHarness.setTools(previousTools, previousTools.map((tool) => tool.name));
 			throw error;
 		}
-		this.tools.commit(catalog);
+		this.tools.commit(prepared);
 	}
 
 	prompt(text: string, options?: { images?: ImageContent[] }) { return this.coreHarness.prompt(text, options); }
@@ -550,7 +548,7 @@ function hasExecutionError(details: unknown): boolean {
 
 function turnFailureStopMessage(manager: CuaToolManager): string | undefined {
 	for (const entry of manager.catalog.entries) {
-		const execution = entry.spec?.execution;
+		const execution = manager.specFor(entry.identity)?.execution;
 		if (execution?.kind === "actions" && execution.stopTurnOnFailureMessage) return execution.stopTurnOnFailureMessage;
 	}
 	return undefined;

@@ -1,9 +1,9 @@
 import {
 	cua,
 	parseCuaModelRef,
-	type CuaAgentTool,
 	type CuaModelRef,
 } from "@onkernel/cua-ai";
+import type { CuaAgentTool } from "../../src/index";
 
 function structuredBrowserTools(): CuaAgentTool[] {
 	return [...cua.toolsets.browser(), cua.tools.browser.act()];

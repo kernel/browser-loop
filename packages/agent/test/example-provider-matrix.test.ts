@@ -1,26 +1,11 @@
-import type { AgentTool } from "@earendil-works/pi-agent-core";
 import {
 	compileCuaToolCatalog,
 	type CuaModelRef,
-	type CuaToolCatalogResources,
-	type CuaToolSpec,
 } from "@onkernel/cua-ai";
 import { describe, expect, it } from "vitest";
 import { toolsForModel } from "../examples/shared/tools";
 
-const resources: CuaToolCatalogResources = {
-	viewport: { width: 1440, height: 900 },
-	materialize(spec: CuaToolSpec): AgentTool {
-		return {
-			...spec.declaration,
-			label: spec.name,
-			executionMode: "sequential",
-			async execute() {
-				return { content: [{ type: "text", text: "ok" }], details: {} };
-			},
-		};
-	},
-};
+const viewport = { width: 1440, height: 900 };
 
 /**
  * The example matrices are plain scripts: they are excluded from `tsc -b` and are
@@ -46,7 +31,7 @@ describe("example provider matrix tool policy", () => {
 	it("compiles a valid catalog for every model the matrices advertise", () => {
 		for (const model of models) {
 			expect(
-				() => compileCuaToolCatalog({ model, requestedTools: toolsForModel(model), resources }),
+				() => compileCuaToolCatalog({ model, requestedTools: toolsForModel(model), viewport }),
 				model,
 			).not.toThrow();
 		}
