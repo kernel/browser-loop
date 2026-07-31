@@ -1,4 +1,3 @@
-import type { AgentTool } from "@earendil-works/pi-agent-core";
 import {
 	createAssistantMessageEventStream,
 	type Api,
@@ -14,24 +13,10 @@ import {
 	cua,
 	getCuaModel,
 	type CuaSimpleStreamOptions,
-	type CuaToolCatalogResources,
-	type CuaToolSpec,
 } from "../src/index";
 import { withAnthropicBrowserFallback } from "../src/providers/anthropic/browser-fallback";
 
-const resources: CuaToolCatalogResources = {
-	viewport: { width: 1440, height: 900 },
-	materialize(spec: CuaToolSpec): AgentTool {
-		return {
-			...spec.declaration,
-			label: spec.name,
-			executionMode: "sequential",
-			async execute() {
-				return { content: [{ type: "text", text: "ok" }], details: {} };
-			},
-		};
-	},
-};
+const viewport = { width: 1440, height: 900 };
 
 const context: Context = {
 	systemPrompt: "",
@@ -45,7 +30,7 @@ describe("Anthropic native browser access fallback", () => {
 		const catalog = compileCuaToolCatalog({
 			model,
 			requestedTools: [cua.providers.anthropic.tools.browser()],
-			resources,
+			viewport,
 		});
 		const payloads: Array<{ tools: unknown[]; headers: SimpleStreamOptions["headers"] }> = [];
 		let calls = 0;
@@ -66,7 +51,7 @@ describe("Anthropic native browser access fallback", () => {
 			onPayload: (payload) => catalog.payload.apply(payload, model),
 		};
 
-		await expect(provider.streamSimple(model, { ...context, tools: catalog.agentTools }, options).result()).resolves.toMatchObject({ stopReason: "toolUse" });
+		await expect(provider.streamSimple(model, { ...context, tools: [...catalog.toolDeclarations] }, options).result()).resolves.toMatchObject({ stopReason: "toolUse" });
 		expect(calls).toBe(2);
 		expect(payloads[0]?.tools[0]).toMatchObject({ type: "browser_20260701" });
 		expect(payloads[0]?.headers).toMatchObject({ "anthropic-beta": "other-beta,browser-use-2026-07-01" });
@@ -74,7 +59,7 @@ describe("Anthropic native browser access fallback", () => {
 		expect(payloads[1]?.tools[0]).not.toHaveProperty("type");
 		expect(payloads[1]?.headers).toEqual({ "anthropic-beta": "other-beta" });
 
-		await provider.streamSimple(model, { ...context, tools: catalog.agentTools }, options).result();
+		await provider.streamSimple(model, { ...context, tools: [...catalog.toolDeclarations] }, options).result();
 		expect(calls).toBe(3);
 		expect(payloads[2]?.tools[0]).not.toHaveProperty("type");
 	});
@@ -84,7 +69,7 @@ describe("Anthropic native browser access fallback", () => {
 		const catalog = compileCuaToolCatalog({
 			model,
 			requestedTools: [cua.providers.anthropic.tools.browser()],
-			resources,
+			viewport,
 		});
 		let calls = 0;
 		const provider = withAnthropicBrowserFallback(fakeProvider(async (selectedModel) => {
@@ -92,7 +77,7 @@ describe("Anthropic native browser access fallback", () => {
 			return message(selectedModel, "error", "rate limit exceeded");
 		}));
 
-		const result = await provider.streamSimple(model, { ...context, tools: catalog.agentTools }, {
+		const result = await provider.streamSimple(model, { ...context, tools: [...catalog.toolDeclarations] }, {
 			apiKey: "non-access-error-test-key",
 			cuaIncomingToolPlan: catalog.incoming,
 		}).result();

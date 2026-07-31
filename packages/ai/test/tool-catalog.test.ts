@@ -1,41 +1,24 @@
-import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { Type, type Model } from "@earendil-works/pi-ai";
-import { describe, expect, it, vi } from "vitest";
+import { Type, type Tool } from "@earendil-works/pi-ai";
+import { describe, expect, it } from "vitest";
 import {
+	callerToolIdentity,
 	compileCuaToolCatalog,
 	cua,
-	getCuaModel,
-	type CuaToolCatalogResources,
 	type CuaToolSpec,
 } from "../src/index";
 
-const resources: CuaToolCatalogResources = {
-	viewport: { width: 1440, height: 900 },
-	materialize(spec: CuaToolSpec): AgentTool {
-		return {
-			...spec.declaration,
-			label: spec.name,
-			executionMode: "sequential",
-			async execute() {
-				return { content: [{ type: "text", text: "ok" }], details: {} };
-			},
-		};
-	},
-};
+const viewport = { width: 1440, height: 900 };
 
 function compile(model: Parameters<typeof compileCuaToolCatalog>[0]["model"], requestedTools: Parameters<typeof compileCuaToolCatalog>[0]["requestedTools"]) {
-	return compileCuaToolCatalog({ model, requestedTools, resources });
+	return compileCuaToolCatalog({ model, requestedTools, viewport });
 }
 
-function callerTool(name: string): AgentTool {
+/** Sanitized caller declaration: cua-ai never receives executable members. */
+function callerTool(name: string): Tool {
 	return {
 		name,
-		label: name,
 		description: "caller",
 		parameters: Type.Object({}),
-		async execute() {
-			return { content: [{ type: "text", text: "ok" }], details: {} };
-		},
 	};
 }
 
@@ -122,9 +105,44 @@ describe("cua tool namespace", () => {
 describe("compileCuaToolCatalog", () => {
 	it("accepts an exact empty catalog", () => {
 		const catalog = compile("openai:gpt-5.5", []);
-		expect(catalog.requested).toEqual([]);
 		expect(catalog.entries).toEqual([]);
-		expect(catalog.agentTools).toEqual([]);
+		expect(catalog.toolDeclarations).toEqual([]);
+	});
+
+	it("never exposes requested, executable, spec, or executor state", () => {
+		const catalog = compile("openai:gpt-5.5", [cua.tools.browser.snapshot(), callerTool("custom")]);
+		expect("requested" in catalog).toBe(false);
+		expect("agentTools" in catalog).toBe(false);
+		for (const entry of catalog.entries) {
+			expect(entry).not.toHaveProperty("requested");
+			expect(entry).not.toHaveProperty("agentTool");
+			expect(entry).not.toHaveProperty("spec");
+			expect(entry).not.toHaveProperty("executorFingerprint");
+		}
+		for (const declaration of catalog.toolDeclarations) {
+			for (const member of ["execute", "label", "prepareArguments", "executionMode"]) {
+				expect(declaration).not.toHaveProperty(member);
+			}
+		}
+	});
+
+	it("sanitizes even executable-shaped caller inputs into fresh declarations", () => {
+		const executable = {
+			name: "custom",
+			label: "custom",
+			description: "caller",
+			parameters: Type.Object({}),
+			executionMode: "sequential",
+			async execute() {
+				return { content: [{ type: "text" as const, text: "ok" }], details: {} };
+			},
+		};
+		const catalog = compile("openai:gpt-5.5", [executable]);
+		const [declaration] = catalog.toolDeclarations;
+		expect(declaration).toEqual({ name: "custom", description: "caller", parameters: Type.Object({}) });
+		expect(declaration).not.toBe(executable);
+		expect(catalog.entries[0]?.declaration).toBe(declaration);
+		expect(catalog.entries[0]?.declaration).not.toBe(executable);
 	});
 
 	it("preserves exact requested order and inspectable identities", () => {
@@ -134,7 +152,13 @@ describe("compileCuaToolCatalog", () => {
 			["cua.browser.snapshot.v1", "browser_snapshot", "cua"],
 			["caller.customer_lookup", "customer_lookup", "caller"],
 		]);
-		expect(catalog.agentTools.map((tool) => tool.name)).toEqual(["browser_snapshot", "customer_lookup"]);
+		expect(catalog.toolDeclarations.map((tool) => tool.name)).toEqual(["browser_snapshot", "customer_lookup"]);
+	});
+
+	it("exposes one canonical caller-tool identity scheme", () => {
+		expect(callerToolIdentity("customer_lookup")).toBe("caller.customer_lookup");
+		const catalog = compile("openai:gpt-5.5", [callerTool("customer_lookup")]);
+		expect(catalog.entries[0]?.identity).toBe(callerToolIdentity("customer_lookup"));
 	});
 
 	it("rejects duplicate identities and exact name collisions", () => {
@@ -298,10 +322,12 @@ describe("compileCuaToolCatalog", () => {
 		expect(pixels.entries[0]?.fingerprint).not.toBe(normalized.entries[0]?.fingerprint);
 	});
 
-	it("fingerprints caller executor replacements independently from schema", () => {
-		const first = compile("openai:gpt-5.5", [callerTool("custom")]);
-		const second = compile("openai:gpt-5.5", [callerTool("custom")]);
-		expect(first.entries[0]?.schemaFingerprint).toBe(second.entries[0]?.schemaFingerprint);
-		expect(first.entries[0]?.fingerprint).not.toBe(second.entries[0]?.fingerprint);
+	it("produces deterministic fingerprints for identical declaration, model, and viewport inputs", () => {
+		const compileInputs = () => [cua.tools.browser.snapshot(), cua.tools.computer.click(), callerTool("custom")];
+		const first = compile("openai:gpt-5.5", compileInputs());
+		const second = compile("openai:gpt-5.5", compileInputs());
+		expect(second.fingerprint).toBe(first.fingerprint);
+		expect(second.entries.map((entry) => entry.fingerprint)).toEqual(first.entries.map((entry) => entry.fingerprint));
+		expect(second.toolDeclarations.map((tool) => tool.name)).toEqual(first.toolDeclarations.map((tool) => tool.name));
 	});
 });

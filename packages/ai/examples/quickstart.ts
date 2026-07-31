@@ -1,12 +1,10 @@
 import { readFile } from "node:fs/promises";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
 import {
 	compileCuaToolCatalog,
 	cua,
 	cuaModels,
 	requireCuaEnvApiKeyForModel,
 	type CuaModelRef,
-	type CuaToolSpec,
 } from "@onkernel/cua-ai";
 
 // Switch providers by setting CUA_MODEL and the matching provider API key.
@@ -15,22 +13,13 @@ const apiKey = requireCuaEnvApiKeyForModel(modelRef);
 const screenshot = await readFile(new URL("./screenshot.png", import.meta.url));
 
 // The caller requests the exact catalog. Nothing is inferred or appended.
+// Compilation is declaration-only: cua-ai has no pi-agent-core dependency and
+// never constructs executable tools. `@onkernel/cua-agent` materializes specs
+// against a live Kernel browser when execution is needed.
 const catalog = compileCuaToolCatalog({
 	model: modelRef,
 	requestedTools: [cua.tools.computer.click()],
-	resources: {
-		viewport: { width: 1440, height: 900 },
-		materialize(spec: CuaToolSpec): AgentTool {
-			return {
-				...spec.declaration,
-				label: spec.name,
-				executionMode: "sequential",
-				async execute() {
-					throw new Error("This catalog-only example does not execute the returned click.");
-				},
-			};
-		},
-	},
+	viewport: { width: 1440, height: 900 },
 });
 
 const response = await cuaModels().complete(
@@ -45,7 +34,7 @@ const response = await cuaModels().complete(
 			],
 			timestamp: Date.now(),
 		}],
-		tools: [...catalog.agentTools],
+		tools: [...catalog.toolDeclarations],
 	},
 	{
 		apiKey,

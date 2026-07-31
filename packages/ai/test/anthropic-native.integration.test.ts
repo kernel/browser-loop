@@ -1,27 +1,14 @@
-import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { describe, expect, it } from "vitest";
 import {
 	compileCuaToolCatalog,
 	createCuaModels,
 	cua,
-	type CuaToolSpec,
 } from "../src/index";
 
 const apiKey = process.env.ANTHROPIC_API_KEY;
 const liveIt = apiKey ? it : it.skip;
 
-const resources = {
-	viewport: { width: 1440, height: 900 },
-	materialize(spec: CuaToolSpec): AgentTool {
-		return {
-			...spec.declaration,
-			label: spec.name,
-			async execute() {
-				return { content: [{ type: "text" as const, text: "not executed in catalog smoke test" }], details: {} };
-			},
-		};
-	},
-};
+const viewport = { width: 1440, height: 900 };
 
 const cases = [
 	{
@@ -44,14 +31,14 @@ describe("Anthropic early-access native tools", () => {
 			const catalog = compileCuaToolCatalog({
 				model: "anthropic:claude-opus-5",
 				requestedTools: [current.tool],
-				resources,
+				viewport,
 			});
 			const response = await createCuaModels().complete(
 				catalog.model,
 				{
 					systemPrompt: "Use only the explicitly supplied tool.",
 					messages: [{ role: "user", content: current.prompt, timestamp: Date.now() }],
-					tools: [...catalog.agentTools],
+					tools: [...catalog.toolDeclarations],
 				},
 				{
 					apiKey,

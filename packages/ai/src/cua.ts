@@ -183,7 +183,6 @@ function browserTool(factory: BrowserFactoryName, options: CuaToolNameOptions = 
 			coordinates: pixels,
 			batch: false,
 		},
-		executorFingerprint: `browser-${action}-v1`,
 		stateMutating: !["browser_snapshot", "browser_text", "browser_find", "browser_list_tabs", "browser_screenshot", "browser_wait_for"].includes(action),
 		complexSchema: action === "browser_wait_for" || action === "browser_act",
 		largeSchema: action === "browser_act",
@@ -211,7 +210,6 @@ function computerTool(factory: ComputerFactoryName, options: CuaComputerToolOpti
 			coordinates,
 			batch: false,
 		},
-		executorFingerprint: `computer-${action}-v1`,
 		stateMutating: !["screenshot", "zoom", "url", "cursor_position"].includes(action),
 	});
 }
@@ -240,7 +238,6 @@ function computerBatch(options: CuaComputerBatchOptions): CuaToolSpec {
 			coordinates,
 			batch: true,
 		},
-		executorFingerprint: `computer-batch-v1:${actions.join(",")}`,
 		stateMutating: actions.some((action) => !["screenshot", "zoom", "url", "cursor_position"].includes(action)),
 	});
 }
@@ -279,7 +276,6 @@ function browserBatch(options: CuaBrowserBatchOptions): CuaToolSpec {
 			coordinates: pixels,
 			batch: true,
 		},
-		executorFingerprint: `browser-batch-v1:${actions.join(",")}`,
 		stateMutating: actions.some((action) => !["snapshot", "text", "find", "list_tabs", "screenshot", "wait_for"].includes(action)),
 		complexSchema: actions.includes("wait_for"),
 	});
@@ -300,7 +296,6 @@ function playwright(options: CuaToolNameOptions = {}): CuaToolSpec {
 			}, { additionalProperties: false }),
 		},
 		execution: { kind: "playwright" },
-		executorFingerprint: "playwright-v1",
 		stateMutating: true,
 	});
 }
@@ -321,7 +316,6 @@ function anthropicNativeComputer(options: { version: "20260701"; enableZoom?: bo
 		binding: { kind: "anthropic-native", declaration, beta: "computer-use-2026-07-01" },
 		toActions: (input) => mapNativeComputerInput(asNativeInput(input)),
 		coordinates: pixels,
-		executorFingerprint: `anthropic-native-computer-20260701:${options.enableZoom === true}`,
 		stopTurnOnFailureMessage: "Not executed: an earlier computer action in this turn failed.",
 	});
 }
@@ -350,7 +344,6 @@ function anthropicNativeBrowser(options: { version: "20260701"; javascript?: boo
 		},
 		toActions: (input) => mapNativeBrowserInput(asNativeInput(input)),
 		coordinates: pixels,
-		executorFingerprint: `anthropic-native-browser-20260701:${options.javascript !== false}`,
 		stopTurnOnFailureMessage: "Not executed: an earlier action in this turn failed.",
 	});
 }
@@ -445,7 +438,6 @@ function openaiNativeComputer(): CuaToolSpec {
 		binding: { kind: "openai-native", declaration },
 		toActions: mapOpenAIComputerInput,
 		coordinates: pixels,
-		executorFingerprint: "openai-native-computer-v1",
 	});
 }
 
@@ -467,7 +459,6 @@ function tzafonNativeComputer(options: { displayWidth?: number; displayHeight?: 
 			return toTzafonActions(action).filter((value): value is CuaAction => value.type !== "answer");
 		},
 		coordinates: normalized([0, 999]),
-		executorFingerprint: "tzafon-native-computer-v1",
 	});
 }
 
@@ -492,7 +483,6 @@ function yutoriToolset(generation: "n1" | "n15"): CuaToolSpec[] {
 				return toYutoriActions(nativeName, asInput(input)) ?? [];
 			},
 			coordinates: normalized([0, 1000]),
-			executorFingerprint: `yutori-${generation}-${nativeName}`,
 		});
 	});
 }
@@ -520,7 +510,6 @@ function googleBrowserToolset(options: GoogleBrowserToolsetOptions = {}): CuaToo
 		binding: { kind: "google-native", nativeName, allNativeNames: GOOGLE_BROWSER_ACTIONS },
 		toActions: (input) => mapGoogleAction(nativeName, asInput(input)),
 		coordinates: normalized([0, 999]),
-		executorFingerprint: `google-browser-${nativeName}-v1`,
 	}));
 }
 
@@ -532,7 +521,6 @@ function providerNativeSpec(options: {
 	binding: CuaProviderBinding;
 	toActions: (input: unknown) => CuaAction[];
 	coordinates: CuaCoordinateContract;
-	executorFingerprint: string;
 	stopTurnOnFailureMessage?: string;
 }): CuaToolSpec {
 	return createSpec({
@@ -555,7 +543,6 @@ function providerNativeSpec(options: {
 			...(options.stopTurnOnFailureMessage ? { stopTurnOnFailureMessage: options.stopTurnOnFailureMessage } : {}),
 		},
 		providerBinding: options.binding,
-		executorFingerprint: options.executorFingerprint,
 		stateMutating: true,
 	});
 }
@@ -571,7 +558,6 @@ function createSpec(options: {
 	declaration: Tool;
 	execution: CuaToolExecution;
 	providerBinding?: CuaProviderBinding;
-	executorFingerprint: string;
 	stateMutating: boolean;
 	complexSchema?: boolean;
 	largeSchema?: boolean;
@@ -590,7 +576,6 @@ function createSpec(options: {
 		declaration,
 		execution: Object.freeze(options.execution),
 		...(options.providerBinding ? { providerBinding: Object.freeze(options.providerBinding) } : {}),
-		executorFingerprint: options.executorFingerprint,
 		stateMutating: options.stateMutating,
 		...(options.complexSchema ? { complexSchema: true } : {}),
 		...(options.largeSchema ? { largeSchema: true } : {}),
