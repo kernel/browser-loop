@@ -138,7 +138,6 @@ const agent = new CuaAgent({
 const harness = new CuaAgentHarness({
   browser,
   client,
-  env,
   session,
   model: "openai:gpt-5.6-sol",
   tools: [

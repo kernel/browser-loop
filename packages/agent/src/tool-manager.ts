@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
+import type { AgentHarnessTool, AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import {
 	callerToolIdentity,
@@ -15,21 +15,34 @@ import {
 import { CuaExecutionResources } from "./resources";
 
 /**
- * Caller-owned tool: a declarative CUA spec materialized by this package, or an
- * already executable pi `AgentTool`. Defined here because cua-agent is the only
- * package that holds both halves; cua-ai compiles declaration-only catalogs.
+ * Caller-owned tool for {@link CuaAgent}: a declarative CUA spec materialized
+ * by this package, or an already executable pi `AgentTool`. Defined here
+ * because cua-agent is the only package that holds both halves; cua-ai
+ * compiles declaration-only catalogs.
  */
 export type CuaAgentTool = CuaToolSpec | AgentTool;
 
 /**
- * One atomically committable tools state. `requested` is the sole caller-owned
- * source of truth; `catalog` is its pure declarative projection; `tools` are
- * the wrapped executables joined back by identity after compilation.
+ * Caller-owned tool for {@link CuaAgentHarness}: a declarative CUA spec
+ * materialized by this package, or an executable pi `AgentHarnessTool` that
+ * receives the harness's tool context on every call. A plain `AgentTool` is
+ * assignable (it simply ignores the context), but the two APIs are kept
+ * distinct: `CuaAgent` takes `CuaAgentTool`, `CuaAgentHarness` takes this.
  */
-export interface PreparedCuaTools {
-	readonly requested: readonly CuaAgentTool[];
+export type CuaHarnessTool<TContext extends object | undefined = never> = CuaToolSpec | AgentHarnessTool<TContext>;
+
+/**
+ * One atomically committable tools state. `requested` is the sole caller-owned
+ * source of truth; `catalog` is its pure declarative projection; `tools` and
+ * `harnessTools` are the wrapped executables joined back by identity after
+ * compilation, viewed as pi `AgentTool`s (for `CuaAgent`) or as
+ * context-delivering `AgentHarnessTool`s (for `CuaAgentHarness`).
+ */
+export interface PreparedCuaTools<TRequested extends CuaHarnessTool<any> = CuaAgentTool> {
+	readonly requested: readonly TRequested[];
 	readonly catalog: CuaToolCatalog;
 	readonly tools: readonly AgentTool[];
+	readonly harnessTools: readonly AgentHarnessTool<any>[];
 	/** Identity → CUA spec, for execution metadata (e.g. stop-on-failure policy). */
 	readonly specs: ReadonlyMap<string, CuaToolSpec>;
 	/** Declaration fingerprint composed with implementation identity, in entry order. */
@@ -39,7 +52,7 @@ export interface PreparedCuaTools {
 interface ToolExecutionScope {
 	readonly toolName: string;
 	readonly executionMode: AgentTool["executionMode"];
-	readonly baseline: PreparedCuaTools;
+	readonly baseline: PreparedCuaTools<any>;
 }
 
 /**
@@ -61,14 +74,14 @@ function implementationId(key: object): number {
 }
 
 /** Owns the caller's requested list and its compiled catalog while browser resources live independently. */
-export class CuaToolManager {
+export class CuaToolManager<TRequested extends CuaHarnessTool<any> = CuaAgentTool> {
 	private readonly execution = new AsyncLocalStorage<ToolExecutionScope>();
-	private current: PreparedCuaTools;
+	private current: PreparedCuaTools<TRequested>;
 
 	constructor(
 		readonly resources: CuaExecutionResources,
 		model: CuaModelRef | Model<Api>,
-		requestedTools: readonly CuaAgentTool[],
+		requestedTools: readonly TRequested[],
 		private readonly resolveModel: (model: CuaModelRef) => Model<Api> = getCuaModel,
 	) {
 		this.current = this.prepare(model, requestedTools);
@@ -78,13 +91,18 @@ export class CuaToolManager {
 		return this.current.catalog;
 	}
 
-	getTools(): readonly CuaAgentTool[] {
+	getTools(): TRequested[] {
 		return [...this.current.requested];
 	}
 
-	/** Wrapped executable tools for a prepared (or the committed) state, in entry order. */
-	agentTools(prepared: PreparedCuaTools = this.current): AgentTool[] {
+	/** Wrapped pi `AgentTool` view of a prepared (or the committed) state, in entry order. */
+	agentTools(prepared: PreparedCuaTools<TRequested> = this.current): AgentTool[] {
 		return [...prepared.tools];
+	}
+
+	/** Wrapped pi `AgentHarnessTool` view of a prepared (or the committed) state, in entry order. */
+	harnessTools(prepared: PreparedCuaTools<TRequested> = this.current): AgentHarnessTool<any>[] {
+		return [...prepared.harnessTools];
 	}
 
 	/** Execution metadata for one committed catalog identity. */
@@ -92,17 +110,17 @@ export class CuaToolManager {
 		return this.current.specs.get(identity);
 	}
 
-	prepareTools(tools: readonly CuaAgentTool[]): PreparedCuaTools {
+	prepareTools(tools: readonly TRequested[]): PreparedCuaTools<TRequested> {
 		this.assertMutationScope("setTools");
 		return this.prepare(this.current.catalog.model, tools);
 	}
 
-	prepareModel(model: CuaModelRef | Model<Api>): PreparedCuaTools {
+	prepareModel(model: CuaModelRef | Model<Api>): PreparedCuaTools<TRequested> {
 		this.assertMutationScope("setModel");
 		return this.prepare(model, this.current.requested);
 	}
 
-	commit(prepared: PreparedCuaTools): void {
+	commit(prepared: PreparedCuaTools<TRequested>): void {
 		this.current = prepared;
 	}
 
@@ -112,10 +130,10 @@ export class CuaToolManager {
 	 * compilation, then joined back strictly by compiled identity — never by
 	 * position. Any failure leaves the committed state untouched.
 	 */
-	private prepare(model: CuaModelRef | Model<Api>, tools: readonly CuaAgentTool[]): PreparedCuaTools {
+	private prepare(model: CuaModelRef | Model<Api>, tools: readonly TRequested[]): PreparedCuaTools<TRequested> {
 		const requested = Object.freeze([...tools]);
 		const inputs: CuaCatalogToolInput[] = [];
-		const executables = new Map<string, CuaAgentTool>();
+		const executables = new Map<string, TRequested>();
 		const implementations = new Map<string, object>();
 		const specs = new Map<string, CuaToolSpec>();
 		for (const tool of requested) {
@@ -140,7 +158,7 @@ export class CuaToolManager {
 		});
 
 		const fingerprints: string[] = [];
-		const wrapped = catalog.entries.map((entry) => {
+		const joined: Array<AgentTool | AgentHarnessTool<any>> = catalog.entries.map((entry) => {
 			const executable = executables.get(entry.identity);
 			const implementation = implementations.get(entry.identity);
 			if (!executable || !implementation) {
@@ -148,8 +166,7 @@ export class CuaToolManager {
 			}
 			executables.delete(entry.identity);
 			fingerprints.push(`${entry.fingerprint}#impl-${implementationId(implementation)}`);
-			const agentTool = isCuaToolSpec(executable) ? this.resources.materialize(executable) : executable;
-			return this.wrapExecutable(agentTool);
+			return isCuaToolSpec(executable) ? this.resources.materialize(executable) : (executable as AgentHarnessTool<any>);
 		});
 		if (executables.size > 0) {
 			throw new Error(`requested tool(s) ${[...executables.keys()].join(", ")} missing from the compiled catalog`);
@@ -158,27 +175,44 @@ export class CuaToolManager {
 		return Object.freeze({
 			requested,
 			catalog,
-			tools: Object.freeze(wrapped),
+			tools: Object.freeze(joined.map((tool) => this.wrapAgentExecutable(tool as AgentTool))),
+			harnessTools: Object.freeze(joined.map((tool) => this.wrapHarnessExecutable(tool))),
 			specs,
 			fingerprints: Object.freeze(fingerprints),
 		});
 	}
 
-	private wrapExecutable(tool: AgentTool): AgentTool {
+	/** Low-level `AgentTool` view for {@link CuaAgent}; caller tools there never declare a harness context. */
+	private wrapAgentExecutable(tool: AgentTool): AgentTool {
 		return {
 			...tool,
-			execute: async (toolCallId, input, signal, onUpdate) => {
-				const scope: ToolExecutionScope = {
-					toolName: tool.name,
-					executionMode: tool.executionMode,
-					baseline: this.current,
-				};
-				return this.execution.run(scope, async () => {
-					const result = await tool.execute(toolCallId, input, signal, onUpdate);
-					return mergeAddedToolNames(result, cachePreservingAdditions(scope.baseline, this.current) ?? []);
-				});
-			},
+			execute: (toolCallId, input, signal, onUpdate) =>
+				this.executeWithScope(tool, () => tool.execute(toolCallId, input, signal, onUpdate)),
 		};
+	}
+
+	/** Context-delivering `AgentHarnessTool` view for {@link CuaAgentHarness}. */
+	private wrapHarnessExecutable(tool: AgentHarnessTool<any>): AgentHarnessTool<any> {
+		return {
+			...tool,
+			execute: (toolCallId, params, signal, onUpdate, context) =>
+				this.executeWithScope(tool, () => tool.execute(toolCallId, params, signal, onUpdate, context)),
+		};
+	}
+
+	private async executeWithScope<TDetails>(
+		tool: { readonly name: string; readonly executionMode?: AgentTool["executionMode"] },
+		call: () => Promise<AgentToolResult<TDetails>>,
+	): Promise<AgentToolResult<TDetails>> {
+		const scope: ToolExecutionScope = {
+			toolName: tool.name,
+			executionMode: tool.executionMode,
+			baseline: this.current,
+		};
+		return this.execution.run(scope, async () => {
+			const result = await call();
+			return mergeAddedToolNames(result, cachePreservingAdditions(scope.baseline, this.current) ?? []);
+		});
 	}
 
 	private assertMutationScope(api: "setTools" | "setModel"): void {
@@ -189,7 +223,7 @@ export class CuaToolManager {
 	}
 }
 
-function cachePreservingAdditions(previous: PreparedCuaTools, next: PreparedCuaTools): string[] | undefined {
+function cachePreservingAdditions(previous: PreparedCuaTools<any>, next: PreparedCuaTools<any>): string[] | undefined {
 	const previousModel = previous.catalog.model;
 	const nextModel = next.catalog.model;
 	if (previousModel.provider !== nextModel.provider || previousModel.id !== nextModel.id || previousModel.api !== nextModel.api) return undefined;

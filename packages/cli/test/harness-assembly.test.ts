@@ -4,7 +4,6 @@ import {
 	InMemorySessionRepo,
 	type Skill,
 } from "@onkernel/cua-agent";
-import { createCodingTools } from "@earendil-works/pi-coding-agent";
 import { cua } from "@onkernel/cua-ai";
 import { tmpdir } from "node:os";
 import { mkdtempSync } from "node:fs";
@@ -59,10 +58,8 @@ describe("buildCuaHarness", () => {
 		expect(toolNames).toContain("browser_click");
 		expect(toolNames).toContain("browser_screenshot");
 		expect(toolNames).toContain("browser_act");
-		const codingToolNames = createCodingTools(cwd).map((tool) => tool.name);
-		for (const name of codingToolNames) {
-			expect(toolNames).toContain(name);
-		}
+		// pi's native read/bash/edit/write coding tools close the list, in order.
+		expect(toolNames.slice(-4)).toEqual(["read", "bash", "edit", "write"]);
 	});
 
 	it("uses only the caller-owned skill block as its system prompt", async () => {

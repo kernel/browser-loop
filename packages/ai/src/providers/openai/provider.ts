@@ -107,7 +107,7 @@ function streamOpenAIFunctionTools(
 			applyToolCallNamespaces(output, namespaces);
 			if (options?.signal?.aborted) throw new Error("Request was aborted");
 			if (output.stopReason === "error" || output.stopReason === "aborted") throw new Error("OpenAI response ended unsuccessfully");
-			stream.push({ type: "done", reason: output.stopReason, message: output });
+			stream.push({ type: "done", reason: output.stopReason as "stop" | "length" | "toolUse", message: output });
 			stream.end(output);
 		} catch (error) {
 			for (const block of output.content) delete (block as ToolCall & { partialJson?: string }).partialJson;

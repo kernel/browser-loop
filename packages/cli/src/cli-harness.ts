@@ -445,7 +445,7 @@ async function finishHarnessRuntime(
 
 	const thinkingLevel = mapThinkingLevel(flags.thinking);
 	const baseUrlOverride = providerBaseUrlOverride(provider);
-	const applicationTools = defaultApplicationTools(cwd);
+	const applicationTools = defaultApplicationTools();
 	const harness = buildCuaHarness({
 		cwd,
 		client: provisioned.handle.client,
@@ -487,7 +487,7 @@ function providerBaseUrlOverride(provider: string): string | undefined {
 	return value && value.length > 0 ? value : undefined;
 }
 
-function mapThinkingLevel(raw: string | undefined): "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" {
+export function mapThinkingLevel(raw: string | undefined): "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" {
 	const v = (raw ?? "low").trim().toLowerCase();
 	switch (v) {
 		case "off":

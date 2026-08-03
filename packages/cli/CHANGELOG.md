@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.8.0 - 2026-08-03
+
+Breaking: upgrade the pi stack to 0.83.0 (`pi-ai`, `pi-agent-core`,
+`pi-coding-agent`, `pi-tui`).
+
+- Coding tools now come from `@earendil-works/pi-agent-core`
+  (`createReadTool`/`createBashTool`/`createEditTool`/`createWriteTool`,
+  preserving the read/bash/edit/write order) instead of pi-coding-agent's
+  `createCodingTools`. The harness supplies
+  `toolContext: { env: new NodeExecutionEnv({ cwd }) }`, and the removed
+  `CuaAgentHarness` `env` option is no longer used.
+- Kimi K3 (Moonshot and OpenRouter) sends `reasoning_effort: low` at the
+  default `--thinking` level, following pi's catalog metadata with no CLI
+  override.
+- Update `@onkernel/cua-ai` and `@onkernel/cua-agent` to 0.10.0.
+
 ## 0.7.0 - 2026-08-03
 
 - Add `openrouter:moonshotai/kimi-k3` model selection and

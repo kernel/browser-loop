@@ -1,11 +1,12 @@
-import type { AgentHarnessEvent, CuaAgentHarness, Skill } from "@onkernel/cua-agent";
+import type { AgentHarnessEvent, Skill } from "@onkernel/cua-agent";
+import type { CuaCliHarness } from "./harness";
 import { stderr, stdout } from "node:process";
 import type { CuaBrowserHandle } from "./harness-browser";
 import { attachHarnessJsonlSink } from "./output/harness-jsonl";
 import { parseSkillInvocation } from "./harness-skills";
 
 export interface RunPrintOptions {
-	harness: CuaAgentHarness;
+	harness: CuaCliHarness;
 	browserHandle: CuaBrowserHandle;
 	modelRef: string;
 	provider: string;

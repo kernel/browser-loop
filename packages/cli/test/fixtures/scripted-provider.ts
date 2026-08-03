@@ -148,7 +148,7 @@ function buildStream(model: Model<Api>, turn: ScriptedTurn | undefined, signal?:
 				stream.push({
 					type: "toolcall_end",
 					contentIndex,
-					toolCall: { id, name: step.toolName, arguments: step.args },
+					toolCall: { type: "toolCall", id, name: step.toolName, arguments: step.args },
 					partial: message,
 				});
 				contentIndex += 1;

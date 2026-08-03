@@ -4,6 +4,7 @@ import {
 	createCuaModels,
 	getCuaModel,
 	cua,
+	isCuaToolSpec,
 	type AssistantMessage,
 	type Context,
 	type Model,
@@ -15,7 +16,6 @@ import {
 	CuaAgent,
 	CuaAgentHarness,
 	InMemorySessionRepo,
-	NodeExecutionEnv,
 	type AgentTool,
 	type KernelBrowser,
 	type StreamFn,
@@ -54,7 +54,7 @@ function scriptedStream(
 		const stream = createAssistantMessageEventStream();
 		const message = turns[call++]?.(model) ?? assistant(model);
 		stream.push({ type: "start", partial: message });
-		stream.push({ type: "done", reason: message.stopReason, message });
+		stream.push({ type: "done", reason: message.stopReason as "stop" | "length" | "toolUse", message });
 		stream.end(message);
 		return stream;
 	};
@@ -74,7 +74,6 @@ function callerTool(name: string, execute?: AgentTool["execute"], executionMode?
 async function harnessServices() {
 	const repo = new InMemorySessionRepo();
 	return {
-		env: new NodeExecutionEnv({ cwd: process.cwd() }),
 		session: await repo.create(),
 	};
 }
@@ -435,7 +434,8 @@ describe("CuaAgentHarness explicit tools", () => {
 		await harness.setTools([cua.providers.anthropic.tools.browser()]);
 		await expect(harness.setModel("openai:gpt-5.5")).rejects.toThrow(/requires a anthropic model/);
 		expect(harness.getModel().provider).toBe("anthropic");
-		expect(harness.getTools()[0]?.identity).toBe("provider.anthropic.native.browser.20260701");
+		const installed = harness.getTools()[0];
+		expect(installed && isCuaToolSpec(installed) ? installed.identity : undefined).toBe("provider.anthropic.native.browser.20260701");
 	});
 
 	it("keeps the harness catalog and executors unchanged when setTools fails", async () => {

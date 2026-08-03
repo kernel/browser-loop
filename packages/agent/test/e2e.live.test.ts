@@ -5,7 +5,6 @@ import {
 	CuaAgentHarness,
 	cua,
 	InMemorySessionRepo,
-	NodeExecutionEnv,
 	type AgentEvent,
 	type AgentHarnessEvent,
 	type AgentMessage,
@@ -240,7 +239,6 @@ async function withBrowser<T>(run: (client: Kernel, browser: Awaited<ReturnType<
 async function createHarnessServices(id: string) {
 	const sessionRepo = new InMemorySessionRepo();
 	return {
-		env: new NodeExecutionEnv({ cwd: process.cwd() }),
 		session: await sessionRepo.create({ id }),
 	};
 }

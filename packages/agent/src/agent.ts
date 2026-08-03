@@ -6,12 +6,13 @@ import {
 	type AgentHarnessEventResultMap,
 	type AgentHarnessOptions,
 	type AgentHarnessOwnEvent,
+	type AgentHarnessToolContextSource,
 	type AgentHarnessResources,
 	type AgentHarnessStreamOptions,
+	type AgentHarnessTool,
 	type AgentMessage,
 	type AgentOptions,
 	type AgentTool,
-	type ExecutionEnv,
 	type NavigateTreeResult,
 	type PromptTemplate,
 	type QueueMode,
@@ -44,7 +45,7 @@ import {
 	withProviderRetryModels,
 } from "./provider-retry";
 import { CuaExecutionResources, type CuaExecutionDetails } from "./resources";
-import { CuaToolManager, type CuaAgentTool } from "./tool-manager";
+import { CuaToolManager, type CuaAgentTool, type CuaHarnessTool } from "./tool-manager";
 import type { KernelBrowser } from "./translator/translator";
 
 /** A registered CUA model reference or an already resolved pi model. */
@@ -82,40 +83,57 @@ type CuaAgentInitialState = Omit<NonNullable<AgentOptions["initialState"]>, "mod
 };
 
 /** Construction options for {@link CuaAgent}, including its exact caller-owned tool catalog. */
-export type CuaAgentOptions = Omit<AgentOptions, "initialState"> & {
+export type CuaAgentOptions = Omit<AgentOptions, "initialState" | "streamFn"> & {
 	browser: KernelBrowser;
 	client: Kernel;
 	tools: readonly CuaAgentTool[];
 	initialState: CuaAgentInitialState;
+	/** Defaults to streaming through the shared {@link cuaModels} collection. */
+	streamFn?: AgentOptions["streamFn"];
 	emptyResponseRecovery?: CuaEmptyResponseRecoveryOptions;
 	toolResultImageReplayLimit?: ToolResultImageReplayLimit;
 	responseThreading?: boolean;
 	retry?: CuaRetryOptions;
 };
 
-/** Harness callback used when callers compute their own system prompt. */
-export type CuaSystemPromptCallback<
-	TSkill extends Skill = Skill,
-	TPromptTemplate extends PromptTemplate = PromptTemplate,
-> = NonNullable<AgentHarnessOptions<TSkill, TPromptTemplate, AgentTool>["systemPrompt"]>;
-
-/** Construction options for {@link CuaAgentHarness}, including its exact caller-owned tool catalog. */
-export type CuaAgentHarnessOptions<
-	TSkill extends Skill = Skill,
-	TPromptTemplate extends PromptTemplate = PromptTemplate,
-> = Omit<AgentHarnessOptions<TSkill, TPromptTemplate, AgentTool>, "activeToolNames" | "model" | "models" | "tools"> & {
+type CuaAgentHarnessOptionsBase<
+	TContext extends object | undefined,
+	TSkill extends Skill,
+	TPromptTemplate extends PromptTemplate,
+> = Omit<
+	AgentHarnessOptions<TContext, TSkill, TPromptTemplate, AgentHarnessTool<TContext>>,
+	"activeToolNames" | "model" | "models" | "tools" | "toolContext" | "retry"
+> & {
 	browser: KernelBrowser;
 	client: Kernel;
 	model: CuaModelInput;
 	models?: Models;
-	tools: readonly CuaAgentTool[];
-	systemPrompt?: string | CuaSystemPromptCallback<TSkill, TPromptTemplate>;
+	tools: readonly CuaHarnessTool<TContext>[];
 	onPayload?: SimpleStreamOptions["onPayload"];
 	emptyResponseRecovery?: CuaEmptyResponseRecoveryOptions;
 	toolResultImageReplayLimit?: ToolResultImageReplayLimit;
 	responseThreading?: boolean;
 	retry?: CuaRetryOptions;
 };
+
+/**
+ * Construction options for {@link CuaAgentHarness}, including its exact
+ * caller-owned tool catalog. Mirrors pi's `AgentHarnessOptions` generic order:
+ * the tool context first, then skill and prompt-template resource types. The
+ * supplied `toolContext` is forwarded to pi untouched, and every executable
+ * tool receives it on each call.
+ */
+export type CuaAgentHarnessOptions<
+	TContext extends object | undefined = undefined,
+	TSkill extends Skill = Skill,
+	TPromptTemplate extends PromptTemplate = PromptTemplate,
+> = CuaAgentHarnessOptionsBase<TContext, TSkill, TPromptTemplate> & ([TContext] extends [undefined] ? {
+	/** Context-free harnesses do not need a tool context. */
+	toolContext?: undefined;
+} : {
+	/** Static context or zero-argument context provider resolved for each turn snapshot. */
+	toolContext: AgentHarnessToolContextSource<TContext>;
+});
 
 /** Pi Agent behavior with an explicit, identity-keyed CUA tool catalog. */
 export class CuaAgent {
@@ -299,25 +317,24 @@ export class CuaAgent {
 
 /** Pi AgentHarness behavior through composition, without inherited active-tool APIs. */
 export class CuaAgentHarness<
+	TContext extends object | undefined = undefined,
 	TSkill extends Skill = Skill,
 	TPromptTemplate extends PromptTemplate = PromptTemplate,
 > {
-	readonly env: ExecutionEnv;
 	readonly models: Models;
-	private readonly coreHarness: AgentHarness<TSkill, TPromptTemplate, AgentTool>;
-	private readonly tools: CuaToolManager;
+	private readonly coreHarness: AgentHarness<TContext, TSkill, TPromptTemplate, AgentHarnessTool<TContext>>;
+	private readonly tools: CuaToolManager<CuaHarnessTool<TContext>>;
 	private emptyResponseRecoveryAttempts = 0;
 	private hasPendingQueue = false;
 	private toolTurnFailed = false;
 
-	constructor(options: CuaAgentHarnessOptions<TSkill, TPromptTemplate>) {
+	constructor(options: CuaAgentHarnessOptions<TContext, TSkill, TPromptTemplate>) {
 		const {
 			browser,
 			client,
 			model,
 			models,
 			tools: requestedTools,
-			systemPrompt,
 			onPayload,
 			emptyResponseRecovery,
 			toolResultImageReplayLimit,
@@ -330,20 +347,20 @@ export class CuaAgentHarness<
 		const useResponseThreading = resolveResponseThreading(responseThreading);
 		const resources = new CuaExecutionResources({ browser, client });
 		const retrying = withProviderRetryModels(models ?? cuaModels(), resolveProviderRetryPolicy(retry));
-		const manager = new CuaToolManager(resources, model, requestedTools, (ref) => resolveModelFromCollection(ref, retrying));
+		const manager = new CuaToolManager<CuaHarnessTool<TContext>>(resources, model, requestedTools, (ref) => resolveModelFromCollection(ref, retrying));
 		const catalogModels = withCatalogModels(retrying, manager, imageReplayLimit, useResponseThreading);
-		const materialized = manager.agentTools();
-		const core = new AgentHarness<TSkill, TPromptTemplate, AgentTool>({
+		const materialized = manager.harnessTools();
+		// A generic TContext leaves pi's conditional toolContext unverifiable
+		// here; the spread forwards the caller's toolContext verbatim.
+		const core = new AgentHarness<TContext, TSkill, TPromptTemplate, AgentHarnessTool<TContext>>({
 			...harnessOptions,
 			model: manager.catalog.model,
 			models: catalogModels,
 			tools: materialized,
 			activeToolNames: materialized.map((tool) => tool.name),
-			systemPrompt,
-		});
+		} as AgentHarnessOptions<TContext, TSkill, TPromptTemplate, AgentHarnessTool<TContext>>);
 		this.coreHarness = core;
 		this.tools = manager;
-		this.env = core.env;
 		this.models = core.models;
 
 		core.on("tool_result", (event) => hasExecutionError(event.details) ? { isError: true } : undefined);
@@ -379,12 +396,12 @@ export class CuaAgentHarness<
 		}
 	}
 
-	getTools(): readonly CuaAgentTool[] { return this.tools.getTools(); }
+	getTools(): readonly CuaHarnessTool<TContext>[] { return this.tools.getTools(); }
 
-	async setTools(tools: readonly CuaAgentTool[]): Promise<void> {
-		const previousTools = this.tools.agentTools();
+	async setTools(tools: readonly CuaHarnessTool<TContext>[]): Promise<void> {
+		const previousTools = this.tools.harnessTools();
 		const prepared = this.tools.prepareTools(tools);
-		const materialized = this.tools.agentTools(prepared);
+		const materialized = this.tools.harnessTools(prepared);
 		try {
 			await this.coreHarness.setTools(materialized, materialized.map((tool) => tool.name));
 		} catch (error) {
@@ -398,9 +415,9 @@ export class CuaAgentHarness<
 
 	async setModel(model: CuaModelInput): Promise<void> {
 		const previousModel = this.tools.catalog.model;
-		const previousTools = this.tools.agentTools();
+		const previousTools = this.tools.harnessTools();
 		const prepared = this.tools.prepareModel(model);
-		const materialized = this.tools.agentTools(prepared);
+		const materialized = this.tools.harnessTools(prepared);
 		try {
 			await this.coreHarness.setModel(prepared.catalog.model);
 			await this.coreHarness.setTools(materialized, materialized.map((tool) => tool.name));
@@ -458,7 +475,7 @@ function resolveModelFromCollection(ref: CuaModelRef, models: Models): Model<Api
 
 function withCatalogModels(
 	models: Models,
-	manager: CuaToolManager,
+	manager: CuaToolManager<any>,
 	imageReplayLimit: ToolResultImageReplayLimit,
 	responseThreading: boolean,
 ): Models {
@@ -555,7 +572,7 @@ function hasExecutionError(details: unknown): boolean {
 	return Boolean(details && typeof details === "object" && (details as CuaExecutionDetails).isError === true);
 }
 
-function turnFailureStopMessage(manager: CuaToolManager): string | undefined {
+function turnFailureStopMessage(manager: CuaToolManager<any>): string | undefined {
 	for (const entry of manager.catalog.entries) {
 		const execution = manager.specFor(entry.identity)?.execution;
 		if (execution?.kind === "actions" && execution.stopTurnOnFailureMessage) return execution.stopTurnOnFailureMessage;

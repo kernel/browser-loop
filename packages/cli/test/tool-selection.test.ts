@@ -20,7 +20,7 @@ describe("toolKey", () => {
 	});
 
 	it("namespaces a plain caller tool as caller.<name>", () => {
-		const coding = defaultApplicationTools(cwd);
+		const coding = defaultApplicationTools();
 		expect(coding.length).toBeGreaterThan(0);
 		for (const tool of coding) {
 			expect(toolKey(tool)).toBe(`caller.${tool.name}`);
@@ -30,14 +30,14 @@ describe("toolKey", () => {
 
 describe("describeTools", () => {
 	it("preserves the baseline order the application composed", () => {
-		const baseline = [...defaultInteractionTools("openai:gpt-5.6-sol"), ...defaultApplicationTools(cwd)];
+		const baseline = [...defaultInteractionTools("openai:gpt-5.6-sol"), ...defaultApplicationTools()];
 		expect(describeTools(baseline).map((item) => item.key)).toEqual(baseline.map(toolKey));
 	});
 
 	it("labels provider-native, cua, and application groups", () => {
 		const items = describeTools([
 			...defaultInteractionTools("google:gemini-3.6-flash"),
-			...defaultApplicationTools(cwd),
+			...defaultApplicationTools(),
 		]);
 		const groups = new Set(items.map((item) => item.group));
 		expect(groups.has("native")).toBe(true);
@@ -73,7 +73,7 @@ describe("toolSearchText", () => {
 });
 
 describe("selection state machine", () => {
-	const baseline = [...defaultInteractionTools("openai:gpt-5.6-sol"), ...defaultApplicationTools(cwd)];
+	const baseline = [...defaultInteractionTools("openai:gpt-5.6-sol"), ...defaultApplicationTools()];
 	const items = describeTools(baseline);
 	const allKeys = items.map((item) => item.key);
 

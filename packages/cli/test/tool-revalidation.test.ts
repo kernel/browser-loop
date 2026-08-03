@@ -12,7 +12,7 @@ import { buildTestHarness } from "./fixtures/harness";
 describe("/tools selection revalidation", () => {
 	it("accepts a partial Google native subset", async () => {
 		const modelRef = "google:gemini-3.6-flash";
-		const baseline = [...defaultInteractionTools(modelRef), ...defaultApplicationTools(process.cwd())];
+		const baseline = [...defaultInteractionTools(modelRef), ...defaultApplicationTools()];
 		const fixture = await buildTestHarness({ turns: [], modelRef, tools: baseline });
 
 		const items = describeTools(baseline);
@@ -26,7 +26,7 @@ describe("/tools selection revalidation", () => {
 
 	it("rejects a partial Yutori n1 native subset and leaves the catalog unchanged", async () => {
 		const modelRef = "yutori:n1-latest";
-		const baseline = [...defaultInteractionTools(modelRef), ...defaultApplicationTools(process.cwd())];
+		const baseline = [...defaultInteractionTools(modelRef), ...defaultApplicationTools()];
 		const fixture = await buildTestHarness({ turns: [], modelRef, tools: baseline });
 		const before = fixture.harness.getTools().map(toolKey);
 
@@ -41,7 +41,7 @@ describe("/tools selection revalidation", () => {
 
 	it("accepts dropping the whole Yutori n1 native group", async () => {
 		const modelRef = "yutori:n1-latest";
-		const baseline = [...defaultInteractionTools(modelRef), ...defaultApplicationTools(process.cwd())];
+		const baseline = [...defaultInteractionTools(modelRef), ...defaultApplicationTools()];
 		const fixture = await buildTestHarness({ turns: [], modelRef, tools: baseline });
 
 		const items = describeTools(baseline);
@@ -54,7 +54,7 @@ describe("/tools selection revalidation", () => {
 
 	it("accepts an empty selection (text-only agent)", async () => {
 		const modelRef = "openai:gpt-5.6-sol";
-		const baseline = [...defaultInteractionTools(modelRef), ...defaultApplicationTools(process.cwd())];
+		const baseline = [...defaultInteractionTools(modelRef), ...defaultApplicationTools()];
 		const fixture = await buildTestHarness({ turns: [], modelRef, tools: baseline });
 
 		await fixture.harness.setTools([]);
@@ -65,7 +65,7 @@ describe("/tools selection revalidation", () => {
 		const cwd = process.cwd();
 		const from = "openai:gpt-5.6-sol";
 		const to = "anthropic:claude-opus-5";
-		const application = defaultApplicationTools(cwd);
+		const application = defaultApplicationTools();
 		const fixture = await buildTestHarness({
 			turns: [],
 			modelRef: from,

@@ -4,6 +4,7 @@ import type Kernel from "@onkernel/sdk";
 import {
 	CuaExecutionResources,
 	type AgentTool,
+	type CuaAgentTool,
 	type KernelBrowser,
 } from "../src/index";
 import { CuaToolManager } from "../src/tool-manager";
@@ -96,7 +97,7 @@ describe("CuaToolManager implementation identity", () => {
 		const resources = setup();
 		const spy = vi.spyOn(resources, "materialize");
 		const spec = cua.tools.browser.snapshot();
-		const manager = new CuaToolManager(resources, "openai:gpt-5.5", [spec]);
+		const manager = new CuaToolManager<CuaAgentTool>(resources, "openai:gpt-5.5", [spec]);
 
 		manager.commit(manager.prepareModel("openai:gpt-5.6-sol"));
 		manager.commit(manager.prepareTools([...manager.getTools(), callerTool("added")]));
