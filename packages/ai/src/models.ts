@@ -50,6 +50,7 @@ export interface CuaModelAnnotation {
 	readonly match: CuaModelMatch;
 	/** URL of the provider documentation establishing computer-use support. */
 	readonly source: string;
+	/** Optional tool-catalog capabilities that describe which CUA schemas and state mutations the model supports. */
 	readonly capabilities?: CuaModelCapabilities;
 }
 

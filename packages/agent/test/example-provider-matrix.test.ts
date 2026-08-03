@@ -23,6 +23,7 @@ const models: readonly CuaModelRef[] = [
 	"meta:muse-spark-1.1",
 	"xai:grok-4.5",
 	"moonshotai:kimi-k3",
+	"openrouter:moonshotai/kimi-k3",
 	"tzafon:tzafon.northstar-cua-fast",
 	"yutori:n1.5-latest",
 ];
@@ -37,12 +38,15 @@ describe("example provider matrix tool policy", () => {
 		}
 	});
 
-	it("omits browser_act for Moonshot, whose API rejects its schema size", () => {
-		const names = toolsForModel("moonshotai:kimi-k3").map((tool) => tool.name);
-		expect(names).toContain("browser_snapshot");
-		expect(names).toContain("browser_wait_for");
-		expect(names).not.toContain("browser_act");
-	});
+	it.each(["moonshotai:kimi-k3", "openrouter:moonshotai/kimi-k3"] as const)(
+		"omits browser_act for Kimi, whose API rejects its schema size (%s)",
+		(model) => {
+			const names = toolsForModel(model).map((tool) => tool.name);
+			expect(names).toContain("browser_snapshot");
+			expect(names).toContain("browser_wait_for");
+			expect(names).not.toContain("browser_act");
+		},
+	);
 
 	it("still advertises browser_act where the provider accepts it", () => {
 		for (const model of ["openai:gpt-5.6-sol", "meta:muse-spark-1.1", "xai:grok-4.5"] as const) {

@@ -35,7 +35,8 @@ export function toolsForModel(model: CuaModelRef): CuaAgentTool[] {
 			// plus verified dependent plans.
 			return structuredBrowserTools();
 		case "moonshotai":
-			// Same as meta/xai, minus browser_act: Moonshot's API rejects that tool's
+		case "openrouter":
+			// Same as meta/xai, minus browser_act: Kimi's API rejects that tool's
 			// oversized schema, so Kimi gets the browser primitives only.
 			return cua.toolsets.browser();
 		case "tzafon":
