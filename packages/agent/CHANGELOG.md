@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.0 - 2026-08-03
+
+- Add OpenRouter Kimi K3 support through `@onkernel/cua-ai` 0.9.0,
+  including the browser-primitives-only example catalog used by the provider
+  matrix.
+- Resolve `CuaAgentHarness` string model references against its supplied
+  `Models` collection during construction and `setModel()`, while preserving
+  the curated CUA model gate and fallback support for CUA model overrides.
+- Keep `CuaAgent` aligned with pi's low-level `Agent`: callers can pass a
+  concrete OpenRouter model and inject `models.streamSimple` without adding a
+  `Models` dependency to the agent API.
+
 ## 0.8.0 - 2026-07-31
 
 Breaking: `CuaAgent` and `CuaAgentHarness` now require one exact `tools` list and

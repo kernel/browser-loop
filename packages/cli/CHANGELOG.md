@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.0 - 2026-08-03
+
+- Add `openrouter:moonshotai/kimi-k3` model selection and
+  `cua models -p openrouter`, authenticated with `OPENROUTER_API_KEY`.
+- Use the same browser-primitives-only interaction catalog for Kimi K3 through
+  Moonshot and OpenRouter; neither transport receives the unsupported
+  `browser_act` schema.
+- Resolve model references through the harness's `Models` collection so CLI
+  model selection, authentication, and streaming use the same concrete pi-ai
+  model.
+- Update `@onkernel/cua-ai` and `@onkernel/cua-agent` to 0.9.0.
+
 ## 0.6.0 - 2026-07-31
 
 Breaking: the CLI now assembles one explicit model-specific tool list.
