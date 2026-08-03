@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 - 2026-08-03
 
 - Queue messages submitted during an active turn for steering at the next agent
   step. Pressing `esc` interrupts the active work and immediately starts a new
