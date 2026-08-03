@@ -30,11 +30,13 @@ describe("buildCuaHarness", () => {
 			expect(tools[0]).toMatchObject({ name: "browser_snapshot", origin: "cua" });
 			expect(tools.at(-1)?.name).toBe("browser_act");
 		}
-		// Moonshot's API rejects the request once browser_act's schema is attached.
-		const moonshotNames = defaultInteractionTools("moonshotai:kimi-k3").map((tool) => tool.name);
-		expect(moonshotNames[0]).toBe("browser_snapshot");
-		expect(moonshotNames).not.toContain("browser_act");
-		expect(moonshotNames).toContain("browser_wait_for");
+		// Kimi's API rejects the request once browser_act's schema is attached.
+		for (const model of ["moonshotai:kimi-k3", "openrouter:moonshotai/kimi-k3"] as const) {
+			const kimiNames = defaultInteractionTools(model).map((tool) => tool.name);
+			expect(kimiNames[0]).toBe("browser_snapshot");
+			expect(kimiNames).not.toContain("browser_act");
+			expect(kimiNames).toContain("browser_wait_for");
+		}
 		expect(defaultInteractionTools("tzafon:tzafon.northstar-cua-fast")[0]?.name).toBe("computer");
 		expect(defaultInteractionTools("yutori:n1.5-latest").map((tool) => tool.name)).toEqual([
 			...cua.providers.yutori.toolsets.n15Core().map((tool) => tool.name),

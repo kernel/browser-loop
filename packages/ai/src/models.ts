@@ -6,7 +6,7 @@ import { OPENAI_CUA_RESPONSES_API } from "./providers/openai/provider";
 import { XAI_CUA_RESPONSES_API } from "./providers/xai/provider";
 
 /** Providers with curated computer-use model support. */
-export type CuaProvider = "openai" | "anthropic" | "google" | "meta" | "xai" | "moonshotai" | "tzafon" | "yutori";
+export type CuaProvider = "openai" | "anthropic" | "google" | "meta" | "xai" | "moonshotai" | "openrouter" | "tzafon" | "yutori";
 
 /** Provider-qualified model reference, e.g. `"openai:gpt-5.6-sol"` or `"google:gemini-3.6-flash"`. */
 export type CuaModelRef = `${CuaProvider}:${string}`;
@@ -23,7 +23,7 @@ export interface CuaModelInfo {
 }
 
 /** All providers this package curates computer-use models for. */
-export const CUA_PROVIDERS: readonly CuaProvider[] = ["openai", "anthropic", "google", "meta", "xai", "moonshotai", "tzafon", "yutori"];
+export const CUA_PROVIDERS: readonly CuaProvider[] = ["openai", "anthropic", "google", "meta", "xai", "moonshotai", "openrouter", "tzafon", "yutori"];
 
 /**
  * How a {@link CuaModelAnnotation} matches model ids.
@@ -38,12 +38,27 @@ export type CuaModelMatch =
 	| { readonly kind: "exact"; readonly id: string }
 	| { readonly kind: "family"; readonly family: string };
 
+/** CUA tool-catalog capabilities for a concrete model. */
+export interface CuaModelCapabilities {
+	readonly acceptsComplexSchemas: boolean;
+	readonly acceptsLargeSchemas: boolean;
+	readonly serializesStateMutations: boolean;
+}
+
 /** One CUA-support annotation: a model-id match plus the official source documenting support. */
 export interface CuaModelAnnotation {
 	readonly match: CuaModelMatch;
 	/** URL of the provider documentation establishing computer-use support. */
 	readonly source: string;
+	/** Optional tool-catalog capabilities that describe which CUA schemas and state mutations the model supports. */
+	readonly capabilities?: CuaModelCapabilities;
 }
+
+const KIMI_K3_CAPABILITIES: CuaModelCapabilities = Object.freeze({
+	acceptsComplexSchemas: true,
+	acceptsLargeSchemas: false,
+	serializesStateMutations: true,
+});
 
 /**
  * Per-provider computer-use support annotations.
@@ -88,7 +103,10 @@ export const CUA_MODEL_ANNOTATIONS: Record<CuaProvider, readonly CuaModelAnnotat
 	// OpenAI-compatible API, not a provider-native computer tool. K3 ships
 	// native vision plus screenshot-grounded agentic tool use.
 	moonshotai: [
-		{ match: { kind: "exact", id: "kimi-k3" }, source: "https://www.kimi.com/blog/kimi-k3" },
+		{ match: { kind: "exact", id: "kimi-k3" }, source: "https://www.kimi.com/blog/kimi-k3", capabilities: KIMI_K3_CAPABILITIES },
+	],
+	openrouter: [
+		{ match: { kind: "exact", id: "moonshotai/kimi-k3" }, source: "https://openrouter.ai/moonshotai/kimi-k3", capabilities: KIMI_K3_CAPABILITIES },
 	],
 	tzafon: [
 		{ match: { kind: "exact", id: "tzafon.northstar-cua-fast" }, source: "https://huggingface.co/Tzafon/Northstar-CUA-Fast" },
@@ -123,6 +141,7 @@ const CUA_MODEL_OVERRIDES: Record<CuaProvider, readonly Model<Api>[]> = {
 	meta: [cuaModel("meta", "muse-spark-1.1", "Muse Spark 1.1")],
 	xai: [],
 	moonshotai: [],
+	openrouter: [],
 	tzafon: [
 		cuaModel("tzafon", "tzafon.northstar-cua-fast", "Tzafon Northstar CUA Fast"),
 		cuaModel("tzafon", "tzafon.northstar-cua-fast-1.6", "Tzafon Northstar CUA Fast 1.6"),
@@ -261,6 +280,18 @@ function supportsCuaProvider(provider: CuaProvider, modelId: string): boolean {
 	return findCuaAnnotation(provider, modelId) !== undefined;
 }
 
+/** Return tool-catalog capabilities for a model, using annotation or provider defaults. */
+export function cuaModelCapabilities(model: Model<Api>): CuaModelCapabilities {
+	const annotation = isCuaProvider(model.provider) ? findCuaAnnotation(model.provider, model.id) : undefined;
+	if (annotation?.capabilities) return annotation.capabilities;
+	const acceptsComplexSchemas = ["openai", "anthropic", "meta", "xai", "moonshotai"].includes(model.provider);
+	return {
+		acceptsComplexSchemas,
+		acceptsLargeSchemas: acceptsComplexSchemas && model.provider !== "moonshotai",
+		serializesStateMutations: ["meta", "xai", "moonshotai"].includes(model.provider),
+	};
+}
+
 /** Find the CUA-support annotation covering a model id, if any. */
 export function findCuaAnnotation(provider: CuaProvider, modelId: string): CuaModelAnnotation | undefined {
 	const id = modelId.toLowerCase();
@@ -305,7 +336,7 @@ function anthropicOpus5Model(): Model<Api> {
 	};
 }
 
-function cuaModel(provider: Exclude<CuaProvider, "xai" | "moonshotai">, id: string, name: string): Model<Api> {
+function cuaModel(provider: Exclude<CuaProvider, "xai" | "moonshotai" | "openrouter">, id: string, name: string): Model<Api> {
 	const base = {
 		id,
 		name,

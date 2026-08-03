@@ -35,6 +35,8 @@ describe("resolveCuaModelRef", () => {
 		expect(listSupportedModels("xai").map((model) => model.ref)).toEqual(["xai:grok-4.5"]);
 		expect(listSupportedModels("moonshotai").map((model) => model.ref)).toEqual(["moonshotai:kimi-k3"]);
 		expect(listSupportedModels("moonshot").map((model) => model.ref)).toEqual(["moonshotai:kimi-k3"]);
+		expect(listSupportedModels("openrouter").map((model) => model.ref)).toEqual(["openrouter:moonshotai/kimi-k3"]);
+		expect(resolveCuaModelRef("openrouter:moonshotai/kimi-k3")).toBe("openrouter:moonshotai/kimi-k3");
 	});
 
 	it("treats 'gemini' as an alias for google when filtering", () => {

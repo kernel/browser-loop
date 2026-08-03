@@ -121,6 +121,22 @@ Moonshot ships them.
 
 Source: [Kimi K3 announcement](https://www.kimi.com/blog/kimi-k3), [tool use](https://platform.kimi.ai/docs/api/tool-use), and [vision input](https://platform.kimi.ai/docs/guide/use-kimi-vision-model).
 
+## `openrouter`
+
+CLI default interaction: CUA browser primitives only. OpenRouter's Kimi K3
+route accepts complex function schemas but rejects the larger `browser_act`
+schema, and state-mutating calls are serialized.
+
+Model refs use the `openrouter:` prefix:
+
+- `moonshotai/kimi-k3`
+
+Kimi K3 uses OpenRouter's OpenAI-compatible chat completions API with ordinary
+CUA browser function tools. OpenRouter does not expose the provider-native
+computer tools declared by other CUA providers.
+
+Source: [OpenRouter model page](https://openrouter.ai/moonshotai/kimi-k3).
+
 ## `tzafon`
 
 Coordinates: normalized 0–999

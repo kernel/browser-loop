@@ -15,6 +15,7 @@ const CUA_PROVIDER_API_KEY_ENV_VARS: Record<CuaProvider, readonly string[]> = {
 	meta: ["META_API_KEY"],
 	xai: ["XAI_API_KEY"],
 	moonshotai: ["MOONSHOT_API_KEY"],
+	openrouter: ["OPENROUTER_API_KEY"],
 	tzafon: ["TZAFON_API_KEY"],
 	yutori: ["YUTORI_API_KEY"],
 };

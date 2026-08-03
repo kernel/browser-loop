@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.0 - 2026-08-03
+
+- Add Kimi K3 through OpenRouter as `openrouter:moonshotai/kimi-k3`,
+  authenticated with `OPENROUTER_API_KEY`, while retaining direct Moonshot access
+  through `moonshotai:kimi-k3`.
+- Share Kimi K3's CUA capability metadata across both transports: nested browser
+  schemas are accepted, the larger `browser_act` schema is rejected, and
+  state-mutating function tools disable parallel calls.
+- Resolve schema and tool-call compatibility from concrete model capabilities
+  instead of provider-wide allowlists. Existing provider-family defaults are
+  preserved, and provider-native tools remain restricted to their native
+  transports.
+
 ## 0.8.0 - 2026-07-31
 
 Breaking: agent tools are now one explicit, identity-keyed catalog. The mode,

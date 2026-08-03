@@ -4,6 +4,7 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import {
 	callerToolIdentity,
 	compileCuaToolCatalog,
+	getCuaModel,
 	isCuaToolSpec,
 	modelSupportsDeferredTools,
 	type CuaCatalogToolInput,
@@ -68,6 +69,7 @@ export class CuaToolManager {
 		readonly resources: CuaExecutionResources,
 		model: CuaModelRef | Model<Api>,
 		requestedTools: readonly CuaAgentTool[],
+		private readonly resolveModel: (model: CuaModelRef) => Model<Api> = getCuaModel,
 	) {
 		this.current = this.prepare(model, requestedTools);
 	}
@@ -131,7 +133,11 @@ export class CuaToolManager {
 				implementations.set(identity, tool.execute);
 			}
 		}
-		const catalog = compileCuaToolCatalog({ model, requestedTools: inputs, viewport: this.resources.viewport });
+		const catalog = compileCuaToolCatalog({
+			model: typeof model === "string" ? this.resolveModel(model) : model,
+			requestedTools: inputs,
+			viewport: this.resources.viewport,
+		});
 
 		const fingerprints: string[] = [];
 		const wrapped = catalog.entries.map((entry) => {
