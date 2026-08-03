@@ -38,13 +38,14 @@ export type CuaModelMatch =
 	| { readonly kind: "exact"; readonly id: string }
 	| { readonly kind: "family"; readonly family: string };
 
-/** One CUA-support annotation: a model-id match plus the official source documenting support. */
+/** CUA tool-catalog capabilities for a concrete model. */
 export interface CuaModelCapabilities {
 	readonly acceptsComplexSchemas: boolean;
 	readonly acceptsLargeSchemas: boolean;
 	readonly serializesStateMutations: boolean;
 }
 
+/** One CUA-support annotation: a model-id match plus the official source documenting support. */
 export interface CuaModelAnnotation {
 	readonly match: CuaModelMatch;
 	/** URL of the provider documentation establishing computer-use support. */
