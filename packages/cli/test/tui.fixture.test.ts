@@ -156,6 +156,48 @@ suite("TUI ptywright scenarios", () => {
 		await exitFixture(session);
 	});
 
+	test("ctrl+c cancels an escape-triggered queued replay", async (ctx) => {
+		const { spawnFixture, exitFixture, waitForFixtureReady, KeyCtrlC, KeyEscape } = await loadPtywrightHelpers();
+		const session = spawnFixture("interrupt-cancel.json");
+		ctx.onTestFinished(() => session.close());
+
+		await waitForFixtureReady(session);
+		session.line("please run forever");
+		await session.waitForVisible("working...", { timeoutMs: WAIT_MS });
+		session.line("do not replay this");
+		await session.waitForVisible("queued for the next available turn", { timeoutMs: WAIT_MS });
+
+		session.press(KeyEscape);
+		session.press(KeyCtrlC);
+		await session.waitForVisible("aborted", { timeoutMs: WAIT_MS });
+		await session.waitForStable(700, { timeoutMs: WAIT_MS });
+		assert.doesNotMatch(session.snapshot().visible, /fixture response/);
+
+		session.line("recover after cancelling replay");
+		await session.waitForVisible("fixture response", { timeoutMs: WAIT_MS });
+
+		await exitFixture(session);
+	});
+
+	test("refuses slash commands while a turn is running", async (ctx) => {
+		const { spawnFixture, exitFixture, waitForFixtureReady, KeyCtrlC, KeyEnter } = await loadPtywrightHelpers();
+		const session = spawnFixture("abort.json");
+		ctx.onTestFinished(() => session.close());
+
+		await waitForFixtureReady(session);
+		session.line("please run forever");
+		await session.waitForVisible("working...", { timeoutMs: WAIT_MS });
+		session.send("/thinking high");
+		await session.waitForStable(STABLE_MS, { timeoutMs: WAIT_MS });
+		session.press(KeyEnter);
+		session.press(KeyEnter);
+		await session.waitForVisible("/thinking is unavailable while a turn is running", { timeoutMs: WAIT_MS });
+
+		session.press(KeyCtrlC);
+		await session.waitForVisible("aborted", { timeoutMs: WAIT_MS });
+		await exitFixture(session);
+	});
+
 	test("aborts a running turn with ctrl+c and recovers on the next prompt", async (ctx) => {
 		const { spawnFixture, exitFixture, waitForFixtureReady, KeyCtrlC } = await loadPtywrightHelpers();
 		const session = spawnFixture("abort.json");

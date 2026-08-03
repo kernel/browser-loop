@@ -1,0 +1,25 @@
+{
+  "modelRef": "openai:gpt-5.5",
+  "turns": [
+    {
+      "steps": [
+        {
+          "type": "text",
+          "text": "working..."
+        },
+        {
+          "type": "wait_abort",
+          "settleMs": 500
+        }
+      ]
+    },
+    {
+      "steps": [
+        {
+          "type": "text",
+          "text": "fixture response"
+        }
+      ]
+    }
+  ]
+}
