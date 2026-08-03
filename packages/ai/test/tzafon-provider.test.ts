@@ -85,6 +85,48 @@ describe("streamTzafonResponses", () => {
 		expect(calls[0]!.arguments).toEqual({ action: { type: "left_click", x: "500", y: "250" } });
 	});
 
+	it("serializes a native computer result's image into the computer_call_output image slot", async () => {
+		responsesCreate.mockResolvedValueOnce({ id: "resp_img", usage: {}, output: [] });
+
+		await tzafon.streamTzafonResponses(model, {
+			messages: [
+				{
+					role: "assistant",
+					content: [{ type: "toolCall", id: "call_click", name: "computer", arguments: { action: { type: "click", x: 500, y: 500 } } }],
+					api: model.api,
+					provider: model.provider,
+					model: model.id,
+					usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+					stopReason: "toolUse",
+					timestamp: 1,
+				},
+				{
+					role: "toolResult",
+					toolCallId: "call_click",
+					toolName: "computer",
+					content: [{ type: "image", data: Buffer.from("post-action").toString("base64"), mimeType: "image/png" }],
+					isError: false,
+					timestamp: 2,
+				},
+			],
+			tools: [],
+		}, {
+			apiKey: "test",
+			disableResponseThreading: true,
+			cuaIncomingToolPlan: { tzafonComputerName: "computer", yutoriNames: {}, googleNames: {}, googleExcludedNames: [], nativeToolNames: ["computer"] },
+		}).result();
+
+		const payload = responsesCreate.mock.calls.at(-1)?.[0] as { input: Array<Record<string, unknown>> };
+		expect(payload.input).toEqual(expect.arrayContaining([
+			expect.objectContaining({ type: "computer_call", call_id: "call_click" }),
+			expect.objectContaining({
+				type: "computer_call_output",
+				call_id: "call_click",
+				output: { type: "computer_screenshot", image_url: `data:image/png;base64,${Buffer.from("post-action").toString("base64")}` },
+			}),
+		]));
+	});
+
 	it("degrades malformed function-call arguments to empty args instead of failing the turn", async () => {
 		responsesCreate.mockResolvedValueOnce({
 			id: "resp_3",

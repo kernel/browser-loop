@@ -459,6 +459,7 @@ function tzafonNativeComputer(options: { displayWidth?: number; displayHeight?: 
 			return toTzafonActions(action).filter((value): value is CuaAction => value.type !== "answer");
 		},
 		coordinates: normalized([0, 999]),
+		postActionScreenshot: true,
 	});
 }
 
@@ -522,6 +523,7 @@ function providerNativeSpec(options: {
 	toActions: (input: unknown) => CuaAction[];
 	coordinates: CuaCoordinateContract;
 	stopTurnOnFailureMessage?: string;
+	postActionScreenshot?: boolean;
 }): CuaToolSpec {
 	return createSpec({
 		identity: options.identity,
@@ -541,6 +543,7 @@ function providerNativeSpec(options: {
 			coordinates: options.coordinates,
 			batch: true,
 			...(options.stopTurnOnFailureMessage ? { stopTurnOnFailureMessage: options.stopTurnOnFailureMessage } : {}),
+			...(options.postActionScreenshot ? { postActionScreenshot: true } : {}),
 		},
 		providerBinding: options.binding,
 		stateMutating: true,
