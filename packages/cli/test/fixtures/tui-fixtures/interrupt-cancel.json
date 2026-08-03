@@ -9,7 +9,7 @@
         },
         {
           "type": "wait_abort",
-          "settleMs": 500
+          "settleMs": 3000
         }
       ]
     },
