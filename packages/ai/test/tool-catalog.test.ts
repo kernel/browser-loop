@@ -318,9 +318,18 @@ describe("compileCuaToolCatalog", () => {
 
 	it("rejects partial n1 selection and incompatible model changes", () => {
 		expect(() => compile("yutori:n1-latest", cua.providers.yutori.toolsets.n1().slice(0, 1))).toThrow(/complete .*n1\(\)/);
+		const nativeTools: Array<[CuaToolSpec[], string]> = [
+			[[cua.providers.anthropic.tools.browser()], "anthropic"],
+			[[cua.providers.openai.tools.computer()], "openai"],
+			[[cua.providers.google.toolsets.browser()[0]!], "google"],
+			[[cua.providers.tzafon.tools.computer()], "tzafon"],
+			[cua.providers.yutori.toolsets.n1(), "yutori"],
+		];
+		for (const [tools, provider] of nativeTools) {
+			expect(() => compile("openrouter:moonshotai/kimi-k3", tools)).toThrow(new RegExp(`requires a ${provider} model`));
+		}
 		const requested = [cua.providers.anthropic.tools.browser()];
 		expect(() => compile("openai:gpt-5.5", requested)).toThrow(/requires a anthropic model/);
-		expect(() => compile("openrouter:moonshotai/kimi-k3", requested)).toThrow(/requires a anthropic model/);
 	});
 
 	it("fingerprints coordinate replacements independently from name and schema", () => {

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	createAssistantMessageEventStream,
 	createCuaModels,
+	getCuaModel,
 	cua,
 	type AssistantMessage,
 	type Context,
@@ -400,6 +401,20 @@ describe("CuaAgent explicit tools", () => {
 });
 
 describe("CuaAgentHarness explicit tools", () => {
+	it("resolves annotated refs from supplied models for construction and setModel", async () => {
+		const models = createCuaModels();
+		const openai = models.getProvider("openai")!;
+		const first = { ...getCuaModel("openai:gpt-5.5"), baseUrl: "https://first.example" };
+		const second = { ...getCuaModel("openai:gpt-5.6-sol"), baseUrl: "https://second.example" };
+		models.setProvider({ ...openai, getModels: () => [first, second] });
+		const services = await harnessServices();
+		const harness = new CuaAgentHarness({ ...services, browser, client, models, model: "openai:gpt-5.5", tools: [] });
+		expect(harness.getModel()).toBe(first);
+		await harness.setModel("openai:gpt-5.6-sol");
+		expect(harness.getModel()).toBe(second);
+		expect(() => new CuaAgentHarness({ ...services, browser, client, models, model: "openai:gpt-4o", tools: [] })).toThrow(/unsupported CUA model/);
+	});
+
 	it("uses composition, hides active-tool APIs, and supports an empty catalog", async () => {
 		const harness = new CuaAgentHarness({ ...(await harnessServices()), browser, client, model: "openai:gpt-5.5", tools: [] });
 		expect(harness).not.toBeInstanceOf(AgentHarness);

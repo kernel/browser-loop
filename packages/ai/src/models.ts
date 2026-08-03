@@ -278,7 +278,7 @@ function supportsCuaProvider(provider: CuaProvider, modelId: string): boolean {
 	return findCuaAnnotation(provider, modelId) !== undefined;
 }
 
-/** Find the CUA-support annotation covering a model id, if any. */
+/** Return tool-catalog capabilities for a model, using annotation or provider defaults. */
 export function cuaModelCapabilities(model: Model<Api>): CuaModelCapabilities {
 	const annotation = isCuaProvider(model.provider) ? findCuaAnnotation(model.provider, model.id) : undefined;
 	if (annotation?.capabilities) return annotation.capabilities;
@@ -290,6 +290,7 @@ export function cuaModelCapabilities(model: Model<Api>): CuaModelCapabilities {
 	};
 }
 
+/** Find the CUA-support annotation covering a model id, if any. */
 export function findCuaAnnotation(provider: CuaProvider, modelId: string): CuaModelAnnotation | undefined {
 	const id = modelId.toLowerCase();
 	for (const annotation of CUA_MODEL_ANNOTATIONS[provider]) {

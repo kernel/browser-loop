@@ -26,6 +26,7 @@ import {
 	cuaModels,
 	type CuaIncomingToolPlan,
 	type CuaModelRef,
+	findCuaAnnotation,
 	getCuaModel,
 	parseCuaModelRef,
 	type CuaSimpleStreamOptions,
@@ -451,6 +452,7 @@ const defaultCuaStream: StreamFn = (model, context, options) => cuaModels().stre
 
 function resolveModelFromCollection(ref: CuaModelRef, models: Models): Model<Api> {
 	const { provider, model: id } = parseCuaModelRef(ref);
+	if (!findCuaAnnotation(provider, id)) throw new Error(`unsupported CUA model "${ref}"`);
 	return models.getModel(provider, id) ?? getCuaModel(ref);
 }
 
