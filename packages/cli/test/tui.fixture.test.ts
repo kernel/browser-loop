@@ -168,13 +168,13 @@ suite("TUI ptywright scenarios", () => {
 		await session.waitForVisible("queued for the next available turn", { timeoutMs: WAIT_MS });
 
 		session.press(KeyEscape);
+		await session.waitForVisible("interrupting…", { timeoutMs: WAIT_MS });
 		session.press(KeyCtrlC);
 		await session.waitForVisible("aborted", { timeoutMs: WAIT_MS });
-		await session.waitForStable(700, { timeoutMs: WAIT_MS });
-		assert.doesNotMatch(session.snapshot().visible, /fixture response/);
-
 		session.line("recover after cancelling replay");
+		await session.waitForVisible("queued for after abort", { timeoutMs: WAIT_MS });
 		await session.waitForVisible("fixture response", { timeoutMs: WAIT_MS });
+		assert.doesNotMatch(session.snapshot().visible, /turn interrupted; sending 1 queued message/);
 
 		await exitFixture(session);
 	});

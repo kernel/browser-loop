@@ -183,6 +183,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 	let assistantBuffer: AssistantBuffer | undefined;
 	let inflight = 0;
 	let promptRunning = 0;
+	let turnRevision = 0;
 	let interruptState: { queued: string[]; cancelled: boolean } | undefined;
 	let lastDisplayedError: string | undefined;
 
@@ -564,12 +565,14 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 			}
 			if (interruptState) {
 				interruptState.queued.push(text);
-				messages.addNotice("queued for the interrupted turn");
+				messages.addNotice(interruptState.cancelled ? "queued for after abort" : "queued for the interrupted turn");
 				requestRender("prompt_queued_during_interrupt");
 				return;
 			}
 			if (isTurnRunning()) {
+				const revision = turnRevision;
 				await opts.harness.steer(text);
+				if (revision !== turnRevision) return;
 				messages.addNotice("queued for the next available turn");
 				requestRender("prompt_queued_for_steer");
 				return;
@@ -594,13 +597,34 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 		void runPrompt(trimmed);
 	};
 
+	const startQueuedPrompt = (queued: string[], notice: string): void => {
+		messages.addNotice(`${notice}; sending ${queued.length} queued message${queued.length === 1 ? "" : "s"}`);
+		requestRender("queued_prompt_start", false, { queued: queued.length });
+		void promptAgent(queued.join("\n\n")).catch((err: unknown) => {
+			messages.addError((err as Error).message);
+			debug?.log("queued_prompt_error", { message: (err as Error).message });
+			requestRender("queued_prompt_error");
+		});
+	};
+
 	const interruptTurn = async (): Promise<void> => {
 		if (interruptState) return;
 		const state: { queued: string[]; cancelled: boolean } = { queued: [], cancelled: false };
 		interruptState = state;
+		turnRevision += 1;
+		messages.addNotice("interrupting…");
+		requestRender("input_interrupt_start", false, { key: "escape" });
 		try {
 			const { clearedSteer, clearedFollowUp } = await opts.harness.abort();
-			if (state.cancelled) return;
+			if (state.cancelled) {
+				const queued = state.queued;
+				state.queued = [];
+				if (queued.length > 0) {
+					interruptState = undefined;
+					startQueuedPrompt(queued, "abort complete");
+				}
+				return;
+			}
 			const queued = [
 				...clearedSteer.map(userMessageText).filter((text): text is string => !!text),
 				...clearedFollowUp.map(userMessageText).filter((text): text is string => !!text),
@@ -613,15 +637,8 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 				return;
 			}
 
-			const text = queued.join("\n\n");
-			messages.addNotice(`turn interrupted; sending ${queued.length} queued message${queued.length === 1 ? "" : "s"}`);
-			requestRender("input_interrupt_and_send", false, { queued: queued.length });
 			interruptState = undefined;
-			void promptAgent(text).catch((err: unknown) => {
-				messages.addError((err as Error).message);
-				debug?.log("queued_prompt_error", { message: (err as Error).message });
-				requestRender("queued_prompt_error");
-			});
+			startQueuedPrompt(queued, "turn interrupted");
 		} catch (err) {
 			state.queued = [];
 			messages.addError((err as Error).message);
@@ -647,6 +664,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 				return { consume: true };
 			}
 			if (isTurnRunning()) {
+				turnRevision += 1;
 				void opts.harness.abort();
 				messages.addNotice("aborted");
 				debug?.log("input_abort_stream", { key: "ctrl+c" });
