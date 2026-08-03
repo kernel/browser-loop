@@ -118,6 +118,86 @@ suite("TUI ptywright scenarios", () => {
 		await exitFixture(session);
 	});
 
+	test("queues input during a running turn for the next agent step", async (ctx) => {
+		const { spawnFixture, exitFixture, waitForFixtureReady } = await loadPtywrightHelpers();
+		const session = spawnFixture("steer.json");
+		ctx.onTestFinished(() => session.close());
+
+		await waitForFixtureReady(session);
+		session.line("start the turn");
+		await session.waitForVisible("working...", { timeoutMs: WAIT_MS });
+
+		session.line("use this next");
+		await session.waitForVisible("queued for the next available turn", { timeoutMs: WAIT_MS });
+		await session.waitForVisible("queued response", { timeoutMs: WAIT_MS });
+
+		const snapshot = session.snapshot();
+		assert.match(snapshot.visible, /use this next/);
+		assert.doesNotMatch(snapshot.visible, /AgentHarness is busy/);
+
+		await exitFixture(session);
+	});
+
+	test("escape interrupts and immediately sends queued input", async (ctx) => {
+		const { spawnFixture, exitFixture, waitForFixtureReady, KeyEscape } = await loadPtywrightHelpers();
+		const session = spawnFixture("abort.json");
+		ctx.onTestFinished(() => session.close());
+
+		await waitForFixtureReady(session);
+		session.line("please run forever");
+		await session.waitForVisible("working...", { timeoutMs: WAIT_MS });
+
+		session.line("switch to this instead");
+		await session.waitForVisible("queued for the next available turn", { timeoutMs: WAIT_MS });
+		session.press(KeyEscape);
+		await session.waitForVisible("turn interrupted; sending 1 queued message", { timeoutMs: WAIT_MS });
+		await session.waitForVisible("fixture response", { timeoutMs: WAIT_MS });
+
+		await exitFixture(session);
+	});
+
+	test("ctrl+c cancels an escape-triggered queued replay", async (ctx) => {
+		const { spawnFixture, exitFixture, waitForFixtureReady, KeyCtrlC, KeyEscape } = await loadPtywrightHelpers();
+		const session = spawnFixture("interrupt-cancel.json");
+		ctx.onTestFinished(() => session.close());
+
+		await waitForFixtureReady(session);
+		session.line("please run forever");
+		await session.waitForVisible("working...", { timeoutMs: WAIT_MS });
+		session.line("do not replay this");
+		await session.waitForVisible("queued for the next available turn", { timeoutMs: WAIT_MS });
+
+		session.press(KeyEscape);
+		await session.waitForVisible("interrupting…", { timeoutMs: WAIT_MS });
+		session.press(KeyCtrlC);
+		await session.waitForVisible("aborted", { timeoutMs: WAIT_MS });
+		session.line("recover after cancelling replay");
+		await session.waitForVisible("queued for after abort", { timeoutMs: WAIT_MS });
+		await session.waitForVisible("fixture response", { timeoutMs: WAIT_MS });
+		assert.doesNotMatch(session.snapshot().visible, /turn interrupted; sending 1 queued message/);
+
+		await exitFixture(session);
+	});
+
+	test("refuses slash commands while a turn is running", async (ctx) => {
+		const { spawnFixture, exitFixture, waitForFixtureReady, KeyCtrlC, KeyEnter } = await loadPtywrightHelpers();
+		const session = spawnFixture("abort.json");
+		ctx.onTestFinished(() => session.close());
+
+		await waitForFixtureReady(session);
+		session.line("please run forever");
+		await session.waitForVisible("working...", { timeoutMs: WAIT_MS });
+		session.send("/thinking high");
+		await session.waitForStable(STABLE_MS, { timeoutMs: WAIT_MS });
+		session.press(KeyEnter);
+		session.press(KeyEnter);
+		await session.waitForVisible("/thinking is unavailable while a turn is running", { timeoutMs: WAIT_MS });
+
+		session.press(KeyCtrlC);
+		await session.waitForVisible("aborted", { timeoutMs: WAIT_MS });
+		await exitFixture(session);
+	});
+
 	test("aborts a running turn with ctrl+c and recovers on the next prompt", async (ctx) => {
 		const { spawnFixture, exitFixture, waitForFixtureReady, KeyCtrlC } = await loadPtywrightHelpers();
 		const session = spawnFixture("abort.json");
