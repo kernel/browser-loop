@@ -58,8 +58,8 @@ export const streamSimpleOpenAIResponses: StreamFunction<typeof OPENAI_CUA_RESPO
 };
 
 /**
- * Pi 0.80.10's Responses fallback omits function-call namespaces in both
- * stream parsing and transcript replay. Keep using its conversion/stream
+ * Pi-ai 0.83.0's Responses fallback still omits function-call namespaces in
+ * both stream parsing and transcript replay. Keep using its conversion/stream
  * machinery, but own the SDK boundary so the provider field survives both.
  */
 function streamOpenAIFunctionTools(
