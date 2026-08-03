@@ -100,6 +100,7 @@ Environment:
   META_API_KEY          Meta Model API key (required when -m meta:…)
   XAI_API_KEY           xAI API key (required when -m xai:…)
   MOONSHOT_API_KEY      Moonshot AI API key (required when -m moonshotai:…)
+  OPENROUTER_API_KEY    OpenRouter API key (required when -m openrouter:…)
   TZAFON_API_KEY        Tzafon API key (required when -m tzafon:…)
   YUTORI_API_KEY        Yutori API key (required when -m yutori:…)
   KERNEL_BASE_URL       Override Kernel base URL

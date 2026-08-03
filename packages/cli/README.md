@@ -138,7 +138,7 @@ Run `cua models` to list every supported `-m` / `--model` value and the
 provider it routes to. Filter by provider with `cua models -p openai`,
 `cua models -p anthropic`, `cua models -p google` (alias: `gemini`),
 `cua models -p meta`, `cua models -p xai`, `cua models -p moonshotai`
-(alias: `moonshot`), or `cua models -p yutori`.
+(alias: `moonshot`), `cua models -p openrouter`, or `cua models -p yutori`.
 
 `-m` / `--model` accepts a provider-qualified `provider:model` ref (e.g.
 `openai:gpt-5.6-sol`) or a bare model id when it matches exactly one catalog
@@ -158,6 +158,7 @@ Configuration is by environment variable. There is no config file.
 | `META_API_KEY`       | Meta Model API key (required when `-m meta:…`)  |
 | `XAI_API_KEY`        | xAI API key (required when `-m xai:…`)          |
 | `MOONSHOT_API_KEY`   | Moonshot AI API key (required when `-m moonshotai:…`) |
+| `OPENROUTER_API_KEY` | OpenRouter API key (required when `-m openrouter:…`) |
 | `TZAFON_API_KEY`     | Tzafon API key (required when `-m tzafon:…`)   |
 | `YUTORI_API_KEY`     | Yutori API key (required when `-m yutori:…`)   |
 | `KERNEL_BASE_URL`    | override Kernel base URL                       |

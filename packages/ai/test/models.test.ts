@@ -29,7 +29,7 @@ describe("CUA model refs", () => {
 
 	it("names the valid providers in the unsupported-provider error", () => {
 		expect(() => parseCuaModelRef("bogus:model")).toThrow(
-			'unsupported CUA provider "bogus" (expected one of: openai, anthropic, google, meta, xai, moonshotai, tzafon, yutori)',
+			'unsupported CUA provider "bogus" (expected one of: openai, anthropic, google, meta, xai, moonshotai, openrouter, tzafon, yutori)',
 		);
 	});
 
@@ -99,6 +99,14 @@ describe("CUA model refs", () => {
 		expect(grok.cost.tiers).toEqual([
 			{ inputTokensAbove: 200_000, input: 4, output: 12, cacheRead: 1, cacheWrite: 0 },
 		]);
+	});
+
+	it("uses pi-ai's Kimi catalog entries for both transports", () => {
+		const direct = getCuaModel("moonshotai:kimi-k3");
+		const routed = getCuaModel("openrouter:moonshotai/kimi-k3");
+		expect(direct).toMatchObject({ provider: "moonshotai", id: "kimi-k3", api: "openai-completions" });
+		expect(routed).toMatchObject({ provider: "openrouter", id: "moonshotai/kimi-k3", api: "openai-completions" });
+		expect(listCuaModels("openrouter").map((model) => model.ref)).toContain("openrouter:moonshotai/kimi-k3");
 	});
 
 	it("uses pi-ai's Kimi catalog entry without CUA routing overrides", () => {

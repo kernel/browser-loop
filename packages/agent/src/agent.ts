@@ -26,6 +26,8 @@ import {
 	cuaModels,
 	type CuaIncomingToolPlan,
 	type CuaModelRef,
+	getCuaModel,
+	parseCuaModelRef,
 	type CuaSimpleStreamOptions,
 	getCuaEnvApiKey,
 	type ImageContent,
@@ -326,8 +328,8 @@ export class CuaAgentHarness<
 		const imageReplayLimit = resolveToolResultImageReplayLimit(toolResultImageReplayLimit);
 		const useResponseThreading = resolveResponseThreading(responseThreading);
 		const resources = new CuaExecutionResources({ browser, client });
-		const manager = new CuaToolManager(resources, model, requestedTools);
 		const retrying = withProviderRetryModels(models ?? cuaModels(), resolveProviderRetryPolicy(retry));
+		const manager = new CuaToolManager(resources, model, requestedTools, (ref) => resolveModelFromCollection(ref, retrying));
 		const catalogModels = withCatalogModels(retrying, manager, imageReplayLimit, useResponseThreading);
 		const materialized = manager.agentTools();
 		const core = new AgentHarness<TSkill, TPromptTemplate, AgentTool>({
@@ -446,6 +448,11 @@ export class CuaAgentHarness<
 }
 
 const defaultCuaStream: StreamFn = (model, context, options) => cuaModels().streamSimple(model, context, options);
+
+function resolveModelFromCollection(ref: CuaModelRef, models: Models): Model<Api> {
+	const { provider, model: id } = parseCuaModelRef(ref);
+	return models.getModel(provider, id) ?? getCuaModel(ref);
+}
 
 function withCatalogModels(
 	models: Models,

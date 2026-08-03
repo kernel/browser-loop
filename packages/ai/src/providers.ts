@@ -52,6 +52,8 @@ export function createCuaModels(options?: CreateModelsOptions): MutableModels {
 	if (google) models.setProvider(withGoogleCuaInteractions(google));
 	const xai = models.getProvider("xai");
 	if (xai) models.setProvider(withXaiCuaResponses(xai));
+	const openrouter = models.getProvider("openrouter");
+	if (openrouter) models.setProvider(withCuaApiKey(openrouter, "openrouter"));
 	models.setProvider(metaProvider());
 	models.setProvider(tzafonProvider());
 	models.setProvider(yutoriProvider());
@@ -87,6 +89,10 @@ function withOpenAICuaResponses(base: Provider): Provider {
 				? streamSimpleOpenAIResponses(model as never, context, options)
 				: base.streamSimple(model, context, options),
 	};
+}
+
+function withCuaApiKey(base: Provider, provider: "openrouter"): Provider {
+	return { ...base, auth: { ...base.auth, apiKey: envApiKeyAuth("OpenRouter API key", cuaApiKeyEnvVarsForProvider(provider)) } };
 }
 
 function withGoogleCuaInteractions(base: Provider): Provider {

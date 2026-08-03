@@ -282,8 +282,15 @@ describe("compileCuaToolCatalog", () => {
 		expect(catalog.incoming.googleExcludedNames).toEqual(expectedExcludedNames);
 	});
 
+	it("rejects browser_act but accepts browser primitives for both Kimi transports", () => {
+		for (const model of ["moonshotai:kimi-k3", "openrouter:moonshotai/kimi-k3"] as const) {
+			expect(() => compile(model, [cua.tools.browser.act()])).toThrow(/schema size/);
+			expect(() => compile(model, cua.toolsets.browser())).not.toThrow();
+		}
+	});
+
 	it("serializes state-mutating Meta/xAI/Moonshot catalogs with serial tool calls", async () => {
-		for (const model of ["meta:muse-spark-1.1", "xai:grok-4.5", "moonshotai:kimi-k3"] as const) {
+		for (const model of ["meta:muse-spark-1.1", "xai:grok-4.5", "moonshotai:kimi-k3", "openrouter:moonshotai/kimi-k3"] as const) {
 			const catalog = compile(model, cua.toolsets.browser());
 			await expect(catalog.payload.apply({ parallel_tool_calls: true }, catalog.model)).resolves.toMatchObject({ parallel_tool_calls: false });
 		}
@@ -313,6 +320,7 @@ describe("compileCuaToolCatalog", () => {
 		expect(() => compile("yutori:n1-latest", cua.providers.yutori.toolsets.n1().slice(0, 1))).toThrow(/complete .*n1\(\)/);
 		const requested = [cua.providers.anthropic.tools.browser()];
 		expect(() => compile("openai:gpt-5.5", requested)).toThrow(/requires a anthropic model/);
+		expect(() => compile("openrouter:moonshotai/kimi-k3", requested)).toThrow(/requires a anthropic model/);
 	});
 
 	it("fingerprints coordinate replacements independently from name and schema", () => {

@@ -1,7 +1,7 @@
 import type { Api, Model, Tool } from "@earendil-works/pi-ai";
 import type { CuaAction } from "./actions/index";
 import type { CuaModelRef } from "./models";
-import { getCuaModel, providerForModel, routeCuaApi } from "./models";
+import { cuaModelCapabilities, getCuaModel, providerForModel, routeCuaApi } from "./models";
 import { anthropicAdaptiveThinkingOnPayload } from "./providers/anthropic/adaptive-thinking";
 import {
 	supportsAnthropicNativeBrowser,
@@ -400,16 +400,6 @@ function nameCollision(
 	return new Error(`tool name "${name}" is requested by both "${first.identity}" and "${second.identity}"${suffix}`);
 }
 
-/** Providers whose function-calling APIs accept CUA's nested union schemas. */
-const COMPLEX_SCHEMA_PROVIDERS: readonly string[] = ["openai", "anthropic", "meta", "xai", "moonshotai"];
-
-/**
- * Providers that additionally accept a `largeSchema` declaration. Moonshot is
- * absent deliberately: its API accepts `browser_wait_for` (~15KB) but rejects
- * the request immediately once `browser_act` (~124KB) is attached.
- */
-const LARGE_SCHEMA_PROVIDERS: readonly string[] = ["openai", "anthropic", "meta", "xai"];
-
 function validateToolCompatibility(model: Model<Api>, entry: CuaCatalogEntryDraft): void {
 	const binding = entry.providerBinding;
 	if (entry.origin === "provider-native" && !/^https:\/\//.test(entry.source ?? "")) {
@@ -422,10 +412,11 @@ function validateToolCompatibility(model: Model<Api>, entry: CuaCatalogEntryDraf
 			throw new Error(`${entry.identity} requires a ${required} model; selected ${model.provider}:${model.id}`);
 		}
 	}
-	if (entry.complexSchema && !COMPLEX_SCHEMA_PROVIDERS.includes(model.provider)) {
+	const capabilities = cuaModelCapabilities(model);
+	if (entry.complexSchema && !capabilities.acceptsComplexSchemas) {
 		throw new Error(`provider ${model.provider} does not accept the schema used by "${entry.name}" (${entry.identity})`);
 	}
-	if (entry.largeSchema && !LARGE_SCHEMA_PROVIDERS.includes(model.provider)) {
+	if (entry.largeSchema && !capabilities.acceptsLargeSchemas) {
 		throw new Error(`provider ${model.provider} does not accept the schema size of "${entry.name}" (${entry.identity})`);
 	}
 	if (binding?.kind === "anthropic-native") validateAnthropicNativeModel(model, entry.identity);
@@ -547,7 +538,7 @@ function compilePayloadTransforms(
 	const google = entries.filter((entry) => entry.providerBinding?.kind === "google-native");
 	if (google.length > 0) transforms.push(createGoogleTransform(google));
 
-	if (["meta", "xai", "moonshotai"].includes(model.provider) && entries.some((entry) => entry.stateMutating)) {
+	if (cuaModelCapabilities(model).serializesStateMutations && entries.some((entry) => entry.stateMutating)) {
 		transforms.push({
 			identity: `provider.${model.provider}.serial-tool-calls`,
 			writes: ["parallel_tool_calls"],

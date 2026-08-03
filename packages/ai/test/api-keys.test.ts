@@ -15,6 +15,7 @@ const ENV_KEYS = [
 	"META_API_KEY",
 	"XAI_API_KEY",
 	"MOONSHOT_API_KEY",
+	"OPENROUTER_API_KEY",
 	"TZAFON_API_KEY",
 	"YUTORI_API_KEY",
 ] as const;
@@ -38,6 +39,7 @@ describe("cua api key helpers", () => {
 		expect(cuaApiKeyEnvVarsForProvider("xai")).toEqual(["XAI_API_KEY"]);
 		expect(cuaApiKeyEnvVarsForProvider("moonshotai")).toEqual(["MOONSHOT_API_KEY"]);
 		expect(cuaApiKeyEnvVarsForProvider("moonshot")).toEqual(["MOONSHOT_API_KEY"]);
+		expect(cuaApiKeyEnvVarsForProvider("openrouter")).toEqual(["OPENROUTER_API_KEY"]);
 		expect(cuaApiKeyEnvVarsForProvider("unknown")).toEqual([]);
 	});
 
@@ -58,6 +60,8 @@ describe("cua api key helpers", () => {
 		expect(getCuaEnvApiKeyForModel("xai:grok-4.5")).toBe("xai");
 		process.env.MOONSHOT_API_KEY = "moonshot";
 		expect(getCuaEnvApiKeyForModel("moonshotai:kimi-k3")).toBe("moonshot");
+		process.env.OPENROUTER_API_KEY = "openrouter";
+		expect(getCuaEnvApiKeyForModel("openrouter:moonshotai/kimi-k3")).toBe("openrouter");
 	});
 
 	it("throws readable errors when missing", () => {
