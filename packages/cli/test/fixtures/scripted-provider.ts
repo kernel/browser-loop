@@ -13,7 +13,7 @@ import {
 export type ScriptedStep =
 	| { type: "text"; text: string; chunkSize?: number; chunkMs?: number }
 	| { type: "tool_call"; toolName: string; args: Record<string, unknown>; id?: string }
-	| { type: "wait_abort" }
+	| { type: "wait_abort"; settleMs?: number }
 	| { type: "error"; message: string };
 
 export interface ScriptedTurn {
@@ -154,6 +154,7 @@ function buildStream(model: Model<Api>, turn: ScriptedTurn | undefined, signal?:
 				contentIndex += 1;
 			} else if (step.type === "wait_abort") {
 				await waitForAbort(signal);
+				if (step.settleMs) await new Promise((resolve) => setTimeout(resolve, step.settleMs));
 				aborted = true;
 				break;
 			} else if (step.type === "error") {

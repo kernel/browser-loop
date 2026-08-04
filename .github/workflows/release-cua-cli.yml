@@ -11,6 +11,11 @@ on:
         required: true
         default: "ext"
         type: string
+      bundle_workspace_dependencies:
+        description: "Bundle branch builds of cua-ai and cua-agent instead of using their published versions"
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -119,7 +124,7 @@ jobs:
       - run: npm run build --workspace @onkernel/cua-agent
 
       - name: Verify published production dependencies
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || !inputs.bundle_workspace_dependencies
         run: |
           node -p 'require("./packages/cli/package.json").dependencies["@onkernel/cua-ai"]' \
             | xargs -I{} npm view @onkernel/cua-ai@{} version
@@ -140,18 +145,18 @@ jobs:
         run: npm test --workspace @onkernel/cua-cli
 
       - name: Pack production tarball
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || !inputs.bundle_workspace_dependencies
         run: npm pack --workspace @onkernel/cua-cli --pack-destination "$RUNNER_TEMP"
 
       - name: Pack branch workspace dependencies
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && inputs.bundle_workspace_dependencies
         run: |
           mkdir -p "$RUNNER_TEMP/workspace-packages"
           npm pack --workspace @onkernel/cua-ai --pack-destination "$RUNNER_TEMP/workspace-packages"
           npm pack --workspace @onkernel/cua-agent --pack-destination "$RUNNER_TEMP/workspace-packages"
 
       - name: Pack bundled CLI prerelease
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && inputs.bundle_workspace_dependencies
         run: |
           export STAGE_DIR="$RUNNER_TEMP/cua-cli-prerelease"
           mkdir -p "$STAGE_DIR/node_modules/@onkernel"
@@ -194,12 +199,15 @@ jobs:
           npm pack "$STAGE_DIR" --pack-destination "$RUNNER_TEMP"
 
       - name: CLI bin smoke test
+        env:
+          BUNDLE_WORKSPACE_DEPENDENCIES: ${{ inputs.bundle_workspace_dependencies }}
         run: |
+          TARBALL=$(find "$RUNNER_TEMP" -maxdepth 1 -name "onkernel-cua-cli-*.tgz" -print -quit)
           SMOKE_DIR=$(mktemp -d)
           cd "$SMOKE_DIR"
           npm init -y > /dev/null
-          npm install "$RUNNER_TEMP"/onkernel-cua-cli-*.tgz
-          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+          npm install "$TARBALL"
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$BUNDLE_WORKSPACE_DEPENDENCIES" == "true" ]]; then
             test -f node_modules/@onkernel/cua-cli/node_modules/@onkernel/cua-ai/dist/index.js
             test -f node_modules/@onkernel/cua-cli/node_modules/@onkernel/cua-agent/dist/index.js
           fi
@@ -207,6 +215,12 @@ jobs:
           echo "$OUTPUT"
           echo "$OUTPUT" | grep -q "Usage:"
           echo "$OUTPUT" | grep -q "cua \[options\] \[prompt\.\.\.\]"
+
+          GLOBAL_DIR=$(mktemp -d)
+          npm install --global --prefix "$GLOBAL_DIR" "$TARBALL"
+          MODELS_OUTPUT=$("$GLOBAL_DIR/bin/cua" models -p openrouter)
+          echo "$MODELS_OUTPUT"
+          echo "$MODELS_OUTPUT" | grep -q "openrouter:moonshotai/kimi-k3"
 
       - name: Publish production release
         if: github.event_name == 'push'

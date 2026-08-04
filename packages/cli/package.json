@@ -1,6 +1,6 @@
 {
   "name": "@onkernel/cua-cli",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Kernel-cloud-browser computer-use TUI built on @onkernel/cua-agent and pi-tui",
   "license": "MIT",
   "type": "module",

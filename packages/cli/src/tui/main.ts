@@ -181,7 +181,12 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 
 	let assistantBuffer: AssistantBuffer | undefined;
 	let inflight = 0;
+	let promptRunning = 0;
+	let turnRevision = 0;
+	let interruptState: { queued: string[]; cancelled: boolean } | undefined;
 	let lastDisplayedError: string | undefined;
+
+	const isTurnRunning = (): boolean => inflight > 0 || promptRunning > 0;
 
 	// Ref of the live model, kept in sync by switchModel so the picker can mark
 	// it with a ✓. Undefined when opts.modelRef is not a catalog ref.
@@ -228,7 +233,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 	 * protection, so it refuses up front rather than failing on apply.
 	 */
 	const refuseWhileBusy = (command: string): boolean => {
-		if (inflight === 0) return false;
+		if (!isTurnRunning() && !interruptState) return false;
 		messages.addError(`${command} is unavailable while a turn is running`);
 		requestRender("selector_busy", false, { command });
 		return true;
@@ -495,10 +500,20 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 		});
 	};
 
+	const promptAgent = async (text: string): Promise<void> => {
+		promptRunning += 1;
+		try {
+			await opts.harness.prompt(text);
+		} finally {
+			promptRunning -= 1;
+		}
+	};
+
 	const runPrompt = async (text: string): Promise<void> => {
 		debug?.log("run_prompt_start", { length: text.length });
 		try {
 			const parsed = parseSlashCommand(text);
+			if (parsed && refuseWhileBusy(`/${parsed.command}`)) return;
 			if (parsed?.command === "model") {
 				const argument = parsed.argument.trim();
 				if (!argument) {
@@ -547,7 +562,21 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 				await opts.harness.skill(skill.name, skillRemainder);
 				return;
 			}
-			await opts.harness.prompt(text);
+			if (interruptState) {
+				interruptState.queued.push(text);
+				messages.addNotice(interruptState.cancelled ? "queued for after abort" : "queued for the interrupted turn");
+				requestRender("prompt_queued_during_interrupt");
+				return;
+			}
+			if (isTurnRunning()) {
+				const revision = turnRevision;
+				await opts.harness.steer(text);
+				if (revision !== turnRevision) return;
+				messages.addNotice("queued for the next available turn");
+				requestRender("prompt_queued_for_steer");
+				return;
+			}
+			await promptAgent(text);
 		} catch (err) {
 			messages.addError((err as Error).message);
 			debug?.log("run_prompt_error", { message: (err as Error).message });
@@ -567,13 +596,74 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 		void runPrompt(trimmed);
 	};
 
+	const startQueuedPrompt = (queued: string[], notice: string): void => {
+		messages.addNotice(`${notice}; sending ${queued.length} queued message${queued.length === 1 ? "" : "s"}`);
+		requestRender("queued_prompt_start", false, { queued: queued.length });
+		void promptAgent(queued.join("\n\n")).catch((err: unknown) => {
+			messages.addError((err as Error).message);
+			debug?.log("queued_prompt_error", { message: (err as Error).message });
+			requestRender("queued_prompt_error");
+		});
+	};
+
+	const interruptTurn = async (): Promise<void> => {
+		if (interruptState) return;
+		const state: { queued: string[]; cancelled: boolean } = { queued: [], cancelled: false };
+		interruptState = state;
+		turnRevision += 1;
+		messages.addNotice("interrupting…");
+		requestRender("input_interrupt_start", false, { key: "escape" });
+		try {
+			const { clearedSteer, clearedFollowUp } = await opts.harness.abort();
+			if (state.cancelled) {
+				const queued = state.queued;
+				state.queued = [];
+				if (queued.length > 0) {
+					interruptState = undefined;
+					startQueuedPrompt(queued, "abort complete");
+				}
+				return;
+			}
+			const queued = [
+				...clearedSteer.map(userMessageText).filter((text): text is string => !!text),
+				...clearedFollowUp.map(userMessageText).filter((text): text is string => !!text),
+				...state.queued,
+			];
+			state.queued = [];
+			if (queued.length === 0) {
+				messages.addNotice("turn aborted");
+				requestRender("input_abort_stream", false, { key: "escape" });
+				return;
+			}
+
+			interruptState = undefined;
+			startQueuedPrompt(queued, "turn interrupted");
+		} catch (err) {
+			state.queued = [];
+			messages.addError((err as Error).message);
+			debug?.log("input_interrupt_error", { message: (err as Error).message });
+			requestRender("input_interrupt_error");
+		} finally {
+			if (interruptState === state) interruptState = undefined;
+		}
+	};
+
 	const removeListener = tui.addInputListener((data) => {
 		// Input listeners run before the focused component, so an open picker has
 		// to own every key: otherwise ctrl+c / ctrl+d here would quit the app
 		// instead of cancelling the picker.
 		if (activeSelector) return undefined;
 		if (matchesKey(data, "ctrl+c")) {
-			if (inflight > 0) {
+			if (interruptState) {
+				interruptState.cancelled = true;
+				interruptState.queued = [];
+				messages.addNotice("aborted");
+				debug?.log("input_cancel_interrupt_replay", { key: "ctrl+c" });
+				requestRender("input_cancel_interrupt_replay", false, { key: "ctrl+c" });
+				return { consume: true };
+			}
+			if (isTurnRunning()) {
+				turnRevision += 1;
 				void opts.harness.abort();
 				messages.addNotice("aborted");
 				debug?.log("input_abort_stream", { key: "ctrl+c" });
@@ -590,11 +680,9 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 			debug?.log("input_exit_request", { key: "ctrl+d" });
 			return { consume: true };
 		}
-		if (matchesKey(data, "escape") && inflight > 0) {
-			void opts.harness.abort();
-			messages.addNotice("turn aborted");
-			debug?.log("input_abort_stream", { key: "escape" });
-			requestRender("input_abort_stream", false, { key: "escape" });
+		if (matchesKey(data, "escape") && (isTurnRunning() || interruptState)) {
+			void interruptTurn();
+			debug?.log("input_interrupt_stream", { key: "escape" });
 			return { consume: true };
 		}
 		return undefined;
@@ -615,7 +703,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 
 		await waitForExit(
 			() => exitRequested,
-			() => inflight > 0,
+			() => isTurnRunning() || !!interruptState,
 		);
 
 		return 0;
@@ -641,6 +729,16 @@ async function waitForExit(shouldExit: () => boolean, isBusy: () => boolean): Pr
 function modelLabel(model: Model<any> | undefined): string {
 	if (!model) return "";
 	return model.id;
+}
+
+function userMessageText(message: AgentMessage): string | undefined {
+	if (message.role !== "user") return undefined;
+	if (typeof message.content === "string") return message.content.trim() || undefined;
+	const text = message.content
+		.filter((content) => content.type === "text")
+		.map((content) => content.text)
+		.join("");
+	return text.trim() || undefined;
 }
 
 function lastErrorMessage(messages: AgentMessage[]): string | undefined {
