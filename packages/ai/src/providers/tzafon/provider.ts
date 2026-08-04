@@ -344,15 +344,12 @@ function convertMessages(messages: readonly Message[], nativeComputerName?: stri
 				.trim();
 			const image = [...message.content].reverse().find((part): part is ImageContent => part.type === "image");
 			if (nativeComputerName && message.toolName === nativeComputerName) {
-				if (!image) {
-					throw new Error(
-						"Tzafon native computer action loops require image tool results; text-only results are unsupported because CUA does not capture post-action screenshots automatically.",
-					);
-				}
 				items.push({
 					type: "computer_call_output",
 					call_id: message.toolCallId,
-					output: { type: "computer_screenshot", image_url: `data:${image.mimeType};base64,${image.data}` },
+					output: image
+						? { type: "computer_screenshot", image_url: `data:${image.mimeType};base64,${image.data}` }
+						: { type: "computer_screenshot", error: message.isError ? text || "tool execution failed" : text || "no screenshot" },
 				});
 				continue;
 			}

@@ -99,8 +99,8 @@ describe("streamTzafonResponses", () => {
 		expect(toolCalls(message.content)).toEqual([]);
 	});
 
-	it("rejects text-only native computer results before sending a request", () => {
-		expect(() => tzafon.buildTzafonRequestInput(model, {
+	it("serializes text-only native computer results as computer_screenshot errors", () => {
+		const payload = tzafon.buildTzafonRequestInput(model, {
 			messages: [
 				{
 					role: "assistant",
@@ -125,7 +125,19 @@ describe("streamTzafonResponses", () => {
 		}, {
 			disableResponseThreading: true,
 			cuaIncomingToolPlan: { tzafonComputerName: "computer", yutoriNames: {}, googleNames: {}, googleExcludedNames: [], nativeToolNames: ["computer"] },
-		})).toThrow("text-only results are unsupported");
+		});
+
+		expect(payload.input).toEqual(expect.arrayContaining([
+			expect.objectContaining({ type: "computer_call", call_id: "call_click" }),
+			expect.objectContaining({
+				type: "computer_call_output",
+				call_id: "call_click",
+				output: {
+					type: "computer_screenshot",
+					error: "Actions executed successfully.",
+				},
+			}),
+		]));
 	});
 
 	it("degrades malformed function-call arguments to empty args instead of failing the turn", async () => {
