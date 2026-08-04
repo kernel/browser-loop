@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.10.0 - 2026-08-04
+
+Breaking: upgrade `@earendil-works/pi-ai` to 0.83.0.
+
+- Remove the local `claude-opus-5`, `gemini-3.6-flash`, and
+  `gemini-3.5-flash-lite` model overrides: pi-ai 0.83.0's registry now carries
+  all three with the same metadata. Overrides remain only for the CUA-only
+  providers pi-ai does not ship (Meta, Tzafon, Yutori).
+- Kimi K3 reasoning effort follows pi-ai's catalog metadata with no CUA
+  override: `low`/`high`/`max` map through `thinkingLevelMap` (the rest clamp
+  away), and requests carry `reasoning_effort` on Moonshot or OpenRouter's
+  nested `reasoning.effort`.
+- Disable Tzafon native non-screenshot action loops: its Responses API requires
+  every `computer_call_output` to carry an image, while CUA returns screenshots
+  only when explicitly requested. Unsupported native actions now fail before
+  browser execution instead of entering a text-only loop that the API rejects.
+
 ## 0.9.0 - 2026-08-03
 
 - Add Kimi K3 through OpenRouter as `openrouter:moonshotai/kimi-k3`,

@@ -1,11 +1,12 @@
-import type { AgentHarnessEvent, CuaAgentHarness } from "@onkernel/cua-agent";
+import type { AgentHarnessEvent } from "@onkernel/cua-agent";
+import type { CuaCliHarness } from "../harness";
 import type { AssistantMessage } from "@onkernel/cua-ai";
 import { stderr, stdout } from "node:process";
 import { type ActionRequest, buildPrompt, DEFAULT_MAX_TURNS } from "./prompts";
 import { type ActionEventInfo, type ActionResult, exitCodeFor, formatCompact, parseResult } from "./result";
 
 export interface HarnessRunOptions {
-	harness: CuaAgentHarness;
+	harness: CuaCliHarness;
 	maxTurns?: number;
 }
 

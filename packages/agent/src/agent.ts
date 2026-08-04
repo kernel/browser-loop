@@ -6,12 +6,13 @@ import {
 	type AgentHarnessEventResultMap,
 	type AgentHarnessOptions,
 	type AgentHarnessOwnEvent,
+	type AgentHarnessToolContextSource,
 	type AgentHarnessResources,
 	type AgentHarnessStreamOptions,
+	type AgentHarnessTool,
 	type AgentMessage,
 	type AgentOptions,
 	type AgentTool,
-	type ExecutionEnv,
 	type NavigateTreeResult,
 	type PromptTemplate,
 	type QueueMode,
@@ -44,7 +45,7 @@ import {
 	withProviderRetryModels,
 } from "./provider-retry";
 import { CuaExecutionResources, type CuaExecutionDetails } from "./resources";
-import { CuaToolManager, type CuaAgentTool } from "./tool-manager";
+import { CuaToolManager, type CuaAgentTool, type CuaHarnessTool } from "./tool-manager";
 import type { KernelBrowser } from "./translator/translator";
 
 /** A registered CUA model reference or an already resolved pi model. */
@@ -53,7 +54,7 @@ export type CuaModelInput = CuaModelRef | Model<Api>;
 const DEFAULT_TOOL_RESULT_IMAGE_REPLAY_LIMIT = 4;
 const OMITTED_TOOL_RESULT_IMAGES = "[stale tool-result images omitted]";
 
-/** Maximum recent tool-result images retained in model context, or `false` to retain all images. */
+/** Maximum recent tool-result images retained in model context, or `false` to retain all images. Provider-required native tool images are always retained. */
 export type ToolResultImageReplayLimit = number | false;
 
 /** Optional follow-up policy for otherwise empty successful assistant responses. */
@@ -82,40 +83,57 @@ type CuaAgentInitialState = Omit<NonNullable<AgentOptions["initialState"]>, "mod
 };
 
 /** Construction options for {@link CuaAgent}, including its exact caller-owned tool catalog. */
-export type CuaAgentOptions = Omit<AgentOptions, "initialState"> & {
+export type CuaAgentOptions = Omit<AgentOptions, "initialState" | "streamFn"> & {
 	browser: KernelBrowser;
 	client: Kernel;
 	tools: readonly CuaAgentTool[];
 	initialState: CuaAgentInitialState;
+	/** Defaults to streaming through the shared {@link cuaModels} collection. */
+	streamFn?: AgentOptions["streamFn"];
 	emptyResponseRecovery?: CuaEmptyResponseRecoveryOptions;
 	toolResultImageReplayLimit?: ToolResultImageReplayLimit;
 	responseThreading?: boolean;
 	retry?: CuaRetryOptions;
 };
 
-/** Harness callback used when callers compute their own system prompt. */
-export type CuaSystemPromptCallback<
-	TSkill extends Skill = Skill,
-	TPromptTemplate extends PromptTemplate = PromptTemplate,
-> = NonNullable<AgentHarnessOptions<TSkill, TPromptTemplate, AgentTool>["systemPrompt"]>;
-
-/** Construction options for {@link CuaAgentHarness}, including its exact caller-owned tool catalog. */
-export type CuaAgentHarnessOptions<
-	TSkill extends Skill = Skill,
-	TPromptTemplate extends PromptTemplate = PromptTemplate,
-> = Omit<AgentHarnessOptions<TSkill, TPromptTemplate, AgentTool>, "activeToolNames" | "model" | "models" | "tools"> & {
+type CuaAgentHarnessOptionsBase<
+	TContext extends object | undefined,
+	TSkill extends Skill,
+	TPromptTemplate extends PromptTemplate,
+> = Omit<
+	AgentHarnessOptions<TContext, TSkill, TPromptTemplate, AgentHarnessTool<TContext>>,
+	"activeToolNames" | "model" | "models" | "tools" | "toolContext" | "retry"
+> & {
 	browser: KernelBrowser;
 	client: Kernel;
 	model: CuaModelInput;
 	models?: Models;
-	tools: readonly CuaAgentTool[];
-	systemPrompt?: string | CuaSystemPromptCallback<TSkill, TPromptTemplate>;
+	tools: readonly CuaHarnessTool<TContext>[];
 	onPayload?: SimpleStreamOptions["onPayload"];
 	emptyResponseRecovery?: CuaEmptyResponseRecoveryOptions;
 	toolResultImageReplayLimit?: ToolResultImageReplayLimit;
 	responseThreading?: boolean;
 	retry?: CuaRetryOptions;
 };
+
+/**
+ * Construction options for {@link CuaAgentHarness}, including its exact
+ * caller-owned tool catalog. Mirrors pi's `AgentHarnessOptions` generic order:
+ * the tool context first, then skill and prompt-template resource types. The
+ * supplied `toolContext` is forwarded to pi untouched, and every executable
+ * tool receives it on each call.
+ */
+export type CuaAgentHarnessOptions<
+	TContext extends object | undefined = undefined,
+	TSkill extends Skill = Skill,
+	TPromptTemplate extends PromptTemplate = PromptTemplate,
+> = CuaAgentHarnessOptionsBase<TContext, TSkill, TPromptTemplate> & ([TContext] extends [undefined] ? {
+	/** Context-free harnesses do not need a tool context. */
+	toolContext?: undefined;
+} : {
+	/** Static context or zero-argument context provider resolved for each turn snapshot. */
+	toolContext: AgentHarnessToolContextSource<TContext>;
+});
 
 /** Pi Agent behavior with an explicit, identity-keyed CUA tool catalog. */
 export class CuaAgent {
@@ -185,6 +203,7 @@ export class CuaAgent {
 			transformContext: async (messages, signal) => projectToolResultImages(
 				transformContext ? await transformContext(messages, signal) : messages,
 				imageReplayLimit,
+				manager.catalog.incoming.tzafonComputerName,
 			),
 			prepareNextTurnWithContext: async (context, signal) => {
 				const update = prepareNextTurnWithContext
@@ -299,25 +318,24 @@ export class CuaAgent {
 
 /** Pi AgentHarness behavior through composition, without inherited active-tool APIs. */
 export class CuaAgentHarness<
+	TContext extends object | undefined = undefined,
 	TSkill extends Skill = Skill,
 	TPromptTemplate extends PromptTemplate = PromptTemplate,
 > {
-	readonly env: ExecutionEnv;
 	readonly models: Models;
-	private readonly coreHarness: AgentHarness<TSkill, TPromptTemplate, AgentTool>;
-	private readonly tools: CuaToolManager;
+	private readonly coreHarness: AgentHarness<TContext, TSkill, TPromptTemplate, AgentHarnessTool<TContext>>;
+	private readonly tools: CuaToolManager<CuaHarnessTool<TContext>>;
 	private emptyResponseRecoveryAttempts = 0;
 	private hasPendingQueue = false;
 	private toolTurnFailed = false;
 
-	constructor(options: CuaAgentHarnessOptions<TSkill, TPromptTemplate>) {
+	constructor(options: CuaAgentHarnessOptions<TContext, TSkill, TPromptTemplate>) {
 		const {
 			browser,
 			client,
 			model,
 			models,
 			tools: requestedTools,
-			systemPrompt,
 			onPayload,
 			emptyResponseRecovery,
 			toolResultImageReplayLimit,
@@ -330,20 +348,20 @@ export class CuaAgentHarness<
 		const useResponseThreading = resolveResponseThreading(responseThreading);
 		const resources = new CuaExecutionResources({ browser, client });
 		const retrying = withProviderRetryModels(models ?? cuaModels(), resolveProviderRetryPolicy(retry));
-		const manager = new CuaToolManager(resources, model, requestedTools, (ref) => resolveModelFromCollection(ref, retrying));
+		const manager = new CuaToolManager<CuaHarnessTool<TContext>>(resources, model, requestedTools, (ref) => resolveModelFromCollection(ref, retrying));
 		const catalogModels = withCatalogModels(retrying, manager, imageReplayLimit, useResponseThreading);
-		const materialized = manager.agentTools();
-		const core = new AgentHarness<TSkill, TPromptTemplate, AgentTool>({
+		const materialized = manager.harnessTools();
+		// A generic TContext leaves pi's conditional toolContext unverifiable
+		// here; the spread forwards the caller's toolContext verbatim.
+		const core = new AgentHarness<TContext, TSkill, TPromptTemplate, AgentHarnessTool<TContext>>({
 			...harnessOptions,
 			model: manager.catalog.model,
 			models: catalogModels,
 			tools: materialized,
 			activeToolNames: materialized.map((tool) => tool.name),
-			systemPrompt,
-		});
+		} as AgentHarnessOptions<TContext, TSkill, TPromptTemplate, AgentHarnessTool<TContext>>);
 		this.coreHarness = core;
 		this.tools = manager;
-		this.env = core.env;
 		this.models = core.models;
 
 		core.on("tool_result", (event) => hasExecutionError(event.details) ? { isError: true } : undefined);
@@ -379,12 +397,12 @@ export class CuaAgentHarness<
 		}
 	}
 
-	getTools(): readonly CuaAgentTool[] { return this.tools.getTools(); }
+	getTools(): readonly CuaHarnessTool<TContext>[] { return this.tools.getTools(); }
 
-	async setTools(tools: readonly CuaAgentTool[]): Promise<void> {
-		const previousTools = this.tools.agentTools();
+	async setTools(tools: readonly CuaHarnessTool<TContext>[]): Promise<void> {
+		const previousTools = this.tools.harnessTools();
 		const prepared = this.tools.prepareTools(tools);
-		const materialized = this.tools.agentTools(prepared);
+		const materialized = this.tools.harnessTools(prepared);
 		try {
 			await this.coreHarness.setTools(materialized, materialized.map((tool) => tool.name));
 		} catch (error) {
@@ -398,9 +416,9 @@ export class CuaAgentHarness<
 
 	async setModel(model: CuaModelInput): Promise<void> {
 		const previousModel = this.tools.catalog.model;
-		const previousTools = this.tools.agentTools();
+		const previousTools = this.tools.harnessTools();
 		const prepared = this.tools.prepareModel(model);
-		const materialized = this.tools.agentTools(prepared);
+		const materialized = this.tools.harnessTools(prepared);
 		try {
 			await this.coreHarness.setModel(prepared.catalog.model);
 			await this.coreHarness.setTools(materialized, materialized.map((tool) => tool.name));
@@ -458,11 +476,15 @@ function resolveModelFromCollection(ref: CuaModelRef, models: Models): Model<Api
 
 function withCatalogModels(
 	models: Models,
-	manager: CuaToolManager,
+	manager: CuaToolManager<any>,
 	imageReplayLimit: ToolResultImageReplayLimit,
 	responseThreading: boolean,
 ): Models {
-	const contextFor = (context: Context) => projectModelContext(context, imageReplayLimit);
+	const contextFor = (context: Context) => projectModelContext(
+		context,
+		imageReplayLimit,
+		manager.catalog.incoming.tzafonComputerName,
+	);
 	const optionsFor = <T extends SimpleStreamOptions | undefined>(options: T): T => {
 		const catalog = manager.catalog;
 		const callerOnPayload = options?.onPayload;
@@ -503,15 +525,23 @@ function resolveToolResultImageReplayLimit(limit: ToolResultImageReplayLimit | u
 	return limit;
 }
 
-function projectToolResultImages<TMessage extends AgentMessage>(messages: TMessage[], limit: ToolResultImageReplayLimit): TMessage[] {
+function projectToolResultImages<TMessage extends AgentMessage>(
+	messages: TMessage[],
+	limit: ToolResultImageReplayLimit,
+	requiredImageToolName?: string,
+): TMessage[] {
 	if (limit === false) return messages;
 	let imageCount = 0;
-	for (const message of messages) if (message.role === "toolResult") imageCount += message.content.filter((block) => block.type === "image").length;
+	for (const message of messages) {
+		if (message.role === "toolResult" && message.toolName !== requiredImageToolName) {
+			imageCount += message.content.filter((block) => block.type === "image").length;
+		}
+	}
 	if (imageCount <= limit) return messages;
 	const firstRetainedImage = Math.max(0, imageCount - limit);
 	let imageOrdinal = 0;
 	return messages.map((message) => {
-		if (message.role !== "toolResult") return message;
+		if (message.role !== "toolResult" || message.toolName === requiredImageToolName) return message;
 		let changed = false;
 		let markerInserted = false;
 		const content = [] as typeof message.content;
@@ -530,8 +560,12 @@ function projectToolResultImages<TMessage extends AgentMessage>(messages: TMessa
 	});
 }
 
-function projectModelContext(context: Context, imageReplayLimit: ToolResultImageReplayLimit): Context {
-	const messages = projectToolResultImages(context.messages, imageReplayLimit);
+function projectModelContext(
+	context: Context,
+	imageReplayLimit: ToolResultImageReplayLimit,
+	requiredImageToolName?: string,
+): Context {
+	const messages = projectToolResultImages(context.messages, imageReplayLimit, requiredImageToolName);
 	return messages === context.messages ? context : { ...context, messages };
 }
 
@@ -555,7 +589,7 @@ function hasExecutionError(details: unknown): boolean {
 	return Boolean(details && typeof details === "object" && (details as CuaExecutionDetails).isError === true);
 }
 
-function turnFailureStopMessage(manager: CuaToolManager): string | undefined {
+function turnFailureStopMessage(manager: CuaToolManager<any>): string | undefined {
 	for (const entry of manager.catalog.entries) {
 		const execution = manager.specFor(entry.identity)?.execution;
 		if (execution?.kind === "actions" && execution.stopTurnOnFailureMessage) return execution.stopTurnOnFailureMessage;

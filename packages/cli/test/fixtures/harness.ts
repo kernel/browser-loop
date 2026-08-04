@@ -1,5 +1,4 @@
 import {
-	type CuaAgentTool,
 	InMemorySessionRepo,
 	type Session,
 	type Skill,
@@ -8,7 +7,7 @@ import { tmpdir } from "node:os";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { parseCuaModelRef } from "@onkernel/cua-ai";
-import { buildCuaHarness, defaultInteractionTools } from "../../src/harness";
+import { buildCuaHarness, type CuaCliTool, defaultInteractionTools } from "../../src/harness";
 import { createFakeKernelEnvironment, type FakeKernelEnvironment } from "./fake-kernel";
 import type { ScriptedProviderHandle, ScriptedTurn } from "./scripted-provider";
 import { createScriptedCuaModels } from "./scripted-provider";
@@ -26,7 +25,7 @@ export interface BuildTestHarnessOptions {
 	skills?: Skill[];
 	/** CUA model ref. Defaults to the CLI's OpenAI default. */
 	modelRef?: string;
-	tools?: CuaAgentTool[];
+	tools?: CuaCliTool[];
 	retry?: Parameters<typeof buildCuaHarness>[0]["retry"];
 }
 

@@ -1,7 +1,7 @@
 # `@onkernel/cua-ai`
 
 The model and tool-policy layer for Kernel computer-use agents, built on
-`@earendil-works/pi-ai` 0.80.10.
+`@earendil-works/pi-ai` 0.83.0.
 
 Use [`@onkernel/cua-agent`](../agent) when you also want Kernel-browser tool
 execution. Use this package directly for model discovery, explicit tool catalog
@@ -233,7 +233,7 @@ unioned and deduplicated; exact-value conflicts throw.
 
 ## Dynamic loading metadata
 
-Ordinary function tools are marked eligible only where pi 0.80.10 supports
+Ordinary function tools are marked eligible only where pi 0.83.0 supports
 deferred loading. Provider-native tools are eager-only. The catalog itself does
 not guess when tools were added; `CuaAgent`/`CuaAgentHarness` record in-tool
 additions through pi's active-tool change entries.
@@ -249,7 +249,9 @@ additions through pi's active-tool change entries.
 - **Meta/xAI/Moonshot**: ordinary function tools with serial tool calls when the
   selected catalog mutates browser state.
 - **Tzafon**: identity-scoped native declaration replacement with actual viewport
-  dimensions.
+  dimensions. Explicit screenshot and terminal answer actions are supported;
+  non-screenshot native action loops fail before browser execution because
+  Tzafon's continuation protocol requires implicit post-action screenshots.
 - **Yutori**: identity-scoped native `tool_set`/`disable_tools` fields while
   preserving ordinary function tools such as an explicitly selected screenshot.
 

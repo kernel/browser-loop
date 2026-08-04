@@ -4,6 +4,7 @@ import {
 	createCuaModels,
 	getCuaModel,
 	cua,
+	isCuaToolSpec,
 	type AssistantMessage,
 	type Context,
 	type Model,
@@ -15,7 +16,7 @@ import {
 	CuaAgent,
 	CuaAgentHarness,
 	InMemorySessionRepo,
-	NodeExecutionEnv,
+	type AgentMessage,
 	type AgentTool,
 	type KernelBrowser,
 	type StreamFn,
@@ -54,7 +55,7 @@ function scriptedStream(
 		const stream = createAssistantMessageEventStream();
 		const message = turns[call++]?.(model) ?? assistant(model);
 		stream.push({ type: "start", partial: message });
-		stream.push({ type: "done", reason: message.stopReason, message });
+		stream.push({ type: "done", reason: message.stopReason as "stop" | "length" | "toolUse", message });
 		stream.end(message);
 		return stream;
 	};
@@ -74,7 +75,6 @@ function callerTool(name: string, execute?: AgentTool["execute"], executionMode?
 async function harnessServices() {
 	const repo = new InMemorySessionRepo();
 	return {
-		env: new NodeExecutionEnv({ cwd: process.cwd() }),
 		session: await repo.create(),
 	};
 }
@@ -102,6 +102,34 @@ describe("CuaAgent explicit tools", () => {
 		expect(agent.state.systemPrompt).toBe("");
 		expect("setMode" in agent).toBe(false);
 		expect("getMode" in agent).toBe(false);
+	});
+
+	it("retains protocol-required Tzafon screenshot results outside the image replay limit", async () => {
+		const contexts: Context[] = [];
+		const model = getCuaModel("tzafon:tzafon.northstar-cua-fast");
+		const nativeComputer = cua.providers.tzafon.tools.computer();
+		const ordinaryTool = callerTool("ordinary");
+		const image = { type: "image" as const, data: "c2NyZWVuc2hvdA==", mimeType: "image/png" };
+		const messages: AgentMessage[] = [
+			assistant(model, [{ type: "toolCall", id: "native-shot", name: "computer", arguments: { action: { type: "screenshot" } } }], "toolUse"),
+			{ role: "toolResult", toolCallId: "native-shot", toolName: "computer", content: [image], isError: false, timestamp: 1 },
+			assistant(model, [{ type: "toolCall", id: "ordinary-shot", name: "ordinary", arguments: {} }], "toolUse"),
+			{ role: "toolResult", toolCallId: "ordinary-shot", toolName: "ordinary", content: [image], isError: false, timestamp: 2 },
+		];
+		const agent = new CuaAgent({
+			browser,
+			client,
+			tools: [nativeComputer, ordinaryTool],
+			streamFn: scriptedStream([(selectedModel) => assistant(selectedModel)], contexts),
+			toolResultImageReplayLimit: 0,
+			initialState: { model, messages },
+		});
+
+		await agent.prompt("continue");
+
+		const results = contexts[0]!.messages.filter((message) => message.role === "toolResult");
+		expect(results[0]!.content).toEqual([image]);
+		expect(results[1]!.content).toEqual([{ type: "text", text: "[stale tool-result images omitted]" }]);
 	});
 
 	it("installs exact native-only, native-plus-CUA, Playwright-only, and browser-act-only catalogs", () => {
@@ -435,7 +463,8 @@ describe("CuaAgentHarness explicit tools", () => {
 		await harness.setTools([cua.providers.anthropic.tools.browser()]);
 		await expect(harness.setModel("openai:gpt-5.5")).rejects.toThrow(/requires a anthropic model/);
 		expect(harness.getModel().provider).toBe("anthropic");
-		expect(harness.getTools()[0]?.identity).toBe("provider.anthropic.native.browser.20260701");
+		const installed = harness.getTools()[0];
+		expect(installed && isCuaToolSpec(installed) ? installed.identity : undefined).toBe("provider.anthropic.native.browser.20260701");
 	});
 
 	it("keeps the harness catalog and executors unchanged when setTools fails", async () => {

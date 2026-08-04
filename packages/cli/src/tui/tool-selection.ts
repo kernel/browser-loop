@@ -1,5 +1,5 @@
 import { callerToolIdentity, isCuaToolSpec } from "@onkernel/cua-ai";
-import type { CuaAgentTool } from "@onkernel/cua-agent";
+import type { CuaCliTool } from "../harness";
 
 /** Where a tool came from, used purely as a display badge. */
 export type ToolGroup = "native" | "cua" | "application";
@@ -25,16 +25,16 @@ export interface ToolSelectionItem {
 }
 
 /** Identity key for a caller-owned tool, using cua-ai's canonical identity helper. */
-export function toolKey(tool: CuaAgentTool): string {
+export function toolKey(tool: CuaCliTool): string {
 	return isCuaToolSpec(tool) ? tool.identity : callerToolIdentity(tool.name);
 }
 
-function toolGroup(tool: CuaAgentTool): ToolGroup {
+function toolGroup(tool: CuaCliTool): ToolGroup {
 	if (!isCuaToolSpec(tool)) return "application";
 	return tool.origin === "provider-native" ? "native" : "cua";
 }
 
-function atomicGroupOf(tool: CuaAgentTool): string | undefined {
+function atomicGroupOf(tool: CuaCliTool): string | undefined {
 	if (!isCuaToolSpec(tool)) return undefined;
 	const binding = tool.providerBinding;
 	if (binding?.kind === "yutori-native" && binding.generation === "n1") {
@@ -43,7 +43,7 @@ function atomicGroupOf(tool: CuaAgentTool): string | undefined {
 	return undefined;
 }
 
-function toolDescription(tool: CuaAgentTool): string | undefined {
+function toolDescription(tool: CuaCliTool): string | undefined {
 	const raw = isCuaToolSpec(tool) ? tool.declaration.description : tool.description;
 	if (typeof raw !== "string") return undefined;
 	const firstLine = raw.trim().split("\n")[0]?.trim();
@@ -56,7 +56,7 @@ function toolDescription(tool: CuaAgentTool): string | undefined {
  * so applying a selection can filter the baseline in place and keep the
  * provider-native catalog and application policy byte-for-byte identical.
  */
-export function describeTools(tools: readonly CuaAgentTool[]): ToolSelectionItem[] {
+export function describeTools(tools: readonly CuaCliTool[]): ToolSelectionItem[] {
 	return tools.map((tool) => {
 		const description = toolDescription(tool);
 		const atomicGroup = atomicGroupOf(tool);

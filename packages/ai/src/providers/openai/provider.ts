@@ -58,8 +58,8 @@ export const streamSimpleOpenAIResponses: StreamFunction<typeof OPENAI_CUA_RESPO
 };
 
 /**
- * Pi 0.80.10's Responses fallback omits function-call namespaces in both
- * stream parsing and transcript replay. Keep using its conversion/stream
+ * Pi-ai 0.83.0's Responses fallback still omits function-call namespaces in
+ * both stream parsing and transcript replay. Keep using its conversion/stream
  * machinery, but own the SDK boundary so the provider field survives both.
  */
 function streamOpenAIFunctionTools(
@@ -107,7 +107,7 @@ function streamOpenAIFunctionTools(
 			applyToolCallNamespaces(output, namespaces);
 			if (options?.signal?.aborted) throw new Error("Request was aborted");
 			if (output.stopReason === "error" || output.stopReason === "aborted") throw new Error("OpenAI response ended unsuccessfully");
-			stream.push({ type: "done", reason: output.stopReason, message: output });
+			stream.push({ type: "done", reason: output.stopReason as "stop" | "length" | "toolUse", message: output });
 			stream.end(output);
 		} catch (error) {
 			for (const block of output.content) delete (block as ToolCall & { partialJson?: string }).partialJson;

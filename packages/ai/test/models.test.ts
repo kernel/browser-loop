@@ -59,7 +59,7 @@ describe("CUA model refs", () => {
 		expect(model.api).toBe("yutori-chat-completions");
 
 		const opus = getCuaModel("anthropic:claude-opus-5");
-		expect(cuaOverrideModels("anthropic").map((entry) => entry.id)).toContain("claude-opus-5");
+		expect(cuaOverrideModels("anthropic")).toEqual([]);
 		expect(opus).toMatchObject({
 			provider: "anthropic",
 			api: "anthropic-messages",
@@ -70,8 +70,7 @@ describe("CUA model refs", () => {
 		});
 		expect(opus.compat).toMatchObject({ forceAdaptiveThinking: true, supportsTemperature: false });
 
-		const googleOverrides = cuaOverrideModels("google").map((entry) => entry.id);
-		expect(googleOverrides).toEqual(["gemini-3.6-flash", "gemini-3.5-flash-lite"]);
+		expect(cuaOverrideModels("google")).toEqual([]);
 		expect(getCuaModel("google:gemini-3.6-flash")).toMatchObject({
 			provider: "google",
 			api: GOOGLE_CUA_INTERACTIONS_API,
@@ -118,9 +117,11 @@ describe("CUA model refs", () => {
 		expect(kimi.input).toContain("image");
 		expect(kimi.contextWindow).toBe(1_048_576);
 		expect(kimi.maxTokens).toBe(131_072);
-		// K3 launched with max-only thinking effort; pi-ai clamps the rest away.
+		// Pi's K3 metadata maps low/high/max and clamps the rest away.
+		expect(kimi.thinkingLevelMap?.low).toBe("low");
+		expect(kimi.thinkingLevelMap?.high).toBe("high");
 		expect(kimi.thinkingLevelMap?.max).toBe("max");
-		expect(kimi.thinkingLevelMap?.high).toBeNull();
+		expect(kimi.thinkingLevelMap?.medium).toBeNull();
 	});
 
 	it("accepts the moonshot: alias for moonshotai refs", () => {

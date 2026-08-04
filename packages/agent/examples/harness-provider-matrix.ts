@@ -3,7 +3,7 @@ import {
 	requireCuaEnvApiKeyForModel,
 	type CuaModelRef,
 } from "@onkernel/cua-ai";
-import { CuaAgentHarness, InMemorySessionRepo, NodeExecutionEnv } from "../src/index";
+import { CuaAgentHarness, InMemorySessionRepo } from "../src/index";
 import { logAgentEvent, logAssistant } from "./shared/logging";
 import { SCENARIOS } from "./shared/scenarios";
 import { toolsForModel } from "./shared/tools";
@@ -25,7 +25,6 @@ async function main(): Promise<void> {
 		const harness = new CuaAgentHarness({
 			browser,
 			client,
-			env: new NodeExecutionEnv({ cwd: process.cwd() }),
 			model: modelRef,
 			session,
 			tools: toolsForModel(modelRef),

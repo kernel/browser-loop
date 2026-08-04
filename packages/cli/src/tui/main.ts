@@ -1,8 +1,6 @@
 import {
 	type AgentHarnessEvent,
 	type AgentMessage,
-	type CuaAgentHarness,
-	type CuaAgentTool,
 	estimateContextTokens,
 	type Session,
 	type Skill,
@@ -22,6 +20,7 @@ import {
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { homedir } from "node:os";
 import { type CuaModelRef, listCuaModels, type Model } from "@onkernel/cua-ai";
+import { type CuaCliHarness, type CuaCliTool } from "../harness";
 import type { CuaBrowserHandle } from "../harness-browser";
 import { resolveCuaModelRef } from "../harness-models";
 import { updateNamedSessionRuntime } from "../harness-named-sessions";
@@ -43,7 +42,7 @@ import { cuaVersion } from "./version";
 
 export interface InteractiveOptions {
 	cwd: string;
-	harness: CuaAgentHarness;
+	harness: CuaCliHarness;
 	browserHandle: CuaBrowserHandle;
 	session: Session;
 	skills?: Skill[];
@@ -53,9 +52,9 @@ export interface InteractiveOptions {
 	modelRef: string;
 	provider: string;
 	/** Coding tools explicitly owned by the CLI and retained across /model switches. */
-	applicationTools: readonly CuaAgentTool[];
+	applicationTools: readonly CuaCliTool[];
 	/** Optional CLI application policy for replacing interaction tools on /model. */
-	interactionToolsForModel?: (model: CuaModelRef) => readonly CuaAgentTool[];
+	interactionToolsForModel?: (model: CuaModelRef) => readonly CuaCliTool[];
 	initialPrompt?: string;
 	/** Image protocol override: kitty | iterm2 | none | auto (default: auto). */
 	imageProtocol?: string;
@@ -72,7 +71,7 @@ export interface InteractiveOptions {
 /**
  * Run the interactive cua TUI: pi-tui differential renderer with header,
  * message list, sticky screenshot widget, editor (autocomplete-backed slash
- * commands), status line, and telemetry footer. Drives a {@link CuaAgentHarness}
+ * commands), status line, and telemetry footer. Drives a {@link CuaCliHarness}
  * directly via `harness.subscribe()`.
  */
 export async function runInteractive(opts: InteractiveOptions): Promise<number> {
@@ -195,7 +194,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 	// The full list the application composed for the active model. `/tools`
 	// selections are subsets of this; it is never grown by the picker, so an
 	// unsupported tool can never be added.
-	let baselineTools: readonly CuaAgentTool[] = composeBaselineTools(opts, currentModelRef);
+	let baselineTools: readonly CuaCliTool[] = composeBaselineTools(opts, currentModelRef);
 	let toolSelectionCustomized = false;
 	// Serializes every catalog mutation (`/tools` applies and `/model` switches);
 	// see mutation-queue.ts for why they must not interleave.
@@ -373,7 +372,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 		// The exact list installed by this switch, kept so it can become the new
 		// `/tools` baseline. Undefined when the caller supplies no interaction
 		// policy, in which case the switch never touches the tool list at all.
-		let installedTools: readonly CuaAgentTool[] | undefined;
+		let installedTools: readonly CuaCliTool[] | undefined;
 		if (opts.interactionToolsForModel) {
 			const previousModel = opts.harness.getModel();
 			const previousTools = opts.harness.getTools();
@@ -767,7 +766,7 @@ function tryResolveModelRef(input: string | undefined): CuaModelRef | undefined 
  * so the baseline is never rebased on `harness.getTools()`, which a `/tools`
  * customization would have shrunk.
  */
-function composeBaselineTools(opts: InteractiveOptions, ref: CuaModelRef | undefined): readonly CuaAgentTool[] {
+function composeBaselineTools(opts: InteractiveOptions, ref: CuaModelRef | undefined): readonly CuaCliTool[] {
 	if (!opts.interactionToolsForModel || !ref) return opts.harness.getTools();
 	return [...opts.interactionToolsForModel(ref), ...opts.applicationTools];
 }

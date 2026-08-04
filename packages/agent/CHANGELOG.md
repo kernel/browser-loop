@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.10.0 - 2026-08-04
+
+Breaking: upgrade `@earendil-works/pi-agent-core` and `@earendil-works/pi-ai`
+to 0.83.0 and adopt pi's context-first harness API.
+
+- `CuaAgentHarness` and `CuaAgentHarnessOptions` now take the tool context as
+  their first type parameter — `CuaAgentHarness<TContext, TSkill,
+  TPromptTemplate>` — mirroring pi's `AgentHarness` generic order. The
+  supplied `toolContext` is forwarded to pi untouched, and every executable
+  harness tool receives the exact object on each call.
+- Executable harness tools are pi `AgentHarnessTool`s via the new
+  `CuaHarnessTool<TContext>` union (a CUA spec or an `AgentHarnessTool`).
+  `CuaAgent` stays on the ordinary pi `AgentTool` (`CuaAgentTool`); the two
+  tool APIs are no longer conflated.
+- Remove `CuaAgentHarnessOptions.env` and `CuaAgentHarness.env`. Execution
+  environments now travel through the tool context (for example
+  `toolContext: { env: new NodeExecutionEnv({ cwd }) }` for pi's
+  read/bash/edit/write tools). No alias is preserved.
+- Remove `CuaSystemPromptCallback`; `systemPrompt` is pi's
+  `AgentHarnessSystemPrompt` through the harness options.
+- Keep `streamFn` optional on `CuaAgentOptions` (CUA supplies its default
+  stream) even though pi 0.83.0 makes `AgentOptions.streamFn` required.
+- Published declarations target pi's TypeBox 1.3 as-is; a downstream compile
+  test with `skipLibCheck: false` guards the packaged types.
+- Preserve explicit Tzafon screenshot results in model context even when they
+  fall outside `toolResultImageReplayLimit`, because its native continuation
+  protocol requires those images. Other tool-result images remain bounded.
+
 ## 0.9.0 - 2026-08-03
 
 - Add OpenRouter Kimi K3 support through `@onkernel/cua-ai` 0.9.0,

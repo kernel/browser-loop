@@ -51,7 +51,7 @@ const STABLE_MS = 250;
  * added or removed, while still pinning the exact number the picker shows.
  */
 function baselineToolCount(modelRef: string): number {
-	return defaultInteractionTools(modelRef as CuaModelRef).length + defaultApplicationTools(cwd).length;
+	return defaultInteractionTools(modelRef as CuaModelRef).length + defaultApplicationTools().length;
 }
 
 suite("TUI ptywright scenarios", () => {

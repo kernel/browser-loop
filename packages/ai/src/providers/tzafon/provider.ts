@@ -125,6 +125,12 @@ export const streamTzafonResponses: StreamFunction<typeof TZAFON_RESPONSES_API, 
 					for (const action of canonical) if (action.type === "answer") emitText(stream, output, action.text);
 					const executable = canonical.filter((action): action is CuaAction => action.type !== "answer");
 					const nativeName = options?.cuaIncomingToolPlan?.tzafonComputerName;
+					const textOnlyAction = executable.find((action) => action.type !== "screenshot");
+					if (nativeName && textOnlyAction) {
+						throw new Error(
+							`Tzafon native computer action "${textOnlyAction.type}" is unsupported: its action loop requires an automatic post-action screenshot, and CUA returns screenshots only when explicitly requested.`,
+						);
+					}
 					if (nativeName && executable.length > 0) {
 						emitToolCall(stream, output, { type: "toolCall", id: callId, name: nativeName, arguments: { action: rawAction } });
 						continue;
@@ -338,12 +344,15 @@ function convertMessages(messages: readonly Message[], nativeComputerName?: stri
 				.trim();
 			const image = [...message.content].reverse().find((part): part is ImageContent => part.type === "image");
 			if (nativeComputerName && message.toolName === nativeComputerName) {
+				if (!image) {
+					throw new Error(
+						"Tzafon native computer action loops require image tool results; text-only results are unsupported because CUA does not capture post-action screenshots automatically.",
+					);
+				}
 				items.push({
 					type: "computer_call_output",
 					call_id: message.toolCallId,
-					output: image
-						? { type: "computer_screenshot", image_url: `data:${image.mimeType};base64,${image.data}` }
-						: { type: "computer_screenshot", error: message.isError ? text || "tool execution failed" : text || "ok" },
+					output: { type: "computer_screenshot", image_url: `data:${image.mimeType};base64,${image.data}` },
 				});
 				continue;
 			}

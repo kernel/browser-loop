@@ -1,10 +1,9 @@
 import {
 	CuaAgentHarness,
 	type CuaAgentHarnessOptions,
-	type CuaAgentTool,
+	type CuaHarnessTool,
 	formatSkillsForSystemPrompt,
 	type KernelBrowser,
-	NodeExecutionEnv,
 	type Session,
 	type Skill,
 	type ThinkingLevel,
@@ -19,8 +18,20 @@ import {
 	parseCuaModelRef,
 } from "@onkernel/cua-ai";
 import type Kernel from "@onkernel/sdk";
-import { createCodingTools } from "@earendil-works/pi-coding-agent";
+import {
+	createBashTool,
+	createEditTool,
+	createReadTool,
+	createWriteTool,
+	type ExecutionToolContext,
+} from "@earendil-works/pi-agent-core";
+import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
 import type { ContextFile } from "./harness-skills";
+
+/** CLI harness: a CUA harness whose tool context carries the coding tools' execution environment. */
+export type CuaCliHarness = CuaAgentHarness<ExecutionToolContext>;
+/** One tool in the CLI harness's caller-owned list. */
+export type CuaCliTool = CuaHarnessTool<ExecutionToolContext>;
 
 export interface BuildCuaHarnessOptions {
 	cwd: string;
@@ -32,7 +43,7 @@ export interface BuildCuaHarnessOptions {
 	contextFiles?: ContextFile[];
 	thinkingLevel?: ThinkingLevel;
 	/** Override the CLI's explicit interaction + coding tool list. */
-	tools?: CuaAgentTool[];
+	tools?: CuaCliTool[];
 	models?: Models;
 	toolResultImageReplayLimit?: CuaAgentHarnessOptions["toolResultImageReplayLimit"];
 	responseThreading?: CuaAgentHarnessOptions["responseThreading"];
@@ -41,7 +52,7 @@ export interface BuildCuaHarnessOptions {
 }
 
 /** Build the CLI harness with one explicit tool list and a caller-owned prompt. */
-export function buildCuaHarness(opts: BuildCuaHarnessOptions): CuaAgentHarness {
+export function buildCuaHarness(opts: BuildCuaHarnessOptions): CuaCliHarness {
 	const skills = opts.skills ?? [];
 	const contextFiles = opts.contextFiles ?? [];
 	const model: CuaModelRef | Model<Api> = opts.modelBaseUrl
@@ -49,19 +60,19 @@ export function buildCuaHarness(opts: BuildCuaHarnessOptions): CuaAgentHarness {
 		: opts.model;
 	const tools = opts.tools ?? [
 		...defaultInteractionTools(opts.model),
-		...defaultApplicationTools(opts.cwd),
+		...defaultApplicationTools(),
 	];
-	return new CuaAgentHarness({
-		env: new NodeExecutionEnv({ cwd: opts.cwd }),
+	return new CuaAgentHarness<ExecutionToolContext>({
 		session: opts.session,
 		model,
+		models: opts.models,
 		browser: opts.browser,
 		client: opts.client,
 		tools,
+		toolContext: { env: new NodeExecutionEnv({ cwd: opts.cwd }) },
 		resources: { skills },
 		thinkingLevel: opts.thinkingLevel,
 		systemPrompt: ({ resources }) => composeSystemPrompt(resources.skills ?? [], contextFiles),
-		models: opts.models,
 		toolResultImageReplayLimit: opts.toolResultImageReplayLimit,
 		responseThreading: opts.responseThreading,
 		retry: opts.retry,
@@ -69,20 +80,20 @@ export function buildCuaHarness(opts: BuildCuaHarnessOptions): CuaAgentHarness {
 }
 
 /** Coding tools owned by the CLI application rather than inferred from a compiled catalog. */
-export function defaultApplicationTools(cwd: string): CuaAgentTool[] {
-	return createCodingTools(cwd);
+export function defaultApplicationTools(): CuaCliTool[] {
+	return [createReadTool(), createBashTool(), createEditTool(), createWriteTool()];
 }
 
 /**
  * CLI structured-browser policy. `browser_act` remains outside the reusable
  * base toolset, so the application opts into semantic verified plans explicitly.
  */
-function structuredBrowserTools(): CuaAgentTool[] {
+function structuredBrowserTools(): CuaCliTool[] {
 	return [...cua.toolsets.browser(), cua.tools.browser.act()];
 }
 
 /** CLI policy is explicit application composition, not a CuaAgent default. */
-export function defaultInteractionTools(model: CuaModelRef): CuaAgentTool[] {
+export function defaultInteractionTools(model: CuaModelRef): CuaCliTool[] {
 	const { provider, model: modelId } = parseCuaModelRef(model);
 	switch (provider) {
 		case "openai":

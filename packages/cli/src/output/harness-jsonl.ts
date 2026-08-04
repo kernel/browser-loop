@@ -1,8 +1,8 @@
 import type {
 	AgentHarnessEvent,
-	CuaAgentHarness,
 	KernelBrowser,
 } from "@onkernel/cua-agent";
+import type { CuaCliHarness } from "../harness";
 
 /**
  * Schema version stamped on every `session_created` event. Bump when the
@@ -11,7 +11,7 @@ import type {
 export const CUA_JSONL_SCHEMA_VERSION = 1;
 
 export interface JsonlSinkOptions {
-	harness: CuaAgentHarness;
+	harness: CuaCliHarness;
 	browser: KernelBrowser;
 	modelRef: string;
 	provider: string;

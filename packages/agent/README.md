@@ -48,7 +48,6 @@ compaction, steering, and follow-ups:
 import {
   CuaAgentHarness,
   InMemorySessionRepo,
-  NodeExecutionEnv,
 } from "@onkernel/cua-agent";
 import { cua } from "@onkernel/cua-ai";
 
@@ -57,7 +56,6 @@ const session = await repo.create();
 const harness = new CuaAgentHarness({
   client,
   browser,
-  env: new NodeExecutionEnv({ cwd: process.cwd() }),
   session,
   model: "openai:gpt-5.6-sol",
   tools: cua.toolsets.browser(),
@@ -69,6 +67,37 @@ await harness.prompt("Find the pricing page.");
 
 The package re-exports pi-agent-core session, skill, prompt-template, compaction,
 and execution-environment primitives used with the harness.
+
+### Tool context
+
+Executable harness tools are pi `AgentHarnessTool`s: `execute` receives the
+harness's tool context as its last argument. Supply it once as `toolContext`
+and pi delivers the exact object (or the result of a zero-argument provider)
+to every tool call:
+
+```ts
+import {
+  CuaAgentHarness,
+  NodeExecutionEnv,
+  createBashTool,
+  createReadTool,
+  type ExecutionToolContext,
+} from "@onkernel/cua-agent";
+
+const harness = new CuaAgentHarness<ExecutionToolContext>({
+  client,
+  browser,
+  session,
+  model: "openai:gpt-5.6-sol",
+  tools: [createReadTool(), createBashTool(), ...cua.toolsets.browser()],
+  toolContext: { env: new NodeExecutionEnv({ cwd: process.cwd() }) },
+  systemPrompt: "Use the supplied tools.",
+});
+```
+
+CUA specs and plain pi `AgentTool`s are accepted too — they simply ignore the
+context. The low-level `CuaAgent` stays context-free: its tools are ordinary
+pi `AgentTool`s (`CuaAgentTool`).
 
 ## Choosing tools
 
@@ -173,7 +202,9 @@ Tools return only requested feedback:
   textual markers.
 
 `toolResultImageReplayLimit` controls how many recent tool-result images remain
-in model context (`4` by default, or `false` to disable projection).
+in model context (`4` by default, or `false` to disable projection). Tzafon
+native screenshot results are exempt because its continuation protocol requires
+the image.
 
 ## Custom tools
 
