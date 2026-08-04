@@ -110,10 +110,6 @@ export class CuaExecutionResources {
 				: `Action ${result.stoppedActionIndex ?? "unknown"} stopped at an unsatisfied semantic browser condition.`;
 			formatted.content.push({ type: "text", text: message });
 		}
-		if (spec.execution.postActionScreenshot && !formatted.content.some((part) => part.type === "image")) {
-			const screenshot = await this.tryPostActionScreenshot();
-			if (screenshot) formatted.content.push(toImage(screenshot));
-		}
 		if (formatted.content.length === 0) formatted.content.push({ type: "text", text: "Actions executed successfully." });
 
 		const skippedActions = result.skippedActions ?? 0;
@@ -131,15 +127,6 @@ export class CuaExecutionResources {
 				...(isError ? { isError: true } : {}),
 			},
 		};
-	}
-
-	/** Best-effort post-action capture: a failed capture must never mask the action outcome. */
-	private async tryPostActionScreenshot(): Promise<{ data: Buffer; mimeType: string } | undefined> {
-		try {
-			return await this.translator.screenshot();
-		} catch {
-			return undefined;
-		}
 	}
 
 	private async executePlaywright(name: string, input: unknown): Promise<AgentToolResult<CuaExecutionDetails>> {

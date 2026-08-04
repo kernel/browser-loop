@@ -26,8 +26,6 @@ export type CuaToolExecution =
 			readonly batch: boolean;
 			/** Block later calls in the same assistant turn after this tool fails. */
 			readonly stopTurnOnFailureMessage?: string;
-			/** Attach a post-execution screenshot when the batch produced no image read; native CUA loops expect an image in every tool result. */
-			readonly postActionScreenshot?: boolean;
 	  }
 	| { readonly kind: "playwright" };
 

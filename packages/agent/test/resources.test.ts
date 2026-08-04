@@ -11,17 +11,14 @@ const browser = {
 	viewport: { width: 1440, height: 900 },
 } as KernelBrowser;
 
-function setup(options: { failBatch?: boolean; failPlaywright?: boolean; failScreenshot?: boolean; successfulAct?: boolean } = {}) {
+function setup(options: { failBatch?: boolean; failPlaywright?: boolean; successfulAct?: boolean } = {}) {
 	const batches: unknown[][] = [];
 	const batch = vi.fn(async (_sessionId: string, input: { actions: unknown[] }) => {
 		batches.push(input.actions);
 		if (options.failBatch) throw new Error("kernel batch failed");
 	});
 	let captures = 0;
-	const captureScreenshot = vi.fn(async () => {
-		if (options.failScreenshot) throw new Error("capture failed");
-		return new Response(Buffer.from(`os-${++captures}`));
-	});
+	const captureScreenshot = vi.fn(async () => new Response(Buffer.from(`os-${++captures}`)));
 	const client = {
 		browsers: {
 			computer: {
@@ -204,46 +201,6 @@ describe("CuaExecutionResources results and batch boundaries", () => {
 			stderr: "trace",
 		});
 		expect(result.details).not.toHaveProperty("isError");
-	});
-
-	it("attaches a post-action screenshot to Tzafon native computer writes", async () => {
-		const { resources, captureScreenshot } = setup();
-		const result = await resources.materialize(cua.providers.tzafon.tools.computer()).execute("computer", {
-			action: { type: "click", x: 500, y: 500 },
-		});
-		expect(result.content).toEqual([{ type: "image", data: Buffer.from("os-1").toString("base64"), mimeType: "image/png" }]);
-		expect(result.details).toMatchObject({ statusText: "Actions executed successfully." });
-		expect(captureScreenshot).toHaveBeenCalledTimes(1);
-	});
-
-	it("does not double-capture when a Tzafon computer batch already returns a screenshot", async () => {
-		const { resources, captureScreenshot } = setup();
-		const result = await resources.materialize(cua.providers.tzafon.tools.computer()).execute("computer", {
-			action: { type: "screenshot" },
-		});
-		expect(result.content).toEqual([{ type: "image", data: Buffer.from("os-1").toString("base64"), mimeType: "image/png" }]);
-		expect(captureScreenshot).toHaveBeenCalledTimes(1);
-	});
-
-	it("still attaches a screenshot when a Tzafon computer action fails", async () => {
-		const { resources, captureScreenshot } = setup({ failBatch: true });
-		const result = await resources.materialize(cua.providers.tzafon.tools.computer()).execute("computer", {
-			action: { type: "click", x: 500, y: 500 },
-		});
-		expect(result.details).toMatchObject({ isError: true, failedActionIndex: 0 });
-		expect(result.content[0]).toEqual(expect.objectContaining({ type: "text", text: expect.stringContaining("kernel batch failed") }));
-		expect(result.content.at(-1)).toEqual({ type: "image", data: Buffer.from("os-1").toString("base64"), mimeType: "image/png" });
-		expect(captureScreenshot).toHaveBeenCalledTimes(1);
-	});
-
-	it("keeps the Tzafon computer result text-only when the post-action capture fails", async () => {
-		const { resources, captureScreenshot } = setup({ failScreenshot: true });
-		const result = await resources.materialize(cua.providers.tzafon.tools.computer()).execute("computer", {
-			action: { type: "click", x: 500, y: 500 },
-		});
-		expect(result.content).toEqual([{ type: "text", text: "Actions executed successfully." }]);
-		expect(result.details).not.toHaveProperty("isError");
-		expect(captureScreenshot).toHaveBeenCalledTimes(1);
 	});
 
 	it("returns status text for Yutori writes without capturing a screenshot", async () => {

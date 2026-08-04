@@ -249,7 +249,9 @@ additions through pi's active-tool change entries.
 - **Meta/xAI/Moonshot**: ordinary function tools with serial tool calls when the
   selected catalog mutates browser state.
 - **Tzafon**: identity-scoped native declaration replacement with actual viewport
-  dimensions.
+  dimensions. Explicit screenshot and terminal answer actions are supported;
+  non-screenshot native action loops fail before browser execution because
+  Tzafon's continuation protocol requires implicit post-action screenshots.
 - **Yutori**: identity-scoped native `tool_set`/`disable_tools` fields while
   preserving ordinary function tools such as an explicitly selected screenshot.
 

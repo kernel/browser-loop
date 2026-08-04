@@ -24,11 +24,6 @@ to 0.83.0 and adopt pi's context-first harness API.
   stream) even though pi 0.83.0 makes `AgentOptions.streamFn` required.
 - Published declarations target pi's TypeBox 1.3 as-is; a downstream compile
   test with `skipLibCheck: false` guards the packaged types.
-- Honor the new `postActionScreenshot` execution policy:
-  `CuaExecutionResources` appends a best-effort post-action screenshot when an
-  action batch produced no image read, on success and failure alike; a failed
-  capture never masks the action outcome. Canonical and other provider-native
-  tools are unchanged.
 
 ## 0.9.0 - 2026-08-03
 

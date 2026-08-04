@@ -183,8 +183,11 @@ whose API rejects `browser_act`'s larger schema; Anthropic's native browser tool
 when supported; Google's native browser action set; Tzafon's native computer
 tool in a browser environment; and Yutori's native N1/N1.5 browser set. If the
 active Anthropic credential cannot access `browser_20260701`, the same selected
-browser tool uses its equivalent function transport. Library callers can select
-any catalog directly; see [`@onkernel/cua-agent`](../agent).
+browser tool uses its equivalent function transport. Tzafon's native tool allows
+explicit screenshots and terminal answers only; non-screenshot actions fail
+before browser execution because CUA does not synthesize the post-action images
+its continuation protocol requires. Library callers can select any catalog
+directly; see [`@onkernel/cua-agent`](../agent).
 
 ## Output formats
 

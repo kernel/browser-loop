@@ -67,28 +67,40 @@ describe("streamTzafonResponses", () => {
 		expect(calls[0]!.arguments).toEqual({ actions: [{ type: "click", x: 10, y: 20 }] });
 	});
 
-	it("normalizes computer_call actions with string coordinates", async () => {
+	it("normalizes non-native computer_call actions with string coordinates", async () => {
 		responsesCreate.mockResolvedValueOnce({
 			id: "resp_2",
 			usage: {},
 			output: [{ type: "computer_call", call_id: "call_2", action: { type: "left_click", x: "500", y: "250" } }],
 		});
 
+		const message = await tzafon.streamTzafonResponses(model, { messages: [] }, { apiKey: "test" }).result();
+		expect(message.stopReason).toBe("toolUse");
+		const calls = toolCalls(message.content);
+		expect(calls).toHaveLength(1);
+		expect(calls[0]!.name).toBe("click");
+		expect(calls[0]!.arguments).toEqual({ x: 500, y: 250 });
+	});
+
+	it("rejects native computer actions that require automatic post-action screenshots", async () => {
+		responsesCreate.mockResolvedValueOnce({
+			id: "resp_native_click",
+			usage: {},
+			output: [{ type: "computer_call", call_id: "call_click", action: { type: "click", x: 500, y: 500 } }],
+		});
+
 		const message = await tzafon.streamTzafonResponses(model, { messages: [] }, {
 			apiKey: "test",
 			cuaIncomingToolPlan: { tzafonComputerName: "computer", yutoriNames: {}, googleNames: {}, googleExcludedNames: [], nativeToolNames: ["computer"] },
 		}).result();
-		expect(message.stopReason).toBe("toolUse");
-		const calls = toolCalls(message.content);
-		expect(calls).toHaveLength(1);
-		expect(calls[0]!.name).toBe("computer");
-		expect(calls[0]!.arguments).toEqual({ action: { type: "left_click", x: "500", y: "250" } });
+
+		expect(message.stopReason).toBe("error");
+		expect(message.errorMessage).toContain('Tzafon native computer action "click" is unsupported');
+		expect(toolCalls(message.content)).toEqual([]);
 	});
 
-	it("serializes a native computer result's image into the computer_call_output image slot", async () => {
-		responsesCreate.mockResolvedValueOnce({ id: "resp_img", usage: {}, output: [] });
-
-		await tzafon.streamTzafonResponses(model, {
+	it("rejects text-only native computer results before sending a request", () => {
+		expect(() => tzafon.buildTzafonRequestInput(model, {
 			messages: [
 				{
 					role: "assistant",
@@ -104,27 +116,16 @@ describe("streamTzafonResponses", () => {
 					role: "toolResult",
 					toolCallId: "call_click",
 					toolName: "computer",
-					content: [{ type: "image", data: Buffer.from("post-action").toString("base64"), mimeType: "image/png" }],
+					content: [{ type: "text", text: "Actions executed successfully." }],
 					isError: false,
 					timestamp: 2,
 				},
 			],
 			tools: [],
 		}, {
-			apiKey: "test",
 			disableResponseThreading: true,
 			cuaIncomingToolPlan: { tzafonComputerName: "computer", yutoriNames: {}, googleNames: {}, googleExcludedNames: [], nativeToolNames: ["computer"] },
-		}).result();
-
-		const payload = responsesCreate.mock.calls.at(-1)?.[0] as { input: Array<Record<string, unknown>> };
-		expect(payload.input).toEqual(expect.arrayContaining([
-			expect.objectContaining({ type: "computer_call", call_id: "call_click" }),
-			expect.objectContaining({
-				type: "computer_call_output",
-				call_id: "call_click",
-				output: { type: "computer_screenshot", image_url: `data:image/png;base64,${Buffer.from("post-action").toString("base64")}` },
-			}),
-		]));
+		})).toThrow("text-only results are unsupported");
 	});
 
 	it("degrades malformed function-call arguments to empty args instead of failing the turn", async () => {
@@ -137,15 +138,12 @@ describe("streamTzafonResponses", () => {
 			],
 		});
 
-		const message = await tzafon.streamTzafonResponses(model, { messages: [] }, {
-			apiKey: "test",
-			cuaIncomingToolPlan: { tzafonComputerName: "computer", yutoriNames: {}, googleNames: {}, googleExcludedNames: [], nativeToolNames: ["computer"] },
-		}).result();
+		const message = await tzafon.streamTzafonResponses(model, { messages: [] }, { apiKey: "test" }).result();
 		expect(message.stopReason).toBe("toolUse");
 		expect(message.errorMessage).toBeUndefined();
 		const calls = toolCalls(message.content);
 		expect(calls).toHaveLength(2);
 		expect(calls[0]!).toMatchObject({ name: "custom_tool", arguments: {} });
-		expect(calls[1]!).toMatchObject({ name: "computer", arguments: { action: { type: "left_click", x: 1, y: 2 } } });
+		expect(calls[1]!).toMatchObject({ name: "click", arguments: { x: 1, y: 2 } });
 	});
 });
