@@ -12,6 +12,10 @@ Breaking: upgrade `@earendil-works/pi-ai` to 0.83.0.
   override: `low`/`high`/`max` map through `thinkingLevelMap` (the rest clamp
   away), and requests carry `reasoning_effort` on Moonshot or OpenRouter's
   nested `reasoning.effort`.
+- Add an opt-in `postActionScreenshot` execution policy on `CuaToolExecution`,
+  declared by the Tzafon native computer spec: Tzafon's Responses API rejects a
+  `computer_call_output` whose output carries no image, so non-screenshot
+  actions need a post-action capture attached at execution time.
 
 ## 0.9.0 - 2026-08-03
 

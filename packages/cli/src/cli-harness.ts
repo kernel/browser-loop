@@ -487,6 +487,7 @@ function providerBaseUrlOverride(provider: string): string | undefined {
 	return value && value.length > 0 ? value : undefined;
 }
 
+/** Map a `--thinking` flag value to pi's thinking level; unset/empty defaults to `"low"`, and invalid values throw. */
 export function mapThinkingLevel(raw: string | undefined): "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" {
 	const v = (raw ?? "low").trim().toLowerCase();
 	switch (v) {
