@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.10.0 - 2026-08-03
+## 0.10.0 - 2026-08-04
 
 Breaking: upgrade `@earendil-works/pi-ai` to 0.83.0.
 
