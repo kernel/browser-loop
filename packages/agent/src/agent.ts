@@ -54,7 +54,7 @@ export type CuaModelInput = CuaModelRef | Model<Api>;
 const DEFAULT_TOOL_RESULT_IMAGE_REPLAY_LIMIT = 4;
 const OMITTED_TOOL_RESULT_IMAGES = "[stale tool-result images omitted]";
 
-/** Maximum recent tool-result images retained in model context, or `false` to retain all images. */
+/** Maximum recent tool-result images retained in model context, or `false` to retain all images. Provider-required native tool images are always retained. */
 export type ToolResultImageReplayLimit = number | false;
 
 /** Optional follow-up policy for otherwise empty successful assistant responses. */
@@ -203,6 +203,7 @@ export class CuaAgent {
 			transformContext: async (messages, signal) => projectToolResultImages(
 				transformContext ? await transformContext(messages, signal) : messages,
 				imageReplayLimit,
+				manager.catalog.incoming.tzafonComputerName,
 			),
 			prepareNextTurnWithContext: async (context, signal) => {
 				const update = prepareNextTurnWithContext
@@ -479,7 +480,11 @@ function withCatalogModels(
 	imageReplayLimit: ToolResultImageReplayLimit,
 	responseThreading: boolean,
 ): Models {
-	const contextFor = (context: Context) => projectModelContext(context, imageReplayLimit);
+	const contextFor = (context: Context) => projectModelContext(
+		context,
+		imageReplayLimit,
+		manager.catalog.incoming.tzafonComputerName,
+	);
 	const optionsFor = <T extends SimpleStreamOptions | undefined>(options: T): T => {
 		const catalog = manager.catalog;
 		const callerOnPayload = options?.onPayload;
@@ -520,15 +525,23 @@ function resolveToolResultImageReplayLimit(limit: ToolResultImageReplayLimit | u
 	return limit;
 }
 
-function projectToolResultImages<TMessage extends AgentMessage>(messages: TMessage[], limit: ToolResultImageReplayLimit): TMessage[] {
+function projectToolResultImages<TMessage extends AgentMessage>(
+	messages: TMessage[],
+	limit: ToolResultImageReplayLimit,
+	requiredImageToolName?: string,
+): TMessage[] {
 	if (limit === false) return messages;
 	let imageCount = 0;
-	for (const message of messages) if (message.role === "toolResult") imageCount += message.content.filter((block) => block.type === "image").length;
+	for (const message of messages) {
+		if (message.role === "toolResult" && message.toolName !== requiredImageToolName) {
+			imageCount += message.content.filter((block) => block.type === "image").length;
+		}
+	}
 	if (imageCount <= limit) return messages;
 	const firstRetainedImage = Math.max(0, imageCount - limit);
 	let imageOrdinal = 0;
 	return messages.map((message) => {
-		if (message.role !== "toolResult") return message;
+		if (message.role !== "toolResult" || message.toolName === requiredImageToolName) return message;
 		let changed = false;
 		let markerInserted = false;
 		const content = [] as typeof message.content;
@@ -547,8 +560,12 @@ function projectToolResultImages<TMessage extends AgentMessage>(messages: TMessa
 	});
 }
 
-function projectModelContext(context: Context, imageReplayLimit: ToolResultImageReplayLimit): Context {
-	const messages = projectToolResultImages(context.messages, imageReplayLimit);
+function projectModelContext(
+	context: Context,
+	imageReplayLimit: ToolResultImageReplayLimit,
+	requiredImageToolName?: string,
+): Context {
+	const messages = projectToolResultImages(context.messages, imageReplayLimit, requiredImageToolName);
 	return messages === context.messages ? context : { ...context, messages };
 }
 

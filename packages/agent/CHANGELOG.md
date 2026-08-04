@@ -24,6 +24,9 @@ to 0.83.0 and adopt pi's context-first harness API.
   stream) even though pi 0.83.0 makes `AgentOptions.streamFn` required.
 - Published declarations target pi's TypeBox 1.3 as-is; a downstream compile
   test with `skipLibCheck: false` guards the packaged types.
+- Preserve explicit Tzafon screenshot results in model context even when they
+  fall outside `toolResultImageReplayLimit`, because its native continuation
+  protocol requires those images. Other tool-result images remain bounded.
 
 ## 0.9.0 - 2026-08-03
 

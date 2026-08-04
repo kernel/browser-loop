@@ -202,7 +202,9 @@ Tools return only requested feedback:
   textual markers.
 
 `toolResultImageReplayLimit` controls how many recent tool-result images remain
-in model context (`4` by default, or `false` to disable projection).
+in model context (`4` by default, or `false` to disable projection). Tzafon
+native screenshot results are exempt because its continuation protocol requires
+the image.
 
 ## Custom tools
 
