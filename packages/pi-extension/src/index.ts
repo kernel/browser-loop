@@ -25,6 +25,7 @@ export default function cuaPiExtension(pi: ExtensionAPI): void {
 	let compatibilityError: string | undefined;
 	let initialized = false;
 	let forcedInactive = false;
+	let sessionActive = false;
 	let runtime: CuaBrowserRuntime | undefined;
 	let allSpecs = new Map<string, CuaToolSpec>();
 
@@ -54,6 +55,7 @@ export default function cuaPiExtension(pi: ExtensionAPI): void {
 		}
 	}
 	function ensureRuntime(): CuaBrowserRuntime {
+		if (!sessionActive) throw new Error("CUA browser runtime is unavailable outside an active pi session");
 		return (runtime ??= new CuaBrowserRuntime(browserOptions));
 	}
 	function currentSpecs(viewport = DEFAULT_VIEWPORT): CuaToolSpec[] {
@@ -133,7 +135,10 @@ export default function cuaPiExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
-		await runtime?.close();
+		sessionActive = false;
+		const previousRuntime = runtime;
+		runtime = undefined;
+		await previousRuntime?.close();
 		const flags = readFlags(pi);
 		selection = flags.selection;
 		browserOptions = flags.browserOptions;
@@ -141,9 +146,9 @@ export default function cuaPiExtension(pi: ExtensionAPI): void {
 		if (saved) selection = parseSelection(saved.selectors.join(","), saved.coordinates);
 		configureDeclarations();
 		installTools();
-		runtime = undefined;
 		initialized = false;
 		forcedInactive = false;
+		sessionActive = true;
 		reconcile(ctx, true);
 	});
 	pi.on("model_select", (_event, ctx) => reconcile(ctx));
@@ -175,8 +180,10 @@ export default function cuaPiExtension(pi: ExtensionAPI): void {
 			return { block: true, reason: compatibilityError ?? `CUA tool "${event.toolName}" is inactive` };
 	});
 	pi.on("session_shutdown", async () => {
-		await runtime?.close();
+		sessionActive = false;
+		const closingRuntime = runtime;
 		runtime = undefined;
+		await closingRuntime?.close();
 	});
 }
 

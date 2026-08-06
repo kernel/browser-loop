@@ -149,6 +149,9 @@ describe("pi extension activation", () => {
 					}),
 				],
 			});
+
+			await getHandler(pi, "session_shutdown")({}, anthropicCtx);
+			await expect(getHandler(pi, "before_provider_request")({ payload }, anthropicCtx)).rejects.toThrow("outside an active pi session");
 		} finally {
 			get.mockRestore();
 		}
