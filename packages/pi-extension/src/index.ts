@@ -134,6 +134,7 @@ export default function cuaPiExtension(pi: ExtensionAPI): void {
 		},
 	});
 
+	// Pi creates a fresh extension instance after the previous instance finishes session_shutdown.
 	pi.on("session_start", (_event, ctx) => {
 		const flags = readFlags(pi);
 		selection = flags.selection;
