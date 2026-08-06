@@ -134,11 +134,7 @@ export default function cuaPiExtension(pi: ExtensionAPI): void {
 		},
 	});
 
-	pi.on("session_start", async (_event, ctx) => {
-		sessionActive = false;
-		const previousRuntime = runtime;
-		runtime = undefined;
-		await previousRuntime?.close();
+	pi.on("session_start", (_event, ctx) => {
 		const flags = readFlags(pi);
 		selection = flags.selection;
 		browserOptions = flags.browserOptions;

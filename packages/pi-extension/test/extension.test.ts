@@ -106,7 +106,7 @@ describe("pi extension activation", () => {
 		expect(pi.active).toEqual(["bash", "browser_batch"]);
 	});
 
-	it("rejects invalid parsed flags instead of silently activating no tools", async () => {
+	it("rejects invalid parsed flags instead of silently activating no tools", () => {
 		const pi = makePi({
 			"cua-tools": "nope",
 			"cua-coordinates": "pixels",
@@ -114,7 +114,7 @@ describe("pi extension activation", () => {
 			"cua-profile-save-changes": false,
 		});
 		extension(pi.api);
-		await expect(getHandler(pi, "session_start")({}, ctx)).rejects.toThrow('unknown CUA tool selector "nope"');
+		expect(() => getHandler(pi, "session_start")({}, ctx)).toThrow('unknown CUA tool selector "nope"');
 	});
 
 	it("registers the CUA Anthropic provider and serializes native computer use", async () => {
