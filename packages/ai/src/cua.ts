@@ -300,24 +300,41 @@ function playwright(options: CuaToolNameOptions = {}): CuaToolSpec {
 	});
 }
 
-function anthropicNativeComputer(options: { version: "20260701"; enableZoom?: boolean; displayNumber?: number } = { version: "20260701" }): CuaToolSpec {
-	if (options.version !== "20260701") throw new Error(`unsupported Anthropic native computer version "${String(options.version)}"`);
+type AnthropicNativeComputerOptions = {
+	version: "20250124" | "20251124" | "20260701";
+	displayWidth?: number;
+	displayHeight?: number;
+	displayNumber?: number;
+	enableZoom?: boolean;
+};
+
+function anthropicNativeComputer(options: AnthropicNativeComputerOptions = { version: "20260701" }): CuaToolSpec {
+	if (options.version === "20250124" && options.enableZoom !== undefined) {
+		throw new Error("Anthropic computer_20250124 does not support enable_zoom");
+	}
+	const current = options.version === "20250124" || options.version === "20251124";
 	const declaration = {
-		type: "computer_20260701",
+		type: `computer_${options.version}`,
 		name: "computer",
+		...(current ? { display_width_px: options.displayWidth ?? 1920, display_height_px: options.displayHeight ?? 1080 } : {}),
 		...(options.enableZoom !== undefined ? { enable_zoom: options.enableZoom } : {}),
 		...(options.displayNumber !== undefined ? { display_number: options.displayNumber } : {}),
 	};
+	const beta = options.version === "20260701" ? "computer-use-2026-07-01" : `computer-use-${formatAnthropicVersion(options.version)}`;
 	return providerNativeSpec({
-		identity: "provider.anthropic.native.computer.20260701",
+		identity: `provider.anthropic.native.computer.${options.version}`,
 		name: "computer",
 		source: providerSources.anthropic,
 		declaration,
-		binding: { kind: "anthropic-native", declaration, beta: "computer-use-2026-07-01" },
+		binding: { kind: "anthropic-native", declaration, beta },
 		toActions: (input) => mapNativeComputerInput(asNativeInput(input)),
 		coordinates: pixels,
 		stopTurnOnFailureMessage: "Not executed: an earlier computer action in this turn failed.",
 	});
+}
+
+function formatAnthropicVersion(version: "20250124" | "20251124"): string {
+	return `${version.slice(0, 4)}-${version.slice(4, 6)}-${version.slice(6, 8)}`;
 }
 
 function anthropicNativeBrowser(options: { version: "20260701"; javascript?: boolean } = { version: "20260701" }): CuaToolSpec {

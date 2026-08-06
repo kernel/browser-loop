@@ -219,6 +219,33 @@ describe("compileCuaToolCatalog", () => {
 		expect(catalog.incoming.tzafonComputerName).toBe("computer");
 	});
 
+	it("serializes Anthropic's documented native computer declaration", async () => {
+		const tool = cua.providers.anthropic.tools.computer({
+			version: "20251124",
+			displayWidth: 1440,
+			displayHeight: 900,
+			enableZoom: true,
+		});
+		const catalog = compile("anthropic:claude-fable-5", [tool]);
+		expect(catalog.headers.merge()).toEqual({ "anthropic-beta": "computer-use-2025-11-24" });
+		const next = await catalog.payload.apply({ tools: [{ name: "computer", input_schema: {} }] }, catalog.model) as {
+			tools: Array<Record<string, unknown>>;
+		};
+		expect(next.tools[0]).toMatchObject({
+			type: "computer_20251124",
+			name: "computer",
+			display_width_px: 1440,
+			display_height_px: 900,
+			enable_zoom: true,
+		});
+
+		const legacy = compile("anthropic:claude-fable-5", [
+			cua.providers.anthropic.tools.computer({ version: "20250124", displayWidth: 1280, displayHeight: 720 }),
+		]);
+		expect(legacy.headers.merge()).toEqual({ "anthropic-beta": "computer-use-2025-01-24" });
+		expect(() => cua.providers.anthropic.tools.computer({ version: "20250124", enableZoom: true })).toThrow("enable_zoom");
+	});
+
 	it("composes Anthropic native browser declarations, access fallback, and ordinary functions", async () => {
 		const catalog = compile("anthropic:claude-opus-5", [
 			cua.providers.anthropic.tools.browser(),

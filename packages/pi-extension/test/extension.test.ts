@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
-import type { Api, Model } from "@earendil-works/pi-ai";
+import type { Api, Model, Provider } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getCuaModel } from "@onkernel/cua-ai";
 import { describe, expect, it } from "vitest";
 import { allSelectableSpecs } from "../src/catalog";
 import extension from "../src/index";
@@ -23,6 +24,7 @@ interface FakePi {
 	commands: Map<string, FakeCommand>;
 	tools: FakeTool[];
 	entries: unknown[];
+	providers: Provider[];
 	readonly active: string[];
 }
 
@@ -33,6 +35,7 @@ function makePi(flags: Record<string, string | boolean | undefined>): FakePi {
 	const commands = new Map<string, FakeCommand>();
 	const tools: FakeTool[] = [];
 	const entries: unknown[] = [];
+	const providers: Provider[] = [];
 	let active = ["bash"];
 	const implementation = {
 		registerFlag() {},
@@ -44,6 +47,7 @@ function makePi(flags: Record<string, string | boolean | undefined>): FakePi {
 			else tools.push(registered);
 		},
 		registerCommand: (name: string, command: FakeCommand) => commands.set(name, command),
+		registerProvider: (provider: Provider) => providers.push(provider),
 		on: (name: string, handler: Handler) => handlers.set(name, handler),
 		getAllTools: () => tools,
 		getActiveTools: () => active,
@@ -58,6 +62,7 @@ function makePi(flags: Record<string, string | boolean | undefined>): FakePi {
 		commands,
 		tools,
 		entries,
+		providers,
 		get active() {
 			return active;
 		},
@@ -84,6 +89,7 @@ const ctx = {
 	sessionManager: { getBranch: () => [] },
 	ui: { setStatus() {}, notify() {} },
 } as unknown as ExtensionContext;
+const anthropicCtx = { ...ctx, model: getCuaModel("anthropic:claude-fable-5") } as ExtensionContext;
 
 describe("pi extension activation", () => {
 	it("reads parsed flags at session_start, installs selectable batch tools, and preserves unrelated tools", async () => {
@@ -108,6 +114,36 @@ describe("pi extension activation", () => {
 		});
 		extension(pi.api);
 		await expect(getHandler(pi, "session_start")({}, ctx)).rejects.toThrow('unknown CUA tool selector "nope"');
+	});
+
+	it("registers the CUA Anthropic provider and serializes native computer use", async () => {
+		const pi = makePi({
+			"cua-tools": "anthropic-computer",
+			"cua-coordinates": "pixels",
+			"cua-browser-timeout": "300",
+			"cua-profile-save-changes": false,
+		});
+		extension(pi.api);
+		expect(pi.providers.map((provider) => provider.id)).toContain("anthropic");
+		await getHandler(pi, "session_start")({}, anthropicCtx);
+		expect(pi.active).toContain("computer");
+
+		const headers: Record<string, string> = {};
+		await getHandler(pi, "before_provider_headers")({ headers }, anthropicCtx);
+		expect(headers["anthropic-beta"]).toContain("computer-use-2025-11-24");
+
+		const payload = { tools: [{ name: "computer", input_schema: { type: "object" } }] };
+		const transformed = await getHandler(pi, "before_provider_request")({ payload }, anthropicCtx);
+		expect(transformed).toEqual({
+			tools: [
+				expect.objectContaining({
+					name: "computer",
+					type: "computer_20251124",
+					display_width_px: 1920,
+					display_height_px: 1080,
+				}),
+			],
+		});
 	});
 
 	it("applies provider transforms only for the active CUA subset", async () => {

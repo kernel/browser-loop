@@ -43,6 +43,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run build --workspace @onkernel/cua-ai
+      - run: npm run build --workspace @onkernel/cua-agent
       - name: Pi extension tests
         run: npm test --workspace @onkernel/cua-pi-extension
       - name: Pi extension typecheck

@@ -136,7 +136,9 @@ function tools.
 ```ts
 const tools = [
   cua.providers.anthropic.tools.computer({
-    version: "20260701",
+    version: "20251124",
+    displayWidth: 1440,
+    displayHeight: 900,
     enableZoom: true,
   }),
   cua.tools.browser.snapshot(),
@@ -149,6 +151,8 @@ Available groups:
 cua.providers.openai.tools.computer();
 
 cua.providers.anthropic.source;
+cua.providers.anthropic.tools.computer({ version: "20250124" });
+cua.providers.anthropic.tools.computer({ version: "20251124", enableZoom: true });
 cua.providers.anthropic.tools.computer({ version: "20260701" });
 cua.providers.anthropic.tools.browser({ version: "20260701" });
 
@@ -173,8 +177,11 @@ Moonshot accepts the ordinary browser toolset, including `browser_wait_for`,
 but rejects `browser_act`'s substantially larger function schema. Catalog
 compilation rejects that specific combination before a provider request.
 
-Provider-native caller-visible names are fixed by protocol. Version/tool/model
-mismatches fail during catalog compilation. If an Anthropic credential cannot
+Provider-native caller-visible names are fixed by protocol. Anthropic computer
+versions `20250124` and `20251124` emit their documented display dimensions and
+beta headers; the early-access `20260701` surface remains available. Version,
+tool, and model mismatches fail during catalog compilation. If an Anthropic
+credential cannot
 access `browser_20260701`, CUA retries with an equivalent `browser` function
 tool and remembers that choice for the credential and process. Every
 `cua.providers.*` tool surface exposes its first-party `source` (or versioned

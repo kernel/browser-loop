@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.1 - 2026-08-06
+
+- Update `@onkernel/cua-ai` to 0.10.1 for Anthropic's documented native
+  computer declaration versions.
+
 ## 0.10.0 - 2026-08-04
 
 Breaking: upgrade `@earendil-works/pi-agent-core` and `@earendil-works/pi-ai`

@@ -132,7 +132,9 @@ Provider-native declarations compose with ordinary function tools:
 ```ts
 const tools = [
   cua.providers.anthropic.tools.computer({
-    version: "20260701",
+    version: "20251124",
+    displayWidth: 1440,
+    displayHeight: 900,
     enableZoom: true,
   }),
   cua.tools.browser.snapshot(),

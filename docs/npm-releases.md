@@ -6,7 +6,7 @@
 - `cua-ai/v0.1.0` runs `.github/workflows/release-cua-ai.yml`
 - `cua-agent/v0.1.0` runs `.github/workflows/release-cua-agent.yml`
 - `cua-cli/v0.1.0` runs `.github/workflows/release-cua-cli.yml`
-- `cua-pi-extension/v0.10.0` runs `.github/workflows/release-cua-pi-extension.yml`
+- `cua-pi-extension/v0.10.1` runs `.github/workflows/release-cua-pi-extension.yml`
 
 The tag version must match the target package's `package.json` version, and the
 tagged commit must be contained in `main`.

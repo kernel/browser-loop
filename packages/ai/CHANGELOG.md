@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.1 - 2026-08-06
+
+- Add Anthropic's documented `computer_20251124` and `computer_20250124`
+  declaration versions while retaining the existing early-access version.
+
 ## 0.10.0 - 2026-08-04
 
 Breaking: upgrade `@earendil-works/pi-ai` to 0.83.0.

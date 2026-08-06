@@ -13,23 +13,33 @@ const viewport = { width: 1440, height: 900 };
 const cases = [
 	{
 		name: "computer",
-		tool: cua.providers.anthropic.tools.computer({ version: "20260701", enableZoom: true }),
+		model: "anthropic:claude-fable-5" as const,
+		tool: cua.providers.anthropic.tools.computer({
+			version: "20251124",
+			displayWidth: viewport.width,
+			displayHeight: viewport.height,
+			enableZoom: true,
+		}),
 		prompt: "Use the computer tool to take one screenshot.",
 		expectedAction: "screenshot",
+		enabled: true,
 	},
 	{
 		name: "browser",
+		model: "anthropic:claude-opus-5" as const,
 		tool: cua.providers.anthropic.tools.browser({ version: "20260701", javascript: true }),
 		prompt: "Use the browser tool to navigate to example.com.",
 		expectedAction: "navigate",
+		enabled: process.env.ANTHROPIC_BROWSER_20260701 === "1",
 	},
 ] as const;
 
 describe("Anthropic early-access native tools", () => {
 	for (const current of cases) {
-		liveIt(`${current.name} survives catalog and pi-ai serialization`, async () => {
+		const run = current.enabled ? liveIt : it.skip;
+		run(`${current.name} survives catalog and pi-ai serialization`, async () => {
 			const catalog = compileCuaToolCatalog({
-				model: "anthropic:claude-opus-5",
+				model: current.model,
 				requestedTools: [current.tool],
 				viewport,
 			});

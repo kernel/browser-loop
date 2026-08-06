@@ -58,6 +58,7 @@ jobs:
           EOF
 
       - run: npm run build --workspace @onkernel/cua-ai
+      - run: npm run build --workspace @onkernel/cua-agent
       - run: npm run build --workspace @onkernel/cua-pi-extension
       - run: npm run typecheck --workspace @onkernel/cua-pi-extension
 

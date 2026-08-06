@@ -1,8 +1,9 @@
 # @onkernel/cua-pi-extension
 
-An installable [pi](https://pi.dev) extension that adds explicit, function-shaped
-Kernel browser tools to pi's existing agent session. It does not start `cua`,
-create a second model loop, or add implicit screenshots or prompt instructions.
+An installable [pi](https://pi.dev) extension that adds explicit Kernel browser
+tools to pi's existing agent session. It supports CUA function tools and
+Anthropic's native computer tool. It does not start `cua`, create a second model
+loop, or add implicit screenshots or prompt instructions.
 
 ## Install
 
@@ -25,6 +26,10 @@ pi -p --provider openai --model gpt-5.6-sol \
 
 pi --mode rpc --no-session --provider openai --model gpt-5.6-sol \
   --cua-tools browser
+
+pi -p --provider anthropic --model claude-fable-5 \
+  --cua-tools anthropic-computer \
+  "Open example.com and report its heading"
 ```
 
 Use `/cua` to inspect the selected tools and browser ownership. Use
@@ -44,8 +49,10 @@ The command persists only selectors and browser metadata in pi's active branch.
   `computer_wait`, `computer_screenshot`, `computer_goto`, `computer_back`,
   `computer_forward`, `computer_url`, `computer_cursor_position`.
 - `mixed`: computer followed by browser. `browser-act`, `browser-batch`,
-  `computer-batch`, and `playwright` add one corresponding tool. Individual
-  canonical names are also selectors.
+  `computer-batch`, and `playwright` add one corresponding function tool.
+  Individual canonical function-tool names are also selectors.
+- `anthropic-computer`: Anthropic's native `computer_20251124` tool, including
+  Claude Fable 5, Sonnet 5, Opus 5, and supported later revisions.
 
 Flags: `--cua-coordinates pixels|normalized-1000`,
 `--cua-browser-session ID`, `--cua-profile-id ID`, `--cua-proxy-id ID`,
@@ -55,9 +62,12 @@ extension deletes only browsers it created at normal pi session shutdown.
 
 ## Limits
 
-This v1 supports CUA-authored **function tools** only. It intentionally does
-not expose provider-native OpenAI, Anthropic, Google, Tzafon, or Yutori CUA
-calls: pi extension hooks cannot atomically replace the active provider stream
-or normalize native response items. Browser state can survive when attached,
-but element refs are process-local; take a fresh snapshot after reload, resume,
-or fork.
+This version supports CUA function tools and Anthropic's documented native
+computer-use protocol. The extension registers CUA's Anthropic provider wrapper
+under the standard `anthropic` provider id; ordinary Anthropic requests continue
+to delegate to pi's built-in transport.
+
+Provider-native Anthropic browser use, OpenAI, Google, Tzafon, and Yutori calls
+remain unsupported.
+Browser state can survive when attached, but element refs are process-local;
+take a fresh snapshot after reload, resume, or fork.

@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { CuaToolSpec } from "@onkernel/cua-ai";
+import { createCuaModels, type CuaToolSpec } from "@onkernel/cua-ai";
 import { allSelectableSpecs, compileSpecs, expandSelection, parseSelection, type CuaSelection } from "./catalog";
 import { CuaBrowserRuntime, type BrowserOptions } from "./browser-runtime";
 import { CONFIG_ENTRY, restoreConfig, type PersistedConfig } from "./state";
@@ -105,6 +105,10 @@ export default function cuaPiExtension(pi: ExtensionAPI): void {
 		if (ctx.mode === "tui")
 			ctx.ui.setStatus("cua", statusText(selection.selectors, [...activeNames], runtime?.getStatus() ?? {}, compatibilityError));
 	}
+
+	const anthropic = createCuaModels().getProvider("anthropic");
+	if (!anthropic) throw new Error("CUA Anthropic provider is unavailable");
+	pi.registerProvider(anthropic);
 
 	pi.registerCommand("cua", {
 		description: "Show CUA tool and browser status",

@@ -99,6 +99,7 @@ export const CUA_SELECTORS = Object.freeze([
 	"browser-batch",
 	"computer-batch",
 	"playwright",
+	"anthropic-computer",
 	...CUA_TOOL_NAMES,
 ]);
 
@@ -153,6 +154,11 @@ export function expandSelection(selection: CuaSelection): CuaToolSpec[] {
 				break;
 			case "playwright":
 				result.push(cua.tools.playwright());
+				break;
+			case "anthropic-computer":
+				result.push(
+					cua.providers.anthropic.tools.computer({ version: "20251124", displayWidth: 1920, displayHeight: 1080, enableZoom: true }),
+				);
 				break;
 			default:
 				result.push(createIndividualTool(selector, coordinates));

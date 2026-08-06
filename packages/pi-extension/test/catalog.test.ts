@@ -1,5 +1,13 @@
+import { getCuaModel } from "@onkernel/cua-ai";
 import { describe, expect, it } from "vitest";
-import { BROWSER_BATCH_ACTIONS, COMPUTER_BATCH_ACTIONS, CUA_TOOL_NAMES, expandSelection, parseSelection } from "../src/catalog";
+import {
+	BROWSER_BATCH_ACTIONS,
+	compileSelection,
+	COMPUTER_BATCH_ACTIONS,
+	CUA_TOOL_NAMES,
+	expandSelection,
+	parseSelection,
+} from "../src/catalog";
 
 describe("CUA pi selectors", () => {
 	it("has stable exact browser and computer preset membership", () => {
@@ -49,6 +57,15 @@ describe("CUA pi selectors", () => {
 		expect(COMPUTER_BATCH_ACTIONS).toHaveLength(17);
 		expect(CUA_TOOL_NAMES).not.toContain("computer");
 	});
+	it("compiles Anthropic native computer use only for supported Anthropic models", () => {
+		const selection = parseSelection("anthropic-computer", "pixels");
+		const { specs, catalog } = compileSelection(getCuaModel("anthropic:claude-fable-5"), selection);
+		expect(specs.map((tool) => tool.name)).toEqual(["computer"]);
+		expect(catalog.entries.map((entry) => entry.transport)).toEqual(["native"]);
+		expect(catalog.headers.requirements).toContainEqual(expect.objectContaining({ value: "computer-use-2025-11-24" }));
+		expect(() => compileSelection(getCuaModel("openai:gpt-5.6-sol"), selection)).toThrow("requires a anthropic model");
+	});
+
 	it("accepts an empty selection and rejects ambiguity", () => {
 		expect(expandSelection(parseSelection(undefined, undefined))).toEqual([]);
 		expect(() => parseSelection("browser,browser", "pixels")).toThrow("duplicate");
