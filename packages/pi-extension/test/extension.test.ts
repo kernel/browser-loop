@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
@@ -25,6 +26,8 @@ interface FakePi {
 	readonly active: string[];
 }
 
+const extensionPath = fileURLToPath(new URL("../src/index.ts", import.meta.url));
+
 function makePi(flags: Record<string, string | boolean | undefined>): FakePi {
 	const handlers = new Map<string, Handler>();
 	const commands = new Map<string, FakeCommand>();
@@ -34,7 +37,12 @@ function makePi(flags: Record<string, string | boolean | undefined>): FakePi {
 	const implementation = {
 		registerFlag() {},
 		getFlag: (name: string) => flags[name],
-		registerTool: (tool: Omit<FakeTool, "sourceInfo">) => tools.push({ ...tool, sourceInfo: { source: "extension" } }),
+		registerTool: (tool: Omit<FakeTool, "sourceInfo">) => {
+			const registered = { ...tool, sourceInfo: { source: "extension", path: extensionPath } };
+			const existing = tools.findIndex((candidate) => candidate.name === tool.name);
+			if (existing >= 0) tools[existing] = registered;
+			else tools.push(registered);
+		},
 		registerCommand: (name: string, command: FakeCommand) => commands.set(name, command),
 		on: (name: string, handler: Handler) => handlers.set(name, handler),
 		getAllTools: () => tools,
@@ -78,7 +86,7 @@ const ctx = {
 } as unknown as ExtensionContext;
 
 describe("pi extension activation", () => {
-	it("reads parsed flags at session_start, installs selectable batch tools, and preserves unrelated tools", () => {
+	it("reads parsed flags at session_start, installs selectable batch tools, and preserves unrelated tools", async () => {
 		const pi = makePi({
 			"cua-tools": "browser-batch",
 			"cua-coordinates": "pixels",
@@ -86,12 +94,12 @@ describe("pi extension activation", () => {
 			"cua-profile-save-changes": false,
 		});
 		extension(pi.api);
-		getHandler(pi, "session_start")({}, ctx);
+		await getHandler(pi, "session_start")({}, ctx);
 		expect(pi.tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(allSelectableSpecs("pixels").map((tool) => tool.name)));
 		expect(pi.active).toEqual(["bash", "browser_batch"]);
 	});
 
-	it("rejects invalid parsed flags instead of silently activating no tools", () => {
+	it("rejects invalid parsed flags instead of silently activating no tools", async () => {
 		const pi = makePi({
 			"cua-tools": "nope",
 			"cua-coordinates": "pixels",
@@ -99,7 +107,7 @@ describe("pi extension activation", () => {
 			"cua-profile-save-changes": false,
 		});
 		extension(pi.api);
-		expect(() => getHandler(pi, "session_start")({}, ctx)).toThrow('unknown CUA tool selector "nope"');
+		await expect(getHandler(pi, "session_start")({}, ctx)).rejects.toThrow('unknown CUA tool selector "nope"');
 	});
 
 	it("applies provider transforms only for the active CUA subset", async () => {
@@ -110,7 +118,7 @@ describe("pi extension activation", () => {
 			"cua-profile-save-changes": false,
 		});
 		extension(pi.api);
-		getHandler(pi, "session_start")({}, ctx);
+		await getHandler(pi, "session_start")({}, ctx);
 		const headers: Record<string, string> = {};
 		await getHandler(pi, "before_provider_headers")({ headers }, ctx);
 		const transformed = await getHandler(pi, "before_provider_request")({ payload: { tools: [] } }, ctx);
@@ -118,7 +126,7 @@ describe("pi extension activation", () => {
 
 		const inactive = makePi({ "cua-coordinates": "pixels", "cua-browser-timeout": "300", "cua-profile-save-changes": false });
 		extension(inactive.api);
-		getHandler(inactive, "session_start")({}, ctx);
+		await getHandler(inactive, "session_start")({}, ctx);
 		expect(await getHandler(inactive, "before_provider_request")({ payload: { tools: [] } }, ctx)).toBeUndefined();
 	});
 
@@ -130,7 +138,7 @@ describe("pi extension activation", () => {
 			"cua-profile-save-changes": false,
 		});
 		extension(pi.api);
-		getHandler(pi, "session_start")({}, ctx);
+		await getHandler(pi, "session_start")({}, ctx);
 		await getHandler(pi, "session_shutdown")({}, ctx);
 		expect(pi.entries).toEqual([]);
 
@@ -151,7 +159,7 @@ describe("pi extension activation", () => {
 		});
 		const resumedCtx = { ...ctx, sessionManager: { getBranch: () => pi.entries } } as unknown as ExtensionContext;
 		extension(resumed.api);
-		getHandler(resumed, "session_start")({}, resumedCtx);
+		await getHandler(resumed, "session_start")({}, resumedCtx);
 		expect(resumed.active).toContain("computer_click");
 		expect(resumed.active).not.toContain("browser_snapshot");
 
@@ -174,7 +182,7 @@ describe("pi extension activation", () => {
 			},
 		} as unknown as ExtensionContext;
 		extension(legacy.api);
-		getHandler(legacy, "session_start")({}, legacyCtx);
+		await getHandler(legacy, "session_start")({}, legacyCtx);
 		expect(legacy.active).toContain("browser_snapshot");
 		expect(legacy.active).not.toContain("computer_click");
 	});
@@ -187,7 +195,7 @@ describe("pi extension activation", () => {
 			"cua-profile-save-changes": false,
 		});
 		extension(pi.api);
-		getHandler(pi, "session_start")({}, ctx);
+		await getHandler(pi, "session_start")({}, ctx);
 		const incompatible = {
 			...ctx,
 			model: { provider: "unsupported", id: "not-a-cua-model", api: "openai-completions" },
@@ -196,23 +204,31 @@ describe("pi extension activation", () => {
 			tools: [
 				{ type: "function", function: { name: "browser_snapshot" } },
 				{ type: "function", function: { name: "bash" } },
+				{ functionDeclarations: [{ name: "browser_snapshot" }, { name: "write" }] },
+				{ functionDeclarations: [{ name: "browser_snapshot" }] },
 			],
 		};
 		const transformed = await getHandler(pi, "before_provider_request")({ payload }, incompatible);
-		expect(transformed).toEqual({ tools: [{ type: "function", function: { name: "bash" } }] });
+		expect(transformed).toEqual({
+			tools: [{ type: "function", function: { name: "bash" } }, { functionDeclarations: [{ name: "write" }] }],
+		});
 		expect(pi.active).toEqual(["bash"]);
 	});
 
-	it("uses declarations compiled for normalized coordinates", () => {
-		const pi = makePi({
+	it("re-registers declarations when a new session changes coordinate mode", async () => {
+		const flags: Record<string, string | boolean | undefined> = {
 			"cua-tools": "computer",
-			"cua-coordinates": "normalized-1000",
+			"cua-coordinates": "pixels",
 			"cua-browser-timeout": "300",
 			"cua-profile-save-changes": false,
-		});
+		};
+		const pi = makePi(flags);
 		extension(pi.api);
-		getHandler(pi, "session_start")({}, ctx);
-		const click = pi.tools.find((tool) => tool.name === "computer_click");
-		expect(click?.description).toContain("[0, 1000]");
+		await getHandler(pi, "session_start")({}, ctx);
+		expect(pi.tools.find((tool) => tool.name === "computer_click")?.description).not.toContain("[0, 1000]");
+
+		flags["cua-coordinates"] = "normalized-1000";
+		await getHandler(pi, "session_start")({}, ctx);
+		expect(pi.tools.find((tool) => tool.name === "computer_click")?.description).toContain("[0, 1000]");
 	});
 });

@@ -36,11 +36,9 @@ export default function cuaPiExtension(pi: ExtensionAPI): void {
 	function installTools(): void {
 		for (const [name, spec] of allSpecs) {
 			const conflict = pi.getAllTools().find((tool) => tool.name === name);
-			// Session reloads retain our registrations; another extension never wins by load order.
 			if (conflict && conflict.sourceInfo.path !== extensionPath) {
 				throw new Error(`cannot register CUA tool "${name}": already owned by ${conflict.sourceInfo.source}`);
 			}
-			if (conflict) continue;
 			pi.registerTool({
 				name: spec.name,
 				label: spec.name,
@@ -132,7 +130,8 @@ export default function cuaPiExtension(pi: ExtensionAPI): void {
 		},
 	});
 
-	pi.on("session_start", (_event, ctx) => {
+	pi.on("session_start", async (_event, ctx) => {
+		await runtime?.close();
 		const flags = readFlags(pi);
 		selection = flags.selection;
 		browserOptions = flags.browserOptions;
@@ -216,15 +215,29 @@ function positiveSeconds(value: string | undefined): number {
 }
 
 function withoutCuaToolSchemas(payload: unknown, cuaSpecs: ReadonlyMap<string, CuaToolSpec>): unknown {
-	if (!payload || typeof payload !== "object" || !Array.isArray((payload as { tools?: unknown }).tools)) return payload;
-	const typed = payload as { tools: unknown[] };
-	return {
-		...typed,
-		tools: typed.tools.filter((tool) => {
-			if (!tool || typeof tool !== "object") return true;
-			const candidate = tool as { name?: unknown; function?: { name?: unknown } };
-			const name = typeof candidate.name === "string" ? candidate.name : candidate.function?.name;
-			return typeof name !== "string" || !cuaSpecs.has(name);
-		}),
-	};
+	if (!isRecord(payload) || !Array.isArray(payload.tools)) return payload;
+	const tools: unknown[] = [];
+	for (const tool of payload.tools) {
+		if (isRecord(tool) && Array.isArray(tool.functionDeclarations)) {
+			const functionDeclarations = tool.functionDeclarations.filter((declaration) => {
+				const name = serializedToolName(declaration);
+				return !name || !cuaSpecs.has(name);
+			});
+			if (functionDeclarations.length) tools.push({ ...tool, functionDeclarations });
+			continue;
+		}
+		const name = serializedToolName(tool);
+		if (!name || !cuaSpecs.has(name)) tools.push(tool);
+	}
+	return { ...payload, tools };
+}
+
+function serializedToolName(tool: unknown): string | undefined {
+	if (!isRecord(tool)) return undefined;
+	if (typeof tool.name === "string") return tool.name;
+	return isRecord(tool.function) && typeof tool.function.name === "string" ? tool.function.name : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
