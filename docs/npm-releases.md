@@ -1,11 +1,12 @@
 # npm releases
 
-`@onkernel/cua-ai`, `@onkernel/cua-agent`, and `@onkernel/cua-cli` publish from
-package-specific tags:
+`@onkernel/cua-ai`, `@onkernel/cua-agent`, `@onkernel/cua-cli`, and
+`@onkernel/cua-pi-extension` publish from package-specific tags:
 
 - `cua-ai/v0.1.0` runs `.github/workflows/release-cua-ai.yml`
 - `cua-agent/v0.1.0` runs `.github/workflows/release-cua-agent.yml`
 - `cua-cli/v0.1.0` runs `.github/workflows/release-cua-cli.yml`
+- `cua-pi-extension/v0.10.0` runs `.github/workflows/release-cua-pi-extension.yml`
 
 The tag version must match the target package's `package.json` version, and the
 tagged commit must be contained in `main`.
@@ -19,6 +20,7 @@ Configure each package on npm with a GitHub Actions trusted publisher:
 | `@onkernel/cua-ai` | `kernel` | `cua` | `release-cua-ai.yml` | leave blank |
 | `@onkernel/cua-agent` | `kernel` | `cua` | `release-cua-agent.yml` | leave blank |
 | `@onkernel/cua-cli` | `kernel` | `cua` | `release-cua-cli.yml` | leave blank |
+| `@onkernel/cua-pi-extension` | `kernel` | `cua` | `release-cua-pi-extension.yml` | leave blank |
 
 The same configuration can be created from the npm CLI:
 
@@ -27,6 +29,7 @@ npm install -g npm@^11.17.0
 npm trust github @onkernel/cua-ai --repo kernel/cua --file release-cua-ai.yml --allow-publish
 npm trust github @onkernel/cua-agent --repo kernel/cua --file release-cua-agent.yml --allow-publish
 npm trust github @onkernel/cua-cli --repo kernel/cua --file release-cua-cli.yml --allow-publish
+npm trust github @onkernel/cua-pi-extension --repo kernel/cua --file release-cua-pi-extension.yml --allow-publish
 ```
 
 npm requires packages to exist before a trusted publisher can be configured. If

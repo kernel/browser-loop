@@ -1,0 +1,27 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist-tsc",
+    "rootDir": "./src",
+    "emitDeclarationOnly": true,
+    "sourceMap": false,
+    "declarationMap": false
+  },
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.d.ts",
+    "src/**/*.d.ts"
+  ],
+  "references": [
+    {
+      "path": "../ai"
+    },
+    {
+      "path": "../agent"
+    }
+  ]
+}

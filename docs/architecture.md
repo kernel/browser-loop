@@ -26,6 +26,11 @@ both explicitly and may use pi's orchestration primitives directly.
   for each selected model, adds pi coding tools, supplies the system prompt,
   resolves credentials/sessions/skills, and renders text, JSONL, or TUI output.
 - `@onkernel/ptywright` is development-only PTY/TUI test infrastructure.
+- `@onkernel/cua-pi-extension` adapts explicit function-only CUA specs into pi
+  extension tools. Pi owns model selection, sessions, prompting, and RPC;
+  cua-ai compiles declarations and cua-agent executes against the shared browser
+  pool. It deliberately excludes provider-native CUA declarations because
+  extension request hooks cannot normalize native response items.
 
 The invariant is that `packages/agent/src` contains no provider-name branches.
 Adding provider behavior means adding data and transforms in `cua-ai`, not a

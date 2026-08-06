@@ -1,0 +1,94 @@
+name: Release CUA Pi Extension
+
+on:
+  push:
+    tags:
+      - "cua-pi-extension/v*"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: release-cua-pi-extension-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Verify tag is on main
+        run: |
+          git fetch origin main:refs/remotes/origin/main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Ensure npm supports trusted publishing
+        run: npm install -g npm@^11.5.1
+
+      - run: npm ci
+
+      - name: Verify package version matches tag
+        run: |
+          node --input-type=module <<'EOF'
+          import { readFileSync } from "node:fs";
+
+          const tag = process.env.GITHUB_REF_NAME;
+          const prefix = "cua-pi-extension/v";
+          if (!tag?.startsWith(prefix)) {
+            throw new Error(`Expected tag to start with ${prefix}, got ${tag}`);
+          }
+
+          const tagVersion = tag.slice(prefix.length);
+          const pkg = JSON.parse(readFileSync("packages/pi-extension/package.json", "utf8"));
+          if (pkg.version !== tagVersion) {
+            throw new Error(`Tag version ${tagVersion} does not match ${pkg.name} package.json version ${pkg.version}`);
+          }
+
+          console.log(`${pkg.name}@${pkg.version}`);
+          EOF
+
+      - run: npm run build --workspace @onkernel/cua-ai
+      - run: npm run build --workspace @onkernel/cua-pi-extension
+      - run: npm run typecheck --workspace @onkernel/cua-pi-extension
+
+      - name: Unit tests
+        run: npm test --workspace @onkernel/cua-pi-extension -- --exclude "**/*.live.test.ts"
+
+      - name: Verify dependency packages are published
+        run: |
+          for package in @onkernel/cua-ai @onkernel/cua-agent @onkernel/sdk; do
+            version=$(node -p "require('./packages/pi-extension/package.json').dependencies['$package']")
+            npm view "$package@$version" version
+          done
+
+      - name: Pack tarballs
+        run: |
+          mkdir -p /tmp/pack
+          npm pack --workspace @onkernel/cua-ai --pack-destination /tmp/pack
+          npm pack --workspace @onkernel/cua-pi-extension --pack-destination /tmp/pack
+
+      - name: Packed manifest smoke test
+        run: |
+          SMOKE_DIR=$(mktemp -d)
+          cd "$SMOKE_DIR"
+          npm init -y > /dev/null
+          npm install --omit=dev /tmp/pack/*.tgz
+          node --input-type=module <<'EOF'
+          import { readFileSync } from "node:fs";
+          const pkg = JSON.parse(readFileSync("node_modules/@onkernel/cua-pi-extension/package.json", "utf8"));
+          if (pkg.pi?.extensions?.[0] !== "./src/index.ts") throw new Error("missing pi extension manifest");
+          console.log("packed manifest OK");
+          EOF
+
+      - name: Publish to npm
+        run: npm publish --workspace @onkernel/cua-pi-extension --access public

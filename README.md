@@ -37,6 +37,7 @@ packages/
 ├── ai/         # @onkernel/cua-ai    - model catalog, tool schemas, provider adapters
 ├── agent/      # @onkernel/cua-agent - Kernel-browser tool execution
 ├── cli/        # @onkernel/cua-cli   - the `cua` binary
+├── pi-extension/ # @onkernel/cua-pi-extension - pi function-tool extension
 └── ptywright/  # @onkernel/ptywright - development-only PTY/TUI test infrastructure
 ```
 
@@ -69,6 +70,7 @@ flowchart LR
 | [`@onkernel/cua-ai`](packages/ai)       | Computer-use model catalog, tool factories/toolsets, compatibility checks, and provider adapters.                         |
 | [`@onkernel/cua-agent`](packages/agent) | Agent and harness APIs that run selected computer-use tools against a Kernel browser.                                    |
 | [`@onkernel/cua-cli`](packages/cli)     | The `cua` binary: argv parsing, sessions, skills, JSONL output, pi-tui front-end.                                         |
+| [`@onkernel/cua-pi-extension`](packages/pi-extension) | Explicit CUA function tools inside pi; pi remains the orchestration runtime. |
 | [`@onkernel/ptywright`](packages/ptywright) | Development-only PTY/TUI test infrastructure.                                                                         |
 
 ---

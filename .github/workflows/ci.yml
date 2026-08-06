@@ -33,6 +33,21 @@ jobs:
           npm install "$RUNNER_TEMP"/onkernel-cua-ai-*.tgz
           node --input-type=module -e "import('@onkernel/cua-ai').then((m) => { if (typeof m.getCuaModel !== 'function') process.exit(1); })"
 
+  pi-extension-unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Pi extension tests
+        run: npm test --workspace @onkernel/cua-pi-extension
+      - name: Pi extension typecheck
+        run: npm run typecheck --workspace @onkernel/cua-pi-extension
+
   agent-unit:
     runs-on: ubuntu-latest
     timeout-minutes: 15
