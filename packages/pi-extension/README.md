@@ -13,7 +13,9 @@ pi install ./packages/pi-extension
 pi install npm:@onkernel/cua-pi-extension
 ```
 
-The first browser tool call requires `KERNEL_API_KEY`. `KERNEL_BASE_URL` is
+Function tools require `KERNEL_API_KEY` when first called. Anthropic native
+computer use provisions the browser before the first provider request so its
+declared display dimensions match the session viewport. `KERNEL_BASE_URL` is
 honored. The extension never writes either value to session entries or output.
 
 ## Use

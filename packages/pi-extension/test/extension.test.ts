@@ -2,7 +2,8 @@ import { fileURLToPath } from "node:url";
 import type { Api, Model, Provider } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getCuaModel } from "@onkernel/cua-ai";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { CuaBrowserRuntime } from "../src/browser-runtime";
 import { allSelectableSpecs } from "../src/catalog";
 import extension from "../src/index";
 
@@ -117,33 +118,40 @@ describe("pi extension activation", () => {
 	});
 
 	it("registers the CUA Anthropic provider and serializes native computer use", async () => {
-		const pi = makePi({
-			"cua-tools": "anthropic-computer",
-			"cua-coordinates": "pixels",
-			"cua-browser-timeout": "300",
-			"cua-profile-save-changes": false,
-		});
-		extension(pi.api);
-		expect(pi.providers.map((provider) => provider.id)).toContain("anthropic");
-		await getHandler(pi, "session_start")({}, anthropicCtx);
-		expect(pi.active).toContain("computer");
+		const get = vi.spyOn(CuaBrowserRuntime.prototype, "get").mockResolvedValue({
+			viewport: { width: 1024, height: 768 },
+		} as unknown as Awaited<ReturnType<CuaBrowserRuntime["get"]>>);
+		try {
+			const pi = makePi({
+				"cua-tools": "anthropic-computer",
+				"cua-coordinates": "pixels",
+				"cua-browser-timeout": "300",
+				"cua-profile-save-changes": false,
+			});
+			extension(pi.api);
+			expect(pi.providers.map((provider) => provider.id)).toContain("anthropic");
+			await getHandler(pi, "session_start")({}, anthropicCtx);
+			expect(pi.active).toContain("computer");
 
-		const headers: Record<string, string> = {};
-		await getHandler(pi, "before_provider_headers")({ headers }, anthropicCtx);
-		expect(headers["anthropic-beta"]).toContain("computer-use-2025-11-24");
+			const headers: Record<string, string> = {};
+			await getHandler(pi, "before_provider_headers")({ headers }, anthropicCtx);
+			expect(headers["anthropic-beta"]).toContain("computer-use-2025-11-24");
 
-		const payload = { tools: [{ name: "computer", input_schema: { type: "object" } }] };
-		const transformed = await getHandler(pi, "before_provider_request")({ payload }, anthropicCtx);
-		expect(transformed).toEqual({
-			tools: [
-				expect.objectContaining({
-					name: "computer",
-					type: "computer_20251124",
-					display_width_px: 1920,
-					display_height_px: 1080,
-				}),
-			],
-		});
+			const payload = { tools: [{ name: "computer", input_schema: { type: "object" } }] };
+			const transformed = await getHandler(pi, "before_provider_request")({ payload }, anthropicCtx);
+			expect(transformed).toEqual({
+				tools: [
+					expect.objectContaining({
+						name: "computer",
+						type: "computer_20251124",
+						display_width_px: 1024,
+						display_height_px: 768,
+					}),
+				],
+			});
+		} finally {
+			get.mockRestore();
+		}
 	});
 
 	it("applies provider transforms only for the active CUA subset", async () => {

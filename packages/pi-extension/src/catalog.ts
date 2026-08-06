@@ -48,6 +48,8 @@ export interface CuaSelection {
 	coordinates: Coordinates;
 }
 
+export const DEFAULT_VIEWPORT: Readonly<{ width: number; height: number }> = Object.freeze({ width: 1920, height: 1080 });
+
 const generalTools = Object.freeze({
 	browser_snapshot: () => cua.tools.browser.snapshot(),
 	browser_text: () => cua.tools.browser.text(),
@@ -121,15 +123,15 @@ export function parseSelection(value: string | undefined, coordinates: string | 
 }
 
 /** Every function tool that can be selected, with declarations for one coordinate mode. */
-export function allSelectableSpecs(coordinates: Coordinates): CuaToolSpec[] {
+export function allSelectableSpecs(coordinates: Coordinates, viewport = DEFAULT_VIEWPORT): CuaToolSpec[] {
 	const result = new Map<string, CuaToolSpec>();
 	for (const selector of CUA_SELECTORS) {
-		for (const spec of expandSelection(parseSelection(selector, coordinates))) result.set(spec.name, spec);
+		for (const spec of expandSelection(parseSelection(selector, coordinates), viewport)) result.set(spec.name, spec);
 	}
 	return [...result.values()];
 }
 
-export function expandSelection(selection: CuaSelection): CuaToolSpec[] {
+export function expandSelection(selection: CuaSelection, viewport = DEFAULT_VIEWPORT): CuaToolSpec[] {
 	const coordinates = selection.coordinates === "pixels" ? cua.coordinates.pixels() : cua.coordinates.normalized([0, 1000]);
 	const result: CuaToolSpec[] = [];
 	for (const selector of selection.selectors) {
@@ -157,7 +159,12 @@ export function expandSelection(selection: CuaSelection): CuaToolSpec[] {
 				break;
 			case "anthropic-computer":
 				result.push(
-					cua.providers.anthropic.tools.computer({ version: "20251124", displayWidth: 1920, displayHeight: 1080, enableZoom: true }),
+					cua.providers.anthropic.tools.computer({
+						version: "20251124",
+						displayWidth: viewport.width,
+						displayHeight: viewport.height,
+						enableZoom: true,
+					}),
 				);
 				break;
 			default:
@@ -180,15 +187,15 @@ function createIndividualTool(name: string, coordinates: CoordinateSystem): CuaT
 	throw new Error(`unknown CUA tool selector "${name}"`);
 }
 
-export function compileSpecs(model: Model<Api>, specs: readonly CuaToolSpec[], viewport = { width: 1920, height: 1080 }): CuaToolCatalog {
+export function compileSpecs(model: Model<Api>, specs: readonly CuaToolSpec[], viewport = DEFAULT_VIEWPORT): CuaToolCatalog {
 	return compileCuaToolCatalog({ model, requestedTools: specs, viewport });
 }
 
 export function compileSelection(
 	model: Model<Api>,
 	selection: CuaSelection,
-	viewport = { width: 1920, height: 1080 },
+	viewport = DEFAULT_VIEWPORT,
 ): { specs: CuaToolSpec[]; catalog: CuaToolCatalog } {
-	const specs = expandSelection(selection);
+	const specs = expandSelection(selection, viewport);
 	return { specs, catalog: compileSpecs(model, specs, viewport) };
 }

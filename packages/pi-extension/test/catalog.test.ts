@@ -59,8 +59,10 @@ describe("CUA pi selectors", () => {
 	});
 	it("compiles Anthropic native computer use only for supported Anthropic models", () => {
 		const selection = parseSelection("anthropic-computer", "pixels");
-		const { specs, catalog } = compileSelection(getCuaModel("anthropic:claude-fable-5"), selection);
+		const viewport = { width: 1440, height: 900 };
+		const { specs, catalog } = compileSelection(getCuaModel("anthropic:claude-fable-5"), selection, viewport);
 		expect(specs.map((tool) => tool.name)).toEqual(["computer"]);
+		expect(catalog.entries[0]?.declaration).toMatchObject({ display_width_px: 1440, display_height_px: 900 });
 		expect(catalog.entries.map((entry) => entry.transport)).toEqual(["native"]);
 		expect(catalog.headers.requirements).toContainEqual(expect.objectContaining({ value: "computer-use-2025-11-24" }));
 		expect(() => compileSelection(getCuaModel("openai:gpt-5.6-sol"), selection)).toThrow("requires a anthropic model");
