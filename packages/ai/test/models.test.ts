@@ -10,7 +10,6 @@ import {
 	GOOGLE_CUA_INTERACTIONS_API,
 	listCuaModels,
 	META_RESPONSES_API,
-	OPENAI_CUA_RESPONSES_API,
 	parseCuaModelRef,
 	XAI_CUA_RESPONSES_API,
 } from "../src/index";
@@ -134,12 +133,13 @@ describe("CUA model refs", () => {
 		expect(getCuaModel("yutori:n1.5-latest").api).toBe("yutori-chat-completions");
 	});
 
-	it("routes Responses models to provider-specific threading APIs", () => {
-		// Registry models carry pi-ai's builtin "openai-responses" api and must
-		// be routed to provider-specific previous_response_id transports.
-		expect(getCuaModel("openai:gpt-5.6-sol").api).toBe(OPENAI_CUA_RESPONSES_API);
-		expect(getCuaModel("openai:gpt-5.5").api).toBe(OPENAI_CUA_RESPONSES_API);
-		expect(getCuaModel("openai:gpt-5.4-mini").api).toBe(OPENAI_CUA_RESPONSES_API);
+	it("routes Responses models to provider-specific transports, and keeps OpenAI on pi's builtin one", () => {
+		// OpenAI has a fully equivalent builtin transport (automatic prompt
+		// caching, no previous_response_id needed), so it keeps pi-ai's
+		// registry api id instead of being routed to a CUA-owned one.
+		expect(getCuaModel("openai:gpt-5.6-sol").api).toBe("openai-responses");
+		expect(getCuaModel("openai:gpt-5.5").api).toBe("openai-responses");
+		expect(getCuaModel("openai:gpt-5.4-mini").api).toBe("openai-responses");
 		expect(getCuaModel("google:gemini-3.6-flash").api).toBe(GOOGLE_CUA_INTERACTIONS_API);
 		expect(getCuaModel("meta:muse-spark-1.1").api).toBe(META_RESPONSES_API);
 		expect(getCuaModel("xai:grok-4.5").api).toBe(XAI_CUA_RESPONSES_API);

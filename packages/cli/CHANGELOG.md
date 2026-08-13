@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.0 - 2026-08-13
+
+- `--print -o jsonl` schema bumps to version 2: every assistant message now
+  also emits an `assistant_usage` event (`turn`, `model`, `api`, `input`,
+  `output`, `cache_read`, `cache_write`, `reasoning`, `total_tokens`, and a
+  derived `cache_hit_ratio`), including tool-only turns with no text.
+
 ## 0.9.0 - 2026-08-04
 
 Breaking: upgrade the pi stack to 0.83.0 (`pi-ai`, `pi-agent-core`,

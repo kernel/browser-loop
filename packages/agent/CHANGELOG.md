@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.11.0 - 2026-08-13
+
+- `responseThreading` (`CuaAgentOptions`/`CuaAgentHarnessOptions`) no longer
+  affects OpenAI models: OpenAI now streams through pi-ai's builtin Responses
+  transport and its automatic prompt caching regardless of this flag. The
+  option still governs Google, Meta, xAI, and Tzafon's
+  `previous_response_id`-style continuation.
+- Exempt OpenAI's native computer tool from the tool-result image replay
+  limit, alongside Tzafon: its `computer_call_output` items must each carry a
+  screenshot, and stateless replay no longer leaves them in provider-stored
+  state.
+
 ## 0.10.0 - 2026-08-04
 
 Breaking: upgrade `@earendil-works/pi-agent-core` and `@earendil-works/pi-ai`

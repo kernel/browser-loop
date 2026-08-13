@@ -16,7 +16,7 @@ import { cuaOverrideModels } from "./models";
 import { withAnthropicBrowserFallback } from "./providers/anthropic/browser-fallback";
 import { GOOGLE_CUA_INTERACTIONS_API, streamGoogleInteractions, streamSimpleGoogleInteractions } from "./providers/google/provider";
 import { META_RESPONSES_API, streamMetaResponses, streamSimpleMetaResponses } from "./providers/meta/provider";
-import { OPENAI_CUA_RESPONSES_API, streamOpenAIResponses, streamSimpleOpenAIResponses } from "./providers/openai/provider";
+import { requiresCuaOpenAIAdapter, streamOpenAIResponses, streamSimpleOpenAIResponses } from "./providers/openai/provider";
 import { streamSimpleTzafonResponses, streamTzafonResponses, TZAFON_RESPONSES_API } from "./providers/tzafon/provider";
 import { streamSimpleXaiResponses, streamXaiResponses, XAI_CUA_RESPONSES_API } from "./providers/xai/provider";
 import { streamSimpleYutori, streamYutori, YUTORI_CHAT_COMPLETIONS_API } from "./providers/yutori/provider";
@@ -27,10 +27,11 @@ import { streamSimpleYutori, streamYutori, YUTORI_CHAT_COMPLETIONS_API } from ".
  *
  * - `anthropic` retries an inaccessible native browser beta through the
  *   selected tool's equivalent function declaration.
- * - `openai` intercepts the `openai-cua-responses` api that
- *   {@link getCuaModel} routes OpenAI models to, threading
- *   `previous_response_id`; every other api falls through to pi's builtin
- *   provider.
+ * - `openai` streams through pi's builtin `openai-responses` transport and
+ *   its automatic prompt caching by default. The CUA adapter only intercepts
+ *   requests that need it: OpenAI's native computer tool, or a transcript
+ *   carrying a deferred tool-search addition or a replayed function-call
+ *   namespace (see {@link requiresCuaOpenAIAdapter}).
  * - `google` intercepts `google-cua-interactions` for current native computer
  *   use and resolves API keys from `GOOGLE_API_KEY` or `GEMINI_API_KEY`.
  * - `xai` intercepts `xai-cua-responses` so Grok can use stateful Responses
@@ -47,7 +48,7 @@ export function createCuaModels(options?: CreateModelsOptions): MutableModels {
 	const anthropic = models.getProvider("anthropic");
 	if (anthropic) models.setProvider(withAnthropicBrowserFallback(anthropic));
 	const openai = models.getProvider("openai");
-	if (openai) models.setProvider(withOpenAICuaResponses(openai));
+	if (openai) models.setProvider(withOpenAICuaComputerAdapter(openai));
 	const google = models.getProvider("google");
 	if (google) models.setProvider(withGoogleCuaInteractions(google));
 	const xai = models.getProvider("xai");
@@ -72,18 +73,18 @@ export function cuaModels(): MutableModels {
 	return (defaultCuaModels ??= createCuaModels());
 }
 
-// pi's builtin openai provider only streams its own api ids. CUA routes
-// OpenAI models to OPENAI_CUA_RESPONSES_API (see routeCuaApi), so the
-// registered provider must dispatch that api to cua's threading stream fns.
-function withOpenAICuaResponses(base: Provider): Provider {
+// OpenAI models keep pi-ai's builtin "openai-responses" api id. Only requests
+// that need cua-ai's adapter (see requiresCuaOpenAIAdapter) are intercepted;
+// everything else falls through to pi's builtin provider.
+function withOpenAICuaComputerAdapter(base: Provider): Provider {
 	return {
 		...base,
 		stream: (model: Model<Api>, context: Context, options?: StreamOptions) =>
-			model.api === OPENAI_CUA_RESPONSES_API
+			model.api === "openai-responses" && requiresCuaOpenAIAdapter(context, options)
 				? streamOpenAIResponses(model as never, context, options)
 				: base.stream(model, context, options),
 		streamSimple: (model: Model<Api>, context: Context, options?: SimpleStreamOptions) =>
-			model.api === OPENAI_CUA_RESPONSES_API
+			model.api === "openai-responses" && requiresCuaOpenAIAdapter(context, options)
 				? streamSimpleOpenAIResponses(model as never, context, options)
 				: base.streamSimple(model, context, options),
 	};
@@ -153,7 +154,7 @@ function yutoriProvider(): Provider {
 
 export { GOOGLE_CUA_INTERACTIONS_API, streamGoogleInteractions, streamSimpleGoogleInteractions };
 export { META_RESPONSES_API, streamMetaResponses, streamSimpleMetaResponses };
-export { OPENAI_CUA_RESPONSES_API, streamOpenAIResponses, streamSimpleOpenAIResponses };
+export { streamOpenAIResponses, streamSimpleOpenAIResponses };
 export { TZAFON_RESPONSES_API, streamSimpleTzafonResponses, streamTzafonResponses };
 export { XAI_CUA_RESPONSES_API, streamSimpleXaiResponses, streamXaiResponses };
 export { YUTORI_CHAT_COMPLETIONS_API, streamSimpleYutori, streamYutori };

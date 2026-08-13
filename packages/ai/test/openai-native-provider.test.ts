@@ -15,7 +15,7 @@ vi.mock("openai", () => ({
 	},
 }));
 
-const model = getCuaModel("openai:gpt-5.5") as Model<typeof openai.OPENAI_CUA_RESPONSES_API>;
+const model = getCuaModel("openai:gpt-5.5") as Model<"openai-responses">;
 const incoming = { openaiComputerName: "computer", yutoriNames: {}, googleNames: {}, googleExcludedNames: [], nativeToolNames: ["computer"] };
 
 describe("OpenAI native computer Responses adapter", () => {
@@ -47,6 +47,10 @@ describe("OpenAI native computer Responses adapter", () => {
 				pending_safety_checks: [{ id: "check_1", code: "malicious_instructions" }],
 			},
 		});
+
+		const payload = responsesCreate.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+		expect(payload.store).toBe(false);
+		expect(payload.previous_response_id).toBeUndefined();
 	});
 
 	it("round-trips function-call namespaces beside the native computer adapter", async () => {
@@ -91,15 +95,17 @@ describe("OpenAI native computer Responses adapter", () => {
 				{ name: "computer", description: "placeholder", parameters: { type: "object" } as never },
 				{ name: "lookup", description: "lookup", parameters: { type: "object" } as never },
 			],
-		}, { apiKey: "test", cuaIncomingToolPlan: incoming, disableResponseThreading: true }).result();
+		}, { apiKey: "test", cuaIncomingToolPlan: incoming }).result();
 
-		const payload = responsesCreate.mock.calls.at(-1)?.[0] as { input: Array<Record<string, unknown>> };
+		const payload = responsesCreate.mock.calls.at(-1)?.[0] as { input: Array<Record<string, unknown>>; store?: unknown; previous_response_id?: unknown };
 		expect(payload.input).toContainEqual(expect.objectContaining({
 			type: "function_call",
 			call_id: "call_lookup",
 			name: "lookup",
 			namespace: "deferred_tools",
 		}));
+		expect(payload.store).toBe(false);
+		expect(payload.previous_response_id).toBeUndefined();
 	});
 
 	it("serializes native results as computer_call_output and ordinary results as function output", async () => {
@@ -133,11 +139,10 @@ describe("OpenAI native computer Responses adapter", () => {
 		}, {
 			apiKey: "test",
 			cuaIncomingToolPlan: incoming,
-			disableResponseThreading: true,
 			onPayload: (payload) => ({ ...(payload as Record<string, unknown>), tools: [{ type: "computer" }] }),
 		}).result();
 
-		const payload = responsesCreate.mock.calls.at(-1)?.[0] as { input: Array<Record<string, unknown>> };
+		const payload = responsesCreate.mock.calls.at(-1)?.[0] as { input: Array<Record<string, unknown>>; store?: unknown; previous_response_id?: unknown };
 		expect(payload.input).toEqual(expect.arrayContaining([
 			expect.objectContaining({ type: "computer_call", call_id: "computer_1" }),
 			expect.objectContaining({
@@ -147,5 +152,7 @@ describe("OpenAI native computer Responses adapter", () => {
 				output: expect.objectContaining({ type: "computer_screenshot", image_url: expect.stringContaining("data:image/png;base64,") }),
 			}),
 		]));
+		expect(payload.store).toBe(false);
+		expect(payload.previous_response_id).toBeUndefined();
 	});
 });

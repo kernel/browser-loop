@@ -86,7 +86,6 @@ describe("OpenAI deferred tool namespace continuation", () => {
 			tools: [loader],
 			initialState: { model: "openai:gpt-5.5" },
 			getApiKey: () => "test",
-			responseThreading: false,
 		});
 
 		await agent.prompt("load and run the added tool");

@@ -153,8 +153,9 @@ catalog:
 - Ordinary function tools stay ordinary.
 - Anthropic native browser/computer declarations replace only their own
   placeholders and merge required beta headers with caller headers.
-- OpenAI native computer uses a CUA-owned Responses adapter and can coexist with
-  ordinary functions.
+- OpenAI streams through pi's builtin Responses transport and its automatic
+  prompt caching; a CUA-owned adapter handles OpenAI's native computer tool and
+  tool-search namespace round-trips.
 - Tzafon replaces only the selected computer identity and fills declaration
   dimensions from the actual viewport.
 - Anthropic's native browser tool falls back to an equivalent function-tool

@@ -19,40 +19,47 @@ import {
 	convertResponsesTools,
 	processResponsesStream,
 } from "@earendil-works/pi-ai/api/openai-responses-shared";
+import { createGrammarToolInputProperties } from "@earendil-works/pi-ai/api/constrained-sampling";
 import { clampOpenAIPromptCacheKey } from "@earendil-works/pi-ai/api/openai-prompt-cache";
 import { buildBaseOptions } from "@earendil-works/pi-ai/api/simple-options";
 import type { CuaIncomingToolPlan } from "../../tool-catalog";
-import {
-	type CuaSimpleStreamOptions,
-	type ResponsesThreadingOptions,
-	threadResponsesRequest,
-} from "../common";
+import type { CuaSimpleStreamOptions } from "../common";
 
-export const OPENAI_CUA_RESPONSES_API = "openai-cua-responses";
-
-export interface OpenAIResponsesOptions extends PiOpenAIResponsesOptions, ResponsesThreadingOptions {
+export interface OpenAIResponsesOptions extends PiOpenAIResponsesOptions {
 	/** @internal Identity-addressed native dispatch compiled from selected tools. */
 	cuaIncomingToolPlan?: CuaIncomingToolPlan;
 }
 
-export function threadRequest(context: Context, options: ResponsesThreadingOptions | undefined) {
-	const { context: threadedContext, onPayload } = threadResponsesRequest(context, OPENAI_CUA_RESPONSES_API, options);
-	return { context: threadedContext, onPayload };
+/**
+ * Whether a request needs cua-ai's OpenAI Responses adapter instead of pi-ai's
+ * builtin `openai-responses` transport: OpenAI's native computer tool is
+ * selected, or the transcript carries state (a deferred tool-search addition,
+ * or a replayed function-call namespace) that only this adapter round-trips.
+ */
+export function requiresCuaOpenAIAdapter(context: Context, options?: unknown): boolean {
+	// pi's Provider.stream signature hides cua's added option, so the plan is
+	// read structurally here rather than at both call sites.
+	const cuaIncomingToolPlan = (options as { cuaIncomingToolPlan?: CuaIncomingToolPlan } | undefined)?.cuaIncomingToolPlan;
+	if (cuaIncomingToolPlan?.openaiComputerName) return true;
+	for (const message of context.messages) {
+		if (message.role === "toolResult" && (message.addedToolNames?.length ?? 0) > 0) return true;
+		if (message.role === "assistant" && message.content.some((part) => part.type === "toolCall" && toolCallNamespace(part))) return true;
+	}
+	return false;
 }
 
-export const streamOpenAIResponses: StreamFunction<typeof OPENAI_CUA_RESPONSES_API, OpenAIResponsesOptions> = (model, context, options) => {
+export const streamOpenAIResponses: StreamFunction<"openai-responses", OpenAIResponsesOptions> = (model, context, options) => {
 	if (options?.cuaIncomingToolPlan?.openaiComputerName) return streamOpenAINativeComputer(model, context, options);
 	return streamOpenAIFunctionTools(model, context, options);
 };
 
-export const streamSimpleOpenAIResponses: StreamFunction<typeof OPENAI_CUA_RESPONSES_API, CuaSimpleStreamOptions> = (model, context, options) => {
+export const streamSimpleOpenAIResponses: StreamFunction<"openai-responses", CuaSimpleStreamOptions> = (model, context, options) => {
 	if (options?.cuaIncomingToolPlan?.openaiComputerName) return streamOpenAINativeComputer(model, context, options);
 	const base = buildBaseOptions(model, context, options, options?.apiKey);
 	const clampedReasoning = options?.reasoning ? clampThinkingLevel(model, options.reasoning) : undefined;
 	return streamOpenAIFunctionTools(model, context, {
 		...base,
 		reasoningEffort: clampedReasoning === "off" ? undefined : clampedReasoning,
-		disableResponseThreading: options?.disableResponseThreading,
 		cuaIncomingToolPlan: options?.cuaIncomingToolPlan,
 	});
 };
@@ -60,10 +67,10 @@ export const streamSimpleOpenAIResponses: StreamFunction<typeof OPENAI_CUA_RESPO
 /**
  * Pi-ai 0.83.0's Responses fallback still omits function-call namespaces in
  * both stream parsing and transcript replay. Keep using its conversion/stream
- * machinery, but own the SDK boundary so the provider field survives both.
+ * machinery, but own the SDK boundary so the namespace survives both.
  */
 function streamOpenAIFunctionTools(
-	model: Model<typeof OPENAI_CUA_RESPONSES_API>,
+	model: Model<"openai-responses">,
 	context: Context,
 	options: OpenAIResponsesOptions | undefined,
 ) {
@@ -72,11 +79,10 @@ function streamOpenAIFunctionTools(
 	void (async () => {
 		try {
 			const apiKey = openAIApiKey(options);
-			const threaded = threadRequest(context, options);
-			const compat = model.compat as { supportsToolSearch?: boolean } | undefined;
-			const placement = splitDeferredTools(threaded.context, compat?.supportsToolSearch === true);
-			let payload = buildFunctionPayload(model, threaded.context, options, placement);
-			payload = (await threaded.onPayload(payload, model)) as Record<string, unknown>;
+			const placement = splitDeferredTools(context, model.compat?.supportsToolSearch === true);
+			const grammarToolInputProperties = createGrammarToolInputProperties(context.tools, model.compat?.supportsOpenAIGrammarTools === true);
+			let payload = buildFunctionPayload(model, context, options, placement, grammarToolInputProperties);
+			payload = ((await options?.onPayload?.(payload, model)) ?? payload) as Record<string, unknown>;
 			const client = createOpenAIClient(model, options, apiKey);
 			const request = client.responses.create(payload as never, {
 				...(options?.signal ? { signal: options.signal } : {}),
@@ -102,6 +108,7 @@ function streamOpenAIFunctionTools(
 				{
 					serviceTier: options?.serviceTier,
 					applyServiceTierPricing: (usage, tier) => applyServiceTierPricing(usage, tier, model),
+					grammarToolInputProperties,
 				},
 			);
 			applyToolCallNamespaces(output, namespaces);
@@ -121,27 +128,34 @@ function streamOpenAIFunctionTools(
 }
 
 function buildFunctionPayload(
-	model: Model<typeof OPENAI_CUA_RESPONSES_API>,
+	model: Model<"openai-responses">,
 	context: Context,
 	options: OpenAIResponsesOptions | undefined,
 	placement: { immediate: Tool[]; deferred: Map<string, Tool> },
+	grammarToolInputProperties: ReadonlyMap<string, string>,
 ): Record<string, unknown> {
-	const input = convertResponsesMessages(model, context, new Set(["openai"]), { deferredTools: placement.deferred });
+	const compat = model.compat;
+	const toolOptions = { supportsStrictMode: compat?.supportsStrictMode, supportsOpenAIGrammarTools: compat?.supportsOpenAIGrammarTools };
+	const input = convertResponsesMessages(model, context, new Set(["openai"]), {
+		deferredTools: placement.deferred,
+		toolOptions,
+		grammarToolInputProperties,
+	});
 	applyTranscriptNamespaces(input as unknown as Array<Record<string, unknown>>, context.messages);
 	const retention = cacheRetention(options);
-	const compat = model.compat as { supportsLongCacheRetention?: boolean } | undefined;
 	const payload: Record<string, unknown> = {
 		model: model.id,
 		input,
 		stream: true,
 		prompt_cache_key: retention === "none" ? undefined : clampOpenAIPromptCacheKey(options?.sessionId),
 		prompt_cache_retention: retention === "long" && compat?.supportsLongCacheRetention !== false ? "24h" : undefined,
+		prompt_cache_options: retention === "none" && compat?.supportsExplicitPromptCacheMode ? { mode: "explicit" } : undefined,
 		store: false,
 	};
 	if (options?.maxTokens) payload.max_output_tokens = Math.max(options.maxTokens, 16);
 	if (options?.temperature !== undefined) payload.temperature = options.temperature;
 	if (options?.serviceTier !== undefined) payload.service_tier = options.serviceTier;
-	if (placement.immediate.length > 0) payload.tools = convertResponsesTools(placement.immediate);
+	if (placement.immediate.length > 0) payload.tools = convertResponsesTools(placement.immediate, toolOptions);
 	if (options?.toolChoice !== undefined) payload.tool_choice = options.toolChoice;
 	if (model.reasoning) {
 		if (options?.reasoningEffort || options?.reasoningSummary) {
@@ -158,7 +172,7 @@ function buildFunctionPayload(
 }
 
 function createOpenAIClient(
-	model: Model<typeof OPENAI_CUA_RESPONSES_API>,
+	model: Model<"openai-responses">,
 	options: OpenAIResponsesOptions | undefined,
 	apiKey: string,
 ): OpenAI {
@@ -190,13 +204,20 @@ function cacheRetention(options: OpenAIResponsesOptions | undefined): "none" | "
 }
 
 function applyTranscriptNamespaces(input: Array<Record<string, unknown>>, messages: readonly Context["messages"][number][]): void {
-	const calls = messages.flatMap((message) => message.role === "assistant"
-		? message.content.filter((part): part is ToolCall => part.type === "toolCall")
-		: []);
-	let callIndex = 0;
+	const namespaces = new Map<string, string>();
+	for (const message of messages) {
+		if (message.role !== "assistant") continue;
+		for (const part of message.content) {
+			if (part.type !== "toolCall") continue;
+			const namespace = toolCallNamespace(part);
+			if (!namespace) continue;
+			const callId = part.id.split("|", 1)[0]!;
+			namespaces.set(callId, namespace);
+		}
+	}
 	for (const item of input) {
-		if (item.type !== "function_call") continue;
-		const namespace = toolCallNamespace(calls[callIndex++]);
+		if (item.type !== "function_call" || typeof item.call_id !== "string") continue;
+		const namespace = namespaces.get(item.call_id);
 		if (namespace) item.namespace = namespace;
 	}
 }
@@ -239,7 +260,7 @@ function toolCallNamespace(call: ToolCall | undefined): string | undefined {
 function applyServiceTierPricing(
 	usage: AssistantMessage["usage"],
 	serviceTier: OpenAIResponsesOptions["serviceTier"],
-	model: Model<typeof OPENAI_CUA_RESPONSES_API>,
+	model: Model<"openai-responses">,
 ): void {
 	const multiplier = serviceTier === "flex" ? 0.5 : serviceTier === "priority" ? (model.id === "gpt-5.5" ? 2.5 : 2) : 1;
 	if (multiplier === 1) return;
@@ -252,7 +273,7 @@ function applyServiceTierPricing(
 
 /** Responses adapter used only when the selected catalog contains OpenAI's native computer tool. */
 function streamOpenAINativeComputer(
-	model: Model<typeof OPENAI_CUA_RESPONSES_API>,
+	model: Model<"openai-responses">,
 	context: Context,
 	options: OpenAIResponsesOptions | CuaSimpleStreamOptions | undefined,
 ) {
@@ -265,15 +286,15 @@ function streamOpenAINativeComputer(
 			const nativeName = options?.cuaIncomingToolPlan?.openaiComputerName;
 			if (!nativeName) throw new Error("OpenAI native computer incoming plan is missing");
 			const placement = splitDeferredTools(context);
-			const threaded = threadRequest(context, options);
 			let payload: Record<string, unknown> = {
 				model: model.id,
-				instructions: threaded.context.systemPrompt,
-				input: convertMessages(threaded.context.messages, nativeName, placement.deferred),
+				instructions: context.systemPrompt,
+				input: convertMessages(context.messages, nativeName, placement.deferred),
 				tools: convertTools(placement.immediate),
 				max_output_tokens: options?.maxTokens ?? model.maxTokens,
+				store: false,
 			};
-			payload = (await threaded.onPayload(payload, model)) as Record<string, unknown>;
+			payload = ((await options?.onPayload?.(payload, model)) ?? payload) as Record<string, unknown>;
 			const client = new OpenAI({
 				apiKey,
 				baseURL: model.baseUrl || "https://api.openai.com/v1",

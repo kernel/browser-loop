@@ -2,13 +2,14 @@ import type {
 	AgentHarnessEvent,
 	KernelBrowser,
 } from "@onkernel/cua-agent";
+import type { Usage } from "@onkernel/cua-ai";
 import type { CuaCliHarness } from "../harness";
 
 /**
  * Schema version stamped on every `session_created` event. Bump when the
  * jsonl shape changes in a way external consumers need to detect.
  */
-export const CUA_JSONL_SCHEMA_VERSION = 1;
+export const CUA_JSONL_SCHEMA_VERSION = 2;
 
 export interface JsonlSinkOptions {
 	harness: CuaCliHarness;
@@ -90,6 +91,7 @@ export function attachHarnessJsonlSink(opts: JsonlSinkOptions): () => void {
 				} else if (msg.role === "assistant") {
 					const text = textOf(msg.content);
 					if (text) emit({ type: "assistant_text_done", text, ts: Date.now() });
+					emit({ type: "assistant_usage", turn, model: msg.model, api: msg.api, ...usageFields(msg.usage), ts: Date.now() });
 				}
 				return;
 			}
@@ -153,6 +155,24 @@ export function attachHarnessJsonlSink(opts: JsonlSinkOptions): () => void {
 				return;
 		}
 	});
+}
+
+/**
+ * OpenAI's `input_tokens` (and pi-ai's `Usage.input`) already excludes cached
+ * and cache-write tokens, so the billed prompt is `input + cacheRead +
+ * cacheWrite` and the cache hit ratio is `cacheRead` over that total.
+ */
+function usageFields(usage: Usage): Record<string, unknown> {
+	const billedPrompt = usage.input + usage.cacheRead + usage.cacheWrite;
+	return {
+		input: usage.input,
+		output: usage.output,
+		cache_read: usage.cacheRead,
+		cache_write: usage.cacheWrite,
+		reasoning: usage.reasoning,
+		total_tokens: usage.totalTokens,
+		cache_hit_ratio: billedPrompt > 0 ? usage.cacheRead / billedPrompt : 0,
+	};
 }
 
 function textOf(content: unknown): string {

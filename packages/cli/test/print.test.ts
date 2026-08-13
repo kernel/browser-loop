@@ -34,7 +34,30 @@ describe("runPrint", () => {
 		expect(types).toContain("assistant_text_done");
 		expect(types).toContain("turn_done");
 		expect(types).toContain("run_complete");
-		expect((events[0] as { schema_version: number }).schema_version).toBe(1);
+		expect((events[0] as { schema_version: number }).schema_version).toBe(2);
+	});
+
+	it("emits assistant_usage with the billed-prompt cache hit ratio", async () => {
+		fixture = await buildTestHarness({
+			turns: [
+				{
+					steps: [{ type: "text", text: "ok" }],
+					usage: { input: 100, output: 20, cacheRead: 300, cacheWrite: 50, totalTokens: 420 },
+				},
+			],
+		});
+		const events = await runPrintAsJsonl(fixture, "go");
+		const usage = events.find((e) => e.type === "assistant_usage") as Record<string, unknown>;
+		expect(usage).toMatchObject({
+			turn: 1,
+			input: 100,
+			output: 20,
+			cache_read: 300,
+			cache_write: 50,
+			total_tokens: 420,
+		});
+		// billed prompt = input + cache_read + cache_write = 450; ratio = cache_read / billed prompt.
+		expect(usage.cache_hit_ratio).toBeCloseTo(300 / 450);
 	});
 
 	it("returns exit code 1 when the provider emits an error", async () => {

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.11.0 - 2026-08-13
+
+Breaking: OpenAI models no longer carry a CUA-owned api id.
+
+- OpenAI models now resolve to pi-ai's builtin `"openai-responses"` api
+  instead of the removed `openai-cua-responses`, and stream through pi's
+  builtin Responses transport (`store: false`, automatic prompt-cache-key
+  matching) by default. `OPENAI_CUA_RESPONSES_API` and the OpenAI adapter's
+  `previous_response_id` threading are removed; `previous_response_id` and
+  `store: true` no longer appear on any OpenAI request.
+- The CUA-owned OpenAI adapter is retained but now dispatches on request
+  shape rather than a rerouted api id: it only intercepts requests that select
+  OpenAI's native computer tool, or whose transcript carries a deferred
+  tool-search addition or a replayed function-call namespace (pi-ai 0.83.0's
+  builtin transport does not round-trip either).
+- Google, Meta, xAI, and Tzafon are unaffected: their `previous_response_id`
+  threading helpers in `providers/common.ts` are unchanged.
+
 ## 0.10.0 - 2026-08-04
 
 Breaking: upgrade `@earendil-works/pi-ai` to 0.83.0.
