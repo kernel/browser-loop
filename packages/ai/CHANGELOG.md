@@ -2,6 +2,17 @@
 
 ## 0.12.0 - 2026-08-13
 
+- Route OpenAI's native computer adapter through its own stream function,
+  `streamOpenAICuaComputer`, selected by `model.api`. `streamOpenAIResponses`
+  no longer inspects the incoming tool plan to decide which adapter runs: the
+  compiled api id is the only dispatch key, and the provider wrapper is the
+  only place that reads it.
+- Remove the unreferenced Yutori n1.5 expanded action declarations
+  (`YUTORI_N15_EXPANDED_ACTION_TYPES`, `YUTORI_N15_EXPANDED_TOOL_SET`,
+  `YUTORI_N15_ACTION_TYPES`) and the canonical-action type aliases nothing
+  consumed. None were exported from the package root. The expanded set was
+  scaffolding for a ref/DOM execution path that does not exist.
+
 Breaking: Google's api id is now derived from selected tools, not stamped on
 every Google model.
 

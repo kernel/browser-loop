@@ -19,7 +19,7 @@ import { cuaApiKeyEnvVarsForProvider } from "./api-keys";
 import { cuaOverrideModels } from "./models";
 import { withAnthropicBrowserFallback } from "./providers/anthropic/browser-fallback";
 import { GOOGLE_CUA_INTERACTIONS_API, streamGoogleInteractions, streamSimpleGoogleInteractions } from "./providers/google/provider";
-import { OPENAI_CUA_COMPUTER_API, requiresCuaOpenAINamespaceAdapter, streamOpenAIResponses, streamSimpleOpenAIResponses } from "./providers/openai/provider";
+import { OPENAI_CUA_COMPUTER_API, requiresCuaOpenAINamespaceAdapter, streamOpenAICuaComputer, streamOpenAIResponses, streamSimpleOpenAIResponses } from "./providers/openai/provider";
 import { streamSimpleTzafonResponses, streamTzafonResponses, TZAFON_RESPONSES_API } from "./providers/tzafon/provider";
 import { streamSimpleYutori, streamYutori, YUTORI_CHAT_COMPLETIONS_API } from "./providers/yutori/provider";
 
@@ -87,13 +87,17 @@ function withOpenAICuaAdapter(base: Provider): Provider {
 	return {
 		...base,
 		stream: (model: Model<Api>, context: Context, options?: StreamOptions) =>
-			model.api === OPENAI_CUA_COMPUTER_API || requiresCuaOpenAINamespaceAdapter(context)
-				? streamOpenAIResponses(model as never, context, options)
-				: base.stream(model, context, options),
+			model.api === OPENAI_CUA_COMPUTER_API
+				? streamOpenAICuaComputer(model as never, context, options)
+				: requiresCuaOpenAINamespaceAdapter(context)
+					? streamOpenAIResponses(model as never, context, options)
+					: base.stream(model, context, options),
 		streamSimple: (model: Model<Api>, context: Context, options?: SimpleStreamOptions) =>
-			model.api === OPENAI_CUA_COMPUTER_API || requiresCuaOpenAINamespaceAdapter(context)
-				? streamSimpleOpenAIResponses(model as never, context, options)
-				: base.streamSimple(model, context, options),
+			model.api === OPENAI_CUA_COMPUTER_API
+				? streamOpenAICuaComputer(model as never, context, options)
+				: requiresCuaOpenAINamespaceAdapter(context)
+					? streamSimpleOpenAIResponses(model as never, context, options)
+					: base.streamSimple(model, context, options),
 	};
 }
 

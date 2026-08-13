@@ -1,4 +1,4 @@
-import type { CuaAction, CuaActionType } from "../../actions/index";
+import type { CuaAction } from "../../actions/index";
 import { normalizeGotoUrl } from "../common";
 
 /**
@@ -9,19 +9,6 @@ import { normalizeGotoUrl } from "../common";
  * - https://docs.yutori.com/llm-quickstart.md
  */
 export const YUTORI_N15_CORE_TOOL_SET = "browser_tools_core-20260403";
-export const YUTORI_N15_EXPANDED_TOOL_SET = "browser_tools_expanded-20260403";
-
-/**
- * DOM/ref-backed Navigator n1.5 actions. We intentionally disable these until
- * CuaAgent has the ref/DOM execution path that Yutori documents for the
- * expanded tool set.
- */
-export const YUTORI_N15_EXPANDED_ACTION_TYPES = [
-	"extract_elements",
-	"find",
-	"set_element_value",
-	"execute_js",
-] as const;
 
 /**
  * Navigator n1's fixed legacy browser action space.
@@ -71,42 +58,6 @@ export const YUTORI_N15_CORE_ACTION_TYPES = [
 	"refresh",
 	"wait",
 ] as const;
-
-export const YUTORI_N15_ACTION_TYPES = [
-	...YUTORI_N15_CORE_ACTION_TYPES,
-	...YUTORI_N15_EXPANDED_ACTION_TYPES,
-] as const;
-
-/**
- * Canonical CUA action types Yutori's native actions normalize into. These are
- * the tool-call names {@link streamYutori} emits and the local executors
- * CuaAgent installs for Yutori models.
- */
-export const YUTORI_CUA_ACTION_TYPES = [
-	"click",
-	"double_click",
-	"mouse_down",
-	"mouse_up",
-	"type",
-	"keypress",
-	"scroll",
-	"move",
-	"drag",
-	"wait",
-	"goto",
-	"back",
-	"forward",
-] as const satisfies readonly CuaActionType[];
-
-type YutoriCanonicalActionType = (typeof YUTORI_CUA_ACTION_TYPES)[number];
-
-/** Canonical CUA action shape emitted for Yutori models. */
-export type YutoriAction = Extract<CuaAction, { type: YutoriCanonicalActionType }>;
-
-export type YutoriN1ActionType = (typeof YUTORI_N1_ACTION_TYPES)[number];
-export type YutoriN15CoreActionType = (typeof YUTORI_N15_CORE_ACTION_TYPES)[number];
-export type YutoriN15ExpandedActionType = (typeof YUTORI_N15_EXPANDED_ACTION_TYPES)[number];
-export type YutoriNativeActionType = YutoriN1ActionType | YutoriN15CoreActionType | YutoriN15ExpandedActionType;
 
 const DEFAULT_SCROLL_AMOUNT = 3;
 const SCROLL_AMOUNT_PER_NOTCH = 120;

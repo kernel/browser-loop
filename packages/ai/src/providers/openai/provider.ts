@@ -52,13 +52,10 @@ export function requiresCuaOpenAINamespaceAdapter(context: Context): boolean {
 	return false;
 }
 
-export const streamOpenAIResponses: StreamFunction<"openai-responses", OpenAIResponsesOptions> = (model, context, options) => {
-	if (options?.cuaIncomingToolPlan?.openaiComputerName) return streamOpenAINativeComputer(model, context, options);
-	return streamOpenAIFunctionTools(model, context, options);
-};
+export const streamOpenAIResponses: StreamFunction<"openai-responses", OpenAIResponsesOptions> = (model, context, options) =>
+	streamOpenAIFunctionTools(model, context, options);
 
 export const streamSimpleOpenAIResponses: StreamFunction<"openai-responses", CuaSimpleStreamOptions> = (model, context, options) => {
-	if (options?.cuaIncomingToolPlan?.openaiComputerName) return streamOpenAINativeComputer(model, context, options);
 	const base = buildBaseOptions(model, context, options, options?.apiKey);
 	const clampedReasoning = options?.reasoning ? clampThinkingLevel(model, options.reasoning) : undefined;
 	return streamOpenAIFunctionTools(model, context, {
@@ -283,7 +280,10 @@ function applyServiceTierPricing(
 	usage.cost.total = usage.cost.input + usage.cost.output + usage.cost.cacheRead + usage.cost.cacheWrite;
 }
 
-/** Responses adapter used only when the selected catalog contains OpenAI's native computer tool. */
+/** Responses adapter for models the catalog compiled onto {@link OPENAI_CUA_COMPUTER_API}, i.e. those whose selected tools include OpenAI's native computer. */
+export const streamOpenAICuaComputer: StreamFunction<typeof OPENAI_CUA_COMPUTER_API, OpenAIResponsesOptions | CuaSimpleStreamOptions> = (model, context, options) =>
+	streamOpenAINativeComputer(model as unknown as Model<"openai-responses">, context, options);
+
 function streamOpenAINativeComputer(
 	model: Model<"openai-responses">,
 	context: Context,
