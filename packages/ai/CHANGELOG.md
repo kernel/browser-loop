@@ -2,6 +2,15 @@
 
 ## 0.13.0 - 2026-08-13
 
+- Remove `routeCuaApi`. With Tzafon and Yutori gone it routed no transport at
+  all, and its last branch only patched grok-4.5's thinking-level map, price
+  tiers, and compat flags onto pi-ai's registry entry. Live runs on grok-4.5
+  at the default, `off`, and `xhigh` thinking levels behave identically
+  without it, so model resolution now returns pi-ai's data unmodified. The
+  only lost detail is a >200k-token price tier that pi's registry does not
+  carry, which affects `usage.cost` reporting for long requests and nothing
+  else.
+
 Breaking: Tzafon and Yutori support is removed.
 
 - Remove the `tzafon` and `yutori` providers: their `CuaProvider` members,

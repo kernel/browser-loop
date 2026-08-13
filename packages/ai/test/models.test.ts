@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
 import {
 	CUA_MODEL_ANNOTATIONS,
 	CUA_PROVIDERS,
@@ -78,7 +79,7 @@ describe("CUA model refs", () => {
 		expect(muse.thinkingLevelMap?.off).toBeNull();
 	});
 
-	it("uses pi-ai's Grok catalog entry with CUA routing overrides", () => {
+	it("returns pi-ai's Grok catalog entry unmodified", () => {
 		expect(cuaOverrideModels("xai")).toEqual([]);
 		const grok = getCuaModel("xai:grok-4.5");
 		expect(grok.provider).toBe("xai");
@@ -86,10 +87,10 @@ describe("CUA model refs", () => {
 		expect(grok.baseUrl).toBe("https://api.x.ai/v1");
 		expect(grok.contextWindow).toBe(500_000);
 		expect(grok.maxTokens).toBe(500_000);
-		expect(grok.thinkingLevelMap).toEqual({ off: "low", minimal: "low", xhigh: "high" });
-		expect(grok.cost.tiers).toEqual([
-			{ inputTokensAbove: 200_000, input: 4, output: 12, cacheRead: 1, cacheWrite: 0 },
-		]);
+		// pi's registry data is used as-is: no CUA-owned thinking-level, cost, or
+		// compat patching survives model resolution.
+		expect(grok.thinkingLevelMap).toEqual(getBuiltinModel("xai", "grok-4.5").thinkingLevelMap);
+		expect(grok.cost.tiers).toBeUndefined();
 	});
 
 	it("uses pi-ai's Kimi catalog entries for both transports", () => {

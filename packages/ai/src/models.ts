@@ -197,33 +197,12 @@ export function getCuaModel(ref: CuaModelRef): Model<Api> {
 		throw new Error(`unsupported CUA model "${ref}"`);
 	}
 	const fromRegistry = getBuiltinModel(provider as never, modelId as never) as Model<Api> | undefined;
-	if (fromRegistry) return routeCuaApi(fromRegistry);
+	if (fromRegistry) return fromRegistry;
 	const override = CUA_MODEL_OVERRIDES[provider].find((m) => m.id === modelId);
-	if (override) return routeCuaApi(override);
+	if (override) return override;
 	throw new Error(`CUA model "${ref}" is supported but not registered. Add it to pi-ai (models.dev) or CUA_MODEL_OVERRIDES.`);
 }
 
-// Apply the model overrides that are properties of the model itself, not of
-// which tools a caller selects. Tool-driven transport selection (OpenAI's
-// native computer tool, Google's Interactions API) is derived by
-// compileCuaToolCatalog from the selected tools' provider bindings instead;
-// see CuaProviderBinding.requiresApi. What remains here is model-only:
-// grok-4.5 carries cost/compat/thinking-level overrides pi-ai's registry does
-// not have yet.
-export function routeCuaApi(model: Model<Api>): Model<Api> {
-	if (model.provider === "xai" && model.id === "grok-4.5") {
-		return {
-			...model,
-			thinkingLevelMap: { off: "low", minimal: "low", xhigh: "high" },
-			cost: {
-				...model.cost,
-				tiers: [{ inputTokensAbove: 200_000, input: 4, output: 12, cacheRead: 1, cacheWrite: 0 }],
-			},
-			compat: { supportsDeveloperRole: false, sessionAffinityFormat: "openai-nosession", supportsLongCacheRetention: false },
-		};
-	}
-	return model;
-}
 
 /** Return the {@link CuaProvider} for a concrete model, or throw when it is not a CUA provider. */
 export function providerForModel(model: Model<Api>): CuaProvider {

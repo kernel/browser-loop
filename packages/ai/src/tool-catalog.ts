@@ -1,7 +1,7 @@
 import type { Api, Model, Tool } from "@earendil-works/pi-ai";
 import type { CuaAction } from "./actions/index";
 import type { CuaModelRef } from "./models";
-import { cuaModelCapabilities, getCuaModel, providerForModel, routeCuaApi } from "./models";
+import { cuaModelCapabilities, getCuaModel, providerForModel } from "./models";
 import { anthropicAdaptiveThinkingOnPayload } from "./providers/anthropic/adaptive-thinking";
 import {
 	supportsAnthropicNativeBrowser,
@@ -206,7 +206,7 @@ const SAFE_TOOL_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 export function compileCuaToolCatalog(options: CompileCuaToolCatalogOptions): CuaToolCatalog {
 	const baseModel = typeof options.model === "string"
 		? getCuaModel(options.model)
-		: routeCuaApi(resetCatalogDerivedApi(options.model));
+		: resetCatalogDerivedApi(options.model);
 	const normalizedEntries = [...options.requestedTools].map(normalizeTool);
 	const requiresApi = validateCatalog(baseModel, normalizedEntries);
 	const model = requiresApi ? { ...baseModel, api: requiresApi } : baseModel;
