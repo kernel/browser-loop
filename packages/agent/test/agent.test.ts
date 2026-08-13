@@ -4,6 +4,7 @@ import {
 	createCuaModels,
 	getCuaModel,
 	cua,
+	GOOGLE_CUA_INTERACTIONS_API,
 	isCuaToolSpec,
 	type AssistantMessage,
 	type Context,
@@ -454,6 +455,27 @@ describe("CuaAgent explicit tools", () => {
 		expect(agent.getTools()).toEqual([switcher]);
 		expect(contexts[1]?.messages.find((message) => message.role === "toolResult")).not.toHaveProperty("addedToolNames");
 	});
+
+	it("streams with the transport setTools derives, not just the catalog it compiles", async () => {
+		const streamedApis: string[] = [];
+		const agent = new CuaAgent({
+			browser,
+			client,
+			tools: [cua.tools.browser.snapshot()],
+			streamFn: (model, context, options) => {
+				streamedApis.push(model.api);
+				return scriptedStream([(selectedModel) => assistant(selectedModel)])(model, context, options);
+			},
+			initialState: { model: "google:gemini-3.6-flash" },
+		});
+		expect(agent.getModel().api).toBe("google-generative-ai");
+
+		agent.setTools(cua.providers.google.toolsets.browser());
+		expect(agent.getModel().api).toBe(GOOGLE_CUA_INTERACTIONS_API);
+
+		await agent.prompt("go");
+		expect(streamedApis).toEqual([GOOGLE_CUA_INTERACTIONS_API]);
+	});
 });
 
 describe("CuaAgentHarness explicit tools", () => {
@@ -577,5 +599,42 @@ describe("CuaAgentHarness explicit tools", () => {
 		await harness.prompt("try again");
 
 		expect(successfulCalls).toBe(1);
+	});
+
+	it("streams with the transport setTools derives, not just the catalog it compiles", async () => {
+		const streamedApis: string[] = [];
+		const script = scriptedStream([(selectedModel) => assistant(selectedModel)]);
+		const harness = new CuaAgentHarness({
+			...(await harnessServices()),
+			browser,
+			client,
+			model: "google:gemini-3.6-flash",
+			models: modelsFromStream((model, context, options) => {
+				streamedApis.push(model.api);
+				return script(model, context, options);
+			}, "google"),
+			tools: [cua.tools.browser.snapshot()],
+		});
+		expect(harness.getModel().api).toBe("google-generative-ai");
+
+		await harness.setTools(cua.providers.google.toolsets.browser());
+		expect(harness.getModel().api).toBe(GOOGLE_CUA_INTERACTIONS_API);
+
+		await harness.prompt("go");
+		expect(streamedApis).toEqual([GOOGLE_CUA_INTERACTIONS_API]);
+	});
+
+	it("does not record a model change for a setTools() call that leaves the derived transport unchanged", async () => {
+		const services = await harnessServices();
+		const harness = new CuaAgentHarness({
+			...services,
+			browser,
+			client,
+			model: "openai:gpt-5.5",
+			tools: [callerTool("first")],
+		});
+		await harness.setTools([callerTool("second")]);
+		const modelChanges = (await services.session.getBranch()).filter((entry) => entry.type === "model_change");
+		expect(modelChanges).toEqual([]);
 	});
 });

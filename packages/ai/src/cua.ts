@@ -8,13 +8,16 @@ import {
 } from "./actions/index";
 import { supportsAnthropicNativeBrowser } from "./providers/anthropic/capabilities";
 import { mapNativeBrowserInput, mapNativeComputerInput } from "./providers/anthropic/native";
-import { toCanonicalActions as toTzafonActions } from "./providers/tzafon/provider";
+import { GOOGLE_CUA_INTERACTIONS_API } from "./providers/google/provider";
+import { OPENAI_CUA_COMPUTER_API } from "./providers/openai/provider";
+import { toCanonicalActions as toTzafonActions, TZAFON_RESPONSES_API } from "./providers/tzafon/provider";
 import {
 	toCanonicalActions as toYutoriActions,
 	YUTORI_N1_ACTION_TYPES,
 	YUTORI_N15_CORE_ACTION_TYPES,
 	YUTORI_N15_CORE_TOOL_SET,
 } from "./providers/yutori/actions";
+import { YUTORI_CHAT_COMPLETIONS_API } from "./providers/yutori/provider";
 import {
 	CUA_TOOL_SPEC_KIND,
 	type CuaCoordinateContract,
@@ -435,7 +438,7 @@ function openaiNativeComputer(): CuaToolSpec {
 		name: "computer",
 		source: providerSources.openai,
 		declaration,
-		binding: { kind: "openai-native", declaration },
+		binding: { kind: "openai-native", declaration, requiresApi: OPENAI_CUA_COMPUTER_API },
 		toActions: mapOpenAIComputerInput,
 		coordinates: pixels,
 	});
@@ -453,7 +456,7 @@ function tzafonNativeComputer(options: { displayWidth?: number; displayHeight?: 
 		name: "computer",
 		source: providerSources.tzafon,
 		declaration,
-		binding: { kind: "tzafon-native", declaration },
+		binding: { kind: "tzafon-native", declaration, requiresApi: TZAFON_RESPONSES_API },
 		toActions(input) {
 			const action = asInput(input).action;
 			return toTzafonActions(action).filter((value): value is CuaAction => value.type !== "answer");
@@ -472,6 +475,7 @@ function yutoriToolset(generation: "n1" | "n15"): CuaToolSpec[] {
 			nativeName,
 			...(generation === "n15" ? { toolSet: YUTORI_N15_CORE_TOOL_SET } : {}),
 			allNativeNames: names,
+			requiresApi: YUTORI_CHAT_COMPLETIONS_API,
 		};
 		return providerNativeSpec({
 			identity: `provider.yutori.native.${generation}.${identityName}.${generation === "n15" ? "20260403" : "v1"}`,
@@ -507,7 +511,7 @@ function googleBrowserToolset(options: GoogleBrowserToolsetOptions = {}): CuaToo
 		name: nativeName,
 		source: providerSources.google,
 		declaration: { computerUse: { environment: "ENVIRONMENT_BROWSER" } },
-		binding: { kind: "google-native", nativeName, allNativeNames: GOOGLE_BROWSER_ACTIONS },
+		binding: { kind: "google-native", nativeName, allNativeNames: GOOGLE_BROWSER_ACTIONS, requiresApi: GOOGLE_CUA_INTERACTIONS_API },
 		toActions: (input) => mapGoogleAction(nativeName, asInput(input)),
 		coordinates: normalized([0, 999]),
 	}));

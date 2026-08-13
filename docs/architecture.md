@@ -154,8 +154,8 @@ catalog:
 - Anthropic native browser/computer declarations replace only their own
   placeholders and merge required beta headers with caller headers.
 - OpenAI streams through pi's builtin Responses transport and its automatic
-  prompt caching; a CUA-owned adapter handles OpenAI's native computer tool and
-  tool-search namespace round-trips.
+  prompt caching by default; a CUA-owned adapter handles OpenAI's native
+  computer tool and tool-search namespace round-trips.
 - Tzafon replaces only the selected computer identity and fills declaration
   dimensions from the actual viewport.
 - Anthropic's native browser tool falls back to an equivalent function-tool
@@ -169,6 +169,33 @@ catalog:
   ordinary function tools.
 - Meta, xAI, and Moonshot disable parallel tool calls when the selected catalog
   can mutate browser state.
+
+### Transport derivation
+
+The transport a model streams through is a function of **(model, selected
+tools)**, derived at catalog compilation — never stamped on the model ahead of
+time and never branched on a provider name. A `CuaProviderBinding` may declare
+`requiresApi`: the api id its provider-native tool needs. `compileCuaToolCatalog`
+reads `requiresApi` off the selected bindings after normalizing the requested
+catalog and returns a `catalog.model` carrying that api; selecting tools whose
+bindings require different transports fails to compile with a named catalog
+error. A model resolved with no such tool selected keeps its ordinary registry
+api.
+
+This is why an OpenAI model selected with only CUA browser tools streams
+through pi's builtin `openai-responses` transport, but the same model selected
+with `cua.providers.openai.tools.computer()` compiles to the CUA-owned
+`openai-cua-computer` api — and symmetrically for Google's
+`google-cua-interactions` Interactions API versus pi's builtin Google
+transport. Tzafon and Yutori declare `requiresApi` too, but their models always
+carry that api regardless of tool selection: pi ships no transport for either
+provider at all, so `routeCuaApi` (model-shaped, not tool-shaped) forces it
+unconditionally.
+
+`CuaAgent` and `CuaAgentHarness` push the compiled `catalog.model` into pi on
+every construction and on every `setTools()`/`setModel()`, so the derived
+transport applies uniformly regardless of which mutation path selected the
+tools.
 
 Generated payload processing has fixed order: model preparation, tool
 serialization, provider fields, then the caller's `onPayload` hook.

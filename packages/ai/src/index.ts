@@ -4,6 +4,7 @@ export {
 	createCuaModels,
 	cuaModels,
 	GOOGLE_CUA_INTERACTIONS_API,
+	OPENAI_CUA_COMPUTER_API,
 	streamGoogleInteractions,
 	streamOpenAIResponses,
 	streamSimpleGoogleInteractions,

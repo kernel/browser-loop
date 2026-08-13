@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.12.0 - 2026-08-13
+
+Breaking: Google's api id is now derived from selected tools, not stamped on
+every Google model.
+
+- `compileCuaToolCatalog` derives the compiled model's `api` from the selected
+  tools' provider bindings: a `CuaProviderBinding` may declare `requiresApi`,
+  and the returned `catalog.model` carries that transport. Selecting tools
+  whose bindings require different transports fails to compile with a named
+  catalog error. This makes transport a function of `(model, selected tools)`
+  instead of `(model)` alone.
+- `getCuaModel("google:...")` no longer forces `google-cua-interactions`. A
+  Google model resolved without Google's native browser toolset selected now
+  keeps pi-ai's builtin `google-generative-ai` transport; selecting
+  `cua.providers.google.toolsets.browser()` still compiles to
+  `google-cua-interactions` as before. `routeCuaApi` no longer touches Google
+  at all — it's now scoped to genuinely model-shaped routing (Tzafon and
+  Yutori, which pi ships no transport for at all, and grok-4.5's cost/compat
+  overrides).
+- Add `OPENAI_CUA_COMPUTER_API` (`"openai-cua-computer"`). A model compiled
+  with `cua.providers.openai.tools.computer()` selected now carries this api;
+  the OpenAI provider wrapper dispatches to the CUA adapter on `model.api`
+  alone for that case. The one remaining request-shape check,
+  `requiresCuaOpenAINamespaceAdapter` (renamed from `requiresCuaOpenAIAdapter`,
+  which also tested for the native computer tool), covers only the case that
+  cannot be derived from the model: a transcript carrying a deferred
+  tool-search addition or a replayed function-call namespace, which pi-ai's
+  builtin transport does not round-trip.
+
 ## 0.11.0 - 2026-08-13
 
 Breaking: OpenAI models no longer carry a CUA-owned api id.

@@ -1,6 +1,7 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { getBuiltinModel, getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
-import { GOOGLE_CUA_INTERACTIONS_API } from "./providers/google/provider";
+import { TZAFON_RESPONSES_API } from "./providers/tzafon/provider";
+import { YUTORI_CHAT_COMPLETIONS_API } from "./providers/yutori/provider";
 
 /** Providers with curated computer-use model support. */
 export type CuaProvider = "openai" | "anthropic" | "google" | "meta" | "xai" | "moonshotai" | "openrouter" | "tzafon" | "yutori";
@@ -226,14 +227,21 @@ export function getCuaModel(ref: CuaModelRef): Model<Api> {
 	throw new Error(`CUA model "${ref}" is supported but not registered. Add it to pi-ai (models.dev) or CUA_MODEL_OVERRIDES.`);
 }
 
-// Route CUA models to provider-specific transports. OpenAI keeps pi-ai's
-// builtin "openai-responses" api and streams through its automatic prompt
-// caching; the CUA adapter dispatches on request shape (see
-// requiresCuaOpenAIAdapter), not on a rerouted api id. Other registry-resolved
-// models otherwise carry pi-ai's builtin API ids too.
+// Route CUA models to provider-specific transports that are properties of the
+// model itself, not of which tools a caller selects. Tool-driven transport
+// selection (OpenAI's native computer tool, Google's Interactions API) is
+// derived by compileCuaToolCatalog from the selected tools' provider bindings
+// instead; see CuaProviderBinding.requiresApi. What remains here is model-only:
+// Tzafon and Yutori get no transport from pi-ai at all, so every model on
+// those providers always carries CUA's own api id regardless of tool
+// selection, and grok-4.5 carries cost/compat/thinking-level overrides pi-ai's
+// registry does not have yet.
 export function routeCuaApi(model: Model<Api>): Model<Api> {
-	if (model.provider === "google" && model.api !== GOOGLE_CUA_INTERACTIONS_API) {
-		return { ...model, api: GOOGLE_CUA_INTERACTIONS_API };
+	if (model.provider === "tzafon" && model.api !== TZAFON_RESPONSES_API) {
+		return { ...model, api: TZAFON_RESPONSES_API };
+	}
+	if (model.provider === "yutori" && model.api !== YUTORI_CHAT_COMPLETIONS_API) {
+		return { ...model, api: YUTORI_CHAT_COMPLETIONS_API };
 	}
 	if (model.provider === "xai" && model.id === "grok-4.5") {
 		return {

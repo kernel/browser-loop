@@ -7,7 +7,6 @@ import {
 	findCuaAnnotation,
 	formatCuaModelRef,
 	getCuaModel,
-	GOOGLE_CUA_INTERACTIONS_API,
 	listCuaModels,
 	parseCuaModelRef,
 } from "../src/index";
@@ -70,7 +69,7 @@ describe("CUA model refs", () => {
 		expect(cuaOverrideModels("google")).toEqual([]);
 		expect(getCuaModel("google:gemini-3.6-flash")).toMatchObject({
 			provider: "google",
-			api: GOOGLE_CUA_INTERACTIONS_API,
+			api: "google-generative-ai",
 			contextWindow: 1_048_576,
 		});
 
@@ -131,14 +130,15 @@ describe("CUA model refs", () => {
 		expect(getCuaModel("yutori:n1.5-latest").api).toBe("yutori-chat-completions");
 	});
 
-	it("keeps every Responses model on pi's builtin transport except Google's Interactions API", () => {
-		// A CUA-owned api id now exists only where pi ships no equivalent
-		// transport. OpenAI, Meta, and xAI all speak the Responses protocol pi
-		// already implements, including its automatic prompt caching.
+	it("resolves every model to its ordinary registry transport, independent of tool selection", () => {
+		// getCuaModel() never derives a tool-driven transport: OPENAI_CUA_COMPUTER_API
+		// and GOOGLE_CUA_INTERACTIONS_API are only ever carried by a model that
+		// compileCuaToolCatalog compiled with the matching native tool selected
+		// (see tool-catalog.test.ts's transport derivation coverage).
 		expect(getCuaModel("openai:gpt-5.6-sol").api).toBe("openai-responses");
 		expect(getCuaModel("openai:gpt-5.5").api).toBe("openai-responses");
 		expect(getCuaModel("openai:gpt-5.4-mini").api).toBe("openai-responses");
-		expect(getCuaModel("google:gemini-3.6-flash").api).toBe(GOOGLE_CUA_INTERACTIONS_API);
+		expect(getCuaModel("google:gemini-3.6-flash").api).toBe("google-generative-ai");
 		expect(getCuaModel("meta:muse-spark-1.1").api).toBe("openai-responses");
 		expect(getCuaModel("xai:grok-4.5").api).toBe("openai-responses");
 	});

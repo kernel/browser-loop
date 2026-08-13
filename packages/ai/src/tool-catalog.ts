@@ -7,6 +7,8 @@ import {
 	supportsAnthropicNativeBrowser,
 	supportsAnthropicNativeComputer,
 } from "./providers/anthropic/capabilities";
+import { GOOGLE_CUA_INTERACTIONS_API } from "./providers/google/provider";
+import { OPENAI_CUA_COMPUTER_API } from "./providers/openai/provider";
 
 export const CUA_TOOL_SPEC_KIND = "@onkernel/cua-tool-spec/v1" as const;
 
@@ -36,10 +38,17 @@ export type CuaProviderBinding =
 			readonly beta: string;
 			readonly accessFallback?: CuaAnthropicBrowserFallback;
 	  }
-	| { readonly kind: "openai-native"; readonly declaration: Record<string, unknown> }
+	| {
+			readonly kind: "openai-native";
+			readonly declaration: Record<string, unknown>;
+			/** Transport this binding requires the compiled catalog's model to carry. */
+			readonly requiresApi?: Api;
+	  }
 	| {
 			readonly kind: "tzafon-native";
 			readonly declaration: Record<string, unknown>;
+			/** Transport this binding requires the compiled catalog's model to carry. */
+			readonly requiresApi?: Api;
 	  }
 	| {
 			readonly kind: "yutori-native";
@@ -47,11 +56,15 @@ export type CuaProviderBinding =
 			readonly nativeName: string;
 			readonly toolSet?: string;
 			readonly allNativeNames: readonly string[];
+			/** Transport this binding requires the compiled catalog's model to carry. */
+			readonly requiresApi?: Api;
 	  }
 	| {
 			readonly kind: "google-native";
 			readonly nativeName: string;
 			readonly allNativeNames: readonly string[];
+			/** Transport this binding requires the compiled catalog's model to carry. */
+			readonly requiresApi?: Api;
 	  };
 
 /** Declarative CUA tool. Identity is immutable and independent from its model-facing alias. */
@@ -202,12 +215,21 @@ const SAFE_TOOL_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
  * requested list. Pure and declaration-only: identical declaration, model,
  * and viewport inputs produce identical catalogs, and compilation never
  * constructs executable tools or retains the requested input objects.
+ *
+ * The compiled model's `api` is derived here, not stamped on the model ahead
+ * of time: a selected tool's provider binding may declare `requiresApi`, and
+ * the returned `catalog.model` carries that transport. A model resolved with
+ * no such tool selected keeps its ordinary registry `api`. Selecting tools
+ * whose bindings require different transports fails to compile.
  */
 export function compileCuaToolCatalog(options: CompileCuaToolCatalogOptions): CuaToolCatalog {
-	const model = typeof options.model === "string" ? getCuaModel(options.model) : routeCuaApi(options.model);
+	const baseModel = typeof options.model === "string"
+		? getCuaModel(options.model)
+		: routeCuaApi(resetCatalogDerivedApi(options.model));
 	const viewport = options.viewport;
 	const normalizedEntries = [...options.requestedTools].map((tool) => normalizeTool(tool, viewport));
-	validateCatalog(model, normalizedEntries);
+	const requiresApi = validateCatalog(baseModel, normalizedEntries);
+	const model = requiresApi ? { ...baseModel, api: requiresApi } : baseModel;
 	const drafts = resolveProviderFacingDeclarations(normalizedEntries);
 
 	const names = new Map(drafts.map((entry) => [entry.identity, entry.name]));
@@ -360,7 +382,8 @@ function resolveProviderFacingDeclarations(entries: readonly CuaCatalogEntryDraf
 	});
 }
 
-function validateCatalog(model: Model<Api>, entries: readonly CuaCatalogEntryDraft[]): void {
+/** Validate the requested catalog against the model and return the transport its selected tools require, if any. */
+function validateCatalog(model: Model<Api>, entries: readonly CuaCatalogEntryDraft[]): Api | undefined {
 	const identities = new Map<string, CuaCatalogEntryDraft>();
 	const exactNames = new Map<string, CuaCatalogEntryDraft>();
 	const normalizedNames = new Map<string, CuaCatalogEntryDraft>();
@@ -387,7 +410,7 @@ function validateCatalog(model: Model<Api>, entries: readonly CuaCatalogEntryDra
 		validateToolCompatibility(model, entry);
 	}
 
-	validateToolsetCompatibility(model, entries);
+	return validateToolsetCompatibility(model, entries);
 }
 
 function nameCollision(
@@ -432,7 +455,8 @@ function validateAnthropicNativeModel(model: Model<Api>, identity: string): void
 	}
 }
 
-function validateToolsetCompatibility(model: Model<Api>, entries: readonly CuaCatalogEntryDraft[]): void {
+/** Validate the selected native tools agree on a provider and a transport, and return the transport they require, if any. */
+function validateToolsetCompatibility(model: Model<Api>, entries: readonly CuaCatalogEntryDraft[]): Api | undefined {
 	const yutoriN1 = entries.filter((entry) => entry.providerBinding?.kind === "yutori-native" && entry.providerBinding.generation === "n1");
 	if (yutoriN1.length > 0) {
 		const all = yutoriN1[0]!.providerBinding;
@@ -448,6 +472,36 @@ function validateToolsetCompatibility(model: Model<Api>, entries: readonly CuaCa
 		throw new Error(`selected tools contribute incompatible native provider transports: ${[...nativeProviderKinds].join(", ")}`);
 	}
 	providerForModel(model);
+
+	const requiresApis = new Set(entries.flatMap((entry) => bindingRequiresApi(entry.providerBinding)));
+	if (requiresApis.size > 1) {
+		throw new Error(`selected tools require incompatible provider transports: ${[...requiresApis].join(", ")}`);
+	}
+	return requiresApis.values().next().value;
+}
+
+/** The transport a provider binding requires, if it declares one. Anthropic never forks transports and declares none. */
+function bindingRequiresApi(binding: CuaProviderBinding | undefined): readonly [Api] | readonly [] {
+	return binding && binding.kind !== "anthropic-native" && binding.requiresApi ? [binding.requiresApi] : [];
+}
+
+/**
+ * Model-shaped default transport for each `requiresApi` this module can
+ * derive, keyed by the derived api itself. A `Model<Api>` a caller passes to
+ * {@link compileCuaToolCatalog} may already carry one of these — e.g. a prior
+ * catalog's `catalog.model`, fed back in with a different tool selection — so
+ * derivation resets it here before re-validating, keeping compilation pure
+ * with respect to the currently requested tools rather than pinning whatever
+ * transport an earlier selection required.
+ */
+const CATALOG_DERIVED_API_DEFAULTS: Readonly<Record<string, Api>> = {
+	[OPENAI_CUA_COMPUTER_API]: "openai-responses",
+	[GOOGLE_CUA_INTERACTIONS_API]: "google-generative-ai",
+};
+
+function resetCatalogDerivedApi(model: Model<Api>): Model<Api> {
+	const defaultApi = CATALOG_DERIVED_API_DEFAULTS[model.api];
+	return defaultApi ? { ...model, api: defaultApi } : model;
 }
 
 function compileHeaderRequirements(entries: readonly CuaCatalogEntryDraft[]): CuaHeaderRequirement[] {

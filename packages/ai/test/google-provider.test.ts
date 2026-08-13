@@ -3,7 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { getCuaModel } from "../src/index";
 import * as google from "../src/providers/google/provider";
 
-const model = getCuaModel("google:gemini-3.6-flash") as Model<typeof google.GOOGLE_CUA_INTERACTIONS_API>;
+// This adapter is exercised directly (not through compileCuaToolCatalog's
+// derivation), so the model must carry the Interactions api itself.
+const model: Model<typeof google.GOOGLE_CUA_INTERACTIONS_API> = { ...getCuaModel("google:gemini-3.6-flash"), api: google.GOOGLE_CUA_INTERACTIONS_API };
 const incoming = {
 	googleNames: { click: "click" },
 	googleExcludedNames: ["take_screenshot"],

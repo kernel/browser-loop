@@ -258,6 +258,7 @@ export class CuaAgent {
 
 	setTools(tools: readonly CuaAgentTool[]): void {
 		const prepared = this.tools.prepareTools(tools);
+		this.coreAgent.state.model = prepared.catalog.model;
 		this.coreAgent.state.tools = this.tools.agentTools(prepared);
 		this.tools.commit(prepared);
 		this.runtimeDirty = true;
@@ -402,12 +403,16 @@ export class CuaAgentHarness<
 	getTools(): readonly CuaHarnessTool<TContext>[] { return this.tools.getTools(); }
 
 	async setTools(tools: readonly CuaHarnessTool<TContext>[]): Promise<void> {
+		const previousModel = this.tools.catalog.model;
 		const previousTools = this.tools.harnessTools();
 		const prepared = this.tools.prepareTools(tools);
 		const materialized = this.tools.harnessTools(prepared);
+		const transportChanged = modelTransportChanged(previousModel, prepared.catalog.model);
 		try {
+			if (transportChanged) await this.coreHarness.setModel(prepared.catalog.model);
 			await this.coreHarness.setTools(materialized, materialized.map((tool) => tool.name));
 		} catch (error) {
+			if (transportChanged) await this.coreHarness.setModel(previousModel);
 			await this.coreHarness.setTools(previousTools, previousTools.map((tool) => tool.name));
 			throw error;
 		}
@@ -474,6 +479,11 @@ function resolveModelFromCollection(ref: CuaModelRef, models: Models): Model<Api
 	const { provider, model: id } = parseCuaModelRef(ref);
 	if (!findCuaAnnotation(provider, id)) throw new Error(`unsupported CUA model "${ref}"`);
 	return models.getModel(provider, id) ?? getCuaModel(ref);
+}
+
+/** Whether a tools-only recompile actually changed the model pi streams with, so `setTools()` only pushes `setModel()` (and its session/event side effects) when the derived transport moved. */
+function modelTransportChanged(previous: Model<Api>, next: Model<Api>): boolean {
+	return previous.provider !== next.provider || previous.id !== next.id || previous.api !== next.api;
 }
 
 function withCatalogModels(

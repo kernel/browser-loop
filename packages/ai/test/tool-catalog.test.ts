@@ -4,6 +4,8 @@ import {
 	callerToolIdentity,
 	compileCuaToolCatalog,
 	cua,
+	GOOGLE_CUA_INTERACTIONS_API,
+	OPENAI_CUA_COMPUTER_API,
 	type CuaToolSpec,
 } from "../src/index";
 
@@ -346,5 +348,56 @@ describe("compileCuaToolCatalog", () => {
 		expect(second.fingerprint).toBe(first.fingerprint);
 		expect(second.entries.map((entry) => entry.fingerprint)).toEqual(first.entries.map((entry) => entry.fingerprint));
 		expect(second.toolDeclarations.map((tool) => tool.name)).toEqual(first.toolDeclarations.map((tool) => tool.name));
+	});
+});
+
+describe("transport derivation", () => {
+	it("keeps an OpenAI model on its registry api when only CUA browser tools are selected", () => {
+		const catalog = compile("openai:gpt-5.5", cua.toolsets.browser());
+		expect(catalog.model.api).toBe("openai-responses");
+	});
+
+	it("derives OPENAI_CUA_COMPUTER_API when OpenAI's native computer tool is selected", () => {
+		const catalog = compile("openai:gpt-5.5", [cua.providers.openai.tools.computer()]);
+		expect(catalog.model.api).toBe(OPENAI_CUA_COMPUTER_API);
+	});
+
+	it("keeps a Google model on pi's builtin transport when only CDP browser tools are selected", () => {
+		const catalog = compile("google:gemini-3.6-flash", [cua.tools.browser.snapshot(), cua.tools.browser.click()]);
+		expect(catalog.model.api).toBe("google-generative-ai");
+	});
+
+	it("derives GOOGLE_CUA_INTERACTIONS_API when Google's native browser toolset is selected", () => {
+		const catalog = compile("google:gemini-3.6-flash", cua.providers.google.toolsets.browser());
+		expect(catalog.model.api).toBe(GOOGLE_CUA_INTERACTIONS_API);
+	});
+
+	it("rejects a catalog whose selected tools require conflicting transports", () => {
+		const [click, scroll] = cua.providers.google.toolsets.browser();
+		const conflicting: CuaToolSpec = {
+			...scroll!,
+			identity: "test.conflicting-transport.v1",
+			providerBinding: { kind: "google-native", nativeName: "conflict", allNativeNames: ["conflict"], requiresApi: OPENAI_CUA_COMPUTER_API },
+		};
+		expect(() => compile("google:gemini-3.6-flash", [click!, conflicting])).toThrow(/incompatible provider transports/);
+	});
+
+	it("re-derives from a model object that already carries a stale derived api, instead of pinning it", () => {
+		const nativeCatalog = compile("google:gemini-3.6-flash", cua.providers.google.toolsets.browser());
+		expect(nativeCatalog.model.api).toBe(GOOGLE_CUA_INTERACTIONS_API);
+
+		const recompiled = compile(nativeCatalog.model, [cua.tools.browser.snapshot(), cua.tools.browser.click()]);
+		expect(recompiled.model.api).toBe("google-generative-ai");
+
+		const reselected = compile(recompiled.model, cua.providers.google.toolsets.browser());
+		expect(reselected.model.api).toBe(GOOGLE_CUA_INTERACTIONS_API);
+	});
+
+	it("re-derives an OpenAI model object that already carries a stale derived api, instead of pinning it", () => {
+		const nativeCatalog = compile("openai:gpt-5.5", [cua.providers.openai.tools.computer()]);
+		expect(nativeCatalog.model.api).toBe(OPENAI_CUA_COMPUTER_API);
+
+		const recompiled = compile(nativeCatalog.model, cua.toolsets.browser());
+		expect(recompiled.model.api).toBe("openai-responses");
 	});
 });

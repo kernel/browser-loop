@@ -40,6 +40,14 @@ export type CuaHarnessTool<TContext extends object | undefined = never> = CuaToo
  */
 export interface PreparedCuaTools<TRequested extends CuaHarnessTool<any> = CuaAgentTool> {
 	readonly requested: readonly TRequested[];
+	/**
+	 * The model input this state was compiled from, before catalog compilation
+	 * derived a tool-selection-dependent transport onto it. A tools-only
+	 * recompile reuses this (not `catalog.model`, which may carry a transport
+	 * the new tool selection no longer requires) so the derivation re-runs from
+	 * a clean model every time.
+	 */
+	readonly modelSelection: CuaModelRef | Model<Api>;
 	readonly catalog: CuaToolCatalog;
 	readonly tools: readonly AgentTool[];
 	readonly harnessTools: readonly AgentHarnessTool<any>[];
@@ -112,7 +120,7 @@ export class CuaToolManager<TRequested extends CuaHarnessTool<any> = CuaAgentToo
 
 	prepareTools(tools: readonly TRequested[]): PreparedCuaTools<TRequested> {
 		this.assertMutationScope("setTools");
-		return this.prepare(this.current.catalog.model, tools);
+		return this.prepare(this.current.modelSelection, tools);
 	}
 
 	prepareModel(model: CuaModelRef | Model<Api>): PreparedCuaTools<TRequested> {
@@ -174,6 +182,7 @@ export class CuaToolManager<TRequested extends CuaHarnessTool<any> = CuaAgentToo
 
 		return Object.freeze({
 			requested,
+			modelSelection: model,
 			catalog,
 			tools: Object.freeze(joined.map((tool) => this.wrapAgentExecutable(tool as AgentTool))),
 			harnessTools: Object.freeze(joined.map((tool) => this.wrapHarnessExecutable(tool))),

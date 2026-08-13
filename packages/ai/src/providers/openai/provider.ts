@@ -25,6 +25,9 @@ import { buildBaseOptions } from "@earendil-works/pi-ai/api/simple-options";
 import type { CuaIncomingToolPlan } from "../../tool-catalog";
 import type { CuaSimpleStreamOptions } from "../common";
 
+/** CUA-owned api id for OpenAI's native computer tool, derived onto the model by compileCuaToolCatalog when that tool is selected. */
+export const OPENAI_CUA_COMPUTER_API = "openai-cua-computer";
+
 export interface OpenAIResponsesOptions extends PiOpenAIResponsesOptions {
 	/** @internal Identity-addressed native dispatch compiled from selected tools. */
 	cuaIncomingToolPlan?: CuaIncomingToolPlan;
@@ -34,16 +37,14 @@ export interface OpenAIResponsesOptions extends PiOpenAIResponsesOptions {
 type OpenAIRequestOptions = Pick<OpenAIResponsesOptions, "apiKey" | "cacheRetention" | "env" | "headers" | "sessionId">;
 
 /**
- * Whether a request needs cua-ai's OpenAI Responses adapter instead of pi-ai's
- * builtin `openai-responses` transport: OpenAI's native computer tool is
- * selected, or the transcript carries state (a deferred tool-search addition,
- * or a replayed function-call namespace) that only this adapter round-trips.
+ * The one dispatch cua-ai's OpenAI provider wrapper cannot derive from the
+ * model's `api`: whether the transcript carries state (a deferred tool-search
+ * addition, or a replayed function-call namespace) that only this adapter
+ * round-trips, because pi-ai's builtin `openai-responses` transport does not
+ * parse or replay `function_call`'s `namespace` field. Every other dispatch —
+ * including OpenAI's native computer tool — is decided by `model.api` instead.
  */
-export function requiresCuaOpenAIAdapter(context: Context, options?: unknown): boolean {
-	// pi's Provider.stream signature hides cua's added option, so the plan is
-	// read structurally here rather than at both call sites.
-	const cuaIncomingToolPlan = (options as { cuaIncomingToolPlan?: CuaIncomingToolPlan } | undefined)?.cuaIncomingToolPlan;
-	if (cuaIncomingToolPlan?.openaiComputerName) return true;
+export function requiresCuaOpenAINamespaceAdapter(context: Context): boolean {
 	for (const message of context.messages) {
 		if (message.role === "toolResult" && (message.addedToolNames?.length ?? 0) > 0) return true;
 		if (message.role === "assistant" && message.content.some((part) => part.type === "toolCall" && toolCallNamespace(part))) return true;

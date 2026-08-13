@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.12.0 - 2026-08-13
+
+- Update `@onkernel/cua-ai` to 0.12.0. The model streamed for a Google model
+  now depends on which tools `CuaAgent`/`CuaAgentHarness` were constructed or
+  mutated with: selecting Google's native browser toolset still compiles to
+  the CUA-owned Interactions API, but a Google model selected with only CDP
+  browser tools now streams through pi's builtin Google transport instead of
+  always carrying the CUA-owned api. This applies uniformly across
+  construction, `setTools()`, and `setModel()`, since all three feed the same
+  compiled `catalog.model` into pi.
+- Fix `setTools()` recompiling from the previously *compiled* model instead of
+  the caller's model selection: dropping a native toolset that had derived a
+  tool-selection-dependent api (e.g. Google's Interactions API) left
+  subsequent tools-only recompiles stuck on that api even though the new
+  selection no longer required it. `CuaToolManager` now recompiles tools-only
+  changes from the model input the caller last selected.
+
 ## 0.11.0 - 2026-08-13
 
 - `responseThreading` (`CuaAgentOptions`/`CuaAgentHarnessOptions`) no longer

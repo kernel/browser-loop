@@ -41,8 +41,9 @@ describe("createCuaModels", () => {
 		const openaiIds = models.getModels("openai").map((m) => m.id);
 		expect(openaiIds).toContain("gpt-5.4");
 		// OpenAI models keep pi's builtin "openai-responses" api id on both the
-		// collection and getCuaModel(); the wrapped provider only intercepts
-		// requests that need the CUA adapter (see requiresCuaOpenAIAdapter).
+		// collection and getCuaModel(); the wrapped provider only intercepts a
+		// model carrying OPENAI_CUA_COMPUTER_API or a namespace round-trip (see
+		// requiresCuaOpenAINamespaceAdapter).
 		expect(models.getModel("openai", "gpt-5.4")?.api).toBe("openai-responses");
 
 		const xaiIds = models.getModels("xai").map((m) => m.id);

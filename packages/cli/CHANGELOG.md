@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.11.0 - 2026-08-13
+
+- Update `@onkernel/cua-ai` and `@onkernel/cua-agent` to 0.12.0. The default
+  Google interaction catalog is unchanged (`defaultInteractionTools` still
+  selects Google's native browser toolset), so the default `cua` model and
+  `--print -o jsonl`'s `assistant_usage.api` field for Google are unaffected
+  as long as that native toolset stays selected, including across an in-session
+  `/model` switch. Only a `/tools` selection that drops Google's native toolset
+  now reports pi's builtin `google-generative-ai` api instead of the CUA-owned
+  one.
+
 ## 0.10.0 - 2026-08-13
 
 - `--print -o jsonl` schema bumps to version 2: every assistant message now
