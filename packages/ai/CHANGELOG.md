@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.11.0 - 2026-08-13
+
+Breaking: OpenAI models no longer carry a CUA-owned api id.
+
+- OpenAI models now resolve to pi-ai's builtin `"openai-responses"` api
+  instead of the removed `openai-cua-responses`, and stream through pi's
+  builtin Responses transport (`store: false`, automatic prompt-cache-key
+  matching) by default. `OPENAI_CUA_RESPONSES_API` and the OpenAI adapter's
+  `previous_response_id` threading are removed; `previous_response_id` and
+  `store: true` no longer appear on any OpenAI request.
+- The CUA-owned OpenAI adapter is retained but now dispatches on request
+  shape rather than a rerouted api id: it only intercepts requests that select
+  OpenAI's native computer tool, or whose transcript carries a deferred
+  tool-search addition or a replayed function-call namespace (pi-ai 0.83.0's
+  builtin transport does not round-trip either).
+- OpenAI's native computer adapter now sends the same `prompt_cache_key`,
+  `prompt_cache_retention`, `prompt_cache_options`, and session-affinity
+  headers as the function-tool path. It previously relied on stored response
+  state for context reuse and sent no cache key of its own.
+- Remove the xAI and Meta Responses forks. Both existed only to thread
+  `previous_response_id` and to set `parallel_tool_calls: false`, which the tool
+  catalog already emits for those providers. `xai-cua-responses` and
+  `meta-responses` are gone: Grok streams through pi's builtin xAI provider, and
+  Meta registers pi's builtin Responses transport against its own base URL and
+  credentials. `XAI_CUA_RESPONSES_API`, `META_RESPONSES_API`,
+  `streamXaiResponses`, `streamSimpleXaiResponses`, `streamMetaResponses`, and
+  `streamSimpleMetaResponses` are no longer exported. Meta also regains pi's
+  stateless encrypted-reasoning replay, which the fork deleted because it relied
+  on stored response state.
+- Google and Tzafon keep their continuation protocols: each threads a
+  provider-specific field with no builtin equivalent, and the shared helpers in
+  `providers/common.ts` are unchanged for them.
+
 ## 0.10.0 - 2026-08-04
 
 Breaking: upgrade `@earendil-works/pi-ai` to 0.83.0.

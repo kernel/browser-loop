@@ -92,6 +92,7 @@ export type CuaAgentOptions = Omit<AgentOptions, "initialState" | "streamFn"> & 
 	streamFn?: AgentOptions["streamFn"];
 	emptyResponseRecovery?: CuaEmptyResponseRecoveryOptions;
 	toolResultImageReplayLimit?: ToolResultImageReplayLimit;
+	/** Governs Google and Tzafon's `previous_response_id`-style continuation. Every other provider streams through pi's transports and their automatic prompt caching regardless of this flag. Defaults to `true`. */
 	responseThreading?: boolean;
 	retry?: CuaRetryOptions;
 };
@@ -112,6 +113,7 @@ type CuaAgentHarnessOptionsBase<
 	onPayload?: SimpleStreamOptions["onPayload"];
 	emptyResponseRecovery?: CuaEmptyResponseRecoveryOptions;
 	toolResultImageReplayLimit?: ToolResultImageReplayLimit;
+	/** Governs Google and Tzafon's `previous_response_id`-style continuation. Every other provider streams through pi's transports and their automatic prompt caching regardless of this flag. Defaults to `true`. */
 	responseThreading?: boolean;
 	retry?: CuaRetryOptions;
 };
@@ -203,7 +205,7 @@ export class CuaAgent {
 			transformContext: async (messages, signal) => projectToolResultImages(
 				transformContext ? await transformContext(messages, signal) : messages,
 				imageReplayLimit,
-				manager.catalog.incoming.tzafonComputerName,
+				requiredImageToolNames(manager.catalog.incoming),
 			),
 			prepareNextTurnWithContext: async (context, signal) => {
 				const update = prepareNextTurnWithContext
@@ -483,7 +485,7 @@ function withCatalogModels(
 	const contextFor = (context: Context) => projectModelContext(
 		context,
 		imageReplayLimit,
-		manager.catalog.incoming.tzafonComputerName,
+		requiredImageToolNames(manager.catalog.incoming),
 	);
 	const optionsFor = <T extends SimpleStreamOptions | undefined>(options: T): T => {
 		const catalog = manager.catalog;
@@ -525,15 +527,20 @@ function resolveToolResultImageReplayLimit(limit: ToolResultImageReplayLimit | u
 	return limit;
 }
 
+/** Native computer tool names whose screenshot history the provider protocol requires in full, regardless of the image replay limit. */
+function requiredImageToolNames(incoming: CuaIncomingToolPlan): ReadonlySet<string> {
+	return new Set([incoming.tzafonComputerName, incoming.openaiComputerName].filter((name): name is string => !!name));
+}
+
 function projectToolResultImages<TMessage extends AgentMessage>(
 	messages: TMessage[],
 	limit: ToolResultImageReplayLimit,
-	requiredImageToolName?: string,
+	requiredToolNames: ReadonlySet<string> = new Set(),
 ): TMessage[] {
 	if (limit === false) return messages;
 	let imageCount = 0;
 	for (const message of messages) {
-		if (message.role === "toolResult" && message.toolName !== requiredImageToolName) {
+		if (message.role === "toolResult" && !requiredToolNames.has(message.toolName)) {
 			imageCount += message.content.filter((block) => block.type === "image").length;
 		}
 	}
@@ -541,7 +548,7 @@ function projectToolResultImages<TMessage extends AgentMessage>(
 	const firstRetainedImage = Math.max(0, imageCount - limit);
 	let imageOrdinal = 0;
 	return messages.map((message) => {
-		if (message.role !== "toolResult" || message.toolName === requiredImageToolName) return message;
+		if (message.role !== "toolResult" || requiredToolNames.has(message.toolName)) return message;
 		let changed = false;
 		let markerInserted = false;
 		const content = [] as typeof message.content;
@@ -563,9 +570,9 @@ function projectToolResultImages<TMessage extends AgentMessage>(
 function projectModelContext(
 	context: Context,
 	imageReplayLimit: ToolResultImageReplayLimit,
-	requiredImageToolName?: string,
+	requiredToolNames: ReadonlySet<string>,
 ): Context {
-	const messages = projectToolResultImages(context.messages, imageReplayLimit, requiredImageToolName);
+	const messages = projectToolResultImages(context.messages, imageReplayLimit, requiredToolNames);
 	return messages === context.messages ? context : { ...context, messages };
 }
 

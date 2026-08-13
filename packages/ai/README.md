@@ -240,8 +240,9 @@ additions through pi's active-tool change entries.
 
 ## Provider behavior
 
-- **OpenAI**: CUA-owned Responses transport for native computer plus ordinary
-  function composition and response threading.
+- **OpenAI**: streams through pi's builtin Responses transport and its
+  automatic prompt caching by default. A CUA-owned adapter is used only for
+  OpenAI's native computer tool and for tool-search namespace round-trips.
 - **Anthropic**: exact native declarations, beta-header composition, and
   adaptive model preparation.
 - **Google**: a CUA-owned Interactions API adapter plus the current predefined

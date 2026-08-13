@@ -204,9 +204,17 @@ Add `--jsonl-include-deltas` for assistant-token deltas and
 
 The first event of every `--print -o jsonl` run is
 `session_created` with a `schema_version` field. The current schema
-version is `1`. The `model` field carries a provider-qualified ref
+version is `2`. The `model` field carries a provider-qualified ref
 (e.g. `openai:gpt-5.6-sol`); use `parseCuaModelRef` from `@onkernel/cua-ai`
 if you only need the bare model id.
+
+Every assistant message also emits an `assistant_usage` event (including
+tool-only turns with no text): `turn`, `model`, `api`, `input`, `output`,
+`cache_read`, `cache_write`, `reasoning`, `total_tokens`, and
+`cache_hit_ratio`. OpenAI's billed prompt tokens are `input + cache_read +
+cache_write` (the provider already subtracts cached and cache-write tokens
+out of `input`), so `cache_hit_ratio` is `cache_read` over that total,
+reported as `0` when the total is `0`.
 
 ## Sessions and transcripts
 

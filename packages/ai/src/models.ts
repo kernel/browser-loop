@@ -1,9 +1,6 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { getBuiltinModel, getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
 import { GOOGLE_CUA_INTERACTIONS_API } from "./providers/google/provider";
-import { META_RESPONSES_API } from "./providers/meta/provider";
-import { OPENAI_CUA_RESPONSES_API } from "./providers/openai/provider";
-import { XAI_CUA_RESPONSES_API } from "./providers/xai/provider";
 
 /** Providers with curated computer-use model support. */
 export type CuaProvider = "openai" | "anthropic" | "google" | "meta" | "xai" | "moonshotai" | "openrouter" | "tzafon" | "yutori";
@@ -229,22 +226,18 @@ export function getCuaModel(ref: CuaModelRef): Model<Api> {
 	throw new Error(`CUA model "${ref}" is supported but not registered. Add it to pi-ai (models.dev) or CUA_MODEL_OVERRIDES.`);
 }
 
-// Route CUA models to provider-specific transports. Registry-resolved models
-// otherwise carry pi-ai's builtin API ids.
+// Route CUA models to provider-specific transports. OpenAI keeps pi-ai's
+// builtin "openai-responses" api and streams through its automatic prompt
+// caching; the CUA adapter dispatches on request shape (see
+// requiresCuaOpenAIAdapter), not on a rerouted api id. Other registry-resolved
+// models otherwise carry pi-ai's builtin API ids too.
 export function routeCuaApi(model: Model<Api>): Model<Api> {
 	if (model.provider === "google" && model.api !== GOOGLE_CUA_INTERACTIONS_API) {
 		return { ...model, api: GOOGLE_CUA_INTERACTIONS_API };
 	}
-	if (model.provider === "openai" && model.api !== OPENAI_CUA_RESPONSES_API) {
-		return { ...model, api: OPENAI_CUA_RESPONSES_API };
-	}
-	if (model.provider === "meta" && model.api !== META_RESPONSES_API) {
-		return { ...model, api: META_RESPONSES_API };
-	}
 	if (model.provider === "xai" && model.id === "grok-4.5") {
 		return {
 			...model,
-			api: XAI_CUA_RESPONSES_API,
 			thinkingLevelMap: { off: "low", minimal: "low", xhigh: "high" },
 			cost: {
 				...model.cost,
@@ -328,7 +321,7 @@ function cuaModel(provider: "meta" | "tzafon" | "yutori", id: string, name: stri
 			// computer-use cookbook configures 128,000 maximum output tokens.
 			return {
 				...base,
-				api: META_RESPONSES_API,
+				api: "openai-responses",
 				baseUrl: "https://api.meta.ai/v1",
 				thinkingLevelMap: { off: null, xhigh: "xhigh" },
 				cost: { input: 1.25, output: 4.25, cacheRead: 0.15, cacheWrite: 0 },

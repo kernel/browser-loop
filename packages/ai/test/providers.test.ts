@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
 	createCuaModels,
 	cuaModels,
-	OPENAI_CUA_RESPONSES_API,
 	TZAFON_RESPONSES_API,
 	YUTORI_CHAT_COMPLETIONS_API,
 } from "../src/index";
@@ -20,7 +19,7 @@ describe("createCuaModels", () => {
 
 	it("lists CUA provider catalogs", () => {
 		const models = createCuaModels();
-		expect(models.getModel("meta", "muse-spark-1.1")?.api).toBe("meta-responses");
+		expect(models.getModel("meta", "muse-spark-1.1")?.api).toBe("openai-responses");
 		expect(models.getModel("xai", "grok-4.5")?.api).toBe("openai-responses");
 		expect(models.getModel("moonshotai", "kimi-k3")?.api).toBe("openai-completions");
 		expect(models.getModel("openrouter", "moonshotai/kimi-k3")?.api).toBe("openai-completions");
@@ -41,9 +40,10 @@ describe("createCuaModels", () => {
 		const models = createCuaModels();
 		const openaiIds = models.getModels("openai").map((m) => m.id);
 		expect(openaiIds).toContain("gpt-5.4");
-		// The catalog keeps pi's api ids; getCuaModel() routes to
-		// openai-cua-responses, which the wrapped provider dispatches.
-		expect(models.getModel("openai", "gpt-5.4")?.api).not.toBe(OPENAI_CUA_RESPONSES_API);
+		// OpenAI models keep pi's builtin "openai-responses" api id on both the
+		// collection and getCuaModel(); the wrapped provider only intercepts
+		// requests that need the CUA adapter (see requiresCuaOpenAIAdapter).
+		expect(models.getModel("openai", "gpt-5.4")?.api).toBe("openai-responses");
 
 		const xaiIds = models.getModels("xai").map((m) => m.id);
 		expect(xaiIds).toContain("grok-4.3");

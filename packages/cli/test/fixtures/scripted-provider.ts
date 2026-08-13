@@ -7,6 +7,7 @@ import {
 	type CuaSimpleStreamOptions,
 	type Model,
 	type MutableModels,
+	type Usage,
 } from "@onkernel/cua-ai";
 
 /** One scripted step replayed when the harness asks the provider for a turn. */
@@ -23,6 +24,8 @@ export interface ScriptedTurn {
 	 * calls and to "toolUse" otherwise.
 	 */
 	stopReason?: "stop" | "toolUse" | "length";
+	/** Overrides the zeroed default usage on the resulting assistant message. */
+	usage?: Partial<Usage>;
 }
 
 export interface ScriptedProviderHandle {
@@ -88,7 +91,7 @@ export function createScriptedCuaModels(providerId: string, turns: ScriptedTurn[
 function buildStream(model: Model<Api>, turn: ScriptedTurn | undefined, signal?: AbortSignal) {
 	const stream = createAssistantMessageEventStream();
 	void (async () => {
-		const message = baseAssistantMessage(model);
+		const message = baseAssistantMessage(model, turn?.usage);
 		if (!turn) {
 			message.stopReason = "stop";
 			stream.push({ type: "start", partial: message });
@@ -222,7 +225,7 @@ async function waitForAbort(signal?: AbortSignal): Promise<void> {
 	});
 }
 
-function baseAssistantMessage(model: Model<Api>): AssistantMessage {
+function baseAssistantMessage(model: Model<Api>, usage?: Partial<Usage>): AssistantMessage {
 	return {
 		role: "assistant",
 		content: [],
@@ -236,6 +239,7 @@ function baseAssistantMessage(model: Model<Api>): AssistantMessage {
 			cacheWrite: 0,
 			totalTokens: 0,
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			...usage,
 		},
 		stopReason: "stop",
 		timestamp: Date.now(),
