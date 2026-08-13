@@ -72,10 +72,9 @@ describe("/tools selection revalidation", () => {
 			tools: [...defaultInteractionTools(from), ...application],
 		});
 
-		// Mirrors the TUI's three-step transition in switchModel().
-		await fixture.harness.setTools(application);
-		await fixture.harness.setModel(to);
-		await fixture.harness.setTools([...defaultInteractionTools(to), ...application]);
+		// Mirrors switchModel(): the new model and its interaction catalog compile
+		// as one pair, because the selected tools decide the transport.
+		await fixture.harness.setModelAndTools(to, [...defaultInteractionTools(to), ...application]);
 
 		const expected = [...defaultInteractionTools(to), ...application].map(toolKey);
 		expect(fixture.harness.getTools().map(toolKey)).toEqual(expected);

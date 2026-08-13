@@ -364,9 +364,9 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 	let exitRequested = false;
 
 	/**
-	 * Apply a model switch. Extracted verbatim from the previous
-	 * `applyModelCommand` so the picker and `/model <ref>` share one path,
-	 * including the three-step tool transition and its rollback.
+	 * Apply a model switch. The picker and `/model <ref>` share this one path.
+	 * A failed switch needs no rollback here: the harness compiles before it
+	 * mutates and restores its own state if the mutation fails.
 	 */
 	const applySwitchModel = async (resolved: CuaModelRef): Promise<void> => {
 		// The exact list installed by this switch, kept so it can become the new
@@ -374,18 +374,11 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 		// policy, in which case the switch never touches the tool list at all.
 		let installedTools: readonly CuaCliTool[] | undefined;
 		if (opts.interactionToolsForModel) {
-			const previousModel = opts.harness.getModel();
-			const previousTools = opts.harness.getTools();
 			installedTools = [...opts.interactionToolsForModel(resolved), ...opts.applicationTools];
-			try {
-				// Native catalogs are incompatible across providers, and the selected
-				// tools decide the transport, so the new model and its interaction
-				// catalog have to compile as one pair rather than in sequence.
-				await opts.harness.setModelAndTools(resolved, installedTools);
-			} catch (error) {
-				await opts.harness.setModelAndTools(previousModel, previousTools);
-				throw error;
-			}
+			// Native catalogs are incompatible across providers, and the selected
+			// tools decide the transport, so the new model and its interaction
+			// catalog have to compile as one pair rather than in sequence.
+			await opts.harness.setModelAndTools(resolved, installedTools);
 		} else {
 			await opts.harness.setModel(resolved);
 		}
@@ -418,9 +411,9 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 
 	/**
 	 * Serialized entry point for a model switch. Queued behind any in-flight
-	 * `/tools` apply so the apply's `setTools` cannot land between this switch's
-	 * `setModel` and its final `setTools`. Rejects with the underlying failure;
-	 * the harness has already rolled back by then.
+	 * `/tools` apply so the apply's `setTools` cannot land mid-switch and compile
+	 * its tool subset against the other model. Rejects with the underlying
+	 * failure; the harness has already rolled back by then.
 	 */
 	const switchModel = (resolved: CuaModelRef): Promise<void> => catalogQueue.run(() => applySwitchModel(resolved));
 
