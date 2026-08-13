@@ -1,8 +1,6 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { getBuiltinModel, getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
 import { GOOGLE_CUA_INTERACTIONS_API } from "./providers/google/provider";
-import { META_RESPONSES_API } from "./providers/meta/provider";
-import { XAI_CUA_RESPONSES_API } from "./providers/xai/provider";
 
 /** Providers with curated computer-use model support. */
 export type CuaProvider = "openai" | "anthropic" | "google" | "meta" | "xai" | "moonshotai" | "openrouter" | "tzafon" | "yutori";
@@ -237,13 +235,9 @@ export function routeCuaApi(model: Model<Api>): Model<Api> {
 	if (model.provider === "google" && model.api !== GOOGLE_CUA_INTERACTIONS_API) {
 		return { ...model, api: GOOGLE_CUA_INTERACTIONS_API };
 	}
-	if (model.provider === "meta" && model.api !== META_RESPONSES_API) {
-		return { ...model, api: META_RESPONSES_API };
-	}
 	if (model.provider === "xai" && model.id === "grok-4.5") {
 		return {
 			...model,
-			api: XAI_CUA_RESPONSES_API,
 			thinkingLevelMap: { off: "low", minimal: "low", xhigh: "high" },
 			cost: {
 				...model.cost,
@@ -327,7 +321,7 @@ function cuaModel(provider: "meta" | "tzafon" | "yutori", id: string, name: stri
 			// computer-use cookbook configures 128,000 maximum output tokens.
 			return {
 				...base,
-				api: META_RESPONSES_API,
+				api: "openai-responses",
 				baseUrl: "https://api.meta.ai/v1",
 				thinkingLevelMap: { off: null, xhigh: "xhigh" },
 				cost: { input: 1.25, output: 4.25, cacheRead: 0.15, cacheWrite: 0 },

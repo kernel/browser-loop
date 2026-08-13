@@ -9,9 +9,7 @@ import {
 	getCuaModel,
 	GOOGLE_CUA_INTERACTIONS_API,
 	listCuaModels,
-	META_RESPONSES_API,
 	parseCuaModelRef,
-	XAI_CUA_RESPONSES_API,
 } from "../src/index";
 
 describe("CUA model refs", () => {
@@ -78,7 +76,7 @@ describe("CUA model refs", () => {
 
 		const muse = getCuaModel("meta:muse-spark-1.1");
 		expect(muse.provider).toBe("meta");
-		expect(muse.api).toBe(META_RESPONSES_API);
+		expect(muse.api).toBe("openai-responses");
 		expect(muse.baseUrl).toBe("https://api.meta.ai/v1");
 		expect(muse.contextWindow).toBe(1_048_576);
 		expect(muse.maxTokens).toBe(128_000);
@@ -89,7 +87,7 @@ describe("CUA model refs", () => {
 		expect(cuaOverrideModels("xai")).toEqual([]);
 		const grok = getCuaModel("xai:grok-4.5");
 		expect(grok.provider).toBe("xai");
-		expect(grok.api).toBe(XAI_CUA_RESPONSES_API);
+		expect(grok.api).toBe("openai-responses");
 		expect(grok.baseUrl).toBe("https://api.x.ai/v1");
 		expect(grok.contextWindow).toBe(500_000);
 		expect(grok.maxTokens).toBe(500_000);
@@ -133,16 +131,16 @@ describe("CUA model refs", () => {
 		expect(getCuaModel("yutori:n1.5-latest").api).toBe("yutori-chat-completions");
 	});
 
-	it("routes Responses models to provider-specific transports, and keeps OpenAI on pi's builtin one", () => {
-		// OpenAI has a fully equivalent builtin transport (automatic prompt
-		// caching, no previous_response_id needed), so it keeps pi-ai's
-		// registry api id instead of being routed to a CUA-owned one.
+	it("keeps every Responses model on pi's builtin transport except Google's Interactions API", () => {
+		// A CUA-owned api id now exists only where pi ships no equivalent
+		// transport. OpenAI, Meta, and xAI all speak the Responses protocol pi
+		// already implements, including its automatic prompt caching.
 		expect(getCuaModel("openai:gpt-5.6-sol").api).toBe("openai-responses");
 		expect(getCuaModel("openai:gpt-5.5").api).toBe("openai-responses");
 		expect(getCuaModel("openai:gpt-5.4-mini").api).toBe("openai-responses");
 		expect(getCuaModel("google:gemini-3.6-flash").api).toBe(GOOGLE_CUA_INTERACTIONS_API);
-		expect(getCuaModel("meta:muse-spark-1.1").api).toBe(META_RESPONSES_API);
-		expect(getCuaModel("xai:grok-4.5").api).toBe(XAI_CUA_RESPONSES_API);
+		expect(getCuaModel("meta:muse-spark-1.1").api).toBe("openai-responses");
+		expect(getCuaModel("xai:grok-4.5").api).toBe("openai-responses");
 	});
 
 	it("rejects supported model IDs that are not in pi-ai or overrides", () => {

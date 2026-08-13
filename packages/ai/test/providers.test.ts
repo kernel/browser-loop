@@ -19,7 +19,7 @@ describe("createCuaModels", () => {
 
 	it("lists CUA provider catalogs", () => {
 		const models = createCuaModels();
-		expect(models.getModel("meta", "muse-spark-1.1")?.api).toBe("meta-responses");
+		expect(models.getModel("meta", "muse-spark-1.1")?.api).toBe("openai-responses");
 		expect(models.getModel("xai", "grok-4.5")?.api).toBe("openai-responses");
 		expect(models.getModel("moonshotai", "kimi-k3")?.api).toBe("openai-completions");
 		expect(models.getModel("openrouter", "moonshotai/kimi-k3")?.api).toBe("openai-completions");

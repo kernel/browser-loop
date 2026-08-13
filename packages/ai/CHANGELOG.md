@@ -19,8 +19,19 @@ Breaking: OpenAI models no longer carry a CUA-owned api id.
   `prompt_cache_retention`, `prompt_cache_options`, and session-affinity
   headers as the function-tool path. It previously relied on stored response
   state for context reuse and sent no cache key of its own.
-- Google, Meta, xAI, and Tzafon are unaffected: their `previous_response_id`
-  threading helpers in `providers/common.ts` are unchanged.
+- Remove the xAI and Meta Responses forks. Both existed only to thread
+  `previous_response_id` and to set `parallel_tool_calls: false`, which the tool
+  catalog already emits for those providers. `xai-cua-responses` and
+  `meta-responses` are gone: Grok streams through pi's builtin xAI provider, and
+  Meta registers pi's builtin Responses transport against its own base URL and
+  credentials. `XAI_CUA_RESPONSES_API`, `META_RESPONSES_API`,
+  `streamXaiResponses`, `streamSimpleXaiResponses`, `streamMetaResponses`, and
+  `streamSimpleMetaResponses` are no longer exported. Meta also regains pi's
+  stateless encrypted-reasoning replay, which the fork deleted because it relied
+  on stored response state.
+- Google and Tzafon keep their continuation protocols: each threads a
+  provider-specific field with no builtin equivalent, and the shared helpers in
+  `providers/common.ts` are unchanged for them.
 
 ## 0.10.0 - 2026-08-04
 

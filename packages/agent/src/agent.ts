@@ -92,7 +92,7 @@ export type CuaAgentOptions = Omit<AgentOptions, "initialState" | "streamFn"> & 
 	streamFn?: AgentOptions["streamFn"];
 	emptyResponseRecovery?: CuaEmptyResponseRecoveryOptions;
 	toolResultImageReplayLimit?: ToolResultImageReplayLimit;
-	/** Governs Google, Meta, xAI, and Tzafon's `previous_response_id`-style continuation. OpenAI streams through pi's automatic prompt caching regardless of this flag. Defaults to `true`. */
+	/** Governs Google and Tzafon's `previous_response_id`-style continuation. Every other provider streams through pi's transports and their automatic prompt caching regardless of this flag. Defaults to `true`. */
 	responseThreading?: boolean;
 	retry?: CuaRetryOptions;
 };
@@ -113,7 +113,7 @@ type CuaAgentHarnessOptionsBase<
 	onPayload?: SimpleStreamOptions["onPayload"];
 	emptyResponseRecovery?: CuaEmptyResponseRecoveryOptions;
 	toolResultImageReplayLimit?: ToolResultImageReplayLimit;
-	/** Governs Google, Meta, xAI, and Tzafon's `previous_response_id`-style continuation. OpenAI streams through pi's automatic prompt caching regardless of this flag. Defaults to `true`. */
+	/** Governs Google and Tzafon's `previous_response_id`-style continuation. Every other provider streams through pi's transports and their automatic prompt caching regardless of this flag. Defaults to `true`. */
 	responseThreading?: boolean;
 	retry?: CuaRetryOptions;
 };
