@@ -2,6 +2,12 @@
 
 ## 0.12.0 - 2026-08-13
 
+- Add `CuaAgentHarness.setModelAndTools()`. A model switch that also swaps
+  interaction tools has to compile as one pair now that the selected tools
+  decide the transport: staging the two in sequence produces an intermediate
+  catalog whose derived transport differs from both the old and the new one,
+  and records a model change for a transport nothing ever streamed with.
+
 - Update `@onkernel/cua-ai` to 0.12.0. The model streamed for a Google model
   now depends on which tools `CuaAgent`/`CuaAgentHarness` were constructed or
   mutated with: selecting Google's native browser toolset still compiles to

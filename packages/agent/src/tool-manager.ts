@@ -128,6 +128,11 @@ export class CuaToolManager<TRequested extends CuaHarnessTool<any> = CuaAgentToo
 		return this.prepare(model, this.current.requested);
 	}
 
+	prepareModelAndTools(model: CuaModelRef | Model<Api>, tools: readonly TRequested[]): PreparedCuaTools<TRequested> {
+		this.assertMutationScope("setModelAndTools");
+		return this.prepare(model, tools);
+	}
+
 	commit(prepared: PreparedCuaTools<TRequested>): void {
 		this.current = prepared;
 	}
@@ -224,7 +229,7 @@ export class CuaToolManager<TRequested extends CuaHarnessTool<any> = CuaAgentToo
 		});
 	}
 
-	private assertMutationScope(api: "setTools" | "setModel"): void {
+	private assertMutationScope(api: "setTools" | "setModel" | "setModelAndTools"): void {
 		const scope = this.execution.getStore();
 		if (scope && scope.executionMode !== "sequential") {
 			throw new Error(`tool "${scope.toolName}" must declare executionMode: "sequential" before calling ${api}() during execution`);

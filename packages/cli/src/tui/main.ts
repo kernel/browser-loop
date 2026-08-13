@@ -378,16 +378,12 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 			const previousTools = opts.harness.getTools();
 			installedTools = [...opts.interactionToolsForModel(resolved), ...opts.applicationTools];
 			try {
-				// Native catalogs can be incompatible across providers. Transition
-				// through the CLI-owned application tools before selecting the new
-				// model's explicit interaction catalog.
-				await opts.harness.setTools(opts.applicationTools);
-				await opts.harness.setModel(resolved);
-				await opts.harness.setTools(installedTools);
+				// Native catalogs are incompatible across providers, and the selected
+				// tools decide the transport, so the new model and its interaction
+				// catalog have to compile as one pair rather than in sequence.
+				await opts.harness.setModelAndTools(resolved, installedTools);
 			} catch (error) {
-				await opts.harness.setTools(opts.applicationTools);
-				await opts.harness.setModel(previousModel);
-				await opts.harness.setTools(previousTools);
+				await opts.harness.setModelAndTools(previousModel, previousTools);
 				throw error;
 			}
 		} else {

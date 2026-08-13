@@ -637,4 +637,22 @@ describe("CuaAgentHarness explicit tools", () => {
 		const modelChanges = (await services.session.getBranch()).filter((entry) => entry.type === "model_change");
 		expect(modelChanges).toEqual([]);
 	});
+
+	it("records one model change for a switch that changes both the model and its derived transport", async () => {
+		const services = await harnessServices();
+		const harness = new CuaAgentHarness({
+			...services,
+			browser,
+			client,
+			model: "google:gemini-3.6-flash",
+			tools: cua.providers.google.toolsets.browser(),
+		});
+		expect(harness.getModel().api).toBe(GOOGLE_CUA_INTERACTIONS_API);
+
+		await harness.setModelAndTools("openai:gpt-5.5", [cua.tools.browser.snapshot()]);
+		expect(harness.getModel().api).toBe("openai-responses");
+
+		const modelChanges = (await services.session.getBranch()).filter((entry) => entry.type === "model_change");
+		expect(modelChanges).toHaveLength(1);
+	});
 });

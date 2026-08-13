@@ -437,6 +437,28 @@ export class CuaAgentHarness<
 		this.tools.commit(prepared);
 	}
 
+	/**
+	 * Select a model and its tool list in one compile. A model switch that also
+	 * swaps interaction tools would otherwise stage through an intermediate
+	 * catalog whose derived transport differs from both the old and the new one,
+	 * recording a `model_change` for a transport nothing ever streamed with.
+	 */
+	async setModelAndTools(model: CuaModelInput, tools: readonly CuaHarnessTool<TContext>[]): Promise<void> {
+		const previousModel = this.tools.catalog.model;
+		const previousTools = this.tools.harnessTools();
+		const prepared = this.tools.prepareModelAndTools(model, tools);
+		const materialized = this.tools.harnessTools(prepared);
+		try {
+			await this.coreHarness.setModel(prepared.catalog.model);
+			await this.coreHarness.setTools(materialized, materialized.map((tool) => tool.name));
+		} catch (error) {
+			await this.coreHarness.setModel(previousModel);
+			await this.coreHarness.setTools(previousTools, previousTools.map((tool) => tool.name));
+			throw error;
+		}
+		this.tools.commit(prepared);
+	}
+
 	prompt(text: string, options?: { images?: ImageContent[] }) { return this.coreHarness.prompt(text, options); }
 	skill(name: string, additionalInstructions?: string) { return this.coreHarness.skill(name, additionalInstructions); }
 	promptFromTemplate(name: string, args?: string[]) { return this.coreHarness.promptFromTemplate(name, args); }
