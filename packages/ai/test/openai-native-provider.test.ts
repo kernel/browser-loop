@@ -19,7 +19,7 @@ const model = getCuaModel("openai:gpt-5.5") as Model<"openai-responses">;
 // The catalog derives this api when OpenAI's native computer tool is selected;
 // the provider wrapper routes it to the adapter under test.
 const nativeModel = { ...model, api: openai.OPENAI_CUA_COMPUTER_API } as unknown as Model<"openai-responses">;
-const incoming = { openaiComputerName: "computer", yutoriNames: {}, googleNames: {}, googleExcludedNames: [], nativeToolNames: ["computer"] };
+const incoming = { openaiComputerName: "computer", googleNames: {}, googleExcludedNames: [], nativeToolNames: ["computer"] };
 
 describe("OpenAI native computer Responses adapter", () => {
 	it("emits one identity-selected local call for actions[] and safety checks", async () => {

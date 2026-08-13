@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.13.0 - 2026-08-13
+
+Breaking: Tzafon and Yutori support is removed.
+
+- Remove the `tzafon` and `yutori` providers: their `CuaProvider` members,
+  model annotations and overrides, `cua.providers.tzafon`,
+  `cua.providers.yutori`, `TZAFON_API_KEY`/`YUTORI_API_KEY`, and the exported
+  `TZAFON_RESPONSES_API`, `YUTORI_CHAT_COMPLETIONS_API`,
+  `streamTzafonResponses`, `streamSimpleTzafonResponses`, `streamYutori`, and
+  `streamSimpleYutori` stream functions. `createCuaModels()` no longer
+  registers either provider, and refs like `tzafon:tzafon.northstar-cua-fast`
+  or `yutori:n1.5-latest` now fail to resolve.
+- `CuaProviderBinding` loses its `tzafon-native` and `yutori-native` variants,
+  and `CuaIncomingToolPlan` loses `tzafonComputerName` and `yutoriNames`. The
+  Yutori-only rule rejecting a partial n1 native action set is gone with them;
+  every surviving native toolset can be selected in part.
+- `CompileCuaToolCatalogOptions.viewport` is removed. It existed only to fill
+  Tzafon's `display_width`/`display_height` declaration defaults, and no
+  surviving declaration reads it.
+- `routeCuaApi` no longer routes any transport. Every remaining provider gets
+  its transport either from pi-ai's registry or from the selected tools'
+  `requiresApi`; what is left is grok-4.5's cost/compat/thinking-level
+  overrides.
+- Drop the `@tzafon/lightcone` dependency.
+
 ## 0.12.0 - 2026-08-13
 
 - Route OpenAI's native computer adapter through its own stream function,

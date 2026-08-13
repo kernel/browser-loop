@@ -136,26 +136,3 @@ CUA browser function tools. OpenRouter does not expose the provider-native
 computer tools declared by other CUA providers.
 
 Source: [OpenRouter model page](https://openrouter.ai/moonshotai/kimi-k3).
-
-## `tzafon`
-
-Coordinates: normalized 0–999
-
-Exact IDs:
-
-- `tzafon.northstar-cua-fast` ([model card](https://huggingface.co/Tzafon/Northstar-CUA-Fast))
-- `tzafon.northstar-cua-fast-1.6` ([model card](https://huggingface.co/Tzafon/Northstar-CUA-Fast))
-- `tzafon.northstar-cua-fast-1.7-experiment` ([model card](https://huggingface.co/Tzafon/Northstar-CUA-Fast))
-
-## `yutori`
-
-Coordinates: normalized 0–1000
-
-Exact IDs:
-
-- `n1-latest`
-- `n1-20260203`
-- `n1.5-latest`
-- `n1.5-20260428`
-
-Source: [Yutori Navigator reference](https://docs.yutori.com/reference/navigator).

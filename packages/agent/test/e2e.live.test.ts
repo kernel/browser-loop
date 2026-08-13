@@ -14,7 +14,7 @@ const LIVE = process.env.CUA_E2E_LIVE === "1";
 const KERNEL_API_KEY = process.env.KERNEL_API_KEY;
 
 type ProviderCase = {
-	name: "openai" | "anthropic" | "gemini" | "meta" | "xai" | "moonshotai" | "tzafon" | "yutori";
+	name: "openai" | "anthropic" | "gemini" | "meta" | "xai" | "moonshotai";
 	apiKeyEnvVar: string;
 	modelRef:
 		| "openai:gpt-5.6-sol"
@@ -22,12 +22,9 @@ type ProviderCase = {
 		| "google:gemini-3.6-flash"
 		| "meta:muse-spark-1.1"
 		| "xai:grok-4.5"
-		| "moonshotai:kimi-k3"
-		| "tzafon:tzafon.northstar-cua-fast"
-		| "yutori:n1.5-latest";
+		| "moonshotai:kimi-k3";
 	prompt: string;
 	expectToolCalls: boolean;
-	expectReadArtifact?: boolean;
 	timeoutMs: number;
 	ciOptInEnvVar?: string;
 };
@@ -119,32 +116,6 @@ const cases: ProviderCase[] = [
 		expectToolCalls: true,
 		timeoutMs: 180_000,
 	},
-	{
-		name: "tzafon",
-		apiKeyEnvVar: "TZAFON_API_KEY",
-		modelRef: "tzafon:tzafon.northstar-cua-fast",
-		prompt: [
-			"Use the native `computer` tool's `screenshot` action exactly once.",
-			"Do not call any other tools.",
-			"After the tool result, provide a one-sentence summary.",
-		].join("\n"),
-		expectToolCalls: true,
-		timeoutMs: 120_000,
-		ciOptInEnvVar: "CUA_E2E_TZAFON",
-	},
-	{
-		name: "yutori",
-		apiKeyEnvVar: "YUTORI_API_KEY",
-		modelRef: "yutori:n1.5-latest",
-		prompt: [
-			"Use the function tool named `computer_screenshot` exactly once.",
-			"Pass empty arguments (`{}`).",
-			"Do not call any other tools.",
-		].join("\n"),
-		expectToolCalls: true,
-		expectReadArtifact: false,
-		timeoutMs: 180_000,
-	},
 ];
 
 const switchCases: ModelSwitchCase[] = [
@@ -197,10 +168,6 @@ function toolsForCase(c: ProviderCase) {
 			return [cua.providers.anthropic.tools.browser({ version: "20260701", javascript: true })];
 		case "gemini":
 			return cua.providers.google.toolsets.browser();
-		case "tzafon":
-			return [cua.providers.tzafon.tools.computer()];
-		case "yutori":
-			return [...cua.providers.yutori.toolsets.n15Core(), cua.tools.computer.screenshot()];
 	}
 }
 
@@ -253,7 +220,7 @@ function assertStats(stats: RunStats, c: ProviderCase, runtimeName: "agent" | "h
 	if (c.expectToolCalls) {
 		expect(stats.toolCalls).toBeGreaterThan(0);
 		expect(stats.toolResults).toBeGreaterThan(0);
-		if (c.expectReadArtifact !== false) expect(stats.hasReadArtifact).toBe(true);
+		expect(stats.hasReadArtifact).toBe(true);
 	}
 	expect(stats.finalAssistant).toBeDefined();
 	if (stats.finalAssistant?.role === "assistant") {

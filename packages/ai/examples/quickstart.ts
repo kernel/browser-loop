@@ -19,7 +19,6 @@ const screenshot = await readFile(new URL("./screenshot.png", import.meta.url));
 const catalog = compileCuaToolCatalog({
 	model: modelRef,
 	requestedTools: [cua.tools.computer.click()],
-	viewport: { width: 1440, height: 900 },
 });
 
 const response = await cuaModels().complete(

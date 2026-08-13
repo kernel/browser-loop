@@ -1,12 +1,10 @@
 #!/usr/bin/env tsx
 import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
-import { parse as parseToml } from "smol-toml";
 
-type Provider = "openai" | "anthropic" | "gemini" | "xai" | "tzafon" | "yutori";
+type Provider = "openai" | "anthropic" | "gemini" | "xai";
 
 interface ProbePrompt {
 	id: string;
@@ -64,8 +62,8 @@ function parseArgs(argv: string[]): Args {
 			throw new Error(`unknown argument: ${arg}`);
 		}
 	}
-	if (!["openai", "anthropic", "gemini", "xai", "tzafon", "yutori"].includes(out.provider)) {
-		throw new Error("--provider is required: openai | anthropic | gemini | xai | tzafon | yutori");
+	if (!["openai", "anthropic", "gemini", "xai"].includes(out.provider)) {
+		throw new Error("--provider is required: openai | anthropic | gemini | xai");
 	}
 	if (!out.model) throw new Error("--model is required");
 	return out;
@@ -76,8 +74,6 @@ function usage(): never {
   npx tsx .agents/skills/update-models/reference/native-action-probe.ts --provider openai --model gpt-5.5 --out /tmp/actions.json
   npx tsx .agents/skills/update-models/reference/native-action-probe.ts --provider anthropic --model claude-opus-4-7 --limit 3
   npx tsx .agents/skills/update-models/reference/native-action-probe.ts --provider xai --model grok-4.5 --limit 3
-  npx tsx .agents/skills/update-models/reference/native-action-probe.ts --provider tzafon --model tzafon.northstar-cua-fast --limit 3
-  npx tsx .agents/skills/update-models/reference/native-action-probe.ts --provider yutori --model n1.5-latest --limit 3
 `);
 	process.exit(0);
 }
@@ -105,8 +101,6 @@ async function runProbe(provider: Provider, model: string, prompt: ProbePrompt):
 		if (provider === "anthropic") return await probeAnthropic(model, prompt);
 		if (provider === "gemini") return await probeGemini(model, prompt);
 		if (provider === "xai") return await probeXai(model, prompt);
-		if (provider === "tzafon") return await probeTzafon(model, prompt);
-		if (provider === "yutori") return await probeYutori(model, prompt);
 		throw new Error(`unknown provider ${provider satisfies never}`);
 	} catch (err) {
 		return {
@@ -258,87 +252,6 @@ async function readFixtureScreenshot(): Promise<Buffer> {
 	return readFile(path);
 }
 
-async function probeYutori(model: string, prompt: ProbePrompt): Promise<ProbeResult> {
-	const OpenAI = await importDefault("openai", "OpenAI");
-	const client = new OpenAI({
-		apiKey: await yutoriApiKey(),
-		baseURL: "https://api.yutori.com/v1",
-	});
-	const response = await client.chat.completions.create({
-		model,
-		messages: [{
-			role: "user",
-			content: [
-				{ type: "text", text: prompt.text },
-				{ type: "image_url", image_url: { url: "https://docs.yutori.com/assets/google_homepage_2024.jpg" } },
-			],
-		}],
-		max_completion_tokens: 128,
-		temperature: 0.3,
-	});
-	const choice = response.choices?.[0];
-	const toolCalls: any[] = choice?.message?.tool_calls ?? [];
-	return {
-		id: prompt.id,
-		status: toolCalls.length ? "pass" : "inconclusive",
-		actions: unique(toolCalls.map((call) => call?.function?.name).filter(Boolean)),
-		item_types: unique([
-			choice?.message?.content ? "text" : undefined,
-			toolCalls.length ? "tool_calls" : undefined,
-		].filter(Boolean) as string[]),
-		finish_reason: choice?.finish_reason ?? null,
-		raw_tool_calls: toolCalls.map(redactLargeFields),
-	};
-}
-
-async function yutoriApiKey(): Promise<string> {
-	const env = process.env.YUTORI_API_KEY;
-	if (env && env.trim()) return env;
-	const cfgPath = join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "cua", "config.toml");
-	try {
-		const raw = parseToml(await readFile(cfgPath, "utf8")) as any;
-		const profile = typeof raw?.default_profile === "string" ? raw.default_profile : undefined;
-		const key = profile ? raw?.profiles?.[profile]?.yutori_api_key : undefined;
-		if (typeof key === "string" && key.trim()) return key;
-	} catch {
-		// Fall through to a clear credential error.
-	}
-	throw new Error("missing Yutori API key (set YUTORI_API_KEY or yutori_api_key in the default cua config profile)");
-}
-
-async function probeTzafon(model: string, prompt: ProbePrompt): Promise<ProbeResult> {
-	const Lightcone = await importDefault("@tzafon/lightcone", "Lightcone");
-	const client = new Lightcone({ apiKey: process.env.TZAFON_API_KEY });
-	const response = await client.responses.create({
-		model,
-		input: [{
-			role: "user",
-			content: [
-				{ type: "input_text", text: `${prompt.text}\nCall one of the available function tools instead of answering in text.` },
-				{ type: "input_image", image_url: "https://docs.yutori.com/assets/google_homepage_2024.jpg", detail: "auto" },
-			],
-		}],
-		tools: TZAFON_FUNCTION_TOOLS,
-		instructions: "The screen's coordinate space is a 0-999 grid.",
-		temperature: 0,
-		max_output_tokens: 128,
-	});
-	const output: any[] = response.output ?? [];
-	const functionCalls = output.filter((item) => item?.type === "function_call");
-	const computerCalls = output.filter((item) => item?.type === "computer_call");
-	const computerActions = computerCalls.flatMap((call) => Array.isArray(call.actions) ? call.actions : call.action ? [call.action] : []);
-	return {
-		id: prompt.id,
-		status: functionCalls.length || computerCalls.length ? "pass" : "inconclusive",
-		actions: unique([
-			...functionCalls.map((call) => call?.name).filter(Boolean),
-			...computerActions.map((action) => action?.type).filter(Boolean),
-		]),
-		item_types: unique(output.map((item) => item?.type).filter(Boolean)),
-		raw_tool_calls: [...functionCalls, ...computerCalls].map(redactLargeFields),
-	};
-}
-
 const XAI_FUNCTION_TOOLS = [
 	{ type: "function", name: "screenshot", description: "Capture the current browser screenshot.", parameters: { type: "object", properties: {}, additionalProperties: false } },
 	{ type: "function", name: "goto", description: "Navigate to a URL.", parameters: { type: "object", properties: { url: { type: "string" } }, required: ["url"], additionalProperties: false } },
@@ -350,16 +263,6 @@ const XAI_FUNCTION_TOOLS = [
 	{ type: "function", name: "move", description: "Move the pointer to normalized 0-1000 coordinates.", parameters: { type: "object", properties: { x: { type: "number" }, y: { type: "number" } }, required: ["x", "y"], additionalProperties: false } },
 	{ type: "function", name: "wait", description: "Wait briefly.", parameters: { type: "object", properties: {}, additionalProperties: false } },
 	{ type: "function", name: "back", description: "Go back in browser history.", parameters: { type: "object", properties: {}, additionalProperties: false } },
-];
-
-const TZAFON_FUNCTION_TOOLS = [
-	{ type: "function", name: "click", description: "Single click at (x, y) in 0-999 grid.", parameters: { type: "object", properties: { x: { type: "integer" }, y: { type: "integer" }, button: { type: "string", enum: ["left", "right"] } }, required: ["x", "y"] } },
-	{ type: "function", name: "double_click", description: "Double click at (x, y) in 0-999 grid.", parameters: { type: "object", properties: { x: { type: "integer" }, y: { type: "integer" } }, required: ["x", "y"] } },
-	{ type: "function", name: "point_and_type", description: "Click at position then type text.", parameters: { type: "object", properties: { x: { type: "integer" }, y: { type: "integer" }, text: { type: "string" }, press_enter: { type: "boolean" } }, required: ["x", "y", "text"] } },
-	{ type: "function", name: "key", description: "Press key combo.", parameters: { type: "object", properties: { keys: { type: "string" } }, required: ["keys"] } },
-	{ type: "function", name: "scroll", description: "Scroll at (x, y) in 0-999 grid.", parameters: { type: "object", properties: { x: { type: "integer" }, y: { type: "integer" }, dy: { type: "integer" } }, required: ["x", "y", "dy"] } },
-	{ type: "function", name: "drag", description: "Drag from (x1, y1) to (x2, y2) in 0-999 grid.", parameters: { type: "object", properties: { x1: { type: "integer" }, y1: { type: "integer" }, x2: { type: "integer" }, y2: { type: "integer" } }, required: ["x1", "y1", "x2", "y2"] } },
-	{ type: "function", name: "done", description: "Task complete. Report findings.", parameters: { type: "object", properties: { result: { type: "string" } }, required: ["result"] } },
 ];
 
 async function importDefault(pkg: string, named: string): Promise<any> {

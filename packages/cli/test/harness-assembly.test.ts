@@ -4,7 +4,6 @@ import {
 	InMemorySessionRepo,
 	type Skill,
 } from "@onkernel/cua-agent";
-import { cua } from "@onkernel/cua-ai";
 import { tmpdir } from "node:os";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
@@ -36,11 +35,6 @@ describe("buildCuaHarness", () => {
 			expect(kimiNames).not.toContain("browser_act");
 			expect(kimiNames).toContain("browser_wait_for");
 		}
-		expect(defaultInteractionTools("tzafon:tzafon.northstar-cua-fast")[0]?.name).toBe("computer");
-		expect(defaultInteractionTools("yutori:n1.5-latest").map((tool) => tool.name)).toEqual([
-			...cua.providers.yutori.toolsets.n15Core().map((tool) => tool.name),
-			"computer_screenshot",
-		]);
 	});
 
 	it("installs interaction and coding tools in one explicit default list", async () => {

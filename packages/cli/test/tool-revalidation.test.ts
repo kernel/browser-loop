@@ -24,29 +24,25 @@ describe("/tools selection revalidation", () => {
 		expect(fixture.harness.getTools().map(toolKey)).not.toContain(dropped.key);
 	});
 
-	it("rejects a partial Yutori n1 native subset and leaves the catalog unchanged", async () => {
-		const modelRef = "yutori:n1-latest";
+	it("rejects a duplicated tool name and leaves the catalog unchanged", async () => {
+		const modelRef = "google:gemini-3.6-flash";
 		const baseline = [...defaultInteractionTools(modelRef), ...defaultApplicationTools()];
 		const fixture = await buildTestHarness({ turns: [], modelRef, tools: baseline });
 		const before = fixture.harness.getTools().map(toolKey);
 
-		const items = describeTools(baseline);
-		const oneNative = items.find((item) => item.atomicGroup)!;
-		const partial = baseline.filter((tool) => toolKey(tool) !== oneNative.key);
-
-		await expect(fixture.harness.setTools(partial)).rejects.toThrow(/partial native action set/);
+		const [first] = baseline;
+		await expect(fixture.harness.setTools([...baseline, first!])).rejects.toThrow(/requested more than once/);
 		// Atomicity: the failed compile must not have mutated live state.
 		expect(fixture.harness.getTools().map(toolKey)).toEqual(before);
 	});
 
-	it("accepts dropping the whole Yutori n1 native group", async () => {
-		const modelRef = "yutori:n1-latest";
+	it("accepts dropping the whole Google native group", async () => {
+		const modelRef = "google:gemini-3.6-flash";
 		const baseline = [...defaultInteractionTools(modelRef), ...defaultApplicationTools()];
 		const fixture = await buildTestHarness({ turns: [], modelRef, tools: baseline });
 
-		const items = describeTools(baseline);
-		const atomicKeys = new Set(items.filter((item) => item.atomicGroup).map((item) => item.key));
-		const next = baseline.filter((tool) => !atomicKeys.has(toolKey(tool)));
+		const nativeKeys = new Set(describeTools(baseline).filter((item) => item.group === "native").map((item) => item.key));
+		const next = baseline.filter((tool) => !nativeKeys.has(toolKey(tool)));
 
 		await fixture.harness.setTools(next);
 		expect(fixture.harness.getTools().map(toolKey)).toEqual(next.map(toolKey));

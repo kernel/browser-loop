@@ -2,7 +2,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import process from "node:process";
 
-type Provider = "openai" | "anthropic" | "gemini" | "meta" | "xai" | "moonshot" | "yutori";
+type Provider = "openai" | "anthropic" | "gemini" | "meta" | "xai" | "moonshot";
 
 interface Args {
 	examples: string;
@@ -45,12 +45,6 @@ const DOCS: Record<Provider, string[]> = {
 		"https://platform.kimi.ai/docs/api/tool-use",
 		"https://platform.kimi.ai/docs/guide/use-kimi-vision-model",
 	],
-	yutori: [
-		"https://docs.yutori.com/reference/navigator",
-		"https://docs.yutori.com/reference/n1",
-		"https://docs.yutori.com/reference/n1-5",
-		"https://docs.yutori.com/openapi.json",
-	],
 };
 
 const LOCAL_FILES: Record<Provider, string> = {
@@ -60,7 +54,6 @@ const LOCAL_FILES: Record<Provider, string> = {
 	meta: "packages/ai/src/providers/meta/index.ts",
 	xai: "packages/ai/src/providers/xai/index.ts",
 	moonshot: "packages/ai/src/providers/moonshot/index.ts",
-	yutori: "packages/ai/src/providers/yutori/actions.ts",
 };
 
 const ACTION_REGEXES: Record<Provider, RegExp> = {
@@ -70,7 +63,6 @@ const ACTION_REGEXES: Record<Provider, RegExp> = {
 	meta: /\b(click|double_click|mouse_down|mouse_up|scroll|type|wait|keypress|drag|move|screenshot|goto|back|forward|url|cursor_position|left_click|right_click|middle_click|triple_click|left_click_drag|mouse_move|key|hold_key|left_mouse_down|left_mouse_up)\b/g,
 	xai: /\b(click|double_click|mouse_down|mouse_up|scroll|type|wait|keypress|drag|move|screenshot|goto|back|forward|url|cursor_position)\b/g,
 	moonshot: /\b(click|double_click|mouse_down|mouse_up|scroll|type|wait|keypress|drag|move|screenshot|goto|back|forward|url|cursor_position)\b/g,
-	yutori: /\b(left_click|double_click|triple_click|right_click|scroll|type|key_press|hover|drag|wait|refresh|go_back|go_forward|goto_url|mouse_move|middle_click|mouse_down|mouse_up|hold_key|extract_elements|find|set_element_value|execute_js)\b/g,
 };
 
 function parseArgs(argv: string[]): Args {
@@ -183,10 +175,6 @@ function notesFor(provider: Provider, documentedToolVersions: string[], exampleT
 	}
 	if (provider === "moonshot") {
 		notes.push("Moonshot uses developer-defined function tools over OpenAI-compatible chat completions and does not document a coordinate protocol; Kimi grounding emits 0-1 width/height fractions, so compare against CUA's fractional coordinate contract.");
-	}
-	if (provider === "yutori") {
-		notes.push("Yutori Navigator emits OpenAI-compatible tool_calls for built-in browser actions; local AgentTools should execute those names but outbound payloads should not duplicate the built-in browser schemas.");
-		notes.push("Track n1 vs n1.5 separately because n1.5 can add tool_set/disable_tools and expanded browser actions.");
 	}
 	return notes;
 }

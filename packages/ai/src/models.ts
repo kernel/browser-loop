@@ -1,10 +1,8 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { getBuiltinModel, getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
-import { TZAFON_RESPONSES_API } from "./providers/tzafon/provider";
-import { YUTORI_CHAT_COMPLETIONS_API } from "./providers/yutori/provider";
 
 /** Providers with curated computer-use model support. */
-export type CuaProvider = "openai" | "anthropic" | "google" | "meta" | "xai" | "moonshotai" | "openrouter" | "tzafon" | "yutori";
+export type CuaProvider = "openai" | "anthropic" | "google" | "meta" | "xai" | "moonshotai" | "openrouter";
 
 /** Provider-qualified model reference, e.g. `"openai:gpt-5.6-sol"` or `"google:gemini-3.6-flash"`. */
 export type CuaModelRef = `${CuaProvider}:${string}`;
@@ -21,7 +19,7 @@ export interface CuaModelInfo {
 }
 
 /** All providers this package curates computer-use models for. */
-export const CUA_PROVIDERS: readonly CuaProvider[] = ["openai", "anthropic", "google", "meta", "xai", "moonshotai", "openrouter", "tzafon", "yutori"];
+export const CUA_PROVIDERS: readonly CuaProvider[] = ["openai", "anthropic", "google", "meta", "xai", "moonshotai", "openrouter"];
 
 /**
  * How a {@link CuaModelAnnotation} matches model ids.
@@ -106,17 +104,6 @@ export const CUA_MODEL_ANNOTATIONS: Record<CuaProvider, readonly CuaModelAnnotat
 	openrouter: [
 		{ match: { kind: "exact", id: "moonshotai/kimi-k3" }, source: "https://openrouter.ai/moonshotai/kimi-k3", capabilities: KIMI_K3_CAPABILITIES },
 	],
-	tzafon: [
-		{ match: { kind: "exact", id: "tzafon.northstar-cua-fast" }, source: "https://huggingface.co/Tzafon/Northstar-CUA-Fast" },
-		{ match: { kind: "exact", id: "tzafon.northstar-cua-fast-1.6" }, source: "https://huggingface.co/Tzafon/Northstar-CUA-Fast" },
-		{ match: { kind: "exact", id: "tzafon.northstar-cua-fast-1.7-experiment" }, source: "https://huggingface.co/Tzafon/Northstar-CUA-Fast" },
-	],
-	yutori: [
-		{ match: { kind: "exact", id: "n1-latest" }, source: "https://docs.yutori.com/reference/navigator" },
-		{ match: { kind: "exact", id: "n1-20260203" }, source: "https://docs.yutori.com/reference/navigator" },
-		{ match: { kind: "exact", id: "n1.5-latest" }, source: "https://docs.yutori.com/reference/navigator" },
-		{ match: { kind: "exact", id: "n1.5-20260428" }, source: "https://docs.yutori.com/reference/navigator" },
-	],
 };
 
 // Models that CUA supports which pi-ai's registry does not yet carry. Each
@@ -133,17 +120,6 @@ const CUA_MODEL_OVERRIDES: Record<CuaProvider, readonly Model<Api>[]> = {
 	xai: [],
 	moonshotai: [],
 	openrouter: [],
-	tzafon: [
-		cuaModel("tzafon", "tzafon.northstar-cua-fast", "Tzafon Northstar CUA Fast"),
-		cuaModel("tzafon", "tzafon.northstar-cua-fast-1.6", "Tzafon Northstar CUA Fast 1.6"),
-		cuaModel("tzafon", "tzafon.northstar-cua-fast-1.7-experiment", "Tzafon Northstar CUA Fast 1.7 (experiment)"),
-	],
-	yutori: [
-		cuaModel("yutori", "n1.5-latest", "Yutori Navigator n1.5"),
-		cuaModel("yutori", "n1.5-20260428", "Yutori Navigator n1.5 (2026-04-28)"),
-		cuaModel("yutori", "n1-latest", "Yutori Navigator n1"),
-		cuaModel("yutori", "n1-20260203", "Yutori Navigator n1 (2026-02-03)"),
-	],
 };
 
 /** Models CUA supports that pi-ai's registry does not carry for a provider. */
@@ -227,22 +203,14 @@ export function getCuaModel(ref: CuaModelRef): Model<Api> {
 	throw new Error(`CUA model "${ref}" is supported but not registered. Add it to pi-ai (models.dev) or CUA_MODEL_OVERRIDES.`);
 }
 
-// Route CUA models to provider-specific transports that are properties of the
-// model itself, not of which tools a caller selects. Tool-driven transport
-// selection (OpenAI's native computer tool, Google's Interactions API) is
-// derived by compileCuaToolCatalog from the selected tools' provider bindings
-// instead; see CuaProviderBinding.requiresApi. What remains here is model-only:
-// Tzafon and Yutori get no transport from pi-ai at all, so every model on
-// those providers always carries CUA's own api id regardless of tool
-// selection, and grok-4.5 carries cost/compat/thinking-level overrides pi-ai's
-// registry does not have yet.
+// Apply the model overrides that are properties of the model itself, not of
+// which tools a caller selects. Tool-driven transport selection (OpenAI's
+// native computer tool, Google's Interactions API) is derived by
+// compileCuaToolCatalog from the selected tools' provider bindings instead;
+// see CuaProviderBinding.requiresApi. What remains here is model-only:
+// grok-4.5 carries cost/compat/thinking-level overrides pi-ai's registry does
+// not have yet.
 export function routeCuaApi(model: Model<Api>): Model<Api> {
-	if (model.provider === "tzafon" && model.api !== TZAFON_RESPONSES_API) {
-		return { ...model, api: TZAFON_RESPONSES_API };
-	}
-	if (model.provider === "yutori" && model.api !== YUTORI_CHAT_COMPLETIONS_API) {
-		return { ...model, api: YUTORI_CHAT_COMPLETIONS_API };
-	}
 	if (model.provider === "xai" && model.id === "grok-4.5") {
 		return {
 			...model,
@@ -313,35 +281,23 @@ function isCuaFamilyMatch(id: string, family: string): boolean {
 		.every((segment) => /^\d+$/.test(segment));
 }
 
-function cuaModel(provider: "meta" | "tzafon" | "yutori", id: string, name: string): Model<Api> {
-	const base = {
+// Meta documents the 1,048,576-token context window, and its computer-use
+// cookbook configures 128,000 maximum output tokens.
+function cuaModel(provider: "meta", id: string, name: string): Model<Api> {
+	return {
 		id,
 		name,
 		provider,
-		reasoning: provider === "meta",
+		reasoning: true,
 		input: ["text", "image"],
-		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-	} satisfies Partial<Model<Api>>;
-
-	switch (provider) {
-		case "meta":
-			// Meta documents the 1,048,576-token context window, and its
-			// computer-use cookbook configures 128,000 maximum output tokens.
-			return {
-				...base,
-				api: "openai-responses",
-				baseUrl: "https://api.meta.ai/v1",
-				thinkingLevelMap: { off: null, xhigh: "xhigh" },
-				cost: { input: 1.25, output: 4.25, cacheRead: 0.15, cacheWrite: 0 },
-				contextWindow: 1_048_576,
-				maxTokens: 128_000,
-				compat: { supportsDeveloperRole: true, sessionAffinityFormat: "openai-nosession", supportsLongCacheRetention: true },
-			} as Model<Api>;
-		case "tzafon":
-			return { ...base, api: "tzafon-responses", baseUrl: "https://api.tzafon.ai", contextWindow: 128_000, maxTokens: 4_096 } as Model<Api>;
-		case "yutori":
-			return { ...base, api: "yutori-chat-completions", baseUrl: "https://api.yutori.com/v1", contextWindow: 128_000, maxTokens: 4_096 } as Model<Api>;
-	}
+		api: "openai-responses",
+		baseUrl: "https://api.meta.ai/v1",
+		thinkingLevelMap: { off: null, xhigh: "xhigh" },
+		cost: { input: 1.25, output: 4.25, cacheRead: 0.15, cacheWrite: 0 },
+		contextWindow: 1_048_576,
+		maxTokens: 128_000,
+		compat: { supportsDeveloperRole: true, sessionAffinityFormat: "openai-nosession", supportsLongCacheRetention: true },
+	} as Model<Api>;
 }
 
 function compareCuaModels(a: CuaModelInfo, b: CuaModelInfo): number {

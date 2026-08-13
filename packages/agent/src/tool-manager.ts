@@ -167,7 +167,6 @@ export class CuaToolManager<TRequested extends CuaHarnessTool<any> = CuaAgentToo
 		const catalog = compileCuaToolCatalog({
 			model: typeof model === "string" ? this.resolveModel(model) : model,
 			requestedTools: inputs,
-			viewport: this.resources.viewport,
 		});
 
 		const fingerprints: string[] = [];

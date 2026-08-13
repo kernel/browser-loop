@@ -9,13 +9,11 @@ const model: Model<typeof google.GOOGLE_CUA_INTERACTIONS_API> = { ...getCuaModel
 const incoming = {
 	googleNames: { click: "click" },
 	googleExcludedNames: ["take_screenshot"],
-	yutoriNames: {},
 	nativeToolNames: ["click"],
 };
 const screenshotIncoming = {
 	googleNames: { take_screenshot: "take_screenshot" },
 	googleExcludedNames: ["click"],
-	yutoriNames: {},
 	nativeToolNames: ["take_screenshot"],
 };
 const clickTool = { name: "click", description: "Click the page", parameters: { type: "object" } as never };

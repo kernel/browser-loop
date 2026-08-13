@@ -1,15 +1,10 @@
 import { describe, expect, it } from "vitest";
-import {
-	createCuaModels,
-	cuaModels,
-	TZAFON_RESPONSES_API,
-	YUTORI_CHAT_COMPLETIONS_API,
-} from "../src/index";
+import { createCuaModels, cuaModels } from "../src/index";
 
 describe("createCuaModels", () => {
 	it("registers the CUA-only providers alongside pi's builtins", () => {
 		const models = createCuaModels();
-		for (const id of ["openai", "anthropic", "google", "meta", "xai", "moonshotai", "openrouter", "tzafon", "yutori"]) {
+		for (const id of ["openai", "anthropic", "google", "meta", "xai", "moonshotai", "openrouter"]) {
 			const provider = models.getProvider(id);
 			expect(provider, id).toBeDefined();
 			expect(provider?.stream).toBeTypeOf("function");
@@ -24,16 +19,8 @@ describe("createCuaModels", () => {
 		expect(models.getModel("moonshotai", "kimi-k3")?.api).toBe("openai-completions");
 		expect(models.getModel("openrouter", "moonshotai/kimi-k3")?.api).toBe("openai-completions");
 		expect(models.getProvider("openrouter")?.baseUrl).toBe("https://openrouter.ai/api/v1");
-		const tzafonIds = models.getModels("tzafon").map((m) => m.id);
-		expect(tzafonIds).toContain("tzafon.northstar-cua-fast");
-		const yutoriIds = models.getModels("yutori").map((m) => m.id);
-		expect(yutoriIds).toContain("n1.5-latest");
-		expect(models.getProvider("tzafon")?.baseUrl).toBe("https://api.tzafon.ai");
-		expect(models.getModel("tzafon", "tzafon.northstar-cua-fast")).toMatchObject({
-			api: TZAFON_RESPONSES_API,
-			baseUrl: "https://api.tzafon.ai",
-		});
-		expect(models.getModel("yutori", "n1.5-latest")?.api).toBe(YUTORI_CHAT_COMPLETIONS_API);
+		expect(models.getModels("meta").map((m) => m.id)).toContain("muse-spark-1.1");
+		expect(models.getProvider("meta")?.baseUrl).toBe("https://api.meta.ai/v1");
 	});
 
 	it("keeps builtin catalogs on wrapped providers", () => {
@@ -54,15 +41,15 @@ describe("createCuaModels", () => {
 	it("returns independent collections", () => {
 		const a = createCuaModels();
 		const b = createCuaModels();
-		a.deleteProvider("tzafon");
-		expect(a.getProvider("tzafon")).toBeUndefined();
-		expect(b.getProvider("tzafon")).toBeDefined();
+		a.deleteProvider("meta");
+		expect(a.getProvider("meta")).toBeUndefined();
+		expect(b.getProvider("meta")).toBeDefined();
 	});
 });
 
 describe("cuaModels", () => {
 	it("memoizes the default collection", () => {
 		expect(cuaModels()).toBe(cuaModels());
-		expect(cuaModels().getProvider("yutori")).toBeDefined();
+		expect(cuaModels().getProvider("meta")).toBeDefined();
 	});
 });

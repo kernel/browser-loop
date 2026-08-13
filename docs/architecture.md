@@ -156,8 +156,6 @@ catalog:
 - OpenAI streams through pi's builtin Responses transport and its automatic
   prompt caching by default; a CUA-owned adapter handles OpenAI's native
   computer tool and tool-search namespace round-trips.
-- Tzafon replaces only the selected computer identity and fills declaration
-  dimensions from the actual viewport.
 - Anthropic's native browser tool falls back to an equivalent function-tool
   declaration when the active credential cannot access `browser_20260701`;
   the selected tool identity, name, schema, and executor remain unchanged.
@@ -165,8 +163,6 @@ catalog:
   declaration plus exact exclusions through the CUA-owned Interactions API
   adapter. Excluded calls fail with a named catalog error instead of reaching
   generic tool dispatch.
-- Yutori emits its native `tool_set`/`disable_tools` fields while preserving
-  ordinary function tools.
 - Meta, xAI, and Moonshot disable parallel tool calls when the selected catalog
   can mutate browser state.
 
@@ -187,10 +183,7 @@ through pi's builtin `openai-responses` transport, but the same model selected
 with `cua.providers.openai.tools.computer()` compiles to the CUA-owned
 `openai-cua-computer` api — and symmetrically for Google's
 `google-cua-interactions` Interactions API versus pi's builtin Google
-transport. Tzafon and Yutori declare `requiresApi` too, but their models always
-carry that api regardless of tool selection: pi ships no transport for either
-provider at all, so `routeCuaApi` (model-shaped, not tool-shaped) forces it
-unconditionally.
+transport.
 
 `CuaAgent` and `CuaAgentHarness` push the compiled `catalog.model` into pi on
 every construction and on every `setTools()`/`setModel()`, so the derived
@@ -212,8 +205,6 @@ serialization, provider fields, then the caller's `onPayload` hook.
      `browser_act`'s larger schema;
    - Anthropic's native browser tool when the model supports it;
    - Google's native browser action set;
-   - Tzafon's native computer tool configured for a browser;
-   - Yutori's native N1 or N1.5 browser set plus an explicit screenshot tool;
 3. creates and retains its own application-level coding-tool list;
 4. passes the complete list to `CuaAgentHarness`;
 5. builds a caller-owned prompt from loaded skills and context files;
@@ -234,8 +225,7 @@ to it so `ctrl+c` cancels the selector instead of quitting.
   `filterModelsForPicker`, `moveSelection`, `visibleWindow`) that make its
   behavior unit-testable without a terminal.
 - `tui/tool-selection.ts` — pure `/tools` state machine: identity keys matching
-  `normalizeTool`'s scheme, group badges, atomic provider groups, and
-  toggle/bulk operations.
+  `normalizeTool`'s scheme, group badges, and toggle/bulk operations.
 - `tui/tools-picker.ts` — the `/tools` component. Staged edits applied through
   `harness.setTools()` with a subset of the application-composed baseline, in
   baseline order.

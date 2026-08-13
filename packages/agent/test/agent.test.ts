@@ -105,34 +105,6 @@ describe("CuaAgent explicit tools", () => {
 		expect("getMode" in agent).toBe(false);
 	});
 
-	it("retains protocol-required Tzafon screenshot results outside the image replay limit", async () => {
-		const contexts: Context[] = [];
-		const model = getCuaModel("tzafon:tzafon.northstar-cua-fast");
-		const nativeComputer = cua.providers.tzafon.tools.computer();
-		const ordinaryTool = callerTool("ordinary");
-		const image = { type: "image" as const, data: "c2NyZWVuc2hvdA==", mimeType: "image/png" };
-		const messages: AgentMessage[] = [
-			assistant(model, [{ type: "toolCall", id: "native-shot", name: "computer", arguments: { action: { type: "screenshot" } } }], "toolUse"),
-			{ role: "toolResult", toolCallId: "native-shot", toolName: "computer", content: [image], isError: false, timestamp: 1 },
-			assistant(model, [{ type: "toolCall", id: "ordinary-shot", name: "ordinary", arguments: {} }], "toolUse"),
-			{ role: "toolResult", toolCallId: "ordinary-shot", toolName: "ordinary", content: [image], isError: false, timestamp: 2 },
-		];
-		const agent = new CuaAgent({
-			browser,
-			client,
-			tools: [nativeComputer, ordinaryTool],
-			streamFn: scriptedStream([(selectedModel) => assistant(selectedModel)], contexts),
-			toolResultImageReplayLimit: 0,
-			initialState: { model, messages },
-		});
-
-		await agent.prompt("continue");
-
-		const results = contexts[0]!.messages.filter((message) => message.role === "toolResult");
-		expect(results[0]!.content).toEqual([image]);
-		expect(results[1]!.content).toEqual([{ type: "text", text: "[stale tool-result images omitted]" }]);
-	});
-
 	it("retains protocol-required OpenAI native computer screenshot results outside the image replay limit", async () => {
 		const contexts: Context[] = [];
 		const model = getCuaModel("openai:gpt-5.5");

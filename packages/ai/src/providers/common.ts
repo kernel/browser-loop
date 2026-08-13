@@ -7,19 +7,7 @@ import type {
 	SimpleStreamOptions,
 	StreamOptions,
 } from "@earendil-works/pi-ai";
-import type { CuaAction } from "../actions/index";
 import type { CuaIncomingToolPlan } from "../tool-catalog";
-
-/** Return the canonical function-tool name for an action. */
-export function canonicalToolCallName(action: CuaAction): CuaAction["type"] {
-	return action.type;
-}
-
-/** Convert a canonical action to function-tool arguments. */
-export function canonicalToolCallArguments(action: CuaAction): Record<string, unknown> {
-	const { type: _type, ...args } = action as CuaAction & Record<string, unknown>;
-	return args;
-}
 
 /** Prefix a bare hostname/path before browser navigation. */
 export function normalizeGotoUrl(value: unknown): string | undefined {

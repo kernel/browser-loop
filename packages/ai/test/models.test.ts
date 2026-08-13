@@ -14,7 +14,7 @@ import {
 describe("CUA model refs", () => {
 	it("parses and formats provider-qualified refs", () => {
 		expect(parseCuaModelRef("openai:gpt-5.5")).toEqual({ provider: "openai", model: "gpt-5.5" });
-		expect(formatCuaModelRef("yutori", "n1.5-latest")).toBe("yutori:n1.5-latest");
+		expect(formatCuaModelRef("meta", "muse-spark-1.1")).toBe("meta:muse-spark-1.1");
 	});
 
 	it("rejects unqualified and unsupported refs", () => {
@@ -25,7 +25,7 @@ describe("CUA model refs", () => {
 
 	it("names the valid providers in the unsupported-provider error", () => {
 		expect(() => parseCuaModelRef("bogus:model")).toThrow(
-			'unsupported CUA provider "bogus" (expected one of: openai, anthropic, google, meta, xai, moonshotai, openrouter, tzafon, yutori)',
+			'unsupported CUA provider "bogus" (expected one of: openai, anthropic, google, meta, xai, moonshotai, openrouter)',
 		);
 	});
 
@@ -50,10 +50,6 @@ describe("CUA model refs", () => {
 	});
 
 	it("returns override models for refs missing from pi-ai", () => {
-		const model = getCuaModel("yutori:n1.5-latest");
-		expect(model.provider).toBe("yutori");
-		expect(model.api).toBe("yutori-chat-completions");
-
 		const opus = getCuaModel("anthropic:claude-opus-5");
 		expect(cuaOverrideModels("anthropic")).toEqual([]);
 		expect(opus).toMatchObject({
@@ -123,11 +119,6 @@ describe("CUA model refs", () => {
 	it("accepts the moonshot: alias for moonshotai refs", () => {
 		expect(parseCuaModelRef("moonshot:kimi-k3")).toEqual({ provider: "moonshotai", model: "kimi-k3" });
 		expect(getCuaModel("moonshot:kimi-k3" as CuaModelRef).id).toBe("kimi-k3");
-	});
-
-	it("loads supported custom provider models without explicit registration", () => {
-		expect(getCuaModel("tzafon:tzafon.northstar-cua-fast").api).toBe("tzafon-responses");
-		expect(getCuaModel("yutori:n1.5-latest").api).toBe("yutori-chat-completions");
 	});
 
 	it("resolves every model to its ordinary registry transport, independent of tool selection", () => {
@@ -206,9 +197,6 @@ describe("CUA support annotations", () => {
 		expect(findCuaAnnotation("moonshotai", "kimi-k2.5")).toBeUndefined();
 		expect(findCuaAnnotation("moonshotai", "kimi-latest")).toBeUndefined();
 		expect(findCuaAnnotation("google", "gemini-3.5-flash-lite")).toBeDefined();
-		expect(findCuaAnnotation("yutori", "n1.5-latest")).toBeDefined();
-		expect(findCuaAnnotation("tzafon", "tzafon.northstar-cua-fast")).toBeDefined();
-		expect(findCuaAnnotation("tzafon", "tzafon.northstar-cua-fast-1.6")).toBeDefined();
 	});
 
 	it("advertises only Google's current documented computer-use models", () => {

@@ -46,20 +46,6 @@ describe("describeTools", () => {
 		const cuaItems = describeTools(defaultInteractionTools("openai:gpt-5.6-sol"));
 		expect(cuaItems.every((item) => item.group === "cua")).toBe(true);
 	});
-
-	it("marks the Yutori n1 native action set as one atomic group", () => {
-		const items = describeTools(defaultInteractionTools("yutori:n1-latest"));
-		const atomic = items.filter((item) => item.atomicGroup);
-		expect(atomic.length).toBeGreaterThan(1);
-		expect(new Set(atomic.map((item) => item.atomicGroup))).toEqual(new Set(["provider.yutori.native.n1"]));
-		// The screenshot helper the CLI appends is not part of the native set.
-		expect(items.some((item) => !item.atomicGroup)).toBe(true);
-	});
-
-	it("leaves Yutori n1.5 individually toggleable", () => {
-		const items = describeTools(defaultInteractionTools("yutori:n1.5-latest"));
-		expect(items.every((item) => item.atomicGroup === undefined)).toBe(true);
-	});
 });
 
 describe("toolSearchText", () => {
@@ -79,44 +65,23 @@ describe("selection state machine", () => {
 
 	it("toggles a single tool off and back on", () => {
 		const target = allKeys[0]!;
-		const off = toggleTool(new Set(allKeys), items, target);
+		const off = toggleTool(new Set(allKeys), target);
 		expect(off.has(target)).toBe(false);
 		expect(off.size).toBe(allKeys.length - 1);
-		const on = toggleTool(off, items, target);
+		const on = toggleTool(off, target);
 		expect(sameSelection(on, new Set(allKeys))).toBe(true);
 	});
 
 	it("enables and clears in bulk", () => {
-		expect(disableTools(new Set(allKeys), items, allKeys).size).toBe(0);
-		expect(sameSelection(enableTools(new Set(), items, allKeys), new Set(allKeys))).toBe(true);
+		expect(disableTools(new Set(allKeys), allKeys).size).toBe(0);
+		expect(sameSelection(enableTools(new Set(), allKeys), new Set(allKeys))).toBe(true);
 	});
 
 	it("restricts bulk actions to the keys it is given", () => {
 		const subset = allKeys.slice(0, 2);
-		const cleared = disableTools(new Set(allKeys), items, subset);
+		const cleared = disableTools(new Set(allKeys), subset);
 		expect(cleared.size).toBe(allKeys.length - 2);
 		for (const key of subset) expect(cleared.has(key)).toBe(false);
-	});
-
-	it("moves an atomic group as one unit", () => {
-		const yutori = describeTools(defaultInteractionTools("yutori:n1-latest"));
-		const yutoriKeys = yutori.map((item) => item.key);
-		const nativeKeys = yutori.filter((item) => item.atomicGroup).map((item) => item.key);
-		const standalone = yutori.filter((item) => !item.atomicGroup).map((item) => item.key);
-
-		const off = toggleTool(new Set(yutoriKeys), yutori, nativeKeys[0]!);
-		for (const key of nativeKeys) expect(off.has(key)).toBe(false);
-		for (const key of standalone) expect(off.has(key)).toBe(true);
-
-		const on = toggleTool(off, yutori, nativeKeys[1]!);
-		for (const key of nativeKeys) expect(on.has(key)).toBe(true);
-	});
-
-	it("expands atomic groups for bulk disables too", () => {
-		const yutori = describeTools(defaultInteractionTools("yutori:n1-latest"));
-		const first = yutori.find((item) => item.atomicGroup)!;
-		const cleared = disableTools(new Set(yutori.map((i) => i.key)), yutori, [first.key]);
-		expect(yutori.filter((i) => i.atomicGroup).every((i) => !cleared.has(i.key))).toBe(true);
 	});
 });
 

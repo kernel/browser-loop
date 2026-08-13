@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.12.0 - 2026-08-13
+
+Breaking: Tzafon and Yutori support is removed.
+
+- Update `@onkernel/cua-ai` and `@onkernel/cua-agent` to 0.13.0. Refs like
+  `-m tzafon:…` and `-m yutori:…` are no longer accepted, `cua models` no
+  longer lists either provider, and `TZAFON_API_KEY`/`YUTORI_API_KEY` are no
+  longer read.
+- The `/tools` picker no longer has atomic tool groups. They existed only for
+  Yutori's n1 action set, which the catalog compiler refused to accept as a
+  partial selection; every remaining tool toggles on its own.
+
 ## 0.11.0 - 2026-08-13
 
 - Update `@onkernel/cua-ai` and `@onkernel/cua-agent` to 0.12.0. The default

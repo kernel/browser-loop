@@ -86,7 +86,7 @@ describe("OpenAI adapter routing", () => {
 			tools: [{ name: "computer", description: "placeholder", parameters: { type: "object" } as never }],
 		}, {
 			apiKey: "test",
-			cuaIncomingToolPlan: { openaiComputerName: "computer", yutoriNames: {}, googleNames: {}, googleExcludedNames: [], nativeToolNames: ["computer"] },
+			cuaIncomingToolPlan: { openaiComputerName: "computer", googleNames: {}, googleExcludedNames: [], nativeToolNames: ["computer"] },
 		} as never).result();
 
 		// Only the CUA native-computer adapter understands computer_call items;

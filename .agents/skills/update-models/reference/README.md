@@ -14,8 +14,6 @@ These scripts support the `update-models` skill. Run them from the repository ro
   - `META_API_KEY`
   - `XAI_API_KEY`
   - `MOONSHOT_API_KEY`
-  - `TZAFON_API_KEY`
-  - `YUTORI_API_KEY`
 
 The scripts never print API keys. Smoke tests are non-destructive: they ask each model to emit a computer-use tool call, then inspect the response without executing the action. Meta, xAI, and Moonshot use supplied function tools; other providers may use provider-native computer tools.
 
@@ -32,8 +30,6 @@ Probe native action vocabularies for a specific provider/model:
 ```bash
 npx tsx .agents/skills/update-models/reference/native-action-probe.ts --provider openai --model gpt-5.5 --out /tmp/openai-actions.json
 npx tsx .agents/skills/update-models/reference/native-action-probe.ts --provider xai --model grok-4.5 --out /tmp/xai-actions.json
-npx tsx .agents/skills/update-models/reference/native-action-probe.ts --provider tzafon --model tzafon.northstar-cua-fast --out /tmp/tzafon-actions.json
-npx tsx .agents/skills/update-models/reference/native-action-probe.ts --provider yutori --model n1.5-latest --out /tmp/yutori-actions.json
 ```
 
 Clone/update official examples and extract tool-handling evidence:

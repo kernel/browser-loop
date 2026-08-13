@@ -16,12 +16,6 @@ export interface ToolSelectionItem {
 	label: string;
 	group: ToolGroup;
 	description?: string;
-	/**
-	 * Tools that the catalog compiler refuses to accept as a partial set, and
-	 * which therefore toggle as one unit. Currently only Yutori's n1 native
-	 * action set (`validateToolsetCompatibility` rejects partial n1 subsets).
-	 */
-	atomicGroup?: string;
 }
 
 /** Identity key for a caller-owned tool, using cua-ai's canonical identity helper. */
@@ -32,15 +26,6 @@ export function toolKey(tool: CuaCliTool): string {
 function toolGroup(tool: CuaCliTool): ToolGroup {
 	if (!isCuaToolSpec(tool)) return "application";
 	return tool.origin === "provider-native" ? "native" : "cua";
-}
-
-function atomicGroupOf(tool: CuaCliTool): string | undefined {
-	if (!isCuaToolSpec(tool)) return undefined;
-	const binding = tool.providerBinding;
-	if (binding?.kind === "yutori-native" && binding.generation === "n1") {
-		return "provider.yutori.native.n1";
-	}
-	return undefined;
 }
 
 function toolDescription(tool: CuaCliTool): string | undefined {
@@ -59,13 +44,11 @@ function toolDescription(tool: CuaCliTool): string | undefined {
 export function describeTools(tools: readonly CuaCliTool[]): ToolSelectionItem[] {
 	return tools.map((tool) => {
 		const description = toolDescription(tool);
-		const atomicGroup = atomicGroupOf(tool);
 		return {
 			key: toolKey(tool),
 			label: tool.name,
 			group: toolGroup(tool),
 			...(description ? { description } : {}),
-			...(atomicGroup ? { atomicGroup } : {}),
 		};
 	});
 }
@@ -75,51 +58,25 @@ export function toolSearchText(item: ToolSelectionItem): string {
 	return `${item.label} ${item.group} ${item.key}${item.description ? ` ${item.description}` : ""}`;
 }
 
-/** Keys that must move together with `key` (itself included). */
-function linkedKeys(items: readonly ToolSelectionItem[], key: string): string[] {
-	const item = items.find((candidate) => candidate.key === key);
-	if (!item?.atomicGroup) return [key];
-	return items.filter((candidate) => candidate.atomicGroup === item.atomicGroup).map((candidate) => candidate.key);
-}
-
-/**
- * Flip one row. Atomic groups move as a unit so a Yutori n1 selection can
- * never be staged into a state the catalog compiler would reject.
- */
-export function toggleTool(
-	enabled: ReadonlySet<string>,
-	items: readonly ToolSelectionItem[],
-	key: string,
-): Set<string> {
+/** Flip one row. */
+export function toggleTool(enabled: ReadonlySet<string>, key: string): Set<string> {
 	const next = new Set(enabled);
-	const keys = linkedKeys(items, key);
-	const turnOn = !enabled.has(key);
-	for (const linked of keys) {
-		if (turnOn) next.add(linked);
-		else next.delete(linked);
-	}
+	if (enabled.has(key)) next.delete(key);
+	else next.add(key);
 	return next;
 }
 
-/** Enable `keys` (expanding atomic groups). */
-export function enableTools(
-	enabled: ReadonlySet<string>,
-	items: readonly ToolSelectionItem[],
-	keys: readonly string[],
-): Set<string> {
+/** Enable `keys`. */
+export function enableTools(enabled: ReadonlySet<string>, keys: readonly string[]): Set<string> {
 	const next = new Set(enabled);
-	for (const key of keys) for (const linked of linkedKeys(items, key)) next.add(linked);
+	for (const key of keys) next.add(key);
 	return next;
 }
 
-/** Disable `keys` (expanding atomic groups). */
-export function disableTools(
-	enabled: ReadonlySet<string>,
-	items: readonly ToolSelectionItem[],
-	keys: readonly string[],
-): Set<string> {
+/** Disable `keys`. */
+export function disableTools(enabled: ReadonlySet<string>, keys: readonly string[]): Set<string> {
 	const next = new Set(enabled);
-	for (const key of keys) for (const linked of linkedKeys(items, key)) next.delete(linked);
+	for (const key of keys) next.delete(key);
 	return next;
 }
 

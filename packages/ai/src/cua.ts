@@ -10,14 +10,6 @@ import { supportsAnthropicNativeBrowser } from "./providers/anthropic/capabiliti
 import { mapNativeBrowserInput, mapNativeComputerInput } from "./providers/anthropic/native";
 import { GOOGLE_CUA_INTERACTIONS_API } from "./providers/google/provider";
 import { OPENAI_CUA_COMPUTER_API } from "./providers/openai/provider";
-import { toCanonicalActions as toTzafonActions, TZAFON_RESPONSES_API } from "./providers/tzafon/provider";
-import {
-	toCanonicalActions as toYutoriActions,
-	YUTORI_N1_ACTION_TYPES,
-	YUTORI_N15_CORE_ACTION_TYPES,
-	YUTORI_N15_CORE_TOOL_SET,
-} from "./providers/yutori/actions";
-import { YUTORI_CHAT_COMPLETIONS_API } from "./providers/yutori/provider";
 import {
 	CUA_TOOL_SPEC_KIND,
 	type CuaCoordinateContract,
@@ -81,9 +73,6 @@ const providerSources = Object.freeze({
 	openai: "https://developers.openai.com/api/docs/guides/tools-computer-use",
 	anthropic: "https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool",
 	google: "https://ai.google.dev/gemini-api/docs/computer-use",
-	tzafon: "https://huggingface.co/Tzafon/Northstar-CUA-Fast",
-	yutoriN1: "https://docs.yutori.com/reference/n1",
-	yutoriN15: "https://docs.yutori.com/reference/n1-5",
 });
 
 function normalized(range: readonly [number, number]): CuaCoordinateContract {
@@ -441,53 +430,6 @@ function openaiNativeComputer(): CuaToolSpec {
 		binding: { kind: "openai-native", declaration, requiresApi: OPENAI_CUA_COMPUTER_API },
 		toActions: mapOpenAIComputerInput,
 		coordinates: pixels,
-	});
-}
-
-function tzafonNativeComputer(options: { displayWidth?: number; displayHeight?: number } = {}): CuaToolSpec {
-	const declaration = {
-		type: "computer_use",
-		display_width: options.displayWidth,
-		display_height: options.displayHeight,
-		environment: "browser",
-	};
-	return providerNativeSpec({
-		identity: "provider.tzafon.native.computer.v1",
-		name: "computer",
-		source: providerSources.tzafon,
-		declaration,
-		binding: { kind: "tzafon-native", declaration, requiresApi: TZAFON_RESPONSES_API },
-		toActions(input) {
-			const action = asInput(input).action;
-			return toTzafonActions(action).filter((value): value is CuaAction => value.type !== "answer");
-		},
-		coordinates: normalized([0, 999]),
-	});
-}
-
-function yutoriToolset(generation: "n1" | "n15"): CuaToolSpec[] {
-	const names = generation === "n1" ? YUTORI_N1_ACTION_TYPES : YUTORI_N15_CORE_ACTION_TYPES;
-	return names.map((nativeName) => {
-		const identityName = nativeName.replaceAll("_", "-");
-		const binding: CuaProviderBinding = {
-			kind: "yutori-native",
-			generation,
-			nativeName,
-			...(generation === "n15" ? { toolSet: YUTORI_N15_CORE_TOOL_SET } : {}),
-			allNativeNames: names,
-			requiresApi: YUTORI_CHAT_COMPLETIONS_API,
-		};
-		return providerNativeSpec({
-			identity: `provider.yutori.native.${generation}.${identityName}.${generation === "n15" ? "20260403" : "v1"}`,
-			name: nativeName,
-			source: generation === "n1" ? providerSources.yutoriN1 : providerSources.yutoriN15,
-			declaration: { type: "function", name: nativeName },
-			binding,
-			toActions(input) {
-				return toYutoriActions(nativeName, asInput(input)) ?? [];
-			},
-			coordinates: normalized([0, 1000]),
-		});
 	});
 }
 
@@ -903,11 +845,6 @@ const providers = Object.freeze({
 	google: Object.freeze({
 		source: providerSources.google,
 		toolsets: Object.freeze({ browser: googleBrowserToolset }),
-	}),
-	tzafon: Object.freeze({ source: providerSources.tzafon, tools: Object.freeze({ computer: tzafonNativeComputer }) }),
-	yutori: Object.freeze({
-		sources: Object.freeze({ n1: providerSources.yutoriN1, n15Core: providerSources.yutoriN15 }),
-		toolsets: Object.freeze({ n1: () => yutoriToolset("n1"), n15Core: () => yutoriToolset("n15") }),
 	}),
 });
 

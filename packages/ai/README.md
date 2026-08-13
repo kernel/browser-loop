@@ -157,10 +157,6 @@ cua.providers.google.toolsets.browser({ exclude: ["right_click"] });
 
 // Meta, xAI, and Moonshot use the ordinary CUA browser tools.
 cua.toolsets.browser();
-
-cua.providers.tzafon.tools.computer();
-cua.providers.yutori.toolsets.n1();
-cua.providers.yutori.toolsets.n15Core();
 ```
 
 The Google browser set exposes the current predefined action names and uses
@@ -261,15 +257,6 @@ require different transports fails to compile.
   declaration plus explicit exclusions through the Interactions API adapter.
 - **Meta/xAI/Moonshot**: ordinary function tools with serial tool calls when the
   selected catalog mutates browser state.
-- **Tzafon**: identity-scoped native declaration replacement with actual viewport
-  dimensions. Explicit screenshot and terminal answer actions are supported;
-  non-screenshot native action loops fail before browser execution because
-  Tzafon's continuation protocol requires implicit post-action screenshots. Pi
-  ships no Tzafon transport, so every Tzafon model carries CUA's own api
-  regardless of tool selection.
-- **Yutori**: identity-scoped native `tool_set`/`disable_tools` fields while
-  preserving ordinary function tools such as an explicitly selected screenshot.
-  Pi ships no Yutori transport either, so the same unconditional api applies.
 
 ## API keys
 
@@ -282,8 +269,8 @@ import {
 ```
 
 Conventional variables are `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
-`GOOGLE_API_KEY`/`GEMINI_API_KEY`, `META_API_KEY`, `XAI_API_KEY`,
-`MOONSHOT_API_KEY`, `TZAFON_API_KEY`, and `YUTORI_API_KEY`.
+`GOOGLE_API_KEY`/`GEMINI_API_KEY`, `META_API_KEY`, `XAI_API_KEY`, and
+`MOONSHOT_API_KEY`.
 
 ## Development
 

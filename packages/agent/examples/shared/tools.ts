@@ -39,16 +39,5 @@ export function toolsForModel(model: CuaModelRef): CuaAgentTool[] {
 			// Same as meta/xai, minus browser_act: Kimi's API rejects that tool's
 			// oversized schema, so Kimi gets the browser primitives only.
 			return cua.toolsets.browser();
-		case "tzafon":
-			// Northstar's documented native computer schema is its supported interaction contract.
-			return [cua.providers.tzafon.tools.computer()];
-		case "yutori":
-			// Match Yutori's documented model generation and add explicit visual access.
-			return [
-				...(modelId.startsWith("n1.5")
-					? cua.providers.yutori.toolsets.n15Core()
-					: cua.providers.yutori.toolsets.n1()),
-				cua.tools.computer.screenshot(),
-			];
 	}
 }

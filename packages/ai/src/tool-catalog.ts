@@ -45,21 +45,6 @@ export type CuaProviderBinding =
 			readonly requiresApi?: Api;
 	  }
 	| {
-			readonly kind: "tzafon-native";
-			readonly declaration: Record<string, unknown>;
-			/** Transport this binding requires the compiled catalog's model to carry. */
-			readonly requiresApi?: Api;
-	  }
-	| {
-			readonly kind: "yutori-native";
-			readonly generation: "n1" | "n15";
-			readonly nativeName: string;
-			readonly toolSet?: string;
-			readonly allNativeNames: readonly string[];
-			/** Transport this binding requires the compiled catalog's model to carry. */
-			readonly requiresApi?: Api;
-	  }
-	| {
 			readonly kind: "google-native";
 			readonly nativeName: string;
 			readonly allNativeNames: readonly string[];
@@ -162,8 +147,6 @@ export interface CuaAnthropicBrowserFallback {
 export interface CuaIncomingToolPlan {
 	readonly anthropicBrowserFallback?: CuaAnthropicBrowserFallback;
 	readonly openaiComputerName?: string;
-	readonly tzafonComputerName?: string;
-	readonly yutoriNames: Readonly<Record<string, string>>;
 	readonly googleNames: Readonly<Record<string, string>>;
 	/** Google predefined functions disabled by the exact selected native subset. */
 	readonly googleExcludedNames: readonly string[];
@@ -192,8 +175,6 @@ export interface CuaToolCatalog {
 export interface CompileCuaToolCatalogOptions {
 	model: CuaModelRef | Model<Api>;
 	requestedTools: readonly CuaCatalogToolInput[];
-	/** Catalog-planning context; feeds declaration defaulting (e.g. Tzafon display size). */
-	viewport: { readonly width: number; readonly height: number };
 }
 
 /**
@@ -212,9 +193,9 @@ const SAFE_TOOL_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 
 /**
  * Compile exactly one identity-keyed catalog for a model and caller-owned
- * requested list. Pure and declaration-only: identical declaration, model,
- * and viewport inputs produce identical catalogs, and compilation never
- * constructs executable tools or retains the requested input objects.
+ * requested list. Pure and declaration-only: identical declaration and model
+ * inputs produce identical catalogs, and compilation never constructs
+ * executable tools or retains the requested input objects.
  *
  * The compiled model's `api` is derived here, not stamped on the model ahead
  * of time: a selected tool's provider binding may declare `requiresApi`, and
@@ -226,15 +207,14 @@ export function compileCuaToolCatalog(options: CompileCuaToolCatalogOptions): Cu
 	const baseModel = typeof options.model === "string"
 		? getCuaModel(options.model)
 		: routeCuaApi(resetCatalogDerivedApi(options.model));
-	const viewport = options.viewport;
-	const normalizedEntries = [...options.requestedTools].map((tool) => normalizeTool(tool, viewport));
+	const normalizedEntries = [...options.requestedTools].map(normalizeTool);
 	const requiresApi = validateCatalog(baseModel, normalizedEntries);
 	const model = requiresApi ? { ...baseModel, api: requiresApi } : baseModel;
 	const drafts = resolveProviderFacingDeclarations(normalizedEntries);
 
 	const names = new Map(drafts.map((entry) => [entry.identity, entry.name]));
 	const requirements = compileHeaderRequirements(drafts);
-	const transforms = compilePayloadTransforms(model, drafts, viewport);
+	const transforms = compilePayloadTransforms(model, drafts);
 	validateTransformClaims(transforms);
 	const incoming = compileIncomingPlan(drafts);
 	const fingerprint = stableStringify({
@@ -284,10 +264,7 @@ export function modelSupportsDeferredTools(model: Model<Api>): boolean {
 	return major > 4 || (major === 4 && minor >= 5);
 }
 
-function normalizeTool(
-	tool: CuaCatalogToolInput,
-	viewport: { readonly width: number; readonly height: number },
-): CuaCatalogEntryDraft {
+function normalizeTool(tool: CuaCatalogToolInput): CuaCatalogEntryDraft {
 	if (isCuaToolSpec(tool)) {
 		const schemaFingerprint = stableStringify(tool.declaration.parameters);
 		const fingerprint = stableStringify({
@@ -296,15 +273,9 @@ function normalizeTool(
 			schema: schemaFingerprint,
 			coordinates: tool.execution.kind === "actions" ? tool.execution.coordinates : undefined,
 		});
-		const inspectedDeclaration = tool.providerBinding?.kind === "tzafon-native"
-			? {
-					...tool.providerBinding.declaration,
-					display_width: tool.providerBinding.declaration.display_width ?? viewport.width,
-					display_height: tool.providerBinding.declaration.display_height ?? viewport.height,
-				}
-			: tool.providerBinding && "declaration" in tool.providerBinding
-				? tool.providerBinding.declaration
-				: tool.declaration;
+		const inspectedDeclaration = tool.providerBinding && "declaration" in tool.providerBinding
+			? tool.providerBinding.declaration
+			: tool.declaration;
 		return Object.freeze({
 			identity: tool.identity,
 			name: tool.name,
@@ -359,25 +330,8 @@ function resolveProviderFacingDeclarations(entries: readonly CuaCatalogEntryDraf
 		};
 	})() : undefined;
 
-	const yutori = entries.filter((entry) => entry.providerBinding?.kind === "yutori-native");
-	const yutoriDeclaration = yutori.length > 0 ? (() => {
-		const binding = yutori[0]!.providerBinding;
-		if (binding?.kind !== "yutori-native") return undefined;
-		const selected = new Set(yutori.map((entry) => {
-			const selectedBinding = entry.providerBinding;
-			return selectedBinding?.kind === "yutori-native" ? selectedBinding.nativeName : "";
-		}));
-		return {
-			...(binding.toolSet ? { tool_set: binding.toolSet } : {}),
-			disable_tools: binding.allNativeNames.filter((name) => !selected.has(name)),
-		};
-	})() : undefined;
-
 	return entries.map((entry) => {
-		const binding = entry.providerBinding;
-		const declaration = binding?.kind === "google-native"
-			? googleDeclaration
-			: binding?.kind === "yutori-native" ? yutoriDeclaration : undefined;
+		const declaration = entry.providerBinding?.kind === "google-native" ? googleDeclaration : undefined;
 		return declaration ? Object.freeze({ ...entry, declaration: Object.freeze(declaration) }) : entry;
 	});
 }
@@ -457,14 +411,6 @@ function validateAnthropicNativeModel(model: Model<Api>, identity: string): void
 
 /** Validate the selected native tools agree on a provider and a transport, and return the transport they require, if any. */
 function validateToolsetCompatibility(model: Model<Api>, entries: readonly CuaCatalogEntryDraft[]): Api | undefined {
-	const yutoriN1 = entries.filter((entry) => entry.providerBinding?.kind === "yutori-native" && entry.providerBinding.generation === "n1");
-	if (yutoriN1.length > 0) {
-		const all = yutoriN1[0]!.providerBinding;
-		if (all?.kind === "yutori-native" && yutoriN1.length !== all.allNativeNames.length) {
-			throw new Error(`Yutori n1 cannot suppress a partial native action set; select the complete cua.providers.yutori.toolsets.n1() toolset`);
-		}
-	}
-
 	const nativeProviderKinds = new Set(
 		entries.flatMap((entry) => entry.providerBinding ? [entry.providerBinding.kind.split("-")[0]] : []),
 	);
@@ -547,11 +493,7 @@ function commaTokens(value: string | undefined): string[] {
 	return value?.split(",").map((token) => token.trim()).filter(Boolean) ?? [];
 }
 
-function compilePayloadTransforms(
-	model: Model<Api>,
-	entries: readonly CuaCatalogEntryDraft[],
-	viewport: { readonly width: number; readonly height: number },
-): CuaPayloadTransform[] {
+function compilePayloadTransforms(model: Model<Api>, entries: readonly CuaCatalogEntryDraft[]): CuaPayloadTransform[] {
 	const transforms: CuaPayloadTransform[] = [];
 	if (model.provider === "anthropic") {
 		transforms.push({
@@ -567,14 +509,8 @@ function compilePayloadTransforms(
 	for (const entry of entries) {
 		const binding = entry.providerBinding;
 		if (!binding) continue;
-		if (binding.kind === "anthropic-native" || binding.kind === "openai-native" || binding.kind === "tzafon-native") {
-			const declaration = binding.kind === "tzafon-native"
-				? {
-						...binding.declaration,
-						display_width: binding.declaration.display_width ?? viewport.width,
-						display_height: binding.declaration.display_height ?? viewport.height,
-					}
-				: binding.declaration;
+		if (binding.kind === "anthropic-native" || binding.kind === "openai-native") {
+			const { declaration } = binding;
 			transforms.push({
 				identity: entry.identity,
 				consumesToolIdentities: [entry.identity],
@@ -587,8 +523,6 @@ function compilePayloadTransforms(
 		}
 	}
 
-	const yutori = entries.filter((entry) => entry.providerBinding?.kind === "yutori-native");
-	if (yutori.length > 0) transforms.push(createYutoriTransform(yutori));
 	const google = entries.filter((entry) => entry.providerBinding?.kind === "google-native");
 	if (google.length > 0) transforms.push(createGoogleTransform(google));
 
@@ -603,35 +537,6 @@ function compilePayloadTransforms(
 		});
 	}
 	return transforms;
-}
-
-function createYutoriTransform(entries: readonly CuaCatalogEntryDraft[]): CuaPayloadTransform {
-	const firstBinding = entries[0]!.providerBinding;
-	if (firstBinding?.kind !== "yutori-native") throw new Error("invalid Yutori catalog entry");
-	const generations = new Set(entries.map((entry) => {
-		const binding = entry.providerBinding;
-		return binding?.kind === "yutori-native" ? binding.generation : "";
-	}));
-	if (generations.size !== 1) throw new Error("Yutori n1 and n1.5 native toolsets cannot be combined");
-	const selectedNativeNames = entries.map((entry) => (entry.providerBinding as Extract<CuaProviderBinding, { kind: "yutori-native" }>).nativeName);
-	const selectedSet = new Set(selectedNativeNames);
-	const disabled = firstBinding.allNativeNames.filter((name) => !selectedSet.has(name));
-	const identity = `provider.yutori.native.${firstBinding.generation}`;
-	return {
-		identity,
-		consumesToolIdentities: entries.map((entry) => entry.identity),
-		writes: ["tools", "tool_set", "disable_tools"],
-		phase: "tool-declarations",
-		apply(payload, _model, names) {
-			const stripped = removeSerializedTools(payload, entries.map((entry) => names.get(entry.identity)!));
-			if (!isRecord(stripped)) return stripped;
-			return {
-				...stripped,
-				...(firstBinding.toolSet ? { tool_set: firstBinding.toolSet } : {}),
-				disable_tools: disabled,
-			};
-		},
-	};
 }
 
 function createGoogleTransform(entries: readonly CuaCatalogEntryDraft[]): CuaPayloadTransform {
@@ -695,9 +600,7 @@ function createPayloadPlan(
 function compileIncomingPlan(entries: readonly CuaCatalogEntryDraft[]): CuaIncomingToolPlan {
 	let anthropicBrowserFallback: CuaAnthropicBrowserFallback | undefined;
 	let openaiComputerName: string | undefined;
-	let tzafonComputerName: string | undefined;
 	let googleAllNativeNames: readonly string[] = [];
-	const yutoriNames: Record<string, string> = {};
 	const googleNames: Record<string, string> = {};
 	const nativeToolNames: string[] = [];
 	for (const entry of entries) {
@@ -706,8 +609,6 @@ function compileIncomingPlan(entries: readonly CuaCatalogEntryDraft[]): CuaIncom
 		nativeToolNames.push(entry.name);
 		if (binding.kind === "anthropic-native" && binding.accessFallback) anthropicBrowserFallback = binding.accessFallback;
 		else if (binding.kind === "openai-native") openaiComputerName = entry.name;
-		else if (binding.kind === "tzafon-native") tzafonComputerName = entry.name;
-		else if (binding.kind === "yutori-native") yutoriNames[binding.nativeName] = entry.name;
 		else if (binding.kind === "google-native") {
 			googleNames[binding.nativeName] = entry.name;
 			googleAllNativeNames = binding.allNativeNames;
@@ -718,8 +619,6 @@ function compileIncomingPlan(entries: readonly CuaCatalogEntryDraft[]): CuaIncom
 	return Object.freeze({
 		...(anthropicBrowserFallback ? { anthropicBrowserFallback: Object.freeze(anthropicBrowserFallback) } : {}),
 		...(openaiComputerName ? { openaiComputerName } : {}),
-		...(tzafonComputerName ? { tzafonComputerName } : {}),
-		yutoriNames: Object.freeze(yutoriNames),
 		googleNames: Object.freeze(googleNames),
 		googleExcludedNames: Object.freeze(googleExcludedNames),
 		nativeToolNames: Object.freeze(nativeToolNames),

@@ -104,15 +104,6 @@ export function defaultInteractionTools(model: CuaModelRef): CuaCliTool[] {
 				: structuredBrowserTools();
 		case "google":
 			return cua.providers.google.toolsets.browser();
-		case "tzafon":
-			return [cua.providers.tzafon.tools.computer()];
-		case "yutori":
-			return [
-				...(modelId.startsWith("n1.5")
-					? cua.providers.yutori.toolsets.n15Core()
-					: cua.providers.yutori.toolsets.n1()),
-				cua.tools.computer.screenshot(),
-			];
 		case "meta":
 		case "xai":
 			return structuredBrowserTools();

@@ -92,7 +92,7 @@ export type CuaAgentOptions = Omit<AgentOptions, "initialState" | "streamFn"> & 
 	streamFn?: AgentOptions["streamFn"];
 	emptyResponseRecovery?: CuaEmptyResponseRecoveryOptions;
 	toolResultImageReplayLimit?: ToolResultImageReplayLimit;
-	/** Governs Google and Tzafon's `previous_response_id`-style continuation. Every other provider streams through pi's transports and their automatic prompt caching regardless of this flag. Defaults to `true`. */
+	/** Governs Google's `previous_response_id`-style continuation. Every other provider streams through pi's transports and their automatic prompt caching regardless of this flag. Defaults to `true`. */
 	responseThreading?: boolean;
 	retry?: CuaRetryOptions;
 };
@@ -113,7 +113,7 @@ type CuaAgentHarnessOptionsBase<
 	onPayload?: SimpleStreamOptions["onPayload"];
 	emptyResponseRecovery?: CuaEmptyResponseRecoveryOptions;
 	toolResultImageReplayLimit?: ToolResultImageReplayLimit;
-	/** Governs Google and Tzafon's `previous_response_id`-style continuation. Every other provider streams through pi's transports and their automatic prompt caching regardless of this flag. Defaults to `true`. */
+	/** Governs Google's `previous_response_id`-style continuation. Every other provider streams through pi's transports and their automatic prompt caching regardless of this flag. Defaults to `true`. */
 	responseThreading?: boolean;
 	retry?: CuaRetryOptions;
 };
@@ -561,7 +561,7 @@ function resolveToolResultImageReplayLimit(limit: ToolResultImageReplayLimit | u
 
 /** Native computer tool names whose screenshot history the provider protocol requires in full, regardless of the image replay limit. */
 function requiredImageToolNames(incoming: CuaIncomingToolPlan): ReadonlySet<string> {
-	return new Set([incoming.tzafonComputerName, incoming.openaiComputerName].filter((name): name is string => !!name));
+	return new Set(incoming.openaiComputerName ? [incoming.openaiComputerName] : []);
 }
 
 function projectToolResultImages<TMessage extends AgentMessage>(

@@ -20,8 +20,6 @@ import { cuaOverrideModels } from "./models";
 import { withAnthropicBrowserFallback } from "./providers/anthropic/browser-fallback";
 import { GOOGLE_CUA_INTERACTIONS_API, streamGoogleInteractions, streamSimpleGoogleInteractions } from "./providers/google/provider";
 import { OPENAI_CUA_COMPUTER_API, requiresCuaOpenAINamespaceAdapter, streamOpenAICuaComputer, streamOpenAIResponses, streamSimpleOpenAIResponses } from "./providers/openai/provider";
-import { streamSimpleTzafonResponses, streamTzafonResponses, TZAFON_RESPONSES_API } from "./providers/tzafon/provider";
-import { streamSimpleYutori, streamYutori, YUTORI_CHAT_COMPLETIONS_API } from "./providers/yutori/provider";
 
 /**
  * Build the pi `Models` collection CUA streams through: pi's builtin
@@ -44,9 +42,9 @@ import { streamSimpleYutori, streamYutori, YUTORI_CHAT_COMPLETIONS_API } from ".
  *   Responses transport, and the catalog supplies its serial-tool-call field.
  * - `moonshotai` is pi's builtin provider untouched: Kimi streams through the
  *   plain OpenAI-compatible chat completions transport with `MOONSHOT_API_KEY`.
- * - `meta`, `tzafon`, and `yutori` are CUA-only providers pi does not ship.
- *   `meta` speaks the OpenAI Responses wire protocol, so it registers pi's
- *   builtin transport against Meta's base URL and credentials.
+ * - `meta` is a CUA-only provider pi does not ship. It speaks the OpenAI
+ *   Responses wire protocol, so it registers pi's builtin transport against
+ *   Meta's base URL and credentials.
  *
  * Each call returns an independent collection; register additional providers
  * or credentials on it freely. Use {@link cuaModels} for the shared default.
@@ -60,8 +58,6 @@ export function createCuaModels(options?: CreateModelsOptions): MutableModels {
 	const google = models.getProvider("google");
 	if (google) models.setProvider(withGoogleCuaInteractions(google));
 	models.setProvider(metaProvider());
-	models.setProvider(tzafonProvider());
-	models.setProvider(yutoriProvider());
 	return models;
 }
 
@@ -128,29 +124,5 @@ function metaProvider(): Provider {
 	});
 }
 
-function tzafonProvider(): Provider {
-	return createProvider({
-		id: "tzafon",
-		name: "Tzafon",
-		baseUrl: "https://api.tzafon.ai",
-		auth: { apiKey: envApiKeyAuth("Tzafon API key", cuaApiKeyEnvVarsForProvider("tzafon")) },
-		models: cuaOverrideModels("tzafon"),
-		api: { [TZAFON_RESPONSES_API]: { stream: streamTzafonResponses, streamSimple: streamSimpleTzafonResponses } },
-	});
-}
-
-function yutoriProvider(): Provider {
-	return createProvider({
-		id: "yutori",
-		name: "Yutori",
-		baseUrl: "https://api.yutori.com/v1",
-		auth: { apiKey: envApiKeyAuth("Yutori API key", cuaApiKeyEnvVarsForProvider("yutori")) },
-		models: cuaOverrideModels("yutori"),
-		api: { [YUTORI_CHAT_COMPLETIONS_API]: { stream: streamYutori, streamSimple: streamSimpleYutori } },
-	});
-}
-
 export { GOOGLE_CUA_INTERACTIONS_API, streamGoogleInteractions, streamSimpleGoogleInteractions };
 export { OPENAI_CUA_COMPUTER_API, streamOpenAIResponses, streamSimpleOpenAIResponses };
-export { TZAFON_RESPONSES_API, streamSimpleTzafonResponses, streamTzafonResponses };
-export { YUTORI_CHAT_COMPLETIONS_API, streamSimpleYutori, streamYutori };

@@ -5,8 +5,6 @@ import {
 import { describe, expect, it } from "vitest";
 import { toolsForModel } from "../examples/shared/tools";
 
-const viewport = { width: 1440, height: 900 };
-
 /**
  * The example matrices are plain scripts: they are excluded from `tsc -b` and are
  * never executed in CI, so a provider policy that no longer compiles used to be
@@ -24,15 +22,13 @@ const models: readonly CuaModelRef[] = [
 	"xai:grok-4.5",
 	"moonshotai:kimi-k3",
 	"openrouter:moonshotai/kimi-k3",
-	"tzafon:tzafon.northstar-cua-fast",
-	"yutori:n1.5-latest",
 ];
 
 describe("example provider matrix tool policy", () => {
 	it("compiles a valid catalog for every model the matrices advertise", () => {
 		for (const model of models) {
 			expect(
-				() => compileCuaToolCatalog({ model, requestedTools: toolsForModel(model), viewport }),
+				() => compileCuaToolCatalog({ model, requestedTools: toolsForModel(model) }),
 				model,
 			).not.toThrow();
 		}

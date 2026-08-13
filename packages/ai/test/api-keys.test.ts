@@ -16,8 +16,6 @@ const ENV_KEYS = [
 	"XAI_API_KEY",
 	"MOONSHOT_API_KEY",
 	"OPENROUTER_API_KEY",
-	"TZAFON_API_KEY",
-	"YUTORI_API_KEY",
 ] as const;
 
 const ORIGINAL_ENV = new Map<string, string | undefined>(ENV_KEYS.map((key) => [key, process.env[key]]));
@@ -65,7 +63,7 @@ describe("cua api key helpers", () => {
 	});
 
 	it("throws readable errors when missing", () => {
-		delete process.env.TZAFON_API_KEY;
-		expect(() => requireCuaEnvApiKey("tzafon")).toThrow("TZAFON_API_KEY");
+		delete process.env.META_API_KEY;
+		expect(() => requireCuaEnvApiKey("meta")).toThrow("META_API_KEY");
 	});
 });
