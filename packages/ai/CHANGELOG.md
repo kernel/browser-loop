@@ -15,6 +15,10 @@ Breaking: OpenAI models no longer carry a CUA-owned api id.
   OpenAI's native computer tool, or whose transcript carries a deferred
   tool-search addition or a replayed function-call namespace (pi-ai 0.83.0's
   builtin transport does not round-trip either).
+- OpenAI's native computer adapter now sends the same `prompt_cache_key`,
+  `prompt_cache_retention`, `prompt_cache_options`, and session-affinity
+  headers as the function-tool path. It previously relied on stored response
+  state for context reuse and sent no cache key of its own.
 - Google, Meta, xAI, and Tzafon are unaffected: their `previous_response_id`
   threading helpers in `providers/common.ts` are unchanged.
 

@@ -30,6 +30,9 @@ export interface OpenAIResponsesOptions extends PiOpenAIResponsesOptions {
 	cuaIncomingToolPlan?: CuaIncomingToolPlan;
 }
 
+/** The request fields both the function-tool and native-computer paths read, whichever option shape the caller passed. */
+type OpenAIRequestOptions = Pick<OpenAIResponsesOptions, "apiKey" | "cacheRetention" | "env" | "headers" | "sessionId">;
+
 /**
  * Whether a request needs cua-ai's OpenAI Responses adapter instead of pi-ai's
  * builtin `openai-responses` transport: OpenAI's native computer tool is
@@ -142,14 +145,11 @@ function buildFunctionPayload(
 		grammarToolInputProperties,
 	});
 	applyTranscriptNamespaces(input as unknown as Array<Record<string, unknown>>, context.messages);
-	const retention = cacheRetention(options);
 	const payload: Record<string, unknown> = {
 		model: model.id,
 		input,
 		stream: true,
-		prompt_cache_key: retention === "none" ? undefined : clampOpenAIPromptCacheKey(options?.sessionId),
-		prompt_cache_retention: retention === "long" && compat?.supportsLongCacheRetention !== false ? "24h" : undefined,
-		prompt_cache_options: retention === "none" && compat?.supportsExplicitPromptCacheMode ? { mode: "explicit" } : undefined,
+		...promptCacheFields(model, options),
 		store: false,
 	};
 	if (options?.maxTokens) payload.max_output_tokens = Math.max(options.maxTokens, 16);
@@ -171,9 +171,20 @@ function buildFunctionPayload(
 	return payload;
 }
 
+/** Prompt-cache request fields, matching what pi's builtin Responses transport sends. */
+function promptCacheFields(model: Model<"openai-responses">, options: OpenAIRequestOptions | undefined): Record<string, unknown> {
+	const compat = model.compat;
+	const retention = cacheRetention(options);
+	return {
+		prompt_cache_key: retention === "none" ? undefined : clampOpenAIPromptCacheKey(options?.sessionId),
+		prompt_cache_retention: retention === "long" && compat?.supportsLongCacheRetention !== false ? "24h" : undefined,
+		prompt_cache_options: retention === "none" && compat?.supportsExplicitPromptCacheMode ? { mode: "explicit" } : undefined,
+	};
+}
+
 function createOpenAIClient(
 	model: Model<"openai-responses">,
-	options: OpenAIResponsesOptions | undefined,
+	options: OpenAIRequestOptions | undefined,
 	apiKey: string,
 ): OpenAI {
 	const headers: Record<string, string | null> = { ...model.headers, ...options?.headers };
@@ -188,7 +199,7 @@ function createOpenAIClient(
 	});
 }
 
-function openAIApiKey(options: OpenAIResponsesOptions | undefined): string {
+function openAIApiKey(options: OpenAIRequestOptions | undefined): string {
 	const apiKey = options?.apiKey || options?.env?.OPENAI_API_KEY || process.env.OPENAI_API_KEY;
 	if (apiKey) return apiKey;
 	const hasAuthorization = Object.entries(options?.headers ?? {}).some(([name, value]) =>
@@ -198,7 +209,7 @@ function openAIApiKey(options: OpenAIResponsesOptions | undefined): string {
 	throw new Error("No API key for provider: openai");
 }
 
-function cacheRetention(options: OpenAIResponsesOptions | undefined): "none" | "short" | "long" {
+function cacheRetention(options: OpenAIRequestOptions | undefined): "none" | "short" | "long" {
 	if (options?.cacheRetention) return options.cacheRetention;
 	return (options?.env?.PI_CACHE_RETENTION ?? process.env.PI_CACHE_RETENTION) === "long" ? "long" : "short";
 }
@@ -281,8 +292,7 @@ function streamOpenAINativeComputer(
 	const output = initialAssistantMessage(model);
 	void (async () => {
 		try {
-			const apiKey = options?.apiKey || process.env.OPENAI_API_KEY;
-			if (!apiKey) throw new Error("No API key for provider: openai");
+			const apiKey = openAIApiKey(options);
 			const nativeName = options?.cuaIncomingToolPlan?.openaiComputerName;
 			if (!nativeName) throw new Error("OpenAI native computer incoming plan is missing");
 			const placement = splitDeferredTools(context);
@@ -292,14 +302,11 @@ function streamOpenAINativeComputer(
 				input: convertMessages(context.messages, nativeName, placement.deferred),
 				tools: convertTools(placement.immediate),
 				max_output_tokens: options?.maxTokens ?? model.maxTokens,
+				...promptCacheFields(model, options),
 				store: false,
 			};
 			payload = ((await options?.onPayload?.(payload, model)) ?? payload) as Record<string, unknown>;
-			const client = new OpenAI({
-				apiKey,
-				baseURL: model.baseUrl || "https://api.openai.com/v1",
-				defaultHeaders: { ...model.headers, ...options?.headers },
-			});
+			const client = createOpenAIClient(model, options, apiKey);
 			const request = client.responses.create(payload as never, { signal: options?.signal });
 			const { data: response, response: rawResponse } = await request.withResponse();
 			await options?.onResponse?.({ status: rawResponse.status, headers: headersToRecord(rawResponse.headers) }, model);

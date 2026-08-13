@@ -53,6 +53,18 @@ describe("OpenAI native computer Responses adapter", () => {
 		expect(payload.previous_response_id).toBeUndefined();
 	});
 
+	it("sends the same prompt-cache fields as the function-tool path", async () => {
+		responsesCreate.mockReturnValueOnce({ id: "resp_cache", usage: {}, output: [] });
+		await openai.streamOpenAIResponses(model, {
+			messages: [{ role: "user", content: "go", timestamp: 1 }],
+			tools: [{ name: "computer", description: "placeholder", parameters: { type: "object" } as never }],
+		}, { apiKey: "test", sessionId: "session_native", cuaIncomingToolPlan: incoming }).result();
+
+		const payload = responsesCreate.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+		expect(payload.prompt_cache_key).toBe("session_native");
+		expect(payload.store).toBe(false);
+	});
+
 	it("round-trips function-call namespaces beside the native computer adapter", async () => {
 		responsesCreate.mockReturnValueOnce({
 			id: "resp_namespace",
