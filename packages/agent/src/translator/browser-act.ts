@@ -95,7 +95,14 @@ export async function runBrowserAct(action: CuaActionBrowserAct, runtime: Browse
 		let waitResult: BrowserWaitForResult | undefined;
 		let after: BrowserObservation | undefined;
 		let afterTargets: string[] | undefined;
-		if (!timeout) {
+		// A step's `expect` verifies the effect of that step's action, so it is still
+		// worth awaiting when delivery is merely *uncertain* — a lost acknowledgement
+		// may mean the input landed anyway, and the expectation is how that is
+		// discovered. A stale or unresolvable ref is different: it throws before
+		// anything is dispatched, so there is no effect that could arrive, and waiting
+		// spends the whole plan deadline on an outcome that cannot happen.
+		const undispatched = isStale(actionError);
+		if (!timeout && !undispatched) {
 			try {
 				if (step.expect) {
 					waitResult = await beforeDeadline(
@@ -113,10 +120,18 @@ export async function runBrowserAct(action: CuaActionBrowserAct, runtime: Browse
 				timeout = timeoutReason(error);
 				diagnostics.push(timeout ? message(error) : `post-action observation failed: ${message(error)}`);
 			}
+		} else if (!timeout && undispatched) {
+			try {
+				after = await beforeDeadline(() => runtime.observe(action.tab_id), deadline);
+				afterTargets = await beforeDeadline(() => runtime.targetIds(), deadline);
+			} catch (error) {
+				timeout = timeoutReason(error);
+				diagnostics.push(timeout ? message(error) : `post-action observation failed: ${message(error)}`);
+			}
 		}
 
 		timedOut ||= timeout !== undefined;
-		const stale = isStale(actionError) || waitResult?.reason === "stale_ref" || expectation?.status === "unverifiable" && expectation.reason === "stale_ref";
+		const stale = undispatched || waitResult?.reason === "stale_ref" || expectation?.status === "unverifiable" && expectation.reason === "stale_ref";
 		const outcome = stepOutcome(expectation, actionError, stale);
 		if (expectation) diagnostics.push(`expectation ${expectation.status}`);
 		steps.push(stepResult(index, step, outcome, diagnostics, expectation));

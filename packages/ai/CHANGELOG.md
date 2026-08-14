@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- Fix OpenAI's native computer transport rejecting every request after a
+  screenshot-less action. A `computer_call_output` whose result carried no image
+  put the failure text in an `error` key, which the Responses API refuses outright
+  (`400 Unknown parameter: 'input[N].output.error'`), so one failed action poisoned
+  the rest of the conversation. The output now always carries a valid
+  `computer_screenshot`, and the failure text follows as a user message so the
+  model still learns what happened. A 1x1 placeholder is not enough — the
+  Responses API rejects it even though the vision endpoint accepts one.
+- Anthropic's native browser and native computer tools can no longer be selected
+  together. Anthropic answers 400 because the browser tool addresses a viewport
+  coordinate frame and the computer tool a display frame; the catalog now refuses
+  the pair at compile time instead of on the wire.
+- Google no longer carries a schema quirk. The Gemini API rejects the JSON Schema
+  keywords `const` and `additionalProperties` outright rather than ignoring them,
+  so a payload transform rewrites both for Google — `const: x` becomes a
+  single-value `enum`, which means the same thing. Gemini now accepts every
+  function tool CUA offers, including `browser_act` and `browser_wait_for`, which
+  the removed quirk had marked unavailable.
+
 - Add `cuaToolMenu(model, selected)`: every tool CUA can offer for a model, each
   marked available or not with the compiler's own reason when it is not. It
   decides availability by compiling the candidate catalog rather than restating

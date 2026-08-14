@@ -28,6 +28,13 @@ import type { CuaSimpleStreamOptions } from "../common";
 /** CUA-owned api id for OpenAI's native computer tool, derived onto the model by compileCuaToolCatalog when that tool is selected. */
 export const OPENAI_CUA_COMPUTER_API = "openai-cua-computer";
 
+/**
+ * 64x64 black PNG, used when a computer action produced no screenshot so the
+ * `computer_screenshot` output stays valid. A 1x1 image is rejected by the
+ * Responses API even though the vision endpoint accepts it.
+ */
+const BLANK_SCREENSHOT_DATA_URL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAIklEQVR4nO3BAQ0AAADCoPdPbQ8HFAAAAAAAAAAAAAAA8G4wQAABiwCo9wAAAABJRU5ErkJggg==";
+
 export interface OpenAIResponsesOptions extends PiOpenAIResponsesOptions {
 	/** @internal Identity-addressed native dispatch compiled from selected tools. */
 	cuaIncomingToolPlan?: CuaIncomingToolPlan;
@@ -425,13 +432,29 @@ function convertMessages(messages: readonly Context["messages"][number][], nativ
 			input.push({
 				type: "computer_call_output",
 				call_id: message.toolCallId,
-				output: image
-					? { type: "computer_screenshot", image_url: `data:${image.mimeType};base64,${image.data}` }
-					: { type: "computer_screenshot", error: message.isError ? text || "tool execution failed" : text || "no screenshot" },
+				// `computer_screenshot` accepts image_url or file_id and nothing else.
+				// An earlier version put the failure text in an `error` key here, which
+				// the Responses API rejects outright — `400 Unknown parameter:
+				// 'input[N].output.error'` — so one screenshot-less action poisoned every
+				// later request in the conversation. A blank screenshot keeps the item
+				// valid; the text follows as a user message so the model still learns
+				// what happened.
+				output: {
+					type: "computer_screenshot",
+					image_url: image ? `data:${image.mimeType};base64,${image.data}` : BLANK_SCREENSHOT_DATA_URL,
+				},
 				...(acknowledgedSafetyChecks(messages, message.toolCallId).length
 					? { acknowledged_safety_checks: acknowledgedSafetyChecks(messages, message.toolCallId) }
 					: {}),
 			});
+			if (!image) {
+				const detail = text || (message.isError ? "tool execution failed" : "no screenshot was captured");
+				input.push({
+					type: "message",
+					role: "user",
+					content: [{ type: "input_text", text: `[computer action produced no screenshot] ${detail}` }],
+				});
+			}
 		} else {
 			input.push({ type: "function_call_output", call_id: message.toolCallId, output: message.isError ? `Error: ${text}` : text || "ok" });
 		}

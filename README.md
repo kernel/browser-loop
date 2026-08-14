@@ -1,32 +1,50 @@
 # cua
 
-A computer-use CLI for agents (and TUI for humans) built on [pi-agent](https://github.com/earendil-works/pi/tree/main/packages/agent). 
+Browser tools for your agent, built on [pi](https://github.com/earendil-works/pi).
 
-```bash
-cua "go to news.ycombinator.com and tell me the top 3 story titles"
+Point any model at a [Kernel cloud browser](https://kernel.sh/): pick the tools,
+get plain agent objects back, and run whatever loop you already have.
+
+```ts
+import { attach } from "@onkernel/cua-agent";
+import { cua } from "@onkernel/cua-ai";
+
+const kb = attach({ client, browser });
+const { model, agentTools, models } = kb.compile({
+  model: "anthropic:claude-opus-5",
+  tools: cua.toolsets.browser(),
+});
 ```
 
-`cua` provisions a [Kernel cloud browser](https://kernel.sh/), turns the model's computer-use tool calls into real mouse/keyboard/scroll/screenshot actions, and streams the result back to your terminal.
+Already in pi? Install the extension instead and keep pi's session, UI, and
+model selection:
+
+```bash
+pi install npm:@onkernel/cua-pi-extension
+pi -p --cua-tools browser,browser-act "open example.com and report the heading"
+```
 
 ---
 
 ## Why this exists
 
 Frontier models expose computer use through different protocols: native
-computer/browser declarations, predefined browser action sets, ordinary
-function tools, different coordinate systems, and different screenshot/result
-contracts. `@onkernel/cua-ai` represents those differences as an explicit,
-identity-keyed tool catalog. Callers choose the exact tools; provider transforms
-compose only the declarations and request fields required by those identities.
+computer/browser declarations, predefined browser action sets, ordinary function
+tools, different coordinate systems, and different screenshot/result contracts.
 
 All of them expect you to:
 
 1. Run a real browser somewhere (locally is annoying, on a server is hard).
 2. Translate every action into an actual SDK call against that browser.
-3. Capture appropriate feedback from each action so the model can verify whether it had the intended effect.
-4. Keep doing this in a loop until the task is done.
+3. Capture appropriate feedback from each action so the model can verify whether
+   it had the intended effect.
+4. Know which of those protocols the model you picked actually accepts.
 
-`cua` does all of this for you. The repo is structured as several focused npm packages so the per-provider plumbing is also reusable outside of this binary (e.g. by agents of your own spun up via [`kernel/cli`](https://github.com/kernel/cli) templates).
+This repo does all of that and stops there. `@onkernel/cua-ai` represents the
+provider differences as an explicit, identity-keyed tool catalog; you choose the
+exact tools, and provider transforms compose only the declarations and request
+fields those identities require. It does not supply an agent class, a session
+format, or a front-end — your framework already has those.
 
 ---
 
@@ -36,326 +54,124 @@ All of them expect you to:
 packages/
 ├── ai/            # @onkernel/cua-ai           - model catalog, tool schemas, provider adapters
 ├── agent/         # @onkernel/cua-agent        - Kernel-browser tool execution
-├── pi-extension/  # @onkernel/cua-pi-extension - Kernel browser tools inside pi's own session
-├── cli/           # @onkernel/cua-cli          - the `cua` binary
+├── pi-extension/  # @onkernel/cua-pi-extension - the same tools inside pi's own session
 └── ptywright/     # @onkernel/ptywright        - development-only PTY/TUI test infrastructure
 ```
 
-**Using pi already?** [`packages/pi-extension`](packages/pi-extension) adds these
-tools to a pi session without a second agent loop: `pi install` it, select tools
-with `--cua-tools`, and pi keeps owning the session, UI, and model.
-
-**Building your own agent? Start here:** [`packages/agent`](packages/agent)
-(`@onkernel/cua-agent`) — `attach()` binds a Kernel browser and compiles a
-(model, tools) pair into plain pi objects you drive yourself. It sits on
-[`packages/ai`](packages/ai) (`@onkernel/cua-ai`), the model layer with the
-pi-ai model catalog, canonical tool schemas, and per-provider
-adapters on top of pi-ai; reach for cua-ai directly only when you bring your
-own execution.
+| Package | What it ships |
+| --- | --- |
+| [`@onkernel/cua-ai`](packages/ai) | Model catalog, tool factories/toolsets, per-model compatibility checks, provider adapters. |
+| [`@onkernel/cua-agent`](packages/agent) | `attach()`: binds a Kernel browser and compiles a (model, tools) pair into plain pi objects. |
+| [`@onkernel/cua-pi-extension`](packages/pi-extension) | A pi extension contributing those tools to pi's own agent session. |
+| [`@onkernel/ptywright`](packages/ptywright) | Development-only PTY/TUI test infrastructure. |
 
 ```mermaid
 flowchart LR
   ai[("@onkernel/cua-ai")]
   agent[("@onkernel/cua-agent")]
-  cli[("@onkernel/cua-cli")]
   ext[("@onkernel/cua-pi-extension")]
-  pi[("pi-agent-core / pi-ai / pi-tui / pi-coding-agent")]
+  pi[("pi-agent-core / pi-ai / pi-coding-agent")]
   sdk[("@onkernel/sdk")]
   ai --> agent
-  agent --> cli
-  ai --> cli
   agent --> ext
   ai --> ext
   pi --> agent
-  pi --> cli
   pi --> ext
   sdk --> agent
-  sdk --> cli
   sdk --> ext
 ```
 
-| Package                                 | What it ships                                                                                                                            |
-| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| [`@onkernel/cua-ai`](packages/ai)       | Computer-use model catalog, tool factories/toolsets, compatibility checks, and provider adapters.                         |
-| [`@onkernel/cua-agent`](packages/agent) | `attach()`: binds a Kernel browser and compiles a (model, tools) pair into plain pi objects.                              |
-| [`@onkernel/cua-pi-extension`](packages/pi-extension) | A pi extension contributing these tools to pi's own agent session.                          |
-| [`@onkernel/cua-cli`](packages/cli)     | The `cua` binary: argv parsing, sessions, skills, JSONL output, pi-tui front-end.                                         |
-| [`@onkernel/ptywright`](packages/ptywright) | Development-only PTY/TUI test infrastructure.                                                                         |
-
 ---
 
-## Quickstart
+## Building an agent
 
-```bash
-git clone https://github.com/kernel/cua
-cd cua
-npm install
+`attach()` binds the browser once; `compile()` turns a (model, tools) pair into
+plain pi objects. Nothing here is a CUA type you have to learn:
 
-# run the CLI directly from source (no global install required):
-npx tsx packages/cli/src/cli.ts --help
+```ts
+import Kernel from "@onkernel/sdk";
+import { cua } from "@onkernel/cua-ai";
+import { Agent, attach } from "@onkernel/cua-agent";
 
-# if you want `cua` on $PATH from any directory, add a shell function to
-# your rc that pins the repo location while preserving the caller's cwd
-# (so `--out`, transcript bucketing, and `.agents/skills` discovery use
-# the directory you invoked from), e.g. in ~/.bashrc:
-#   CUA_REPO=/absolute/path/to/cua
-#   cua() { "$CUA_REPO/node_modules/.bin/tsx" "$CUA_REPO/packages/cli/src/cli.ts" "$@"; }
+const client = new Kernel({ apiKey: process.env.KERNEL_API_KEY! });
+const browser = await client.browsers.create({ stealth: true });
+const kb = attach({ client, browser });
 
-# set API keys via env vars
-export OPENAI_API_KEY=sk-...                 # for gpt-5.6-sol
-export ANTHROPIC_API_KEY=sk-ant-...          # for claude-opus-5
-export GOOGLE_API_KEY=...                    # for gemini-3.6-flash
-export XAI_API_KEY=xai-...                   # for grok-4.5
-export MOONSHOT_API_KEY=sk-...               # for kimi-k3
-export KERNEL_API_KEY=sk_...                 # always required
+const { model, agentTools, models } = kb.compile({
+  model: "anthropic:claude-opus-5",
+  tools: [...cua.toolsets.browser(), cua.tools.browser.act()],
+});
 
-# single-shot
-cua -p "Open https://news.ycombinator.com and tell me the top story"
+const agent = new Agent({
+  streamFn: (selected, context, options) => models.streamSimple(selected, context, options),
+  initialState: { model, tools: [...agentTools], systemPrompt: "Use the supplied browser tools." },
+});
 
-# list selectable model ids
-cua models
-
-# Claude
-cua -p --model claude-opus-5 "Same prompt"
-
-# Gemini 3 Flash (built-in computer use)
-cua -p --model gemini-3.6-flash "Same prompt"
-
-# Meta Muse Spark, through OpenRouter
-cua -p --model openrouter:meta/muse-spark-1.1 "Same prompt"
-
-# xAI Grok 4.5
-cua -p --model xai:grok-4.5 "Same prompt"
-
-# Moonshot Kimi K3
-cua -p --model moonshotai:kimi-k3 "Same prompt"
-
-# interactive TUI (default mode)
-cua
-cua "summarize https://news.ycombinator.com"
-
-# agent-friendly subcommands (one-shot, see "Agent-friendly subcommands" below
-# for the full surface and named-session workflow)
-cua open https://github.com/login
-cua click "Sign in"
-cua url
-cua screenshot --out shot.png
-
-# resume the most recent session for this cwd (fresh browser, prior context)
-cua -c "now click on the second result"
-
-# JSONL events for scripting
-cua -p -o jsonl "open example.com and tell me the heading"
+try {
+  await agent.prompt("Open example.com and report the heading.");
+} finally {
+  await kb.dispose();
+  await client.browsers.deleteByID(browser.session_id);
+}
 ```
+
+The compiled `model` carries the transport its tools derive: selecting a
+provider-native browser or computer surface can change `model.api`, so the pair
+has to reach the agent together. See
+[`packages/agent/README.md`](packages/agent/README.md) for the harness variant,
+swapping tools on a running session, and tool contexts.
+
+## Choosing tools for a model
+
+Not every model accepts every tool. Ask, rather than guess:
+
+```ts
+import { cuaToolMenu, getCuaModel } from "@onkernel/cua-ai";
+
+for (const entry of cuaToolMenu(getCuaModel("openai:gpt-5.6-sol"))) {
+  console.log(entry.label, entry.available ? "ok" : `unavailable: ${entry.unavailableReason}`);
+}
+```
+
+Availability is decided by compiling the candidate catalog, so the menu cannot
+drift from what the compiler accepts, and the reason shown for an unavailable
+tool is the compiler's own. It is also pairwise: two providers' native surfaces
+cannot coexist, so rebuild the menu after each change rather than caching a
+per-tool verdict.
 
 ---
 
 ## How it works
 
-1. **Model layer** — `@onkernel/cua-ai` opens pi-ai's whole model catalog,
-   stable tool identities, explicit tool factories/toolsets, compatibility
-   checks, and provider declarations/headers/payload transforms.
-2. **Execution layer** — `@onkernel/cua-agent` composes around
-   `pi-agent-core`'s `Agent`/`AgentHarness`. It materializes the caller's exact
+1. **Model layer** — `@onkernel/cua-ai` opens pi-ai's whole model catalog, with
+   stable tool identities, explicit tool factories/toolsets, per-model
+   compatibility checks, and provider declarations/headers/payload transforms.
+   Compilation is declaration-only: it never sees an executor.
+2. **Execution layer** — `@onkernel/cua-agent` materializes the caller's exact
    catalog over one shared resource pool and executes canonical actions through
    Kernel's computer API or a raw-CDP browser executor.
-3. **CLI** — `@onkernel/cua-cli` assembles a pi `AgentHarness` from
-   command-line flags, env-var-based API keys, a `JsonlSessionRepo` for
-   transcripts, and pi skills; renders the result either as plain text
-   (`--print`), JSONL events (`-o jsonl`), or an interactive pi-tui
-   front-end.
-4. **Browser** — a fresh Kernel cloud browser session per run (or per
-   resume) with optional named profile load/save. The model requests screenshots
-   explicitly when it needs visual feedback.
+3. **Transport** — the compiled catalog derives `model.api` from the selected
+   tools, so a provider-native surface reaches the wire with the transport,
+   headers, and payload shape it requires.
+4. **Browser** — a Kernel cloud browser with optional profile and proxy. The
+   model requests screenshots explicitly when it needs visual feedback.
 
-See [`docs/architecture.md`](docs/architecture.md) for the full
-end-to-end flow.
+See [`docs/architecture.md`](docs/architecture.md) for the full end-to-end flow.
 
 ---
 
-## CLI reference
-
-See [`packages/cli/README.md`](packages/cli/README.md) for the
-full CLI reference, env-var configuration, and model selection.
-
-Highlights:
-
-- `-p`/`--print` for single-shot mode; `-o jsonl` for structured output.
-- `cua models` to list supported `-m`/`--model` values and their providers.
-- `-m`/`--model <id>` to choose any model pi-ai carries.
-- `/model` in the TUI for a searchable model picker; `/model <id>` still
-  switches directly.
-- `/tools` in the TUI to enable or disable tools for the current session.
-- `-s`/`--session-name <name>` to reuse a `cua session start`-allocated
-  Kernel browser across calls.
-- `-c`/`--continue`, `-r`/`--resume`, `--session <ref>` for transcript
-  resume.
-- `--skill <path>` / `/skill:<name>` for Agent Skills (defaults:
-  `~/.agents/skills/`, `<cwd>/.agents/skills/`).
-- `--image-protocol` / `CUA_IMAGE_PROTOCOL` to force inline screenshot
-  rendering (`kitty` / `iterm2` / `none` / `auto`; Ghostty / WezTerm
-  are auto-detected as `kitty`).
-
----
-
-## Agent-friendly subcommands
-
-Each subcommand below is one-shot: it provisions a Kernel browser, runs
-the action, prints a compact result on stdout, and exits with a
-deterministic code. Designed for shell agents to chain.
-
-| Subcommand                          | Result on stdout                                | Exit codes                  |
-| ----------------------------------- | ----------------------------------------------- | --------------------------- |
-| `cua open <url>`                    | `ok`                                            | 0 ok, 2 error               |
-| `cua act '<json>'`                  | bounded semantic plan result                    | 0 worked, 1 unmet, 2 error  |
-| `cua click "<description>"`         | `ok clicked (x, y)` or `not_found <reason>`     | 0, 1 not_found, 2 error     |
-| `cua type "<target>" "<text>"`      | `ok typed` or `not_found <reason>`              | 0, 1 not_found, 2 error     |
-| `cua press <key> [<key>...]`        | `ok pressed`                                    | 0 ok, 2 error               |
-| `cua observe ["<question>"]`        | the description / answer                        | 0 ok, 2 error               |
-| `cua url`                           | the current URL                                 | 0 ok, 2 error               |
-| `cua screenshot --out <file\|->`    | the path (or `(stdout)` when `--out -`)         | 0 ok, 2 error               |
-| `cua do "<instruction>"`            | the assistant's final text                      | 0 ok, 2 error               |
-
-By default each call provisions a fresh browser, so the second call
-can't see anything the first call did. For multi-step workflows, use a
-named session.
-
-### Named sessions
+## Development
 
 ```bash
-cua session start login                          # provisions a Kernel browser, prints `name=login`
-cua -s login open https://github.com/login
-cua -s login type "email field"    "$EMAIL"
-cua -s login type "password field" "$PASSWORD"
-cua -s login click "Sign in"
-cua -s login url                                 # stdout: the post-login URL
-cua session stop login                           # tears down the Kernel browser
+npm ci
+npm run typecheck
+npm test --workspace @onkernel/cua-ai
+npm test --workspace @onkernel/cua-agent
+npm test --workspace @onkernel/cua-pi-extension
 ```
 
-Inspect:
-
-```bash
-cua session list           # tab-formatted: NAME, KERNEL_ID, AGE, LIVE_URL
-cua session show login     # full JSON: kernel_session_id, live_url, transcript_path, ...
-```
-
-`-s <name>` works for all invocation styles (action subcommands, `--print`, the
-interactive TUI). Liveness is checked before each attach: if the Kernel
-browser timed out, the call fails with a clear "session no longer
-alive" error suggesting `cua session stop <name> && cua session start
-<name>`.
-
-Named-session metadata lives in `$XDG_DATA_HOME/cua/named-sessions/<name>.json`
-(default `~/.local/share/cua/named-sessions/`).
-
----
-
-## Session transcripts
-
-Every `--print`, interactive TUI, and `-s <name>` invocation persists a
-JSONL transcript by default — useful for analyzing or self-improving
-agent behavior.
-
-**Where**: `$XDG_DATA_HOME/cua/sessions/<cwd-hash>/<id>.jsonl` (default
-`~/.local/share/cua/sessions/`). For named sessions, the exact path is
-in the `transcript_path` field of `cua session show <name>`.
-
-**Format**: one pi `SessionManager` record per line. Conversation records have
-`type: "message"`; their role and content are nested under `.message`. A custom
-record with `customType: "cua-browser"` stores `sessionId`, `liveUrl`, and
-optional `profileId` under `.data`.
-
-**Opting out**: `--no-session` keeps the run in-memory only. One-shot
-action subcommands (without `-s`) also skip the transcript, since
-they're already self-contained.
-
-**Analyzing**: anything that reads JSONL works. A few `jq` starters:
-
-```bash
-TRANSCRIPT=~/.local/share/cua/sessions/<cwd>/<id>.jsonl
-
-# Every tool call the agent made, in order
-jq -c 'select(.type == "message" and .message.role == "assistant")
-       | .message.content[]? | select(.type == "toolCall")
-       | {name, arguments}' "$TRANSCRIPT"
-
-# Largest tool-result screenshot (handy when chasing context-window blowups)
-jq -c 'select(.type == "message" and .message.role == "toolResult")
-       | .message.content[]? | select(.type == "image")
-       | {len: (.data | length)}' "$TRANSCRIPT" \
-  | sort -t: -k2 -n | tail -1
-
-# Final assistant text (the answer)
-jq -r 'select(.type == "message" and .message.role == "assistant")
-       | .message.content[]? | select(.type == "text") | .text' \
-  "$TRANSCRIPT" | tail -1
-```
-
-`--print -o jsonl` is a separate live-event stream (one event per line
-on stdout, different schema). Both are useful for analysis but they're
-NOT the same thing: the `-o jsonl` stream describes turns / tool calls
-/ deltas as they happen; the transcript JSONL is the persisted message
-history pi-coding-agent's `SessionManager` writes.
-
----
-
-## Skills
-
-`cua` follows the cross-agent [`~/.agents/skills/`](https://agentskills.io)
-emerging standard. Skills loaded from any of these locations are
-auto-discovered (first wins on name collision):
-
-1. Explicit `--skill <path>` flags (file or directory; repeatable).
-2. `~/.agents/skills/` (user-global).
-3. `<cwd>/.agents/skills/` (project-local).
-
-Each skill's `name`, `description`, and file `location` are added to
-the system prompt. The model is instructed to use the `read` tool to
-load a skill's full body when its description matches the task — only
-descriptions and locations live in the prompt by default, so the prompt
-stays small no matter how many skills you have.
-
-To force-load a skill body inline on a single turn, prefix the prompt
-with `/skill:<name>` (works in both `--print` and the interactive TUI):
-
-```bash
-cua -p "/skill:my-workflow open https://..."
-```
-
-Disable discovery entirely with `--no-skills` / `-ns`.
-
-This repo ships a `skills/cua-cli/SKILL.md` aimed at OTHER agents
-(Claude Code, Cursor, pi-coding-agent, etc.) that want to drive `cua`
-as a CLI subcommand. To install it globally:
-
-```bash
-mkdir -p ~/.agents/skills
-ln -s "$(pwd)/skills/cua-cli" ~/.agents/skills/cua-cli
-```
-
----
-
-## Project layout
-
-```
-skills/
-└── cua-cli/SKILL.md # skill aimed at OTHER agents driving cua via shell
-packages/
-├── ai/              # @onkernel/cua-ai — model layer (see packages/ai/README.md)
-├── agent/           # @onkernel/cua-agent — Kernel-browser execution layer (see packages/agent/README.md)
-├── cli/             # @onkernel/cua-cli — the `cua` binary (see packages/cli/README.md)
-└── ptywright/       # @onkernel/ptywright — development-only PTY/TUI test infrastructure
-```
-
----
-
-## Roadmap
-
-- Auto-respawn dead Kernel sessions when `-s <name>` is used (today we
-  refuse with a clear error and ask the user to re-`session start`).
-- `--local` Docker-backed browser as an alternative to Kernel cloud.
-- Anthropic `hold_key` / `zoom` action support.
-- pi-tui SelectList-based picker for `-r` instead of plain readline.
+`cua-agent`'s live end-to-end tests skip unless `CUA_E2E_LIVE=1` is set, and
+`cua-ai` runs integration tests separately via `npm run test:integration`.
 
 ---
 

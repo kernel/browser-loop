@@ -79,8 +79,7 @@ function modelsFromStream(streamFn: StreamFn, provider = "openai"): Models {
 
 /**
  * What a consumer does with a handle: compile a pair, hand it to a stock pi
- * harness, and recompile-then-apply to change it. The CLI's `CuaCliCatalog` is
- * this same shape.
+ * harness, and recompile-then-apply to change it.
  */
 async function openSession(options: {
 	model: CuaModelInput;

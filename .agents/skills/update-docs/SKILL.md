@@ -41,10 +41,10 @@ For every doc update:
 Start with these source-of-truth checks:
 
 - Package topology: `package.json`, `tsconfig.json`, and `packages/*/package.json`.
-- Design invariants: `@onkernel/cua-ai` owns provider-specific policy (catalog, tool schemas, payload transforms); `@onkernel/cua-agent` is provider-neutral runtime glue around `pi-agent-core` (no provider names in `packages/agent/src`); provider differences reach the agent as compiled `CuaToolCatalog` data; `@onkernel/cua-cli` composes both for orchestration.
+- Design invariants: `@onkernel/cua-ai` owns provider-specific policy (catalog, tool schemas, payload transforms); `@onkernel/cua-agent` is provider-neutral runtime glue around `pi-agent-core` (no provider names in `packages/agent/src`); provider differences reach the agent as compiled `CuaToolCatalog` data; `@onkernel/cua-pi-extension` composes both inside a pi session.
 - Model layer: `packages/ai/src/index.ts`, `cua.ts`, `tool-catalog.ts`, `getCuaModel`/`listCuaModels`/`parseCuaModelRef`, provider adapters, and `api-keys.ts`.
-- Execution layer: `packages/agent/src/index.ts`, `CuaAgent` and `CuaAgentHarness` wiring, and the canonical CUA tool executors against `@onkernel/sdk`.
-- CLI runtime flow: `packages/cli/src/cli.ts`, `cli-harness.ts`, `harness.ts`, `harness-browser.ts`, `harness-models.ts`, `harness-sessions.ts`, `harness-named-sessions.ts`, `harness-skills.ts`, `print.ts`, `output/harness-jsonl.ts`, `action/`, and `tui/`.
+- Execution layer: `packages/agent/src/index.ts`, `attach.ts`, `tool-manager.ts`, `resources.ts`, and the canonical CUA tool executors against `@onkernel/sdk`.
+- Extension runtime flow: `packages/pi-extension/src/index.ts`, `selection.ts`, `browser-runtime.ts`, `state.ts`, and `render.ts`.
 - TUI test infrastructure: `packages/ptywright/package.json`, `src/index.ts`, `src/session.ts`, `src/terminal.ts`, and `README.md`.
 - External drift: provider computer-use docs, `@earendil-works/pi-*` versions, and `@onkernel/sdk` versions in package manifests.
 
@@ -53,7 +53,7 @@ Questions `architecture.md` should answer after each update:
 - What owns the canonical action vocabulary and the model catalog?
 - Where is the cua-ai vs cua-agent ownership boundary, and how do provider differences reach the agent without provider conditionals in `packages/agent/src`?
 - Where does Kernel SDK browser execution happen?
-- What does the CLI compose at runtime via `buildCuaHarness`?
+- What does the pi extension compose at runtime, and which selectors does it offer?
 - Which package is dev/test infrastructure only?
 
 ## Validation

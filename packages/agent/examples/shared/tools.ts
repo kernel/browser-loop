@@ -12,9 +12,8 @@ function structuredBrowserTools(): CuaAgentTool[] {
 }
 
 /**
- * Interaction policy shared by the agent and harness provider matrices, mirroring
- * the CLI defaults in `packages/cli/src/harness.ts`. Both examples read it from
- * here so the two cannot drift apart.
+ * Interaction policy shared by the agent and harness provider matrices. Both
+ * examples read it from here so the two cannot drift apart.
  */
 export function toolsForModel(model: CuaModelRef): CuaAgentTool[] {
 	const { provider, model: modelId } = parseCuaModelRef(model);

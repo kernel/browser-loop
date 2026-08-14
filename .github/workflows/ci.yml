@@ -62,7 +62,7 @@ jobs:
       - name: Pi extension unit tests
         run: npm test --workspace @onkernel/cua-pi-extension
 
-  cli-unit:
+  typecheck-and-ptywright:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -99,36 +99,14 @@ jobs:
           key: ptywright-${{ runner.os }}-${{ hashFiles('packages/ptywright/GHOSTTY_UPSTREAM', 'packages/ptywright/native/**', 'packages/ptywright/scripts/**') }}
       - run: npm run build --workspace @onkernel/cua-ai
       - run: npm run build --workspace @onkernel/cua-agent
+      # The only job that typechecks the whole project graph rather than one
+      # package, and the only one that builds and tests ptywright.
       - name: Typecheck workspace
         run: npx tsc -b
       - name: Build ptywright (native binding)
         run: npm run build --workspace @onkernel/ptywright
       - name: Ptywright tests
         run: npm test --workspace @onkernel/ptywright
-      - name: CLI unit tests
-        env:
-          PTYWRIGHT_REQUIRED: "1"
-        run: npm test --workspace @onkernel/cua-cli
-      - name: Build cua-cli
-        run: npm run build --workspace @onkernel/cua-cli
-      - name: Pack tarballs
-        # Pack the workspace dependencies too so the smoke install resolves
-        # them from the tarballs instead of the registry, where the versions
-        # under development are not published yet.
-        run: |
-          npm pack --workspace @onkernel/cua-ai --pack-destination "$RUNNER_TEMP"
-          npm pack --workspace @onkernel/cua-agent --pack-destination "$RUNNER_TEMP"
-          npm pack --workspace @onkernel/cua-cli --pack-destination "$RUNNER_TEMP"
-      - name: CLI bin smoke test
-        run: |
-          SMOKE_DIR=$(mktemp -d)
-          cd "$SMOKE_DIR"
-          npm init -y > /dev/null
-          npm install "$RUNNER_TEMP"/onkernel-cua-ai-*.tgz "$RUNNER_TEMP"/onkernel-cua-agent-*.tgz "$RUNNER_TEMP"/onkernel-cua-cli-*.tgz
-          OUTPUT=$(./node_modules/.bin/cua --help)
-          echo "$OUTPUT"
-          echo "$OUTPUT" | grep -q "Usage:"
-          echo "$OUTPUT" | grep -q "cua \[options\] \[prompt\.\.\.\]"
 
   integration:
     runs-on: ubuntu-latest

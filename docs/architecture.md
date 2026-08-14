@@ -27,10 +27,9 @@ both explicitly and may use pi's orchestration primitives directly.
   takes the two pieces that are not pi-shaped — the catalog compiler and
   `CuaExecutionResources` — and applies headers and payload transforms through
   pi's own `before_provider_headers` and `before_provider_request` hooks.
-- `@onkernel/cua-cli` owns application policy: it chooses an explicit tool list
-  for each selected model, adds pi coding tools, supplies the system prompt,
-  resolves credentials/sessions/skills, and renders text, JSONL, or TUI output.
-- `@onkernel/ptywright` is development-only PTY/TUI test infrastructure.
+- `@onkernel/ptywright` is development-only PTY/TUI test infrastructure. It has
+  no in-repo consumer since the CLI was retired; its own tests are what exercise
+  it.
 
 The invariant is that `packages/agent/src` contains no provider-name branches.
 Adding provider behavior means adding data and transforms in `cua-ai`, not a
@@ -40,16 +39,16 @@ conditional in `cua-agent`.
 flowchart LR
   ai["@onkernel/cua-ai"]
   agent["@onkernel/cua-agent"]
-  cli["@onkernel/cua-cli"]
-  pi["pi-agent-core / pi-ai / pi-tui / pi-coding-agent"]
+  ext["@onkernel/cua-pi-extension"]
+  pi["pi-agent-core / pi-ai / pi-coding-agent"]
   sdk["@onkernel/sdk"]
   ai --> agent
-  agent --> cli
-  ai --> cli
+  agent --> ext
+  ai --> ext
   pi --> agent
-  pi --> cli
+  pi --> ext
   sdk --> agent
-  sdk --> cli
+  sdk --> ext
 ```
 
 ## Explicit tool catalog
@@ -219,59 +218,34 @@ activated; `activate()` is what redirects it, and `apply()` calls it.
 Generated payload processing has fixed order: model preparation, tool
 serialization, provider fields, then the caller's `onPayload` hook.
 
-## CLI composition
+## Extension composition
 
-`packages/cli/src/harness.ts` is the application composition root. It:
+`packages/pi-extension/src/index.ts` is the composition root for pi sessions. pi
+owns the agent loop, session, UI, and model selection; the extension contributes
+only what Kernel owns:
 
-1. resolves the provider-qualified model;
-2. chooses `defaultInteractionTools(model)` explicitly:
-   - CUA browser primitives plus the explicit `browser_act` verified-plan tool
-     for OpenAI, Meta, xAI, and Anthropic models without native-browser support;
-   - CUA browser primitives alone for Moonshot, whose API rejects
-     `browser_act`'s larger schema;
-   - Anthropic's native browser tool when the model supports it;
-   - Google's native browser action set;
-3. creates and retains its own application-level coding-tool list;
-4. compiles the complete list through the handle and hands the result to a
-   stock pi `AgentHarness`, retaining the selection in `CuaCliCatalog` so
-   `/model` and `/tools` can recompile it;
-5. builds a caller-owned prompt from loaded skills and context files;
-6. uses one `Session` for transcript persistence and resume;
-7. exposes `cua act '<json>'` as a model-free path to the same `browser_act`
-   executor and bounded formatter used by agent tool calls.
+1. registers every selectable tool as a pi tool, and keeps the model-facing
+   names identical to what the library produces;
+2. resolves a selection from `--cua-tools` (or a persisted command selection),
+   and validates it by compiling for the active model, so an incompatible tool
+   deactivates with the compiler's own reason instead of failing at request time;
+3. re-validates on `model_select` and `before_agent_start`, restoring a
+   previously forced-off selection when the new model can take it;
+4. applies the catalog's headers and payload transforms through
+   `before_provider_headers` and `before_provider_request`;
+5. owns the stream for the providers it registers, swapping pi's resolved model
+   for the compiled `catalog.model` and adding the incoming native-call plan;
+6. provisions one browser lazily on first tool execution, and deletes it on
+   shutdown if this session created it.
 
-### Interactive selectors
+Step 5 is what makes provider-native surfaces work under a host that owns model
+resolution. `catalog.model` is the resolved model with only `api` replaced, so
+cost and context window are preserved, and the transport a native surface derives
+is what reaches the wire. Any future framework binding needs the same seam: a
+place to register a provider whose stream receives the compiled model.
 
-`packages/cli/src/tui/main.ts` mounts pickers with pi's swap-in-place pattern:
-the editor lives in its own `editorContainer`, and a selector temporarily
-replaces it so the status line and telemetry footer stay visible. While a
-selector is mounted it owns all keyboard input; the global input listener yields
-to it so `ctrl+c` cancels the selector instead of quitting.
-
-- `tui/model-picker.ts` — searchable `/model` picker over `listCuaModels()`,
-  plus the pure helpers (`modelSearchText`, `sortModelsForPicker`,
-  `filterModelsForPicker`, `moveSelection`, `visibleWindow`) that make its
-  behavior unit-testable without a terminal.
-- `tui/tool-selection.ts` — pure `/tools` state machine: identity keys matching
-  `normalizeTool`'s scheme, group badges, toggle/bulk operations, and
-  `describeMenu()`, which turns `cuaToolMenu()` plus the application's own tools
-  into rows.
-- `tui/tools-picker.ts` — the `/tools` component. Staged edits applied through
-  `harness.setTools()`, in menu order. A selection is no longer confined to the
-  application-composed baseline: the picker offers the model's whole menu, and
-  the baseline is what `ctrl+r` restores.
-- `tui/keybindings.ts` — registers `cua.tools.*` ids on top of pi-tui's
-  `TUI_KEYBINDINGS` and formats their hints.
-- `tui/mutation-queue.ts` — the serialization queue both catalog mutations run
-  through.
-
-Both catalog mutations a selector can trigger — a `/tools` apply and a `/model`
-switch — run through that one queue, because each suspends across several
-`setTools()`/`setModel()` calls. Without it an apply could land between a
-switch's `setModel()` and its final `setTools()` and fail its compile against
-the wrong provider. Selectors also refuse to open mid-turn: the agent's
-compiled pair is immutable, so this TUI-side check is what keeps a swap from
-landing mid-request.
+Compiling is declaration-only, so steps 2 through 5 never provision a browser.
+Only step 6 does.
 
 ## Per-turn flow
 
@@ -294,7 +268,11 @@ user prompt
 - `packages/ai/test/tool-catalog.test.ts`: identities, collisions, provider
   composition, compatibility, declarations, and coordinate contracts.
 - `packages/agent/test/resources.test.ts`: action feedback and batch boundaries.
-- `packages/agent/test/agent.test.ts`: exact catalogs and dynamic replacement.
+- `packages/agent/test/attach.test.ts` and `attach-session.test.ts`: compiled
+  pairs, applying one to a running harness, and the behaviors `activate()`
+  installs.
 - `packages/agent/test/translator-browser.test.ts`: browser behavior and ref
   lifecycle.
-- `packages/cli/test/`: explicit CLI assembly, sessions, actions, and TUI flows.
+- `packages/pi-extension/test/`: selection and availability, provider stream
+  ownership, browser lifecycle, and an end-to-end run against real `pi` in print
+  and RPC modes.

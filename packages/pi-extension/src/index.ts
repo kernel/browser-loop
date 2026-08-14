@@ -13,6 +13,7 @@ import {
 import {
 	allSelectableSpecs,
 	compileSpecs,
+	CUA_SELECTORS,
 	expandSelection,
 	parseSelection,
 	selectorAvailability,
@@ -39,6 +40,7 @@ export default function cuaPiExtension(pi: ExtensionAPI): void {
 	let browserOptions: BrowserOptions = defaultBrowserOptions();
 	let activeNames = new Set<string>();
 	let compatibilityError: string | undefined;
+	let warnedError: string | undefined;
 	let initialized = false;
 	let forcedInactive = false;
 	let sessionActive = false;
@@ -118,8 +120,17 @@ export default function cuaPiExtension(pi: ExtensionAPI): void {
 			pi.setActiveTools(current.filter((name) => !allSpecs.has(name)));
 		}
 		initialized = true;
-		if (ctx.mode === "tui")
+		if (ctx.mode === "tui") {
 			ctx.ui.setStatus("cua", statusText(selection.selectors, [...activeNames], runtime?.getStatus() ?? {}, compatibilityError));
+		} else if (compatibilityError && compatibilityError !== warnedError) {
+			// Print and RPC have no status line, and silence here is the worst failure
+			// this extension can produce: the tools vanish, no browser is created, and
+			// the model answers from memory with exit 0. Say so on stderr, once per
+			// distinct reason so a multi-turn run does not repeat itself.
+			process.stderr.write(`cua: no browser tool is active — ${compatibilityError}\n`);
+			warnedError = compatibilityError;
+		}
+		if (!compatibilityError) warnedError = undefined;
 	}
 	/**
 	 * The compiled catalog for the model pi is about to stream with, or undefined
@@ -191,7 +202,7 @@ export default function cuaPiExtension(pi: ExtensionAPI): void {
 					ctx.ui.notify("cua: no pi model is selected", "error");
 					return;
 				}
-				ctx.ui.notify(availabilityText(selectorAvailability(ctx.model, selection), selection.selectors), "info");
+				ctx.ui.notify(availabilityText(selectorAvailability(ctx.model, selection)), "info");
 				return;
 			}
 			selection = parseSelection(args === "none" ? undefined : args, selection.coordinates);
@@ -208,7 +219,22 @@ export default function cuaPiExtension(pi: ExtensionAPI): void {
 		selection = flags.selection;
 		browserOptions = flags.browserOptions;
 		const saved = restoreConfig(ctx.sessionManager.getBranch());
-		if (saved) selection = parseSelection(saved.selectors.join(","), saved.coordinates);
+		if (saved) {
+			// A session persisted before the menu shrank can name a selector that no
+			// longer exists. Restoring must not throw: drop what is gone, keep the rest,
+			// and say so — a resumed session that refuses to start is worse than one
+			// that starts with fewer tools.
+			const known = saved.selectors.filter((selector) => CUA_SELECTORS.includes(selector));
+			const dropped = saved.selectors.filter((selector) => !CUA_SELECTORS.includes(selector));
+			if (dropped.length) {
+				process.stderr.write(`cua: ignoring retired tool selector(s) from this session: ${dropped.join(", ")}\n`);
+			}
+			// Always apply what was restored, even when nothing survives. A persisted
+			// selection came from `/cua-tools`, which deliberately overrides the flags,
+			// so falling back to them would re-enable tools this session had replaced.
+			// An empty selection with the note above is the honest outcome.
+			selection = parseSelection(known.join(",") || undefined, saved.coordinates);
+		}
 		configureDeclarations();
 		installTools();
 		initialized = false;

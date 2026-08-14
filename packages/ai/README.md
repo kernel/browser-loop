@@ -203,7 +203,7 @@ against a Kernel browser and owns implementation identity.
 
 A CUA-owned identity remains stable when its name is customized. Caller tools
 receive `caller.<name>` identities through the canonical `callerToolIdentity()`
-helper shared with cua-agent and cua-cli. Compilation rejects:
+helper shared with every consumer. Compilation rejects:
 
 - duplicate identities;
 - exact or provider-normalized caller-visible name collisions;

@@ -92,8 +92,8 @@ export type CuaCallerToolDeclaration = Tool;
 export type CuaCatalogToolInput = CuaToolSpec | CuaCallerToolDeclaration;
 
 /**
- * Canonical identity scheme for caller-owned tools. Exported so cua-agent and
- * cua-cli share exactly one definition and cannot drift.
+ * Canonical identity scheme for caller-owned tools. Exported so every consumer
+ * shares exactly one definition and cannot drift.
  */
 export function callerToolIdentity(name: string): string {
 	return `caller.${name}`;
@@ -418,6 +418,25 @@ function validateToolsetCompatibility(model: Model<Api>, entries: readonly CuaCa
 		throw new Error(`selected tools contribute incompatible native provider transports: ${[...nativeProviderKinds].join(", ")}`);
 	}
 
+	// Anthropic rejects its native browser and native computer tools in one
+	// request, because the browser tool addresses a viewport coordinate frame and
+	// the computer tool a display frame. Verified against the live API, which
+	// answers 400 "browser_20260701 cannot be declared alongside a computer_*
+	// tool". Catch it at compile time rather than on the wire.
+	const anthropicNativeTypes = entries.flatMap((entry) =>
+		entry.providerBinding?.kind === "anthropic-native" && isRecord(entry.providerBinding.declaration)
+			? [String(entry.providerBinding.declaration.type ?? "")]
+			: [],
+	);
+	const anthropicBrowser = anthropicNativeTypes.find((type) => type.startsWith("browser_"));
+	const anthropicComputer = anthropicNativeTypes.find((type) => type.startsWith("computer_"));
+	if (anthropicBrowser && anthropicComputer) {
+		throw new Error(
+			`Anthropic's native browser tool (${anthropicBrowser}) cannot be selected alongside its native computer tool (${anthropicComputer}): ` +
+				"the browser tool's viewport coordinate frame is incompatible with the computer tool's display frame",
+		);
+	}
+
 	const requiresApis = new Set(entries.flatMap((entry) => bindingRequiresApi(entry.providerBinding)));
 	if (requiresApis.size > 1) {
 		throw new Error(`selected tools require incompatible provider transports: ${[...requiresApis].join(", ")}`);
@@ -524,6 +543,9 @@ function compilePayloadTransforms(model: Model<Api>, entries: readonly CuaCatalo
 
 	const google = entries.filter((entry) => entry.providerBinding?.kind === "google-native");
 	if (google.length > 0) transforms.push(createGoogleTransform(google));
+	if (model.provider === "google" && entries.some((entry) => entry.transport === "function")) {
+		transforms.push(createGeminiSchemaTransform());
+	}
 
 	if (cuaModelCapabilities(model).serializesStateMutations && entries.some((entry) => entry.stateMutating)) {
 		transforms.push({
@@ -536,6 +558,60 @@ function compilePayloadTransforms(model: Model<Api>, entries: readonly CuaCatalo
 		});
 	}
 	return transforms;
+}
+
+/**
+ * Gemini's function-declaration dialect is a subset of JSON Schema. It rejects
+ * the request outright on an unknown keyword rather than ignoring it, so a
+ * declaration carrying `const` or `additionalProperties` fails with
+ * `Invalid JSON payload received. Unknown name "const"`.
+ *
+ * Both have exact equivalents Gemini does accept: `const: x` is a single-value
+ * `enum`, and `additionalProperties: false` only tightens validation the model
+ * never performs. Rewriting them is what lets Google take the same declarations
+ * every other provider gets, verified against the live API.
+ */
+function createGeminiSchemaTransform(): CuaPayloadTransform {
+	return {
+		identity: "provider.google.function-declaration-schema",
+		writes: ["tools.functionDeclarations"],
+		phase: "tool-declarations",
+		apply(payload) {
+			if (!isRecord(payload) || !Array.isArray(payload.tools)) return payload;
+			// Google serializes function tools two ways: the Generative Language API
+			// nests them under `functionDeclarations`, while the Interactions transport
+			// emits flat `{ type: "function", parameters }` entries. Narrow both, because
+			// selecting a native surface alongside a function tool derives the second
+			// shape and a shape-specific transform would silently skip it.
+			return {
+				...payload,
+				tools: payload.tools.map((tool) => {
+					if (!isRecord(tool)) return tool;
+					if (Array.isArray(tool.functionDeclarations)) {
+						return { ...tool, functionDeclarations: tool.functionDeclarations.map(narrowToGeminiSchema) };
+					}
+					return "parameters" in tool ? { ...tool, parameters: narrowToGeminiSchema(tool.parameters) } : tool;
+				}),
+			};
+		},
+	};
+}
+
+const GEMINI_UNSUPPORTED_SCHEMA_KEYWORDS = new Set(["additionalProperties", "$schema", "$defs", "definitions"]);
+
+function narrowToGeminiSchema(node: unknown): unknown {
+	if (Array.isArray(node)) return node.map(narrowToGeminiSchema);
+	if (!isRecord(node)) return node;
+	const result: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(node)) {
+		if (key === "const") {
+			result.enum = [value];
+			continue;
+		}
+		if (GEMINI_UNSUPPORTED_SCHEMA_KEYWORDS.has(key)) continue;
+		result[key] = narrowToGeminiSchema(value);
+	}
+	return result;
 }
 
 function createGoogleTransform(entries: readonly CuaCatalogEntryDraft[]): CuaPayloadTransform {

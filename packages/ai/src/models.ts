@@ -92,11 +92,6 @@ export const CUA_NATIVE_SURFACES: readonly {
  */
 export const CUA_MODEL_QUIRKS: readonly CuaModelQuirk[] = [
 	{
-		provider: "google",
-		capabilities: { acceptsComplexSchemas: false, acceptsLargeSchemas: false },
-		reason: "The Gemini API accepts a subset of JSON Schema for function declarations and rejects browser_wait_for's shape.",
-	},
-	{
 		provider: "moonshotai",
 		match: { kind: "exact", id: "kimi-k3" },
 		capabilities: { acceptsLargeSchemas: false, serializesStateMutations: true },

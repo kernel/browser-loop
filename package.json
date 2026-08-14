@@ -8,12 +8,10 @@
     "packages/ai",
     "packages/agent",
     "packages/ptywright",
-    "packages/cli",
     "packages/pi-extension"
   ],
   "scripts": {
-    "build": "npm run build --workspace @onkernel/cua-ai && npm run build --workspace @onkernel/cua-agent && tsc -b && npm run build --workspace @onkernel/cua-cli && npm run build:native --workspace @onkernel/ptywright --if-present",
-    "build:cli": "npm run build --workspace @onkernel/cua-cli",
+    "build": "npm run build --workspace @onkernel/cua-ai && npm run build --workspace @onkernel/cua-agent && tsc -b && npm run build:native --workspace @onkernel/ptywright --if-present",
     "dev": "tsc -b --watch",
     "typecheck": "npm run build --workspace @onkernel/cua-ai && npm run build --workspace @onkernel/cua-agent && tsc -b",
     "clean": "tsc -b --clean && npm run clean:native --workspace @onkernel/ptywright --if-present"
