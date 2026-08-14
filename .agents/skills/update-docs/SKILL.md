@@ -40,18 +40,18 @@ For every doc update:
 
 Start with these source-of-truth checks:
 
-- Package topology: `package.json`, `tsconfig.json`, and `packages/*/package.json`.
-- Design invariants: `@onkernel/cua-ai` owns provider-specific policy (catalog, tool schemas, payload transforms); `@onkernel/cua-agent` is provider-neutral runtime glue around `pi-agent-core` (no provider names in `packages/agent/src`); provider differences reach the agent as compiled `CuaToolCatalog` data; `@onkernel/cua-pi-extension` composes both inside a pi session.
-- Model layer: `packages/ai/src/index.ts`, `cua.ts`, `tool-catalog.ts`, `getCuaModel`/`listCuaModels`/`parseCuaModelRef`, provider adapters, and `api-keys.ts`.
-- Execution layer: `packages/agent/src/index.ts`, `attach.ts`, `tool-manager.ts`, `resources.ts`, and the canonical CUA tool executors against `@onkernel/sdk`.
-- Extension runtime flow: `packages/pi-extension/src/index.ts`, `selection.ts`, `browser-runtime.ts`, `state.ts`, and `render.ts`.
+- Package topology: `package.json`, `tsconfig.json`, and `packages/*/package.json`. `@onkernel/loop` is one package with two entry points (`.` and `./pi`) and a `pi.extensions` field.
+- Design invariants: `packages/loop/src/core` is the framework-neutral core (canonical actions, tool declarations, catalog compilation, tool menu, tool manager, Kernel-browser execution); `packages/loop/src/pi` owns provider-specific policy (model resolution, transport derivation, adapters, payload transforms, headers, retry); provider differences reach execution as compiled `LoopToolCatalog` data rather than provider conditionals in the translator.
+- Neutral core: `packages/loop/src/index.ts`, `core/tools.ts`, `core/actions/`, `core/tool-catalog.ts`, `core/menu.ts`, `core/tool-manager.ts`, `core/resources.ts`, and `core/translator/`.
+- pi binding: `packages/loop/src/pi/index.ts`, `pi/attach.ts`, `pi/models.ts` (`getLoopModel`/`listLoopModels`/`parseLoopModelRef`), `pi/providers/`, `pi/provider-retry.ts`, and `pi/api-keys.ts`.
+- Extension runtime flow: `packages/loop/src/pi-extension/index.ts`, `selection.ts`, `browser-runtime.ts`, `state.ts`, and `render.ts`.
 - TUI test infrastructure: `packages/ptywright/package.json`, `src/index.ts`, `src/session.ts`, `src/terminal.ts`, and `README.md`.
 - External drift: provider computer-use docs, `@earendil-works/pi-*` versions, and `@onkernel/sdk` versions in package manifests.
 
 Questions `architecture.md` should answer after each update:
 
 - What owns the canonical action vocabulary and the model catalog?
-- Where is the cua-ai vs cua-agent ownership boundary, and how do provider differences reach the agent without provider conditionals in `packages/agent/src`?
+- Where is the `src/core` vs `src/pi` boundary, and how do provider differences reach execution without provider conditionals in the translator?
 - Where does Kernel SDK browser execution happen?
 - What does the pi extension compose at runtime, and which selectors does it offer?
 - Which package is dev/test infrastructure only?

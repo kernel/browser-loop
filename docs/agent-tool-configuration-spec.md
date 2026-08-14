@@ -7,7 +7,8 @@ rule it establishes still holds; what changed is where the array lives. `CuaAgen
 and its in-tool `executionMode: "sequential"` guard described below no longer exist.
 Retained as the record of why the tool array is explicit and required.
 
-**Scope:** `@onkernel/loop` (written when this code lived in two packages)  
+**Scope:** `@onkernel/loop` (written when this code lived in two packages)
+
 **Compatibility:** Not a goal; these packages are alpha and may make breaking API changes.
 
 ## Summary
