@@ -34,11 +34,16 @@ All of them expect you to:
 
 ```
 packages/
-├── ai/         # @onkernel/cua-ai    - model catalog, tool schemas, provider adapters
-├── agent/      # @onkernel/cua-agent - Kernel-browser tool execution
-├── cli/        # @onkernel/cua-cli   - the `cua` binary
-└── ptywright/  # @onkernel/ptywright - development-only PTY/TUI test infrastructure
+├── ai/            # @onkernel/cua-ai           - model catalog, tool schemas, provider adapters
+├── agent/         # @onkernel/cua-agent        - Kernel-browser tool execution
+├── pi-extension/  # @onkernel/cua-pi-extension - Kernel browser tools inside pi's own session
+├── cli/           # @onkernel/cua-cli          - the `cua` binary
+└── ptywright/     # @onkernel/ptywright        - development-only PTY/TUI test infrastructure
 ```
+
+**Using pi already?** [`packages/pi-extension`](packages/pi-extension) adds these
+tools to a pi session without a second agent loop: `pi install` it, select tools
+with `--cua-tools`, and pi keeps owning the session, UI, and model.
 
 **Building your own agent? Start here:** [`packages/agent`](packages/agent)
 (`@onkernel/cua-agent`) — `attach()` binds a Kernel browser and compiles a
@@ -53,21 +58,27 @@ flowchart LR
   ai[("@onkernel/cua-ai")]
   agent[("@onkernel/cua-agent")]
   cli[("@onkernel/cua-cli")]
+  ext[("@onkernel/cua-pi-extension")]
   pi[("pi-agent-core / pi-ai / pi-tui / pi-coding-agent")]
   sdk[("@onkernel/sdk")]
   ai --> agent
   agent --> cli
   ai --> cli
+  agent --> ext
+  ai --> ext
   pi --> agent
   pi --> cli
+  pi --> ext
   sdk --> agent
   sdk --> cli
+  sdk --> ext
 ```
 
 | Package                                 | What it ships                                                                                                                            |
 | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | [`@onkernel/cua-ai`](packages/ai)       | Computer-use model catalog, tool factories/toolsets, compatibility checks, and provider adapters.                         |
-| [`@onkernel/cua-agent`](packages/agent) | Agent and harness APIs that run selected computer-use tools against a Kernel browser.                                    |
+| [`@onkernel/cua-agent`](packages/agent) | `attach()`: binds a Kernel browser and compiles a (model, tools) pair into plain pi objects.                              |
+| [`@onkernel/cua-pi-extension`](packages/pi-extension) | A pi extension contributing these tools to pi's own agent session.                          |
 | [`@onkernel/cua-cli`](packages/cli)     | The `cua` binary: argv parsing, sessions, skills, JSONL output, pi-tui front-end.                                         |
 | [`@onkernel/ptywright`](packages/ptywright) | Development-only PTY/TUI test infrastructure.                                                                         |
 
