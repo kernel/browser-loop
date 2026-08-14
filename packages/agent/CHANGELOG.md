@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.15.0 - 2026-08-14
+
+- Add `attach({ browser, client })`, returning a handle that compiles
+  (model, tools) pairs into plain pi objects: the model carrying the transport
+  its tools derive, executables materialized against the handle's browser pool,
+  a `Models` collection adding provider retry, required headers, the catalog's
+  payload transforms and the tool-result image bound, and an `install(harness)`
+  for the behaviors that are pi event handlers rather than constructor options.
+  The handle owns what actually persists — the Kernel client and browser, the
+  translator, the raw-CDP executor, ref and frame state — so a spec materializes
+  once across repeat compiles.
+- `CuaAgent` and `CuaAgentHarness` are unchanged and now share their internals
+  with `attach()` rather than owning private copies. They are slated to retire
+  in favor of the handle.
+
 ## 0.14.0 - 2026-08-14
 
 - `CuaAgentHarness` no longer refuses a model ref that is absent from its
