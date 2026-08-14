@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Flags name the domain rather than an acronym: `--cua-tools` is now
+  `--browser-tools`, `--cua-coordinates` is `--browser-coordinates`, and the
+  commands are `/browser` and `/browser-tools`.
+- Browser configuration is one `--browser-options` JSON object forwarded verbatim
+  to Kernel's browser-create call, replacing `--cua-profile-id`,
+  `--cua-profile-save-changes`, `--cua-proxy-id`, and `--cua-browser-timeout`. A
+  flag per create-call field grows every time the SDK does; JSON tracks it for
+  free. The only default is `timeout_seconds: 600`. `--browser-session` still
+  attaches an existing browser and cannot be combined with `--browser-options`.
+  Note that `stealth` is no longer forced on — pass it in the JSON if you want it.
+
 - `@onkernel/cua-cli` and the `cua` binary are removed. Everything the CLI built
   because it needed an agent front-end — sessions and resume, skills, the TUI,
   print and RPC modes, model selection — pi supplies, so the extension replaces

@@ -97,10 +97,8 @@ const anthropicCtx = { ...ctx, model: getCuaModel("anthropic:claude-fable-5") } 
 describe("pi extension activation", () => {
 	it("reads parsed flags at session_start, installs selectable batch tools, and preserves unrelated tools", async () => {
 		const pi = makePi({
-			"cua-tools": "browser",
-			"cua-coordinates": "pixels",
-			"cua-browser-timeout": "300",
-			"cua-profile-save-changes": false,
+			"browser-tools": "browser",
+			"browser-coordinates": "pixels",
 		});
 		extension(pi.api);
 		await getHandler(pi, "session_start")({}, ctx);
@@ -110,21 +108,17 @@ describe("pi extension activation", () => {
 
 	it("rejects invalid parsed flags instead of silently activating no tools", () => {
 		const pi = makePi({
-			"cua-tools": "nope",
-			"cua-coordinates": "pixels",
-			"cua-browser-timeout": "300",
-			"cua-profile-save-changes": false,
+			"browser-tools": "nope",
+			"browser-coordinates": "pixels",
 		});
 		extension(pi.api);
-		expect(() => getHandler(pi, "session_start")({}, ctx)).toThrow('unknown CUA tool selector "nope"');
+		expect(() => getHandler(pi, "session_start")({}, ctx)).toThrow('unknown browser tool selector "nope"');
 	});
 
 	it("registers the CUA Anthropic provider and serializes native computer use", async () => {
 		const pi = makePi({
-			"cua-tools": "anthropic-computer",
-			"cua-coordinates": "pixels",
-			"cua-browser-timeout": "300",
-			"cua-profile-save-changes": false,
+			"browser-tools": "anthropic-computer",
+			"browser-coordinates": "pixels",
 		});
 		extension(pi.api);
 		expect(pi.providers.map((provider) => provider.id)).toContain("anthropic");
@@ -144,10 +138,8 @@ describe("pi extension activation", () => {
 		const get = vi.spyOn(CuaBrowserRuntime.prototype, "get");
 		try {
 			const pi = makePi({
-				"cua-tools": "anthropic-computer",
-				"cua-coordinates": "pixels",
-				"cua-browser-timeout": "300",
-				"cua-profile-save-changes": false,
+				"browser-tools": "anthropic-computer",
+				"browser-coordinates": "pixels",
 			});
 			extension(pi.api);
 			await getHandler(pi, "session_start")({}, anthropicCtx);
@@ -171,10 +163,8 @@ describe("pi extension activation", () => {
 
 	it("applies provider transforms only for the active CUA subset", async () => {
 		const pi = makePi({
-			"cua-tools": "playwright",
-			"cua-coordinates": "pixels",
-			"cua-browser-timeout": "300",
-			"cua-profile-save-changes": false,
+			"browser-tools": "playwright",
+			"browser-coordinates": "pixels",
 		});
 		extension(pi.api);
 		await getHandler(pi, "session_start")({}, ctx);
@@ -183,7 +173,7 @@ describe("pi extension activation", () => {
 		const transformed = await getHandler(pi, "before_provider_request")({ payload: { tools: [] } }, ctx);
 		expect(transformed).toEqual({ tools: [] });
 
-		const inactive = makePi({ "cua-coordinates": "pixels", "cua-browser-timeout": "300", "cua-profile-save-changes": false });
+		const inactive = makePi({ "browser-coordinates": "pixels" });
 		extension(inactive.api);
 		await getHandler(inactive, "session_start")({}, ctx);
 		expect(await getHandler(inactive, "before_provider_request")({ payload: { tools: [] } }, ctx)).toBeUndefined();
@@ -191,17 +181,15 @@ describe("pi extension activation", () => {
 
 	it("does not persist a flag baseline and restores only command-origin selections", async () => {
 		const pi = makePi({
-			"cua-tools": "playwright",
-			"cua-coordinates": "pixels",
-			"cua-browser-timeout": "300",
-			"cua-profile-save-changes": false,
+			"browser-tools": "playwright",
+			"browser-coordinates": "pixels",
 		});
 		extension(pi.api);
 		await getHandler(pi, "session_start")({}, ctx);
 		await getHandler(pi, "session_shutdown")({}, ctx);
 		expect(pi.entries).toEqual([]);
 
-		await getCommand(pi, "cua-tools").handler("computer", ctx);
+		await getCommand(pi, "browser-tools").handler("computer", ctx);
 		expect(pi.entries).toEqual([
 			{
 				type: "custom",
@@ -211,10 +199,8 @@ describe("pi extension activation", () => {
 		]);
 
 		const resumed = makePi({
-			"cua-tools": "playwright",
-			"cua-coordinates": "pixels",
-			"cua-browser-timeout": "300",
-			"cua-profile-save-changes": false,
+			"browser-tools": "playwright",
+			"browser-coordinates": "pixels",
 		});
 		const resumedCtx = { ...ctx, sessionManager: { getBranch: () => pi.entries } } as unknown as ExtensionContext;
 		extension(resumed.api);
@@ -223,10 +209,8 @@ describe("pi extension activation", () => {
 		expect(resumed.active).not.toContain("browser_snapshot");
 
 		const legacy = makePi({
-			"cua-tools": "playwright",
-			"cua-coordinates": "pixels",
-			"cua-browser-timeout": "300",
-			"cua-profile-save-changes": false,
+			"browser-tools": "playwright",
+			"browser-coordinates": "pixels",
 		});
 		const legacyCtx = {
 			...ctx,
@@ -251,10 +235,8 @@ describe("pi extension activation", () => {
 		// allowlist's removal: an unknown provider now compiles fine, but Anthropic's
 		// native computer still cannot reach an OpenAI model.
 		const pi = makePi({
-			"cua-tools": "anthropic-computer",
-			"cua-coordinates": "pixels",
-			"cua-browser-timeout": "300",
-			"cua-profile-save-changes": false,
+			"browser-tools": "anthropic-computer",
+			"browser-coordinates": "pixels",
 		});
 		extension(pi.api);
 		await getHandler(pi, "session_start")({}, anthropicCtx);
@@ -277,10 +259,8 @@ describe("pi extension activation", () => {
 
 	it("keeps an ordinary function tool active on a model the registry does not carry", async () => {
 		const pi = makePi({
-			"cua-tools": "playwright",
-			"cua-coordinates": "pixels",
-			"cua-browser-timeout": "300",
-			"cua-profile-save-changes": false,
+			"browser-tools": "playwright",
+			"browser-coordinates": "pixels",
 		});
 		extension(pi.api);
 		await getHandler(pi, "session_start")({}, ctx);
@@ -303,10 +283,8 @@ describe("pi extension activation", () => {
 		}) as never);
 		try {
 			const pi = makePi({
-				"cua-tools": "playwright",
-				"cua-coordinates": "pixels",
-				"cua-browser-timeout": "300",
-				"cua-profile-save-changes": false,
+				"browser-tools": "playwright",
+				"browser-coordinates": "pixels",
 			});
 			extension(pi.api);
 			// `browser-batch` was a selector before the menu shrank to eight entries. A
@@ -327,7 +305,7 @@ describe("pi extension activation", () => {
 			await getHandler(pi, "session_start")({}, resumedCtx);
 
 			expect(pi.active).toContain("computer_click");
-			expect(written.join("")).toMatch(/ignoring retired tool selector\(s\).*browser-batch/);
+			expect(written.join("")).toMatch(/ignoring retired selector\(s\).*browser-batch/);
 		} finally {
 			write.mockRestore();
 		}
@@ -341,10 +319,8 @@ describe("pi extension activation", () => {
 		}) as never);
 		try {
 			const pi = makePi({
-				"cua-tools": "playwright",
-				"cua-coordinates": "pixels",
-				"cua-browser-timeout": "300",
-				"cua-profile-save-changes": false,
+				"browser-tools": "playwright",
+				"browser-coordinates": "pixels",
 			});
 			extension(pi.api);
 			const resumedCtx = {
@@ -362,10 +338,10 @@ describe("pi extension activation", () => {
 
 			await getHandler(pi, "session_start")({}, resumedCtx);
 
-			// The persisted selection came from /cua-tools, which overrides the flags.
+			// The persisted selection came from /browser-tools, which overrides the flags.
 			// Reviving `playwright` here would re-enable a tool this session replaced.
 			expect(pi.active).not.toContain("playwright_execute");
-			expect(written.join("")).toMatch(/ignoring retired tool selector\(s\).*browser-batch/);
+			expect(written.join("")).toMatch(/ignoring retired selector\(s\).*browser-batch/);
 		} finally {
 			write.mockRestore();
 		}
@@ -379,10 +355,8 @@ describe("pi extension activation", () => {
 		}) as never);
 		try {
 			const pi = makePi({
-				"cua-tools": "anthropic-computer",
-				"cua-coordinates": "pixels",
-				"cua-browser-timeout": "300",
-				"cua-profile-save-changes": false,
+				"browser-tools": "anthropic-computer",
+				"browser-coordinates": "pixels",
 			});
 			extension(pi.api);
 			// An OpenAI model cannot take Anthropic's native computer tool. Without this
@@ -391,7 +365,7 @@ describe("pi extension activation", () => {
 			await getHandler(pi, "session_start")({}, ctx);
 
 			expect(pi.active).not.toContain("computer");
-			expect(written.join("")).toMatch(/cua: no browser tool is active — .*requires a anthropic model/);
+			expect(written.join("")).toMatch(/browser tools: none active — .*requires a anthropic model/);
 			// One warning per distinct reason, not once per reconcile.
 			const before = written.length;
 			await getHandler(pi, "before_agent_start")({}, ctx);
@@ -404,10 +378,8 @@ describe("pi extension activation", () => {
 	it("lists selector availability without changing the selection, and clears it only on request", async () => {
 		const notices: string[] = [];
 		const pi = makePi({
-			"cua-tools": "playwright",
-			"cua-coordinates": "pixels",
-			"cua-browser-timeout": "300",
-			"cua-profile-save-changes": false,
+			"browser-tools": "playwright",
+			"browser-coordinates": "pixels",
 		});
 		// An OpenAI model so a native selector it cannot take shows up unavailable.
 		const listingCtx = {
@@ -418,7 +390,7 @@ describe("pi extension activation", () => {
 		extension(pi.api);
 		await getHandler(pi, "session_start")({}, listingCtx);
 
-		await getCommand(pi, "cua-tools").handler("", listingCtx);
+		await getCommand(pi, "browser-tools").handler("", listingCtx);
 		const listing = notices.at(-1) ?? "";
 		expect(listing).toContain("* playwright");
 		// The reason comes from the catalog compiler, not from a rule restated here.
@@ -427,23 +399,21 @@ describe("pi extension activation", () => {
 		expect(pi.active).toContain("playwright_execute");
 		expect(pi.entries).toEqual([]);
 
-		await getCommand(pi, "cua-tools").handler("none", listingCtx);
+		await getCommand(pi, "browser-tools").handler("none", listingCtx);
 		expect(pi.active).not.toContain("playwright_execute");
 	});
 
 	it("re-registers declarations when a new session changes coordinate mode", async () => {
 		const flags: Record<string, string | boolean | undefined> = {
-			"cua-tools": "computer",
-			"cua-coordinates": "pixels",
-			"cua-browser-timeout": "300",
-			"cua-profile-save-changes": false,
+			"browser-tools": "computer",
+			"browser-coordinates": "pixels",
 		};
 		const pi = makePi(flags);
 		extension(pi.api);
 		await getHandler(pi, "session_start")({}, ctx);
 		expect(pi.tools.find((tool) => tool.name === "computer_click")?.description).not.toContain("[0, 1000]");
 
-		flags["cua-coordinates"] = "normalized-1000";
+		flags["browser-coordinates"] = "normalized-1000";
 		await getHandler(pi, "session_start")({}, ctx);
 		expect(pi.tools.find((tool) => tool.name === "computer_click")?.description).toContain("[0, 1000]");
 	});

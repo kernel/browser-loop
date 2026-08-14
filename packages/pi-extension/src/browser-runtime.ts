@@ -1,13 +1,22 @@
 import Kernel from "@onkernel/sdk";
 import { CuaExecutionResources } from "@onkernel/cua-agent";
 
+/**
+ * Browser configuration, passed as one JSON object rather than a flag per field.
+ *
+ * `create` is forwarded to Kernel's browser-create call as-is, so it tracks the
+ * SDK without this extension growing a flag every time the SDK does. The only
+ * default is a generous timeout: the failure it prevents is a browser vanishing
+ * mid-task.
+ */
 export interface BrowserOptions {
+	/** Attach an existing session instead of creating one. Never deleted on exit. */
 	sessionId?: string;
-	profileId?: string;
-	proxyId?: string;
-	timeoutSeconds: number;
-	saveProfileChanges: boolean;
+	/** Forwarded verbatim to `client.browsers.create`. */
+	create: Record<string, unknown>;
 }
+
+export const DEFAULT_BROWSER_TIMEOUT_SECONDS = 600;
 export interface BrowserStatus {
 	sessionId?: string;
 	owned?: boolean;
@@ -62,11 +71,9 @@ export class CuaBrowserRuntime {
 		const browser = attached
 			? await client.browsers.retrieve(this.options.sessionId!)
 			: await client.browsers.create({
-					stealth: true,
-					timeout_seconds: this.options.timeoutSeconds,
-					...(this.options.profileId ? { profile: { id: this.options.profileId, save_changes: this.options.saveProfileChanges } } : {}),
-					...(this.options.proxyId ? { proxy_id: this.options.proxyId } : {}),
-				});
+					timeout_seconds: DEFAULT_BROWSER_TIMEOUT_SECONDS,
+					...this.options.create,
+				} as never);
 		this.client = client;
 		this.status = {
 			sessionId: browser.session_id,

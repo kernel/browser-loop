@@ -63,10 +63,8 @@ const ctx = {
 describe("provider stream ownership", () => {
 	it("streams a native surface with the derived transport and the incoming plan", async () => {
 		const pi = makePi({
-			"cua-tools": "openai-computer",
-			"cua-coordinates": "pixels",
-			"cua-browser-timeout": "300",
-			"cua-profile-save-changes": false,
+			"browser-tools": "openai-computer",
+			"browser-coordinates": "pixels",
 		});
 		extension(pi.api);
 		const openaiCtx = { ...ctx, model: getCuaModel("openai:gpt-5.6-sol") } as ExtensionContext;

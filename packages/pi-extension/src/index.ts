@@ -24,13 +24,10 @@ import { CONFIG_ENTRY, restoreConfig, type PersistedConfig } from "./state";
 import { availabilityText, statusText } from "./render";
 
 export default function cuaPiExtension(pi: ExtensionAPI): void {
-	pi.registerFlag("cua-tools", { type: "string", description: "Comma-separated explicit CUA tool selectors" });
-	pi.registerFlag("cua-coordinates", { type: "string", description: "pixels or normalized-1000", default: "pixels" });
-	pi.registerFlag("cua-browser-session", { type: "string", description: "Attach an existing Kernel browser session" });
-	pi.registerFlag("cua-profile-id", { type: "string", description: "Kernel browser profile id" });
-	pi.registerFlag("cua-proxy-id", { type: "string", description: "Kernel proxy id" });
-	pi.registerFlag("cua-browser-timeout", { type: "string", description: "Owned browser timeout in seconds", default: "300" });
-	pi.registerFlag("cua-profile-save-changes", { type: "boolean", description: "Save owned browser profile changes", default: false });
+	pi.registerFlag("browser-tools", { type: "string", description: "Comma-separated tool selectors; see /browser-tools for this model's menu" });
+	pi.registerFlag("browser-coordinates", { type: "string", description: "pixels or normalized-1000", default: "pixels" });
+	pi.registerFlag("browser-session", { type: "string", description: "Attach an existing Kernel browser session instead of creating one" });
+	pi.registerFlag("browser-options", { type: "string", description: "JSON forwarded to Kernel's browser-create call, e.g. {\"stealth\":true}" });
 	// Parsed flag values are unavailable until after the extension factory returns,
 	// but session_start errors do not stop print/RPC provider calls.
 	validateRawCliFlags();
@@ -54,7 +51,7 @@ export default function cuaPiExtension(pi: ExtensionAPI): void {
 		for (const [name, spec] of allSpecs) {
 			const conflict = pi.getAllTools().find((tool) => tool.name === name);
 			if (conflict && conflict.sourceInfo.path !== extensionPath) {
-				throw new Error(`cannot register CUA tool "${name}": already owned by ${conflict.sourceInfo.source}`);
+				throw new Error(`cannot register browser tool "${name}": already owned by ${conflict.sourceInfo.source}`);
 			}
 			pi.registerTool({
 				name: spec.name,
@@ -63,9 +60,9 @@ export default function cuaPiExtension(pi: ExtensionAPI): void {
 				parameters: spec.declaration.parameters,
 				executionMode: "sequential",
 				async execute(toolCallId, input, signal) {
-					if (!activeNames.has(name)) throw new Error(`CUA tool "${name}" is not active`);
+					if (!activeNames.has(name)) throw new Error(`browser tool "${name}" is not active`);
 					const selected = currentSpecs().find((candidate) => candidate.name === name);
-					if (!selected || compatibilityError) throw new Error(compatibilityError ?? `CUA tool "${name}" is no longer selected`);
+					if (!selected || compatibilityError) throw new Error(compatibilityError ?? `browser tool "${name}" is no longer selected`);
 					const resources = await ensureRuntime().get(signal);
 					return resources.materialize(selected).execute(toolCallId, input, signal);
 				},
@@ -73,7 +70,7 @@ export default function cuaPiExtension(pi: ExtensionAPI): void {
 		}
 	}
 	function ensureRuntime(): CuaBrowserRuntime {
-		if (!sessionActive) throw new Error("CUA browser runtime is unavailable outside an active pi session");
+		if (!sessionActive) throw new Error("the browser runtime is unavailable outside an active pi session");
 		return (runtime ??= new CuaBrowserRuntime(browserOptions));
 	}
 	function currentSpecs(): CuaToolSpec[] {
@@ -121,13 +118,13 @@ export default function cuaPiExtension(pi: ExtensionAPI): void {
 		}
 		initialized = true;
 		if (ctx.mode === "tui") {
-			ctx.ui.setStatus("cua", statusText(selection.selectors, [...activeNames], runtime?.getStatus() ?? {}, compatibilityError));
+			ctx.ui.setStatus("browser-tools", statusText(selection.selectors, [...activeNames], runtime?.getStatus() ?? {}, compatibilityError));
 		} else if (compatibilityError && compatibilityError !== warnedError) {
 			// Print and RPC have no status line, and silence here is the worst failure
 			// this extension can produce: the tools vanish, no browser is created, and
 			// the model answers from memory with exit 0. Say so on stderr, once per
 			// distinct reason so a multi-turn run does not repeat itself.
-			process.stderr.write(`cua: no browser tool is active — ${compatibilityError}\n`);
+			process.stderr.write(`browser tools: none active — ${compatibilityError}\n`);
 			warnedError = compatibilityError;
 		}
 		if (!compatibilityError) warnedError = undefined;
@@ -185,21 +182,21 @@ export default function cuaPiExtension(pi: ExtensionAPI): void {
 
 	registerCuaProviders();
 
-	pi.registerCommand("cua", {
-		description: "Show CUA tool and browser status",
+	pi.registerCommand("browser", {
+		description: "Show the selected browser tools and browser status",
 		handler: async (_args, ctx) => {
 			reconcile(ctx);
 			notifyStatus(ctx);
 		},
 	});
-	pi.registerCommand("cua-tools", {
-		description: "Replace this session's explicit CUA selectors, or list what this model can take",
+	pi.registerCommand("browser-tools", {
+		description: "Replace this session's tool selection, or list what this model can take",
 		handler: async (args, ctx) => {
 			// No argument lists the menu instead of clearing the selection, because
 			// clearing is the more destructive reading of an empty command.
 			if (!args?.trim()) {
 				if (!ctx.model) {
-					ctx.ui.notify("cua: no pi model is selected", "error");
+					ctx.ui.notify("browser tools: no pi model is selected", "error");
 					return;
 				}
 				ctx.ui.notify(availabilityText(selectorAvailability(ctx.model, selection)), "info");
@@ -227,10 +224,10 @@ export default function cuaPiExtension(pi: ExtensionAPI): void {
 			const known = saved.selectors.filter((selector) => CUA_SELECTORS.includes(selector));
 			const dropped = saved.selectors.filter((selector) => !CUA_SELECTORS.includes(selector));
 			if (dropped.length) {
-				process.stderr.write(`cua: ignoring retired tool selector(s) from this session: ${dropped.join(", ")}\n`);
+				process.stderr.write(`browser tools: ignoring retired selector(s) from this session: ${dropped.join(", ")}\n`);
 			}
 			// Always apply what was restored, even when nothing survives. A persisted
-			// selection came from `/cua-tools`, which deliberately overrides the flags,
+			// selection came from `/browser-tools`, which deliberately overrides the flags,
 			// so falling back to them would re-enable tools this session had replaced.
 			// An empty selection with the note above is the honest outcome.
 			selection = parseSelection(known.join(",") || undefined, saved.coordinates);
@@ -270,7 +267,7 @@ export default function cuaPiExtension(pi: ExtensionAPI): void {
 	pi.on("tool_call", (event) => {
 		if (!allSpecs.has(event.toolName)) return;
 		if (!activeNames.has(event.toolName) || compatibilityError)
-			return { block: true, reason: compatibilityError ?? `CUA tool "${event.toolName}" is inactive` };
+			return { block: true, reason: compatibilityError ?? `browser tool "${event.toolName}" is inactive` };
 	});
 	pi.on("session_shutdown", async () => {
 		sessionActive = false;
@@ -293,26 +290,41 @@ function validateRawCliFlags(argv = process.argv.slice(2)): void {
 		const index = argv.indexOf(`--${name}`);
 		return index >= 0 && !argv[index + 1]?.startsWith("--") ? argv[index + 1] : undefined;
 	};
-	parseSelection(read("cua-tools"), read("cua-coordinates") ?? "pixels");
-	const sessionId = trim(read("cua-browser-session"));
-	if (sessionId && (trim(read("cua-profile-id")) || trim(read("cua-proxy-id"))))
-		throw new Error("--cua-browser-session cannot be combined with --cua-profile-id or --cua-proxy-id");
-	positiveSeconds(read("cua-browser-timeout"));
+	parseSelection(read("browser-tools"), read("browser-coordinates") ?? "pixels");
+	parseBrowserOptions(read("browser-session"), read("browser-options"));
 }
 function readFlags(pi: ExtensionAPI): { selection: CuaSelection; browserOptions: BrowserOptions } {
-	const browserOptions: BrowserOptions = {
-		sessionId: trim(asString(pi.getFlag("cua-browser-session"))),
-		profileId: trim(asString(pi.getFlag("cua-profile-id"))),
-		proxyId: trim(asString(pi.getFlag("cua-proxy-id"))),
-		timeoutSeconds: positiveSeconds(asString(pi.getFlag("cua-browser-timeout"))),
-		saveProfileChanges: pi.getFlag("cua-profile-save-changes") === true,
+	return {
+		selection: parseSelection(asString(pi.getFlag("browser-tools")), asString(pi.getFlag("browser-coordinates"))),
+		browserOptions: parseBrowserOptions(asString(pi.getFlag("browser-session")), asString(pi.getFlag("browser-options"))),
 	};
-	if (browserOptions.sessionId && (browserOptions.profileId || browserOptions.proxyId))
-		throw new Error("--cua-browser-session cannot be combined with --cua-profile-id or --cua-proxy-id");
-	return { selection: parseSelection(asString(pi.getFlag("cua-tools")), asString(pi.getFlag("cua-coordinates"))), browserOptions };
 }
 function defaultBrowserOptions(): BrowserOptions {
-	return { timeoutSeconds: 300, saveProfileChanges: false };
+	return { create: {} };
+}
+
+/**
+ * One JSON flag instead of a flag per create-call field, so this extension does
+ * not grow an option every time the Kernel SDK does.
+ */
+export function parseBrowserOptions(sessionId: string | undefined, optionsJson: string | undefined): BrowserOptions {
+	const attach = trim(sessionId);
+	const raw = trim(optionsJson);
+	let create: Record<string, unknown> = {};
+	if (raw) {
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(raw);
+		} catch (error) {
+			throw new Error(`--browser-options must be valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+		}
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("--browser-options must be a JSON object");
+		create = parsed as Record<string, unknown>;
+	}
+	if (attach && Object.keys(create).length > 0) {
+		throw new Error("--browser-session attaches an existing browser, so --browser-options cannot also configure a new one");
+	}
+	return { ...(attach ? { sessionId: attach } : {}), create };
 }
 function asString(value: boolean | string | undefined): string | undefined {
 	return typeof value === "string" ? value : undefined;
@@ -321,13 +333,6 @@ function trim(value: string | undefined): string | undefined {
 	const result = value?.trim();
 	return result || undefined;
 }
-function positiveSeconds(value: string | undefined): number {
-	const seconds = Number(value ?? "300");
-	if (!Number.isSafeInteger(seconds) || seconds < 1 || seconds > 259200)
-		throw new Error("--cua-browser-timeout must be a whole number from 1 to 259200");
-	return seconds;
-}
-
 function withoutCuaToolSchemas(payload: unknown, cuaSpecs: ReadonlyMap<string, CuaToolSpec>): unknown {
 	if (!isRecord(payload) || !Array.isArray(payload.tools)) return payload;
 	const tools: unknown[] = [];
