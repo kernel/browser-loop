@@ -12,6 +12,7 @@ import {
 	type Api,
 	cua,
 	cuaModelCapabilities,
+	cuaNativeSurfaces,
 	type CuaModelRef,
 	getCuaModel,
 	type Model,
@@ -93,29 +94,27 @@ function structuredBrowserTools(): CuaCliTool[] {
 	return [...cua.toolsets.browser(), cua.tools.browser.act()];
 }
 
-/** CLI policy is explicit application composition, not a CuaAgent default. */
+/**
+ * CLI interaction policy, asked of the model rather than switched on its
+ * provider: a model with a provider-native browser surface gets that surface,
+ * and everything else gets CUA's CDP browser tools, with `browser_act` included
+ * only where the model accepts its schema.
+ *
+ * OpenAI's native computer tool is deliberately not a default: it is a distinct
+ * interaction style callers opt into through `--tools` or the `/tools` picker.
+ */
 export function defaultInteractionTools(model: CuaModelRef): CuaCliTool[] {
-	const { provider, model: modelId } = parseCuaModelRef(model);
-	switch (provider) {
-		case "openai":
-			return structuredBrowserTools();
-		case "anthropic":
-			return cua.providers.anthropic.supports.browser(modelId)
-				? [cua.providers.anthropic.tools.browser({ version: "20260701", javascript: true })]
-				: structuredBrowserTools();
-		case "google":
-			return cua.providers.google.toolsets.browser();
-		case "xai":
-			return structuredBrowserTools();
-		case "moonshotai":
-		case "openrouter":
-			// Kimi's API rejects the request outright once `browser_act`'s schema
-			// is attached. OpenRouter fronts several model families, so this is a
-			// per-model capability question rather than a per-provider one.
-			return cuaModelCapabilities(getCuaModel(model)).acceptsLargeSchemas
-				? structuredBrowserTools()
-				: cua.toolsets.browser();
+	const { provider } = parseCuaModelRef(model);
+	const resolved = getCuaModel(model);
+	if (cuaNativeSurfaces(resolved).includes("browser")) {
+		if (provider === "anthropic") {
+			return [cua.providers.anthropic.tools.browser({ version: "20260701", javascript: true })];
+		}
+		if (provider === "google") return cua.providers.google.toolsets.browser();
 	}
+	return cuaModelCapabilities(resolved).acceptsLargeSchemas
+		? structuredBrowserTools()
+		: cua.toolsets.browser();
 }
 
 function composeSystemPrompt(skills: Skill[], contextFiles: ContextFile[]): string {

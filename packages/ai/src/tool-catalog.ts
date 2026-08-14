@@ -1,7 +1,7 @@
 import type { Api, Model, Tool } from "@earendil-works/pi-ai";
 import type { CuaAction } from "./actions/index";
 import type { CuaModelRef } from "./models";
-import { cuaModelCapabilities, getCuaModel, providerForModel } from "./models";
+import { cuaModelCapabilities, getCuaModel } from "./models";
 import { anthropicAdaptiveThinkingOnPayload } from "./providers/anthropic/adaptive-thinking";
 import {
 	supportsAnthropicNativeBrowser,
@@ -417,7 +417,6 @@ function validateToolsetCompatibility(model: Model<Api>, entries: readonly CuaCa
 	if (nativeProviderKinds.size > 1) {
 		throw new Error(`selected tools contribute incompatible native provider transports: ${[...nativeProviderKinds].join(", ")}`);
 	}
-	providerForModel(model);
 
 	const requiresApis = new Set(entries.flatMap((entry) => bindingRequiresApi(entry.providerBinding)));
 	if (requiresApis.size > 1) {

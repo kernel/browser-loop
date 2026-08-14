@@ -39,8 +39,10 @@ describe("filterModelsForPicker", () => {
 		const google = catalog.filter((m) => m.provider === "google");
 		expect(google.length).toBeGreaterThan(0);
 		const filtered = filterModelsForPicker(catalog, "google");
-		expect(filtered.length).toBeGreaterThan(0);
-		expect(filtered.every((m) => m.provider === "google")).toBe(true);
+		// The full pi-ai catalog contains related providers (google-vertex), so
+		// the query narrows rather than isolating one provider.
+		expect(filtered.some((m) => m.provider === "google")).toBe(true);
+		expect(filtered.some((m) => m.provider === "anthropic")).toBe(false);
 	});
 
 	it("returns an empty list when nothing matches", () => {

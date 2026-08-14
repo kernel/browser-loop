@@ -7,6 +7,7 @@ import {
 	type Skill,
 } from "@onkernel/cua-agent";
 import {
+	cuaApiKeyEnvVarsForProvider,
 	type CuaModelRef,
 	parseCuaModelRef,
 	requireCuaEnvApiKey,
@@ -48,7 +49,7 @@ import {
 import { type ContextFile, discoverCuaSkills } from "./harness-skills";
 import { runPrint } from "./print";
 
-const MODELS_HELP = `cua models — list supported -m/--model values
+const MODELS_HELP = `cua models — list selectable -m/--model values
 
 Usage:
   cua models
@@ -57,7 +58,7 @@ Usage:
   cua models --json
 
 Options:
-  -p, --provider <id>  Filter by provider: openai | anthropic | google | gemini | xai | moonshotai | openrouter
+  -p, --provider <id>  Filter by provider id (any pi-ai provider; gemini/moonshot are aliases)
       --json           Output JSON
   -h, --help           Show this help
 `;
@@ -124,14 +125,16 @@ function formatModelsTable(models: ReturnType<typeof listSupportedModels>): stri
 		provider: entry.provider,
 		model: entry.model,
 		default: entry.ref === DEFAULT_CUA_MODEL_REF ? "yes" : "",
+		native: entry.nativeSurfaces.join(","),
 		name: entry.name,
 	}));
-	const headers = { ref: "REF", provider: "PROVIDER", model: "MODEL", default: "DEFAULT", name: "NAME" };
+	const headers = { ref: "REF", provider: "PROVIDER", model: "MODEL", default: "DEFAULT", native: "NATIVE", name: "NAME" };
 	const widths = {
 		ref: columnWidth(headers.ref, rows.map((r) => r.ref)),
 		provider: columnWidth(headers.provider, rows.map((r) => r.provider)),
 		model: columnWidth(headers.model, rows.map((r) => r.model)),
 		default: columnWidth(headers.default, rows.map((r) => r.default)),
+		native: columnWidth(headers.native, rows.map((r) => r.native)),
 		name: columnWidth(headers.name, rows.map((r) => r.name)),
 	};
 	const lines = [
@@ -140,6 +143,7 @@ function formatModelsTable(models: ReturnType<typeof listSupportedModels>): stri
 			headers.provider.padEnd(widths.provider),
 			headers.model.padEnd(widths.model),
 			headers.default.padEnd(widths.default),
+			headers.native.padEnd(widths.native),
 			headers.name,
 		].join("  "),
 		[
@@ -147,6 +151,7 @@ function formatModelsTable(models: ReturnType<typeof listSupportedModels>): stri
 			"-".repeat(widths.provider),
 			"-".repeat(widths.model),
 			"-".repeat(widths.default),
+			"-".repeat(widths.native),
 			"-".repeat(widths.name),
 		].join("  "),
 	];
@@ -157,6 +162,7 @@ function formatModelsTable(models: ReturnType<typeof listSupportedModels>): stri
 				row.provider.padEnd(widths.provider),
 				row.model.padEnd(widths.model),
 				row.default.padEnd(widths.default),
+				row.native.padEnd(widths.native),
 				row.name,
 			].join("  "),
 		);
@@ -214,8 +220,10 @@ function resolveAuth(flags: HarnessCliFlags): ResolvedAuth {
 	const { apiKey, baseUrl } = requireKernelApiKey();
 	const modelRef = resolveCuaModelRef(flags.model);
 	const { provider } = parseCuaModelRef(modelRef);
-	// Throws naming the env vars the user must set (`requireCuaEnvApiKey`).
-	requireCuaEnvApiKey(provider);
+	// Preflight only where CUA documents the variable names; for any other
+	// pi-ai provider the credential is pi's to resolve when it streams, and
+	// failing here would refuse a model that works.
+	if (cuaApiKeyEnvVarsForProvider(provider).length > 0) requireCuaEnvApiKey(provider);
 	return { kernelApiKey: apiKey, kernelBaseUrl: baseUrl, modelRef };
 }
 

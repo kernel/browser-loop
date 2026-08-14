@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-	CUA_MODEL_ANNOTATIONS,
-	CUA_PROVIDERS,
+	CUA_MODEL_QUIRKS,
+	CUA_NATIVE_SURFACES,
 	type CuaModelRef,
-	findCuaAnnotation,
+	cuaModelCapabilities,
+	cuaNativeSurfaces,
+	cuaProviders,
 	formatCuaModelRef,
 	getCuaModel,
 	listCuaModels,
@@ -16,16 +18,16 @@ describe("CUA model refs", () => {
 		expect(formatCuaModelRef("openrouter", "meta/muse-spark-1.1")).toBe("openrouter:meta/muse-spark-1.1");
 	});
 
-	it("rejects unqualified and unsupported refs", () => {
+	it("rejects unqualified refs and unknown providers, but not unknown models", () => {
 		expect(() => getCuaModel("gpt-5.5" as never)).toThrow(/provider-qualified/);
-		expect(() => getCuaModel("bogus:model" as never)).toThrow(/unsupported CUA provider/);
-		expect(() => getCuaModel("openai:gpt-3.5" as never)).toThrow(/unsupported CUA model/);
+		expect(() => getCuaModel("bogus:model" as never)).toThrow(/unknown provider/);
+		// A model id pi-ai's registry has not caught up with still resolves: the
+		// provider decides whether it exists, not a table in this package.
+		expect(getCuaModel("openai:gpt-3.5" as never).id).toBe("gpt-3.5");
 	});
 
-	it("names the valid providers in the unsupported-provider error", () => {
-		expect(() => parseCuaModelRef("bogus:model")).toThrow(
-			'unsupported CUA provider "bogus" (expected one of: openai, anthropic, google, xai, moonshotai, openrouter)',
-		);
+	it("names pi-ai's providers in the unknown-provider error", () => {
+		expect(() => parseCuaModelRef("bogus:model")).toThrow(/unknown provider "bogus" \(pi-ai carries: /);
 	});
 
 	it("accepts gemini: as an alias for google:", () => {
@@ -120,85 +122,118 @@ describe("CUA model refs", () => {
 		expect(getCuaModel("xai:grok-4.5").api).toBe("openai-responses");
 	});
 
-	it("rejects supported model IDs that pi-ai does not carry", () => {
-		// Dated snapshots match the family annotation but pi-ai's registry
-		// (generated from models.dev) only carries family roots.
-		expect(() => getCuaModel("openai:gpt-5.5-2026-04-23")).toThrow(
-			/not carried by pi-ai's registry/,
-		);
+	it("synthesizes models pi-ai's registry does not carry", () => {
+		// pi-ai's registry (generated from models.dev) carries family roots, not
+		// dated snapshots, and lags a provider's newest ids. Both still resolve,
+		// inheriting the transport and base URL from the provider's other models.
+		const snapshot = getCuaModel("openai:gpt-5.5-2026-04-23");
+		expect(snapshot.id).toBe("gpt-5.5-2026-04-23");
+		expect(snapshot.provider).toBe("openai");
+		expect(snapshot.api).toBe(getCuaModel("openai:gpt-5.5").api);
+		expect(snapshot.baseUrl).toBe(getCuaModel("openai:gpt-5.5").baseUrl);
+
+		// The motivating case: a model the provider has shipped and models.dev
+		// has not picked up yet.
+		expect(getCuaModel("xai:grok-4.6").id).toBe("grok-4.6");
+	});
+
+	it("synthesizes from the nearest, newest sibling", () => {
+		// xAI carries grok-4.3 on chat completions and grok-4.5 on Responses, so
+		// picking the wrong sibling would send a new Grok to the wrong transport.
+		expect(getCuaModel("xai:grok-4.5").api).toBe("openai-responses");
+		expect(getCuaModel("xai:grok-4.6").api).toBe("openai-responses");
+		expect(getCuaModel("xai:grok-4.6").baseUrl).toBe(getCuaModel("xai:grok-4.5").baseUrl);
+		expect(getCuaModel("anthropic:claude-opus-6").api).toBe("anthropic-messages");
 	});
 });
 
-describe("CUA support annotations", () => {
-	it("covers every provider", () => {
-		for (const provider of CUA_PROVIDERS) {
-			expect(CUA_MODEL_ANNOTATIONS[provider].length).toBeGreaterThan(0);
-		}
-	});
-
-	it("cites an official source for every annotation", () => {
-		for (const provider of CUA_PROVIDERS) {
-			for (const annotation of CUA_MODEL_ANNOTATIONS[provider]) {
-				expect(annotation.source).toMatch(/^https?:\/\//);
-			}
+describe("native surfaces", () => {
+	it("cites first-party documentation for every entry", () => {
+		for (const entry of CUA_NATIVE_SURFACES) {
+			expect(entry.source).toMatch(/^https?:\/\//);
+			expect(entry.surfaces.length).toBeGreaterThan(0);
 		}
 	});
 
 	it("matches family roots, dated snapshots, and numeric revisions", () => {
-		expect(findCuaAnnotation("openai", "gpt-5.5")?.match).toEqual({ kind: "family", family: "gpt-5.5" });
-		expect(findCuaAnnotation("openai", "gpt-5.5-2026-04-23")?.match).toEqual({ kind: "family", family: "gpt-5.5" });
-		expect(findCuaAnnotation("openai", "gpt-5.4-mini")?.match).toEqual({ kind: "family", family: "gpt-5.4-mini" });
-		expect(findCuaAnnotation("openai", "gpt-5.4-mini-2026-03-17")?.match).toEqual({ kind: "family", family: "gpt-5.4-mini" });
-		expect(findCuaAnnotation("anthropic", "claude-opus-4-7")).toBeDefined();
-		expect(findCuaAnnotation("anthropic", "claude-opus-5")?.match).toEqual({ kind: "family", family: "claude-opus-5" });
-		expect(findCuaAnnotation("anthropic", "claude-opus-5-20260724")?.match).toEqual({ kind: "family", family: "claude-opus-5" });
-		expect(findCuaAnnotation("anthropic", "claude-3-7-sonnet-20250219")).toBeDefined();
+		expect(cuaNativeSurfaces(getCuaModel("openai:gpt-5.5"))).toEqual(["computer"]);
+		expect(cuaNativeSurfaces(getCuaModel("openai:gpt-5.5-2026-04-23"))).toEqual(["computer"]);
+		expect(cuaNativeSurfaces(getCuaModel("openai:gpt-5.4-mini"))).toEqual(["computer"]);
+		expect(cuaNativeSurfaces(getCuaModel("anthropic:claude-opus-5"))).toEqual(["computer", "browser"]);
+		expect(cuaNativeSurfaces(getCuaModel("anthropic:claude-opus-5-20260724"))).toEqual(["computer", "browser"]);
 	});
 
-	it("does not match adjacent families", () => {
-		expect(findCuaAnnotation("openai", "gpt-5.55-foo")).toBeUndefined();
-		expect(findCuaAnnotation("openai", "gpt-5.6")).toBeUndefined();
-		expect(findCuaAnnotation("anthropic", "claude-3-5-sonnet")).toBeUndefined();
+	it("does not match adjacent families or named sibling variants", () => {
+		expect(cuaNativeSurfaces(getCuaModel("openai:gpt-5.4-nano"))).toEqual([]);
+		expect(cuaNativeSurfaces(getCuaModel("openai:gpt-5.4-pro"))).toEqual([]);
+		expect(cuaNativeSurfaces(getCuaModel("anthropic:claude-3-5-sonnet"))).toEqual([]);
 	});
 
-	it("does not match named sibling variants of a family", () => {
-		expect(findCuaAnnotation("openai", "gpt-5.4-nano")).toBeUndefined();
-		expect(findCuaAnnotation("openai", "gpt-5.4-pro")).toBeUndefined();
-		expect(findCuaAnnotation("openai", "gpt-5.5-pro")).toBeUndefined();
-		const openaiModels = listCuaModels("openai").map((model) => model.model);
-		expect(openaiModels).not.toContain("gpt-5.4-nano");
-		expect(openaiModels).not.toContain("gpt-5.4-pro");
-		expect(openaiModels).toContain("gpt-5.5");
+	it("reports no native surface for models that have none, without refusing them", () => {
+		expect(cuaNativeSurfaces(getCuaModel("moonshotai:kimi-k3"))).toEqual([]);
+		expect(cuaNativeSurfaces(getCuaModel("xai:grok-4.5"))).toEqual([]);
+		// A model with no native surface still resolves and runs on CUA's own tools.
+		expect(getCuaModel("xai:grok-4.5").provider).toBe("xai");
 	});
 
-	it("matches exact-id annotations", () => {
-		expect(findCuaAnnotation("openai", "gpt-5.6-sol")?.match).toEqual({ kind: "exact", id: "gpt-5.6-sol" });
-		expect(findCuaAnnotation("openai", "gpt-5.6-sol-20260728")).toBeUndefined();
-		expect(findCuaAnnotation("google", "gemini-3.6-flash")).toBeDefined();
-		expect(findCuaAnnotation("openrouter", "meta/muse-spark-1.1")).toBeDefined();
-		expect(findCuaAnnotation("xai", "grok-4.5")).toBeDefined();
-		expect(findCuaAnnotation("xai", "grok-4.5-latest")).toBeUndefined();
-		expect(findCuaAnnotation("xai", "grok-4.3")).toBeUndefined();
-		expect(findCuaAnnotation("moonshotai", "kimi-k3")).toBeDefined();
-		expect(findCuaAnnotation("moonshotai", "kimi-k2.5")).toBeUndefined();
-		expect(findCuaAnnotation("moonshotai", "kimi-latest")).toBeUndefined();
-		expect(findCuaAnnotation("google", "gemini-3.5-flash-lite")).toBeDefined();
+	it("surfaces the flag on catalog listings", () => {
+		const google = listCuaModels("google");
+		const flash = google.find((model) => model.model === "gemini-3.6-flash");
+		expect(flash?.nativeSurfaces).toEqual(["browser"]);
+		expect(flash?.vision).toBe(true);
+		expect(google.some((model) => model.nativeSurfaces.length === 0)).toBe(true);
 	});
+});
 
-	it("advertises only Google's current documented computer-use models", () => {
-		expect(listCuaModels("google").map((model) => model.model)).toEqual([
-			"gemini-3.5-flash",
-			"gemini-3.5-flash-lite",
-			"gemini-3.6-flash",
-		]);
-		for (const retired of [
-			"gemini-2.5-computer-use-preview-10-2025",
-			"gemini-3-flash-preview",
-			"gemini-3.1-flash-lite",
-			"gemini-3-pro-preview",
-		]) {
-			expect(findCuaAnnotation("google", retired)).toBeUndefined();
-			expect(() => getCuaModel(`google:${retired}` as CuaModelRef)).toThrow(/unsupported CUA model/);
+describe("model quirks", () => {
+	it("explains why every quirk exists", () => {
+		for (const quirk of CUA_MODEL_QUIRKS) {
+			expect(quirk.reason.length).toBeGreaterThan(20);
+			expect(Object.keys(quirk.capabilities).length).toBeGreaterThan(0);
 		}
+	});
+
+	it("defaults to permissive for a model with no quirk", () => {
+		expect(cuaModelCapabilities(getCuaModel("openai:gpt-5.6-sol"))).toEqual({
+			acceptsComplexSchemas: true,
+			acceptsLargeSchemas: true,
+			serializesStateMutations: false,
+		});
+		// Including a model pi-ai's registry does not carry.
+		expect(cuaModelCapabilities(getCuaModel("xai:grok-4.6")).acceptsComplexSchemas).toBe(true);
+	});
+
+	it("keeps the limits we have evidence for", () => {
+		// Observed live: the Gemini API rejects browser_wait_for's schema shape.
+		expect(cuaModelCapabilities(getCuaModel("google:gemini-3.6-flash")).acceptsComplexSchemas).toBe(false);
+		// Observed live: Kimi K3 rejects the request once browser_act is attached.
+		expect(cuaModelCapabilities(getCuaModel("moonshotai:kimi-k3")).acceptsLargeSchemas).toBe(false);
+		expect(cuaModelCapabilities(getCuaModel("openrouter:moonshotai/kimi-k3")).acceptsLargeSchemas).toBe(false);
+		// Muse Spark accepts the large schema but serializes state mutations.
+		const muse = cuaModelCapabilities(getCuaModel("openrouter:meta/muse-spark-1.1"));
+		expect(muse.acceptsLargeSchemas).toBe(true);
+		expect(muse.serializesStateMutations).toBe(true);
+	});
+
+	it("applies a provider-wide quirk to every model from that provider", () => {
+		expect(cuaModelCapabilities(getCuaModel("xai:grok-4.5")).serializesStateMutations).toBe(true);
+		expect(cuaModelCapabilities(getCuaModel("xai:grok-4.6")).serializesStateMutations).toBe(true);
+	});
+});
+
+describe("catalog passthrough", () => {
+	it("exposes every provider pi-ai carries", () => {
+		expect(cuaProviders().length).toBeGreaterThan(20);
+		expect(cuaProviders()).toContain("openai");
+		expect(cuaProviders()).toContain("groq");
+		expect(cuaProviders()).toContain("zai");
+	});
+
+	it("lists models no CUA table mentions", () => {
+		const all = listCuaModels();
+		expect(all.length).toBeGreaterThan(100);
+		// Previously refused for want of a table entry.
+		expect(all.some((model) => model.ref === "xai:grok-4.3")).toBe(true);
+		expect(all.some((model) => model.provider === "groq")).toBe(true);
 	});
 });

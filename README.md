@@ -44,7 +44,7 @@ packages/
 (`@onkernel/cua-agent`) — `CuaAgent`/`CuaAgentHarness` run the full
 computer-use loop against a Kernel browser. It sits on
 [`packages/ai`](packages/ai) (`@onkernel/cua-ai`), the model layer with the
-curated computer-use model catalog, canonical tool schemas, and per-provider
+pi-ai model catalog, canonical tool schemas, and per-provider
 adapters on top of pi-ai; reach for cua-ai directly only when you bring your
 own execution.
 
@@ -101,7 +101,7 @@ export KERNEL_API_KEY=sk_...                 # always required
 # single-shot
 cua -p "Open https://news.ycombinator.com and tell me the top story"
 
-# list supported model ids
+# list selectable model ids
 cua models
 
 # Claude
@@ -141,7 +141,7 @@ cua -p -o jsonl "open example.com and tell me the heading"
 
 ## How it works
 
-1. **Model layer** — `@onkernel/cua-ai` owns the curated model catalog,
+1. **Model layer** — `@onkernel/cua-ai` opens pi-ai's whole model catalog,
    stable tool identities, explicit tool factories/toolsets, compatibility
    checks, and provider declarations/headers/payload transforms.
 2. **Execution layer** — `@onkernel/cua-agent` composes around
@@ -171,7 +171,7 @@ Highlights:
 
 - `-p`/`--print` for single-shot mode; `-o jsonl` for structured output.
 - `cua models` to list supported `-m`/`--model` values and their providers.
-- `-m`/`--model <id>` to choose one of those supported models.
+- `-m`/`--model <id>` to choose any model pi-ai carries.
 - `/model` in the TUI for a searchable model picker; `/model <id>` still
   switches directly.
 - `/tools` in the TUI to enable or disable tools for the current session.

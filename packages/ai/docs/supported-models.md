@@ -1,130 +1,98 @@
-# Supported CUA Models
+# Models and native surfaces
 
-`@onkernel/cua-ai` accepts any pi-ai model whose ID is annotated as
-CUA-supporting in `CUA_MODEL_ANNOTATIONS` (see
-[`src/models.ts`](https://github.com/kernel/cua/blob/main/packages/ai/src/models.ts)).
-Annotations are either a `family`
-match or an `exact` ID match. A family match covers the family root plus
-suffixes made of hyphen-separated numeric segments — revisions and dated
-snapshots such as `claude-opus-4-7`, `gpt-5.5-2026-04-23`, or
-`claude-3-7-sonnet-20250219`. Named sibling variants like `gpt-5.4-mini`
-are distinct models that may not support computer use, so they need their
-own annotation. Each annotation cites the provider's CUA docs.
+`@onkernel/cua-ai` accepts **any model pi-ai carries**, and any model id its
+registry has not caught up with yet. There is no allowlist: a model id you pass
+resolves, and the provider decides whether it exists. Run
+`listCuaModels(provider?)` for the live catalog.
 
-The list below is the current snapshot. Run
-`listCuaModels(provider?)` for the live list — it merges pi-ai's registry
-with CUA-only entries that pi-ai does not ship yet.
+Two small tables in [`src/models.ts`](https://github.com/kernel/cua/blob/main/packages/ai/src/models.ts)
+describe what is *different* about particular models. Neither decides whether a
+model may run.
 
-## `openai`
+## Native surfaces
 
-CLI default interaction: CUA browser primitives plus the explicit
-`browser_act` verified-plan tool. The optional native computer tool uses pixel
-coordinates.
+`CUA_NATIVE_SURFACES` records which models have a provider-native computer or
+browser tool, so the tool menu can offer it. Entries match either an exact id or
+a `family` — the family root plus suffixes made of hyphen-separated numeric
+segments, covering revisions and dated snapshots such as `claude-opus-4-7` or
+`gpt-5.5-2026-04-23`. Named sibling variants like `gpt-5.4-mini` are distinct
+models and need their own entry. Each cites first-party documentation.
 
-Exact IDs:
+| provider | models | surfaces |
+| --- | --- | --- |
+| `anthropic` | `claude-opus-4-8`, `claude-opus-5`, `claude-sonnet-5` families | computer, browser |
+| `anthropic` | `claude-fable-5` family | computer |
+| `openai` | `gpt-5.6-sol`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.5` | computer |
+| `google` | `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-3.5-flash-lite` | browser |
 
-- `gpt-5.6-sol` ([docs](https://developers.openai.com/api/docs/models/gpt-5.6-sol))
+Anthropic's entries live in `providers/anthropic/capabilities.ts`, which is
+version-gated separately; `cuaNativeSurfaces(model)` reads both sources.
 
-Family matches (root + numeric revision/dated-snapshot suffixes):
+A model with no native surface is not restricted — it drives a Kernel browser
+with CUA's own CDP tools, which is the default for every provider.
 
-- `gpt-5.4` ([docs](https://developers.openai.com/api/docs/models/gpt-5.4))
-- `gpt-5.4-mini` ([docs](https://developers.openai.com/api/docs/models/gpt-5.4-mini))
-- `gpt-5.5` ([docs](https://developers.openai.com/api/docs/models/gpt-5.5))
+## Quirks
 
-## `anthropic`
+`CUA_MODEL_QUIRKS` records request-shape limits. Anything absent gets the
+permissive default and is allowed to try; the provider's own error is the
+feedback. Every entry exists because of a documented limit or an observed
+failure, and carries its reason inline.
 
-CLI default interaction: native `browser_20260701` on supported model families,
-with CUA browser primitives plus explicit `browser_act` as the
-model-compatibility fallback. If the active
-credential cannot access the native browser beta, CUA uses its equivalent
-function-tool transport. The optional native computer tool uses pixel
-coordinates.
+| provider | models | limit |
+| --- | --- | --- |
+| `google` | all | rejects `browser_wait_for`'s schema shape; the Gemini API accepts a subset of JSON Schema for function declarations |
+| `moonshotai` | `kimi-k3` | rejects the request once `browser_act`'s schema is attached; serializes state mutations |
+| `openrouter` | `moonshotai/kimi-k3` | the same Kimi limit, reached through OpenRouter |
+| `openrouter` | `meta/muse-spark-1.1` | serializes state mutations |
+| `xai` | all | serializes state mutations |
 
-Family matches (root + numeric revision/dated-snapshot suffixes):
+`cuaModelCapabilities(model)` applies provider-wide quirks first, then
+model-specific ones. `cuaModelQuirks(model)` returns the entries that applied,
+for diagnostics and menu hints.
 
-- `claude-3-7-sonnet`
-- `claude-opus-4`
-- `claude-opus-5`
-- `claude-sonnet-4`
-- `claude-sonnet-5`
-- `claude-haiku-4`
-- `claude-fable-5`
+## Model ids pi-ai does not carry
 
-Source: [Anthropic computer use docs](https://docs.anthropic.com/en/docs/build-with-claude/computer-use).
+A ref whose id is missing from the registry is synthesized from the sibling
+sharing the longest id prefix, preferring the latest such sibling. Providers
+migrate transports mid-generation — xAI carries `grok-4.3` on chat completions
+and `grok-4.5` on Responses — so a new id follows its nearest, newest relative.
+This is what lets a model work the day the provider ships it rather than when
+models.dev catches up.
 
-## `google`
+Only an unqualified ref or a provider pi-ai does not carry is refused.
 
-Coordinates: normalized 0–999
+## Keeping these tables current
 
-Model refs use the `google:` prefix; `gemini:` is accepted as an alias.
+There is no periodic audit to run. The allowlist that once needed one is gone,
+so maintenance is reactive — four cases, in rough order of how often they come up.
 
-Exact IDs:
+**A provider released a model.** Nothing to do. If pi-ai's registry carries it,
+it resolves; if not, it is synthesized from its nearest sibling. Neither needs a
+change here.
 
-- `gemini-3.6-flash` (recommended)
-- `gemini-3.5-flash`
-- `gemini-3.5-flash-lite`
+**The catalog looks stale.** Bump `@earendil-works/pi-ai`. Its registry is
+generated from models.dev, so a newer pi-ai is how names, context windows, and
+pricing get refreshed. Note that cua does not read pi's `models.json`: that is a
+pi-coding-agent config file, and cua builds its `Models` collection from pi-ai
+directly. A provider pi-ai does not ship is not selectable without registering
+it in `src/providers.ts` — a deliberate decision, since the repo has removed
+four such providers rather than carry them unused.
 
-Google computer use is configured explicitly with
-`cua.providers.google.toolsets.browser()`, which emits Google's native
-`tools.computer_use` declaration and current predefined browser actions.
-Partial catalogs exclude every unselected current action. Legacy and preview
-model/tool surfaces are intentionally not exposed.
+**A provider shipped or changed a native tool.** This is real adapter work, not
+a table edit. Probe what the model actually emits:
 
-Source: [Gemini computer use docs](https://ai.google.dev/gemini-api/docs/computer-use).
+```bash
+npx tsx packages/ai/scripts/native-action-probe.ts --provider openai --model gpt-5.5 --limit 3
+```
 
-## `xai`
+Update that provider's adapter under `src/providers/` to execute the actions the
+probe returns, then add or adjust the `CUA_NATIVE_SURFACES` entry, citing the
+provider's documentation. Anthropic's computer tool version and its
+`computer-use-*` beta header are chosen by pi-ai per model, so a new dated
+version there usually means bumping pi-ai rather than editing this package.
 
-CLI default interaction: CUA browser primitives plus explicit `browser_act`.
-
-Exact IDs:
-
-- `grok-4.5`
-
-Grok 4.5 uses xAI's OpenAI-compatible Responses API with ordinary CUA browser
-function tools. xAI does not define a native computer tool. Tool loops continue
-through `previous_response_id`.
-CUA adds xAI's doubled token-price tier above 200k input tokens to pi-ai's
-Grok 4.5 model metadata.
-
-Source: [Grok 4.5 docs](https://docs.x.ai/developers/grok-4-5), [function calling](https://docs.x.ai/developers/tools/function-calling), and [image understanding](https://docs.x.ai/developers/model-capabilities/images/understanding).
-
-## `moonshotai`
-
-CLI default interaction: CUA browser primitives only. Moonshot's API accepts the
-complex `browser_wait_for` schema but rejects a request outright once the much
-larger `browser_act` schema is attached, so `browser_act` is unavailable on
-Moonshot models and the catalog rejects it explicitly.
-
-Model refs use the `moonshotai:` prefix; `moonshot:` is accepted as an alias.
-
-Exact IDs:
-
-- `kimi-k3`
-
-Kimi K3 uses Moonshot's OpenAI-compatible chat completions API with ordinary
-CUA browser function tools. Moonshot does not define a native computer tool.
-K3 launched with max-only thinking effort—other levels are clamped away until
-Moonshot ships them.
-
-Source: [Kimi K3 announcement](https://www.kimi.com/blog/kimi-k3), [tool use](https://platform.kimi.ai/docs/api/tool-use), and [vision input](https://platform.kimi.ai/docs/guide/use-kimi-vision-model).
-
-## `openrouter`
-
-CLI default interaction: per model, not per provider. OpenRouter fronts several
-model families, so the CLI asks each model whether it accepts `browser_act`'s
-schema rather than assuming one answer for the whole provider.
-
-Model refs use the `openrouter:` prefix:
-
-- `moonshotai/kimi-k3` — browser primitives only: accepts complex function
-  schemas but rejects the larger `browser_act` schema. State mutations are
-  serialized.
-- `meta/muse-spark-1.1` — browser primitives plus explicit `browser_act`. State
-  mutations are serialized.
-
-Both use OpenRouter's OpenAI-compatible chat completions API with ordinary CUA
-browser function tools. OpenRouter does not expose the provider-native computer
-tools declared by other CUA providers.
-
-Sources: [Kimi K3](https://openrouter.ai/moonshotai/kimi-k3),
-[Muse Spark 1.1](https://openrouter.ai/meta/muse-spark-1.1).
+**A model rejects a tool CUA sends.** Add a `CUA_MODEL_QUIRKS` entry with the
+observed error as its `reason`, scoped as narrowly as the evidence supports: a
+single model id over a family, a family over a whole provider. Remove a quirk
+when the provider lifts the limit — a stale quirk silently denies a model a tool
+it now accepts, which is harder to notice than the reverse.
