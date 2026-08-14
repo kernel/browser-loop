@@ -1,9 +1,7 @@
 {
   "files": [],
   "references": [
-    { "path": "./packages/ai" },
-    { "path": "./packages/agent" },
-    { "path": "./packages/ptywright" },
-    { "path": "./packages/pi-extension" }
+    { "path": "./packages/loop" },
+    { "path": "./packages/ptywright" }
   ]
 }

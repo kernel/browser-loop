@@ -20,47 +20,21 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run build --workspace @onkernel/cua-ai
+      # The pi print/RPC test loads the extension the way pi does, through the
+      # package's own entry points, so dist has to exist before the unit run.
+      - run: npm run build --workspace @onkernel/loop
       - name: Unit tests
-        run: npm test --workspace @onkernel/cua-ai
+        run: npm test --workspace @onkernel/loop
       - name: Pack tarball
-        run: npm pack --workspace @onkernel/cua-ai --pack-destination "$RUNNER_TEMP"
+        run: npm pack --workspace @onkernel/loop --pack-destination "$RUNNER_TEMP"
       - name: ESM import smoke test
         run: |
           mkdir -p "$RUNNER_TEMP/esm-smoke"
           cd "$RUNNER_TEMP/esm-smoke"
           npm init -y
-          npm install "$RUNNER_TEMP"/onkernel-cua-ai-*.tgz
-          node --input-type=module -e "import('@onkernel/cua-ai').then((m) => { if (typeof m.getCuaModel !== 'function') process.exit(1); })"
-
-  agent-unit:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run build --workspace @onkernel/cua-ai
-      - name: Agent unit tests
-        run: npm test --workspace @onkernel/cua-agent -- --exclude "**/*.live.test.ts"
-
-  pi-extension-unit:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run build --workspace @onkernel/cua-ai
-      - run: npm run build --workspace @onkernel/cua-agent
-      - name: Pi extension unit tests
-        run: npm test --workspace @onkernel/cua-pi-extension
+          npm install "$RUNNER_TEMP"/onkernel-loop-*.tgz
+          node --input-type=module -e "import('@onkernel/loop').then((m) => { if (typeof m.compileLoopToolCatalog !== 'function') process.exit(1); })"
+          node --input-type=module -e "import('@onkernel/loop/pi').then((m) => { if (typeof m.attach !== 'function') process.exit(1); })"
 
   typecheck-and-ptywright:
     runs-on: ubuntu-latest
@@ -97,8 +71,6 @@ jobs:
             packages/ptywright/.cache
             packages/ptywright/native/build
           key: ptywright-${{ runner.os }}-${{ hashFiles('packages/ptywright/GHOSTTY_UPSTREAM', 'packages/ptywright/native/**', 'packages/ptywright/scripts/**') }}
-      - run: npm run build --workspace @onkernel/cua-ai
-      - run: npm run build --workspace @onkernel/cua-agent
       # The only job that typechecks the whole project graph rather than one
       # package, and the only one that builds and tests ptywright.
       - name: Typecheck workspace
@@ -121,7 +93,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run build --workspace @onkernel/cua-ai
       - name: Integration tests
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -130,9 +101,9 @@ jobs:
           META_API_KEY: ${{ secrets.META_API_KEY }}
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
           MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
-        run: npm run test:integration --workspace @onkernel/cua-ai
+        run: npm run test:integration --workspace @onkernel/loop
 
-  agent-e2e:
+  live-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     # Only run on the main repo (not forks) so secrets are available.
@@ -145,11 +116,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run build --workspace @onkernel/cua-ai
-      - run: npm run build --workspace @onkernel/cua-agent
-      - name: Agent live smoke tests (all providers)
+      - name: Live smoke tests (all providers)
         env:
-          CUA_E2E_LIVE: "1"
+          LOOP_E2E_LIVE: "1"
           KERNEL_API_KEY: ${{ secrets.KERNEL_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -157,4 +126,4 @@ jobs:
           META_API_KEY: ${{ secrets.META_API_KEY }}
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
           MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
-        run: npm test --workspace @onkernel/cua-agent -- test/e2e.live.test.ts
+        run: npm run test:integration --workspace @onkernel/loop -- test/e2e.live.test.ts

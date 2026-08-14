@@ -1,0 +1,85 @@
+{
+  "name": "@onkernel/loop",
+  "version": "0.11.0",
+  "description": "Kernel browser computer-use tools, catalog compilation, and pi bindings",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kernel/cua.git",
+    "directory": "packages/loop"
+  },
+  "bugs": {
+    "url": "https://github.com/kernel/cua/issues"
+  },
+  "homepage": "https://github.com/kernel/cua/tree/main/packages/loop#readme",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "computer-use",
+    "kernel"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "source": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./pi": {
+      "types": "./dist/pi/index.d.ts",
+      "source": "./src/pi/index.ts",
+      "default": "./dist/pi/index.js"
+    }
+  },
+  "pi": {
+    "extensions": [
+      "./src/pi-extension/index.ts"
+    ]
+  },
+  "files": [
+    "dist",
+    "src",
+    "docs",
+    "examples",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -b",
+    "clean": "tsc -b --clean && rm -rf dist dist-published dist-tsc",
+    "example:quickstart": "NODE_OPTIONS=--conditions=source tsx examples/quickstart.ts",
+    "example:agent": "NODE_OPTIONS=--conditions=source tsx examples/agent-openai-smoke.ts",
+    "example:harness": "NODE_OPTIONS=--conditions=source tsx examples/harness-openai-smoke.ts",
+    "test": "vitest --run",
+    "test:integration": "vitest --run --config vitest.integration.config.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "0.83.0",
+    "@earendil-works/pi-ai": "0.83.0",
+    "@onkernel/sdk": "0.49.0",
+    "openai": "^6.26.0",
+    "sharp": "^0.35.3"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.83.0",
+    "tsdown": "^0.22.2",
+    "vitest": "^3.2.4"
+  }
+}

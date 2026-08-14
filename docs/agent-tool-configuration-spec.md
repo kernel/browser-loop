@@ -7,7 +7,7 @@ rule it establishes still holds; what changed is where the array lives. `CuaAgen
 and its in-tool `executionMode: "sequential"` guard described below no longer exist.
 Retained as the record of why the tool array is explicit and required.
 
-**Scope:** `@onkernel/cua-agent` and the tool-building surface in `@onkernel/cua-ai`  
+**Scope:** `@onkernel/loop` (written when this code lived in two packages)  
 **Compatibility:** Not a goal; these packages are alpha and may make breaking API changes.
 
 ## Summary
@@ -16,15 +16,15 @@ Retained as the record of why the tool array is explicit and required.
 
 The array may contain:
 
-- CUA-authored tools, such as browser snapshots, browser action plans, browser waits, batches, and `playwright_execute`
+- Loop-authored tools, such as browser snapshots, browser action plans, browser waits, batches, and `playwright_execute`
 - provider-defined native browser or computer tools and predefined toolsets
 - ordinary caller-provided `AgentTool` objects
 
-Provider namespaces expose only surfaces justified by linked first-party documentation. CUA-authored capabilities remain separate under `cua.tools` and `cua.toolsets`. A caller can combine either category with custom application tools while seeing exactly what the model receives.
+Provider namespaces expose only surfaces justified by linked first-party documentation. Loop-authored capabilities remain separate under `loop.tools` and `loop.toolsets`. A caller can combine either category with custom application tools while seeing exactly what the model receives.
 
-The former `extraTools`, `mode`, `nativeTool`, and `playwright` constructor options are removed. `activeToolNames`, `setActiveTools()`, `setMode()`, `getMode()`, `computer_use_extra`, and CUA-generated default system prompts are also removed. No global or derived mode replaces them.
+The former `extraTools`, `mode`, `nativeTool`, and `playwright` constructor options are removed. `activeToolNames`, `setActiveTools()`, `setMode()`, `getMode()`, `computer_use_extra`, and Loop-generated default system prompts are also removed. No global or derived mode replaces them.
 
-Each CUA tool specification must contain enough information to build, expose, execute, and describe that tool independently. Convenience toolsets may return arrays of tool specifications, but they must not establish hidden runtime state or add undeclared tools.
+Each Loop tool specification must contain enough information to build, expose, execute, and describe that tool independently. Convenience toolsets may return arrays of tool specifications, but they must not establish hidden runtime state or add undeclared tools.
 
 ## Motivation
 
@@ -59,7 +59,7 @@ The public distinction should instead be simple:
 
 For example, Anthropic's native `browser` is one tool with multiple actions. `browser_act` is one tool containing a sequence of step actions. `browser_snapshot` is a single-purpose tool whose input does not need an action discriminator.
 
-`CuaAction` may remain an internal normalized execution representation, but agent constructors should not expose it as their tool-selection API.
+`ComputerUseAction` may remain an internal normalized execution representation, but agent constructors should not expose it as their tool-selection API.
 
 This terminology must also be used consistently in the architecture document, package READMEs, API documentation, and user-facing examples. Users should not need to understand the internal action IR to configure model-facing tools.
 
@@ -67,8 +67,8 @@ This terminology must also be used consistently in the architecture document, pa
 
 1. Make the exact model-facing tool catalog obvious at the constructor call site.
 2. Support minimal and empty configurations without hidden additions.
-3. Distinguish first-party provider surfaces from CUA-authored capabilities.
-4. Allow provider-native, CUA-authored, Playwright, and caller tools to compose in one list.
+3. Distinguish first-party provider surfaces from Loop-authored capabilities.
+4. Allow provider-native, Loop-authored, Playwright, and caller tools to compose in one list.
 5. Let every tool own the runtime policy required to execute it correctly.
 6. Support cache-aware mid-conversation tool additions, removals, and replacements.
 7. Validate tool/model and tool/tool incompatibilities directly and early.
@@ -82,43 +82,43 @@ This terminology must also be used consistently in the architecture document, pa
 - Exposing the internal canonical action IR as constructor configuration
 - Automatically adding prerequisite, navigation, screenshot, or fallback tools
 - Silently replacing incompatible tools when the model changes
-- Preserving CUA's current default system prompts
+- Preserving Loop's current default system prompts
 
 ## Public namespace
 
 Tool factories and toolsets should be exported through one discoverable namespace rather than as a collection of global functions.
 
-CUA-authored capabilities live under `cua.tools` and `cua.toolsets`:
+Loop-authored capabilities live under `loop.tools` and `loop.toolsets`:
 
 ```ts
-cua.tools.browser.snapshot()
-cua.tools.browser.act()
-cua.tools.browser.waitFor()
-cua.tools.browser.batch(...)
-cua.tools.computer.batch(...)
-cua.tools.playwright()
+loop.tools.browser.snapshot()
+loop.tools.browser.act()
+loop.tools.browser.waitFor()
+loop.tools.browser.batch(...)
+loop.tools.computer.batch(...)
+loop.tools.playwright()
 
-cua.toolsets.browser()
-cua.toolsets.computer()
-cua.toolsets.mixed()
+loop.toolsets.browser()
+loop.toolsets.computer()
+loop.toolsets.mixed()
 ```
 
 Provider-defined surfaces live under provider namespaces and carry their first-party source:
 
 ```ts
-cua.providers.anthropic.source
-cua.providers.anthropic.tools.browser(...)
-cua.providers.anthropic.tools.computer(...)
+loop.providers.anthropic.source
+loop.providers.anthropic.tools.browser(...)
+loop.providers.anthropic.tools.computer(...)
 
-cua.providers.google.source
-cua.providers.google.toolsets.browser()
+loop.providers.google.source
+loop.providers.google.toolsets.browser()
 ```
 
 The distinction is deliberate:
 
-- `cua.providers.<provider>` contains only documented native declarations or predefined toolsets. Each namespace exposes its first-party `source` or versioned `sources`, and every returned spec carries the applicable URL.
-- `cua.tools` contains additional tools CUA designed, such as snapshots, semantic waits, browser action plans, browser batches, and Playwright execution.
-- `cua.toolsets` contains CUA-curated combinations of CUA-authored tools.
+- `loop.providers.<provider>` contains only documented native declarations or predefined toolsets. Each namespace exposes its first-party `source` or versioned `sources`, and every returned spec carries the applicable URL.
+- `loop.tools` contains additional tools Loop designed, such as snapshots, semantic waits, browser action plans, browser batches, and Playwright execution.
+- `loop.toolsets` contains Loop-curated combinations of Loop-authored tools.
 
 The exact property names may be refined, but the final exports must remain namespaced, autocomplete-friendly, and free of a large flat list of package-level tool factory functions.
 
@@ -132,8 +132,8 @@ const agent = new CuaAgent({
   client,
   initialState: { model: "anthropic:claude-opus-5" },
   tools: [
-    cua.tools.browser.snapshot(),
-    cua.tools.browser.act(),
+    loop.tools.browser.snapshot(),
+    loop.tools.browser.act(),
     customerLookupTool,
   ],
 });
@@ -146,7 +146,7 @@ const harness = new CuaAgentHarness({
   session,
   model: "openai:gpt-5.6-sol",
   tools: [
-    cua.tools.playwright(),
+    loop.tools.playwright(),
   ],
 });
 ```
@@ -154,21 +154,21 @@ const harness = new CuaAgentHarness({
 Conceptually:
 
 ```ts
-// Defined and exported by @onkernel/cua-agent.
-type CuaAgentTool = CuaToolSpec | AgentTool;
+// Defined and exported by @onkernel/loop.
+type LoopAgentTool = LoopToolSpec | AgentTool;
 
 interface CuaAgentOptions {
   // Existing non-tool options omitted.
-  tools: CuaAgentTool[];
+  tools: LoopAgentTool[];
 }
 
 interface CuaAgentHarnessOptions {
   // Existing non-tool options omitted.
-  tools: CuaAgentTool[];
+  tools: LoopAgentTool[];
 }
 ```
 
-A `CuaToolSpec` is declarative because `@onkernel/cua-agent` must materialize it against the Kernel browser, SDK client, selected model, and provider transport. An `AgentTool` is already executable and can be installed directly; cua-agent projects it into a fresh declaration-only object before cua-ai compiles the catalog, so cua-ai never sees executors.
+A `LoopToolSpec` is declarative because `@onkernel/loop` must materialize it against the Kernel browser, SDK client, selected model, and provider transport. An `AgentTool` is already executable and can be installed directly; the tool manager projects it into a fresh declaration-only object before the catalog is compiled, so compilation never sees executors.
 
 There is one current tool list, not separate installed and active lists. `setTools()` changes that list for subsequent provider requests.
 
@@ -178,7 +178,7 @@ There is one current tool list, not separate installed and active lists. `setToo
 
 ```ts
 tools: [
-  cua.providers.anthropic.tools.browser({
+  loop.providers.anthropic.tools.browser({
     version: "20260701",
     javascript: true,
   }),
@@ -186,13 +186,13 @@ tools: [
 ]
 ```
 
-The model receives exactly the native browser tool and `customer_lookup`. CUA must not add canonical browser tools, navigation helpers, screenshots, batches, or Playwright.
+The model receives exactly the native browser tool and `customer_lookup`. Loop must not add canonical browser tools, navigation helpers, screenshots, batches, or Playwright.
 
 ### Playwright only
 
 ```ts
 tools: [
-  cua.tools.playwright(),
+  loop.tools.playwright(),
 ]
 ```
 
@@ -202,18 +202,18 @@ The model receives exactly `playwright_execute`.
 
 ```ts
 tools: [
-  cua.tools.browser.act(),
+  loop.tools.browser.act(),
 ]
 ```
 
-The model receives exactly `browser_act`. CUA may warn that ref-based steps require refs from another source, but it must not silently add a snapshot tool.
+The model receives exactly `browser_act`. Loop may warn that ref-based steps require refs from another source, but it must not silently add a snapshot tool.
 
 A practical minimal ref-based plan configuration is explicit:
 
 ```ts
 tools: [
-  cua.tools.browser.snapshot(),
-  cua.tools.browser.act(),
+  loop.tools.browser.snapshot(),
+  loop.tools.browser.act(),
 ]
 ```
 
@@ -221,22 +221,22 @@ tools: [
 
 ```ts
 tools: [
-  cua.tools.browser.snapshot(),
-  cua.tools.browser.find(),
-  cua.tools.browser.text(),
-  cua.tools.browser.act(),
-  cua.tools.browser.waitFor(),
-  cua.tools.browser.navigate(),
+  loop.tools.browser.snapshot(),
+  loop.tools.browser.find(),
+  loop.tools.browser.text(),
+  loop.tools.browser.act(),
+  loop.tools.browser.waitFor(),
+  loop.tools.browser.navigate(),
 ]
 ```
 
-### Native and CUA-authored tools together
+### Native and Loop-authored tools together
 
 ```ts
 tools: [
-  cua.providers.anthropic.tools.computer({ version: "20260701" }),
-  cua.tools.browser.snapshot(),
-  cua.tools.browser.act(),
+  loop.providers.anthropic.tools.computer({ version: "20260701" }),
+  loop.tools.browser.snapshot(),
+  loop.tools.browser.act(),
 ]
 ```
 
@@ -255,22 +255,22 @@ No tool is added implicitly.
 Convenience helpers provide ordinary arrays:
 
 ```ts
-tools: cua.providers.google.toolsets.browser()
+tools: loop.providers.google.toolsets.browser()
 ```
 
 ```ts
-tools: cua.toolsets.browser()
+tools: loop.toolsets.browser()
 ```
 
 ```ts
-tools: cua.toolsets.mixed()
+tools: loop.toolsets.mixed()
 ```
 
 Callers can inspect and compose them:
 
 ```ts
 tools: [
-  ...cua.toolsets.browser(),
+  ...loop.toolsets.browser(),
   customerLookupTool,
 ]
 ```
@@ -283,20 +283,20 @@ them explicitly:
 
 ```ts
 tools: [
-  ...cua.toolsets.browser(),
-  cua.tools.browser.act(),
+  ...loop.toolsets.browser(),
+  loop.tools.browser.act(),
 ]
 ```
 
-The CLI uses this explicit composition for its structured CUA-browser catalogs.
+The CLI uses this explicit composition for its structured Loop-browser catalogs.
 
-Provider toolsets must expose the first-party source they mirror and must not silently include CUA-authored additions.
+Provider toolsets must expose the first-party source they mirror and must not silently include Loop-authored additions.
 
 ## No global or derived mode
 
 The runtime must not derive `computer`, `browser`, or `hybrid` state from the selected tools. Those labels are too coarse to govern execution safely.
 
-Instead, each `CuaToolSpec` supplies the policy needed for that tool to do its work:
+Instead, each `LoopToolSpec` supplies the policy needed for that tool to do its work:
 
 - stable tool identity and preferred model-facing name
 - description and schema or native declaration
@@ -336,7 +336,7 @@ The implemented naming policy is:
 
 A toolset factory should not need hidden global state. The central composer sees all expanded tool specs and applies the collision policy. A toolset may expose explicit naming or namespace options, but automatic context-sensitive aliasing must not make the resulting catalog unpredictable.
 
-Catalog tests cover provider-native tools composed with CUA browser and caller tools, and verify first-party sources for every provider surface.
+Catalog tests cover provider-native tools composed with Loop browser and caller tools, and verify first-party sources for every provider surface.
 
 ## Tools and actions
 
@@ -367,7 +367,7 @@ Current action-bearing tools include:
 - `browser_batch`, which would accept ordered browser-plane actions
 - `browser_act`, whose `steps` are dependent browser actions with optional semantic expectations
 
-Some single-purpose tools do not need an explicit action argument. Internally converting their call into a `CuaAction` does not make the public callable surface an action.
+Some single-purpose tools do not need an explicit action argument. Internally converting their call into a `ComputerUseAction` does not make the public callable surface an action.
 
 ## Batch tools
 
@@ -375,22 +375,22 @@ Batch tools need first-class treatment in this design rather than inheriting an 
 
 ### Computer batch
 
-`computer_batch` is a CUA-authored tool over computer-plane actions. Its factory should let the caller control the allowed action schema:
+`computer_batch` is a Loop-authored tool over computer-plane actions. Its factory should let the caller control the allowed action schema:
 
 ```ts
-cua.tools.computer.batch({
+loop.tools.computer.batch({
   actions: ["click", "type", "keypress", "screenshot"],
 })
 ```
 
-A CUA toolset may choose and document a default batch configuration, but constructing the batch tool directly must make its allowed actions visible. The batch must not gain actions merely because unrelated individual tools are present.
+A Loop toolset may choose and document a default batch configuration, but constructing the batch tool directly must make its allowed actions visible. The batch must not gain actions merely because unrelated individual tools are present.
 
 ### Browser batch
 
-CUA offers a browser-plane equivalent that does not dispatch OS computer-use input:
+Loop offers a browser-plane equivalent that does not dispatch OS computer-use input:
 
 ```ts
-cua.tools.browser.batch({
+loop.tools.browser.batch({
   actions: ["snapshot", "click", "fill", "wait_for", "text"],
 })
 ```
@@ -433,7 +433,7 @@ Both agent classes must support changing the exact tool list between model reque
 ```ts
 await harness.setTools([
   ...harness.getTools(),
-  cua.tools.browser.act(),
+  loop.tools.browser.act(),
 ]);
 ```
 
@@ -450,9 +450,9 @@ The implementation should build on pi's dynamic tool-loading semantics:
 
 Purely additive changes must preserve the stable provider prompt/schema prefix when the provider supports native deferred loading. Existing tools must not be renamed or reordered merely because another tool was added.
 
-Tool descriptions should carry the instructions needed by lazily added tools. CUA should not modify the system prompt when the tool list changes, because doing so can invalidate the provider cache even when deferred tool schemas are supported.
+Tool descriptions should carry the instructions needed by lazily added tools. Loop should not modify the system prompt when the tool list changes, because doing so can invalidate the provider cache even when deferred tool schemas are supported.
 
-`setTools()` must be coherent with CUA's materialized executors, payload transforms, headers, and shared resources. It must not update only pi's visible list while leaving an independent CUA runtime stale.
+`setTools()` must be coherent with Loop's materialized executors, payload transforms, headers, and shared resources. It must not update only pi's visible list while leaving an independent Loop runtime stale.
 
 ## Model changes
 
@@ -462,7 +462,7 @@ The requested tool list remains caller-owned when a model changes.
 await harness.setModel("openai:gpt-5.6-sol");
 ```
 
-CUA revalidates the same tool specifications against the new model. It must not silently replace, add, remove, or rename tools.
+Loop revalidates the same tool specifications against the new model. It must not silently replace, add, remove, or rename tools.
 
 An incompatible native tool produces a direct error:
 
@@ -470,26 +470,26 @@ An incompatible native tool produces a direct error:
 anthropic browser_20260701 requires an Anthropic model; selected openai:gpt-5.6-sol
 ```
 
-Caller-provided generic tools and compatible CUA-authored tools remain installed.
+Caller-provided generic tools and compatible Loop-authored tools remain installed.
 
 ## One current tool list
 
 `tools` defines the current catalog exposed to the model. There is no separate constructor-level installed catalog and active subset.
 
-The following CUA-facing configuration should be removed:
+The following Loop-facing configuration should be removed:
 
 ```ts
 activeToolNames
 setActiveTools()
 ```
 
-Callers use `setTools()` for additions, removals, and replacements. CUA may use pi's registration and activation machinery internally to implement deferred loading, but that distinction must not become a second public source of truth in `CuaAgent` or `CuaAgentHarness`.
+Callers use `setTools()` for additions, removals, and replacements. Loop may use pi's registration and activation machinery internally to implement deferred loading, but that distinction must not become a second public source of truth in `CuaAgent` or `CuaAgentHarness`.
 
 The CLI's interactive `/tools` menu is an application-level consumer of exactly this contract, not a second mechanism. It holds the list it composed for the active model as the baseline, and applies a user-selected **subset** of that baseline through one `setTools()` call. It never adds a tool the application did not compose, so it cannot introduce an unsupported tool. Because tool identities are provider-specific, a `/model` change rebuilds the baseline from the new model's defaults and discards the previous selection with an explicit notice — the alternative, re-applying a selection by key across providers, is the silent replacement forbidden under Non-goals.
 
 ## System instructions and descriptions
 
-CUA should get out of the business of generating default system prompts.
+Loop should get out of the business of generating default system prompts.
 
 The model should learn what is available from the exact tool names, descriptions, and schemas it receives. Correctness-critical prerequisites belong in tool descriptions and schemas.
 
@@ -497,7 +497,7 @@ For example, `browser_act` must explain that ref-based steps require current ref
 
 Selecting a provider-native tool or predefined toolset must not silently install the provider's example system prompt. The caller owns the system prompt.
 
-CUA tool specifications should not contribute `promptSnippet`, `promptGuidelines`, or active-tool-specific system-prompt fragments by default. This keeps tool additions cache-friendly and makes `tools: []` genuinely free of CUA interaction instructions.
+Loop tool specifications should not contribute `promptSnippet`, `promptGuidelines`, or active-tool-specific system-prompt fragments by default. This keeps tool additions cache-friendly and makes `tools: []` genuinely free of Loop interaction instructions.
 
 If a correctness requirement cannot be expressed in a tool description or schema, that is a design issue to resolve explicitly before adding system-prompt generation back into scope.
 
@@ -526,11 +526,11 @@ Native adapters compose by selected identity: OpenAI replaces only its native co
 No replacement navigation helper is added automatically or under a new hidden name. A caller who needs navigation chooses an explicit capability, such as:
 
 - a provider-native browser tool
-- `cua.tools.browser.navigate()`
-- `cua.tools.playwright()`
+- `loop.tools.browser.navigate()`
+- `loop.tools.playwright()`
 - a caller-provided navigation tool
 
-An OS-computer-only toolset may still navigate through ordinary keyboard input. CUA should not silently append a separate escape-hatch tool.
+An OS-computer-only toolset may still navigate through ordinary keyboard input. Loop should not silently append a separate escape-hatch tool.
 
 ## Error behavior
 
@@ -539,7 +539,7 @@ Construction, `setTools()`, or model switching should fail with errors that name
 Examples:
 
 ```text
-tool name "browser_act" is requested by both cua.browser.act and custom.plan
+tool name "browser_act" is requested by both kloop.browser.act and custom.plan
 ```
 
 ```text
@@ -554,7 +554,7 @@ tools "provider.<a>.native.computer" and "provider.<b>.native.browser" require c
 provider google does not accept the schema used by "browser_act"
 ```
 
-CUA must not silently drop tools, substitute a different selected toolset, append tools, or rename an existing tool after a dynamic addition. A selected native tool may declare an equivalent function-transport fallback under the same identity, name, schema, and executor for credentials that cannot access the native provider feature; this does not change the caller's tool catalog.
+Loop must not silently drop tools, substitute a different selected toolset, append tools, or rename an existing tool after a dynamic addition. A selected native tool may declare an equivalent function-transport fallback under the same identity, name, schema, and executor for credentials that cannot access the native provider feature; this does not change the caller's tool catalog.
 
 ## Removal of current API
 
@@ -568,7 +568,7 @@ playwright
 activeToolNames
 ```
 
-The following methods are removed from the CUA-facing API:
+The following methods are removed from the Loop-facing API:
 
 ```ts
 setMode()
@@ -576,18 +576,18 @@ getMode()
 setActiveTools()
 ```
 
-`computer_use_extra` and CUA-generated default system prompts are removed with them.
+`computer_use_extra` and Loop-generated default system prompts are removed with them.
 
 Their replacements are direct tool-list entries:
 
 | Current option | Replacement |
 | --- | --- |
 | `extraTools: [tool]` | include `tool` in `tools` |
-| `mode: "computer"` | `tools: cua.toolsets.computer()` or an explicit provider-native list |
-| `mode: "browser"` | `tools: cua.toolsets.browser()` or an explicit list |
-| `mode: "hybrid"` | compose the desired provider and CUA tools explicitly |
-| `nativeTool: spec` | `tools: [cua.providers.anthropic.tools.browser(spec)]` |
-| `playwright: true` | `tools: [cua.tools.playwright()]` |
+| `mode: "computer"` | `tools: loop.toolsets.computer()` or an explicit provider-native list |
+| `mode: "browser"` | `tools: loop.toolsets.browser()` or an explicit list |
+| `mode: "hybrid"` | compose the desired provider and Loop tools explicitly |
+| `nativeTool: spec` | `tools: [loop.providers.anthropic.tools.browser(spec)]` |
+| `playwright: true` | `tools: [loop.tools.playwright()]` |
 | `activeToolNames` | pass the exact current list and change it with `setTools()` |
 
 ## Documentation requirements
@@ -597,9 +597,9 @@ The implementation updates:
 - `docs/architecture.md` with the tool-spec composition and provider-adapter ownership boundaries
 - package READMEs with exact constructor examples and no legacy mode terminology
 - API documentation with the definitions of tool, action, and toolset
-- user-facing examples for native-only, provider-native plus CUA, Playwright-only, browser-act-only, empty, batch, and dynamic-loading configurations
+- user-facing examples for native-only, provider-native plus Loop, Playwright-only, browser-act-only, empty, batch, and dynamic-loading configurations
 
-Every provider tool surface must expose the first-party source it mirrors. CUA-authored additions must be described as CUA capabilities rather than provider defaults.
+Every provider tool surface must expose the first-party source it mirrors. Loop-authored additions must be described as Loop capabilities rather than provider defaults.
 
 ## Implemented design resolutions
 
@@ -609,27 +609,27 @@ Every provider tool surface must expose the first-party source it mirrors. CUA-a
 4. **Batch overlap:** batches are mechanical; `browser_act` remains semantic; browser batches share ref state without a workflow DSL.
 5. **Dynamic loading:** `setTools()` uses pi 0.83.0 additive markers only for final, cache-preserving in-tool additions; other changes are eager.
 6. **Shared resources:** one resource pool survives tool/model changes and owns the translator and lazy CDP executor.
-7. **Provider exports:** the native OpenAI, Anthropic, and Google surfaces are namespaced, cite first-party sources, and are tested against their declared contracts. Meta, xAI, and Moonshot use CUA-authored browser tools; the CLI explicitly appends `browser_act` to the Meta and xAI catalogs. Moonshot is excluded: its API accepts the complex `browser_wait_for` schema but rejects a request carrying `browser_act`'s much larger one, so the catalog gates oversized schemas separately from merely-complex ones.
+7. **Provider exports:** the native OpenAI, Anthropic, and Google surfaces are namespaced, cite first-party sources, and are tested against their declared contracts. Meta, xAI, and Moonshot use Loop-authored browser tools; the CLI explicitly appends `browser_act` to the Meta and xAI catalogs. Moonshot is excluded: its API accepts the complex `browser_wait_for` schema but rejects a request carrying `browser_act`'s much larger one, so the catalog gates oversized schemas separately from merely-complex ones.
 
 ## Decisions recorded
 
 - `tools: []` is valid.
-- CUA does not generate a default system prompt.
+- Loop does not generate a default system prompt.
 - `computer_use_extra` is removed with no implicit replacement.
-- There is one current public tool list; no CUA-facing `activeToolNames` layer.
-- First-party provider-native tools are namespaced separately from CUA-authored tools.
+- There is one current public tool list; no Loop-facing `activeToolNames` layer.
+- First-party provider-native tools are namespaced separately from Loop-authored tools.
 - Tool factories and toolsets are discoverable under a namespace, not exported as many global functions.
-- `browser_act` remains outside `cua.toolsets.browser()`; applications may opt
-  into it explicitly, and the CLI does so for structured CUA-browser catalogs.
+- `browser_act` remains outside `loop.toolsets.browser()`; applications may opt
+  into it explicitly, and the CLI does so for structured Loop-browser catalogs.
 - Naming, payload-transform composition, result formatting, and batch overlap must be resolved before code is written.
 
 ## Acceptance criteria
 
 - Both constructors have one required tool-selection source of truth and accept `tools: []`.
 - The current tool-related constructor options, active-tool option, and mode methods are removed.
-- `computer_use_extra` and CUA-generated default system prompts are removed.
-- CUA-authored and first-party provider-native tools are exposed through distinct, discoverable namespaces.
-- Exact native-browser-only, provider-native-plus-CUA, Playwright-only, browser-act-only, and empty configurations are tested.
+- `computer_use_extra` and Loop-generated default system prompts are removed.
+- Loop-authored and first-party provider-native tools are exposed through distinct, discoverable namespaces.
+- Exact native-browser-only, provider-native-plus-Loop, Playwright-only, browser-act-only, and empty configurations are tested.
 - No undeclared helper tool is installed.
 - `computer_batch` exposes explicit action control, and a browser batch design is resolved and tested.
 - Mid-conversation additive tool loading uses provider-native deferred loading where supported and preserves the prompt cache.

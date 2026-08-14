@@ -1,6 +1,6 @@
 # Architecture
 
-This document explains how `cua` is wired together for contributors and
+This document explains how `loop` is wired together for contributors and
 integrators.
 
 ## Product principles
@@ -10,74 +10,81 @@ provider payload quirks, coordinate conversion, action execution, and action
 feedback. They do **not** choose an agent's tools or system prompt. Callers own
 both explicitly and may use pi's orchestration primitives directly.
 
-## Package boundaries
+## Module boundaries
 
-- `@onkernel/cua-ai` owns the model catalog, stable tool identities, tool
-  factories/toolsets, provider declarations, compatibility validation, headers,
-  payload transforms, and incoming native-call normalization. Catalog
-  compilation is declaration-only and deterministic; the package has no
-  `AgentTool` or materialization types and no `pi-agent-core` dependency.
-- `@onkernel/cua-agent` is provider-neutral runtime glue around
-  `pi-agent-core`. It defines `CuaAgentTool`, materializes catalog specs
-  exactly once per shared resource pool against a Kernel browser, owns shared
-  execution resources, and applies catalog plans supplied as data.
-- `@onkernel/cua-pi-extension` contributes these tools to a pi session that pi
-  itself owns. It is the one consumer that uses neither `attach()` nor the
-  harness: pi owns the model collection and the agent loop, so the extension
-  takes the two pieces that are not pi-shaped — the catalog compiler and
-  `CuaExecutionResources` — and applies headers and payload transforms through
-  pi's own `before_provider_headers` and `before_provider_request` hooks.
+`@onkernel/loop` is one package with two entry points and three source trees:
+
+- `.` (`src/core/`) is the framework-neutral core: canonical actions, the tool
+  declarations namespace, the catalog compiler, the tool menu, the tool manager,
+  and Kernel-browser execution (translator, CDP executor, execution resources).
+  Catalog compilation is declaration-only and deterministic. Its coupling to pi
+  is type-level — `Api`, `Model`, `Tool`, `AgentTool` — except for the model
+  resolution and provider modules it still reaches into, which the next split
+  moves behind an interface.
+- `./pi` (`src/pi/`) is the pi binding: `attach()`/`compile()`, model
+  resolution, transport derivation, the provider adapters, provider retry, and
+  header composition.
+- `src/pi-extension/` contributes these tools to a pi session that pi itself
+  owns. It is the one consumer that uses neither `attach()` nor the harness: pi
+  owns the model collection and the agent loop, so the extension takes the two
+  pieces that are not pi-shaped — the catalog compiler and
+  `LoopExecutionResources` — and applies headers and payload transforms through
+  pi's own `before_provider_headers` and `before_provider_request` hooks. It
+  imports the rest of the package by name (`@onkernel/loop`,
+  `@onkernel/loop/pi`) rather than by relative path, because pi loads the
+  extension as TypeScript through jiti and jiti's pi-ai alias cannot follow the
+  deep `@earendil-works/pi-ai/api/*` imports the provider adapters make.
 - `@onkernel/ptywright` is development-only PTY/TUI test infrastructure. It has
   no in-repo consumer since the CLI was retired; its own tests are what exercise
   it.
 
-The invariant is that `packages/agent/src` contains no provider-name branches.
-Adding provider behavior means adding data and transforms in `cua-ai`, not a
-conditional in `cua-agent`.
+The invariant is that execution contains no provider-name branches. Adding
+provider behavior means adding data and transforms under `src/pi/providers/`,
+not a conditional in the translator.
 
 ```mermaid
 flowchart LR
-  ai["@onkernel/cua-ai"]
-  agent["@onkernel/cua-agent"]
-  ext["@onkernel/cua-pi-extension"]
+  core["@onkernel/loop (src/core)"]
+  pibind["@onkernel/loop/pi (src/pi)"]
+  ext["src/pi-extension"]
   pi["pi-agent-core / pi-ai / pi-coding-agent"]
   sdk["@onkernel/sdk"]
-  ai --> agent
-  agent --> ext
-  ai --> ext
-  pi --> agent
+  core --> pibind
+  core --> ext
+  pibind --> ext
+  pi --> pibind
   pi --> ext
-  sdk --> agent
+  sdk --> core
   sdk --> ext
 ```
 
 ## Explicit tool catalog
 
-`cua-ai` exposes one frozen namespace:
+The core exposes one frozen namespace:
 
 ```ts
-import { cua } from "@onkernel/cua-ai";
+import { loop } from "@onkernel/loop";
 
 const tools = [
-  cua.tools.browser.snapshot(),
-  cua.tools.browser.click(),
-  cua.tools.computer.screenshot(),
+  loop.tools.browser.snapshot(),
+  loop.tools.browser.click(),
+  loop.tools.computer.screenshot(),
 ];
 ```
 
 The main groups are:
 
-- `cua.tools.browser.*`: CDP/page tools, using element refs and viewport pixels.
-- `cua.tools.computer.*`: Kernel OS input/read tools, using pixel coordinates by
+- `loop.tools.browser.*`: CDP/page tools, using element refs and viewport pixels.
+- `loop.tools.computer.*`: Kernel OS input/read tools, using pixel coordinates by
   default.
-- `cua.tools.playwright()`: a Playwright code execution tool.
-- `cua.toolsets.browser()`, `computer()`, and `mixed()`: ordinary convenience
-  arrays of CUA-authored tools.
-- `cua.providers.*`: only provider-native tools and predefined toolsets backed
+- `loop.tools.playwright()`: a Playwright code execution tool.
+- `loop.toolsets.browser()`, `computer()`, and `mixed()`: ordinary convenience
+  arrays of Loop-authored tools.
+- `loop.providers.*`: only provider-native tools and predefined toolsets backed
   by linked first-party documentation. Each provider namespace exposes its
   `source` (or versioned `sources`), and every returned spec carries that URL.
 
-Each CUA-owned tool has a stable identity independent of its caller-visible
+Each Loop-owned tool has a stable identity independent of its caller-visible
 name. Compilation preserves requested order and derives provider-safe names,
 schema fingerprints, coordinate contracts, loading eligibility,
 headers, payload transforms, and native input mappings. Duplicate identities,
@@ -108,7 +115,7 @@ combinations fail without partial mutation.
 
 ## Shared execution resources
 
-A single `CuaExecutionResources` pool is created per agent/harness and survives
+A single `LoopExecutionResources` pool is created per agent/harness and survives
 catalog and model changes. It owns:
 
 - the Kernel client and browser handle;
@@ -123,11 +130,11 @@ per spec object.
 
 ## Action planes and result feedback
 
-Canonical actions live under `packages/ai/src/actions/`:
+Canonical actions live under `packages/loop/src/core/actions/`:
 
 - **Computer actions** use Kernel's `browsers.computer` API and OS screenshot
   coordinates.
-- **Browser actions** use `packages/agent/src/translator/browser.ts` over the
+- **Browser actions** use `packages/loop/src/core/translator/browser.ts` over the
   browser's raw CDP websocket. Element refs are snapshot-scoped and stale refs
   fail with a request to snapshot again.
 
@@ -160,13 +167,13 @@ catalog:
 - Anthropic native browser/computer declarations replace only their own
   placeholders and merge required beta headers with caller headers.
 - OpenAI streams through pi's builtin Responses transport and its automatic
-  prompt caching by default; a CUA-owned adapter handles OpenAI's native
+  prompt caching by default; a Loop-owned adapter handles OpenAI's native
   computer tool and tool-search namespace round-trips.
 - Anthropic's native browser tool falls back to an equivalent function-tool
   declaration when the active credential cannot access `browser_20260701`;
   the selected tool identity, name, schema, and executor remain unchanged.
 - Google's current predefined browser toolset serializes one `computer_use`
-  declaration plus exact exclusions through the CUA-owned Interactions API
+  declaration plus exact exclusions through the Loop-owned Interactions API
   adapter. Excluded calls fail with a named catalog error instead of reaching
   generic tool dispatch.
 - Meta, xAI, and Moonshot disable parallel tool calls when the selected catalog
@@ -176,27 +183,27 @@ catalog:
 
 The transport a model streams through is a function of **(model, selected
 tools)**, derived at catalog compilation — never stamped on the model ahead of
-time and never branched on a provider name. A `CuaProviderBinding` may declare
-`requiresApi`: the api id its provider-native tool needs. `compileCuaToolCatalog`
+time and never branched on a provider name. A `LoopProviderBinding` may declare
+`requiresApi`: the api id its provider-native tool needs. `compileLoopToolCatalog`
 reads `requiresApi` off the selected bindings after normalizing the requested
 catalog and returns a `catalog.model` carrying that api; selecting tools whose
 bindings require different transports fails to compile with a named catalog
 error. A model resolved with no such tool selected keeps its ordinary registry
 api.
 
-This is why an OpenAI model selected with only CUA browser tools streams
+This is why an OpenAI model selected with only Loop browser tools streams
 through pi's builtin `openai-responses` transport, but the same model selected
-with `cua.providers.openai.tools.computer()` compiles to the CUA-owned
-`openai-cua-computer` api — and symmetrically for Google's
-`google-cua-interactions` Interactions API versus pi's builtin Google
+with `loop.providers.openai.tools.computer()` compiles to the Loop-owned
+`openai-computer-use` api — and symmetrically for Google's
+`google-interactions` Interactions API versus pi's builtin Google
 transport.
 
 ### The tool menu
 
-`cuaToolMenu(model, selected)` in `packages/ai/src/menu.ts` returns every tool
-CUA can offer for a model, each marked available or not. It decides availability
+`loopToolMenu(model, selected)` in `packages/loop/src/core/menu.ts` returns every tool
+Loop can offer for a model, each marked available or not. It decides availability
 by compiling the candidate catalog rather than by restating the compiler's
-rules, so the menu cannot drift from what `compileCuaToolCatalog` accepts: an
+rules, so the menu cannot drift from what `compileLoopToolCatalog` accepts: an
 entry is available exactly when selecting it compiles. Compilation is pure and
 declaration-only, so probing it per entry is cheap and side-effect-free.
 
@@ -220,13 +227,13 @@ serialization, provider fields, then the caller's `onPayload` hook.
 
 ## Extension composition
 
-`packages/pi-extension/src/index.ts` is the composition root for pi sessions. pi
+`packages/loop/src/pi-extension/index.ts` is the composition root for pi sessions. pi
 owns the agent loop, session, UI, and model selection; the extension contributes
 only what Kernel owns:
 
 1. registers every selectable tool as a pi tool, and keeps the model-facing
    names identical to what the library produces;
-2. resolves a selection from `--cua-tools` (or a persisted command selection),
+2. resolves a selection from `--browser-tools` (or a persisted command selection),
    and validates it by compiling for the active model, so an incompatible tool
    deactivates with the compiler's own reason instead of failing at request time;
 3. re-validates on `model_select` and `before_agent_start`, restoring a
@@ -257,7 +264,7 @@ user prompt
      -> caller onPayload
      -> provider stream
      -> incoming native/function call normalization
-     -> shared CuaExecutionResources
+     -> shared LoopExecutionResources
         -> Kernel computer API or raw-CDP BrowserExecutor
      -> policy-specific action result
      -> transcript + TUI/stdout/JSONL
@@ -265,14 +272,14 @@ user prompt
 
 ## Validation and test ownership
 
-- `packages/ai/test/tool-catalog.test.ts`: identities, collisions, provider
+- `packages/loop/test/tool-catalog.test.ts`: identities, collisions, provider
   composition, compatibility, declarations, and coordinate contracts.
-- `packages/agent/test/resources.test.ts`: action feedback and batch boundaries.
-- `packages/agent/test/attach.test.ts` and `attach-session.test.ts`: compiled
+- `packages/loop/test/resources.test.ts`: action feedback and batch boundaries.
+- `packages/loop/test/attach.test.ts` and `attach-session.test.ts`: compiled
   pairs, applying one to a running harness, and the behaviors `activate()`
   installs.
-- `packages/agent/test/translator-browser.test.ts`: browser behavior and ref
+- `packages/loop/test/translator-browser.test.ts`: browser behavior and ref
   lifecycle.
-- `packages/pi-extension/test/`: selection and availability, provider stream
+- `packages/loop/test/`: selection and availability, provider stream
   ownership, browser lifecycle, and an end-to-end run against real `pi` in print
   and RPC modes.

@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist-tsc",
+    "rootDir": "./src",
+    "emitDeclarationOnly": true,
+    "sourceMap": false,
+    "declarationMap": false,
+    "baseUrl": ".",
+    // The pi extension imports this package by name rather than by relative
+    // path; see the note in src/pi-extension/index.ts. Point those specifiers
+    // at source so a typecheck does not require a build first.
+    "paths": {
+      "@onkernel/loop": ["./src/index.ts"],
+      "@onkernel/loop/pi": ["./src/pi/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "**/*.d.ts", "src/**/*.d.ts"]
+}
