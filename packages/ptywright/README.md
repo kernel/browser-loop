@@ -304,23 +304,13 @@ Writes text followed by `Enter`.
 
 ##### `session.press(key)`
 
-Writes a raw key sequence. The exported `Key*` constants are those raw strings and stay pass-through.
+Writes a key. A string is sent as raw bytes (`Key*` constants stay pass-through). A `SpecialKey` is encoded from the live terminal modes (for example DECCKM application cursor keys).
 
 ```ts
-import { KeyArrowDown, KeyEnter } from "@onkernel/ptywright";
+import { KeyEnter, SpecialArrowUp } from "@onkernel/ptywright";
 
-session.press(KeyArrowDown);
 session.press(KeyEnter);
-```
-
-##### `session.pressKey(key)`
-
-Encodes a `SpecialKey` from the live terminal modes (for example DECCKM application cursor keys) and writes those bytes.
-
-```ts
-import { SpecialArrowUp } from "@onkernel/ptywright";
-
-session.pressKey(SpecialArrowUp);
+session.press(SpecialArrowUp);
 ```
 
 #### Lifecycle and snapshots
@@ -448,7 +438,7 @@ The package exports common terminal key sequences as strings:
 - `KeyArrowLeft`
 - `KeyArrowRight`
 
-Those `Key*` values are raw bytes for `press()` / `send()`. For mode-aware arrows and the other specials, use `SpecialArrowUp` and `session.pressKey(...)`.
+Those `Key*` values are raw bytes. Pass `SpecialArrowUp` (and the other `Special*` keys) to `press()` when the sequence should follow live terminal modes.
 
 You can also pass any raw sequence directly to `session.send(...)`.
 

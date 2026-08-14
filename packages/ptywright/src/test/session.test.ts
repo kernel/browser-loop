@@ -69,7 +69,7 @@ test("press leaves raw key strings unchanged", async (t) => {
 	assert.match(session.snapshot().transcript, /raw:1b5b41/);
 });
 
-test("pressKey encodes arrows from live DECCKM state", async (t) => {
+test("press encodes SpecialKey arrows from live DECCKM state", async (t) => {
 	const script = [
 		"import os, sys, termios, tty",
 		"fd = sys.stdin.fileno()",
@@ -96,9 +96,9 @@ test("pressKey encodes arrows from live DECCKM state", async (t) => {
 	t.after(() => session.close());
 
 	await session.waitForVisible("ready-app", { timeoutMs: 5_000 });
-	session.pressKey(SpecialArrowUp);
+	session.press(SpecialArrowUp);
 	await session.waitForTranscript("ready-norm", { timeoutMs: 5_000 });
-	session.pressKey(SpecialArrowUp);
+	session.press(SpecialArrowUp);
 	await session.waitForTranscript("norm:", { timeoutMs: 5_000 });
 
 	const transcript = session.snapshot().transcript;

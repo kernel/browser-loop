@@ -88,12 +88,12 @@ export class PtySession {
 		this.press(KeyEnter);
 	}
 
-	press(key: Key): void {
-		this.send(key);
-	}
-
-	pressKey(key: SpecialKey): void {
+	press(key: Key | SpecialKey): void {
 		this.ensureOpen();
+		if (typeof key === "string") {
+			this.send(key);
+			return;
+		}
 		this.writeBytes(this.terminal.encodeSpecialKey(key));
 	}
 
