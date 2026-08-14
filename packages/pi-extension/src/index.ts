@@ -1,6 +1,15 @@
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { createCuaModels, type CuaToolSpec } from "@onkernel/cua-ai";
+import {
+	createCuaModels,
+	type Api,
+	type CuaIncomingToolPlan,
+	type CuaToolCatalog,
+	type CuaToolSpec,
+	type Model,
+	type SimpleStreamOptions,
+	type StreamOptions,
+} from "@onkernel/cua-ai";
 import {
 	allSelectableSpecs,
 	compileSpecs,
@@ -112,6 +121,50 @@ export default function cuaPiExtension(pi: ExtensionAPI): void {
 		if (ctx.mode === "tui")
 			ctx.ui.setStatus("cua", statusText(selection.selectors, [...activeNames], runtime?.getStatus() ?? {}, compatibilityError));
 	}
+	/**
+	 * The compiled catalog for the model pi is about to stream with, or undefined
+	 * when no CUA tool is active. Compiling is pure and cheap, so this re-derives
+	 * per request rather than caching a catalog that a model switch could stale.
+	 */
+	function streamCatalog(model: Model<Api>): CuaToolCatalog | undefined {
+		if (!activeNames.size || compatibilityError) return undefined;
+		try {
+			return compileSpecs(model, activeSpecs());
+		} catch {
+			return undefined;
+		}
+	}
+
+	/**
+	 * Own the stream for every provider CUA wraps.
+	 *
+	 * This is what makes provider-native surfaces work inside pi. pi resolves and
+	 * streams its own registry model, but the transport a native surface needs is
+	 * derived onto the *compiled* model — so the wrapper swaps in `catalog.model`,
+	 * which is the resolved model with only `api` replaced, and adds the incoming
+	 * native-call plan that normalizes `computer_call`-style items and drives
+	 * Anthropic's browser-beta fallback. pi's own resolved credential rides along
+	 * in `options.apiKey`.
+	 */
+	function registerCuaProviders(): void {
+		const models = createCuaModels();
+		for (const id of ["anthropic", "openai", "google"]) {
+			const base = models.getProvider(id);
+			if (!base) continue;
+			pi.registerProvider({
+				...base,
+				stream: (model, context, options) => {
+					const catalog = streamCatalog(model);
+					return base.stream(catalog?.model ?? model, context, withPlan(options, catalog));
+				},
+				streamSimple: (model, context, options) => {
+					const catalog = streamCatalog(model);
+					return base.streamSimple(catalog?.model ?? model, context, withPlan(options, catalog));
+				},
+			});
+		}
+	}
+
 	function notifyStatus(ctx: ExtensionContext): void {
 		ctx.ui.notify(
 			statusText(selection.selectors, [...activeNames], runtime?.getStatus() ?? {}, compatibilityError),
@@ -119,11 +172,7 @@ export default function cuaPiExtension(pi: ExtensionAPI): void {
 		);
 	}
 
-	// CUA's Anthropic wrapper retries an inaccessible native browser beta through
-	// an equivalent function-tool transport, which pi's builtin provider cannot do.
-	const anthropic = createCuaModels().getProvider("anthropic");
-	if (!anthropic) throw new Error("CUA Anthropic provider is unavailable");
-	pi.registerProvider(anthropic);
+	registerCuaProviders();
 
 	pi.registerCommand("cua", {
 		description: "Show CUA tool and browser status",
@@ -203,6 +252,12 @@ export default function cuaPiExtension(pi: ExtensionAPI): void {
 		runtime = undefined;
 		await closingRuntime?.close();
 	});
+}
+
+/** Carry the compiled catalog's incoming native-call plan into pi's stream options. */
+function withPlan<T extends StreamOptions | SimpleStreamOptions | undefined>(options: T, catalog: CuaToolCatalog | undefined): T {
+	if (!catalog) return options;
+	return { ...options, cuaIncomingToolPlan: catalog.incoming } as T & { cuaIncomingToolPlan: CuaIncomingToolPlan };
 }
 
 function validateRawCliFlags(argv = process.argv.slice(2)): void {

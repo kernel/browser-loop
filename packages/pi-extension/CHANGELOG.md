@@ -5,9 +5,13 @@
 - Add `@onkernel/cua-pi-extension`, an installable pi extension that contributes
   Kernel browser tools to pi's own agent session. Selectors cover the CDP browser
   toolset, the canonical computer toolset, the batch and Playwright tools, and
-  Anthropic's native computer tool. Other provider-native surfaces need the
-  transport their compiled model derives, which pi does not stream, so they are
-  deliberately absent rather than present and silently inert.
+  every provider-native surface: Anthropic's computer and browser tools, OpenAI's
+  native computer tool, and Google's predefined browser action set.
+- Provider-native surfaces work because the extension owns the stream for the
+  providers it registers, swapping pi's registry model for the compiled catalog's
+  model — which carries the transport the selected tools derive — and passing the
+  incoming native-call plan. Without that, `requiresApi` never takes effect and
+  native calls arrive unnormalized.
 - A selection is validated by compiling it for the active model, so an
   incompatible tool deactivates with the catalog compiler's own reason instead of
   failing at request time. `/cua-tools` with no argument lists every selector for

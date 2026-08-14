@@ -91,25 +91,19 @@ const computerTools = Object.freeze({
 });
 
 /**
- * Provider-native surfaces this extension can actually stream through pi.
+ * Provider-native surfaces, selected as a unit under one selector each.
  *
- * Only Anthropic's native computer tool qualifies today. Its declaration reaches
- * the request through the catalog's payload transform, its beta through the
- * header hook, and its calls arrive as ordinary `tool_use` blocks named
- * `computer`, which is a tool this extension registers.
- *
- * The others need control the extension does not have. OpenAI's native computer
- * and Google's predefined browser set declare `requiresApi`, which only takes
- * effect on the *compiled* model — pi resolves and streams its own registry
- * model, so those transports never engage. Anthropic's native browser tool has a
- * function-tool fallback for a credential without beta access, and that fallback
- * reads `cuaIncomingToolPlan`, which pi builds and the extension cannot supply.
- *
- * Reaching them means owning the stream, by registering a provider with a
- * `streamSimple` that sets the compiled api and passes the incoming plan.
+ * These reach the wire because this extension owns the stream for the providers
+ * it registers: it swaps pi's registry model for the compiled catalog's model,
+ * which carries the transport the selected tools derive, and passes the incoming
+ * native-call plan. Without that, `requiresApi` would never take effect and
+ * native calls would arrive unnormalized.
  */
 const nativeToolsets = Object.freeze({
 	"anthropic-computer": () => [cua.providers.anthropic.tools.computer({ version: "20260701", enableZoom: true })],
+	"anthropic-browser": () => [cua.providers.anthropic.tools.browser({ version: "20260701", javascript: true })],
+	"openai-computer": () => [cua.providers.openai.tools.computer()],
+	"google-browser": () => cua.providers.google.toolsets.browser(),
 });
 
 export const CUA_TOOL_NAMES = Object.freeze([...Object.keys(generalTools), ...Object.keys(computerTools)]);

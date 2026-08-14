@@ -43,16 +43,19 @@ pi -p --provider anthropic --model claude-opus-5 --cua-tools anthropic-computer 
 | `browser-act` | `browser_act` alone, the verified-plan tool |
 | `browser-batch`, `computer-batch` | one mechanical batch tool |
 | `playwright` | `playwright_execute` |
-| `anthropic-computer` | Anthropic's native computer tool |
+| `anthropic-computer`, `anthropic-browser` | Anthropic's native surfaces |
+| `openai-computer` | OpenAI's native computer tool |
+| `google-browser` | Google's predefined browser action set |
 | any individual tool name | that tool alone |
 
-Anthropic's native computer tool is the only provider-native surface available
-here. OpenAI's native computer and Google's predefined browser set need the
-transport their compiled model derives, and pi streams its own registry model, so
-that api never reaches the wire. Anthropic's native *browser* tool has a
-function-tool fallback for a credential without beta access, and that fallback
-reads stream options pi builds. Reaching any of them means this extension owning
-the stream through a registered provider's `streamSimple`.
+Provider-native surfaces work because the extension **owns the stream** for the
+providers it registers. pi resolves and streams its own registry model, but the
+transport a native surface needs is derived onto the *compiled* model — so the
+registered provider swaps in `catalog.model` (the resolved model with only `api`
+replaced, so cost and context window are untouched) and adds the incoming
+native-call plan that normalizes `computer_call`-style items and drives
+Anthropic's browser-beta fallback. pi's resolved credential rides along in
+`options.apiKey`.
 
 `--cua-coordinates` selects `pixels` (default) or `normalized-1000` for the
 computer toolset's coordinate contract.

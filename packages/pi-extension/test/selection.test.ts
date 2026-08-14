@@ -68,14 +68,26 @@ describe("CUA pi selectors", () => {
 		expect(() => compileSpecs(getCuaModel("openai:gpt-5.6-sol"), specs)).toThrow("requires a anthropic model");
 	});
 
-	it("offers only the native surface it can stream through pi", () => {
-		// A native surface whose binding declares `requiresApi` cannot work here: pi
-		// streams its own registry model, so the compiled api never reaches the wire.
-		expect(CUA_SELECTORS).toContain("anthropic-computer");
-		expect(CUA_SELECTORS).not.toContain("openai-computer");
-		expect(CUA_SELECTORS).not.toContain("google-browser");
-		expect(CUA_SELECTORS).not.toContain("anthropic-browser");
-		expect(expandSelection(parseSelection("anthropic-computer", "pixels")).map((tool) => tool.name)).toEqual(["computer"]);
+	it("offers every provider-native surface as its own selector", () => {
+		for (const selector of ["anthropic-computer", "anthropic-browser", "openai-computer", "google-browser"]) {
+			expect(CUA_SELECTORS).toContain(selector);
+			expect(expandSelection(parseSelection(selector, "pixels")).length).toBeGreaterThan(0);
+		}
+	});
+
+	it("derives a native surface's transport onto the compiled model", () => {
+		// This api is what the extension must put on the wire; pi's registry model
+		// carries the builtin transport instead.
+		const openai = expandSelection(parseSelection("openai-computer", "pixels"));
+		expect(compileSpecs(getCuaModel("openai:gpt-5.6-sol"), openai).model.api).toBe("openai-cua-computer");
+
+		const google = expandSelection(parseSelection("google-browser", "pixels"));
+		expect(compileSpecs(getCuaModel("google:gemini-3.6-flash"), google).model.api).toBe("google-cua-interactions");
+
+		// And the incoming plan is what normalizes the calls that come back.
+		expect(compileSpecs(getCuaModel("openai:gpt-5.6-sol"), openai).incoming.openaiComputerName).toBe("computer");
+		expect(compileSpecs(getCuaModel("anthropic:claude-opus-5"), expandSelection(parseSelection("anthropic-browser", "pixels"))).incoming
+			.anthropicBrowserFallback).toBeDefined();
 	});
 
 	it("reports selector availability per model with the compiler's own reason", () => {

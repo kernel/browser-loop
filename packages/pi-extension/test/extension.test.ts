@@ -3,6 +3,7 @@ import type { Api, Model, Provider } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getCuaModel } from "@onkernel/cua-ai";
 import { describe, expect, it, vi } from "vitest";
+
 import { CuaBrowserRuntime } from "../src/browser-runtime";
 import { allSelectableSpecs } from "../src/selection";
 import extension from "../src/index";
