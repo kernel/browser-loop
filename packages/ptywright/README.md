@@ -304,13 +304,23 @@ Writes text followed by `Enter`.
 
 ##### `session.press(key)`
 
-Writes a key sequence, typically one of the exported key constants.
+Writes a raw key sequence. The exported `Key*` constants are those raw strings and stay pass-through.
 
 ```ts
 import { KeyArrowDown, KeyEnter } from "@onkernel/ptywright";
 
 session.press(KeyArrowDown);
 session.press(KeyEnter);
+```
+
+##### `session.pressKey(key)`
+
+Encodes a `SpecialKey` from the live terminal modes (for example DECCKM application cursor keys) and writes those bytes.
+
+```ts
+import { SpecialArrowUp } from "@onkernel/ptywright";
+
+session.pressKey(SpecialArrowUp);
 ```
 
 #### Lifecycle and snapshots
@@ -437,6 +447,8 @@ The package exports common terminal key sequences as strings:
 - `KeyArrowDown`
 - `KeyArrowLeft`
 - `KeyArrowRight`
+
+Those `Key*` values are raw bytes for `press()` / `send()`. For mode-aware arrows and the other specials, use `SpecialArrowUp` and `session.pressKey(...)`.
 
 You can also pass any raw sequence directly to `session.send(...)`.
 

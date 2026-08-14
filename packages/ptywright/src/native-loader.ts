@@ -26,6 +26,7 @@ export interface NativeTerminalHandle {
 	feed(data: string | Uint8Array): Uint8Array | undefined;
 	resize(cols: number, rows: number): void;
 	snapshot(options?: { trim?: boolean; unwrap?: boolean }): NativeSnapshot;
+	encodeSpecialKey(name: string): Uint8Array | undefined;
 	dispose(): void;
 }
 

@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { mkdir, writeFile } from "node:fs/promises";
 import { spawn, type IPty } from "node-pty";
-import { KeyEnter, type Key } from "./keys";
+import { KeyEnter, type Key, type SpecialKey } from "./keys";
 import { createTerminal, type SnapshotOptions, type TerminalSnapshot, type TerminalSurface } from "./terminal";
 
 const DEFAULT_COLS = 120;
@@ -42,6 +42,7 @@ export class PtySession {
 	private readonly events = new EventEmitter();
 	private transcript = "";
 	private closed = false;
+	private revision = 0;
 	private exitCode: number | undefined;
 	private exitSignal: number | undefined;
 	private exitedAt: Date | undefined;
@@ -66,14 +67,14 @@ export class PtySession {
 			if (replyBytes && replyBytes.length > 0) {
 				this.pty.write(Buffer.from(replyBytes).toString("utf8"));
 			}
-			this.events.emit("update");
+			this.noteUpdate();
 		});
 
 		this.pty.onExit((event) => {
 			this.exitCode = event.exitCode;
 			this.exitSignal = event.signal;
 			this.exitedAt = new Date();
-			this.events.emit("update");
+			this.noteUpdate();
 		});
 	}
 
@@ -91,6 +92,12 @@ export class PtySession {
 		this.send(key);
 	}
 
+	pressKey(key: SpecialKey): void {
+		this.ensureOpen();
+		const bytes = this.terminal.encodeSpecialKey(key);
+		this.pty.write(Buffer.from(bytes).toString("latin1"));
+	}
+
 	resize(cols: number, rows: number): void {
 		this.ensureOpen();
 		if (cols <= 0 || rows <= 0) {
@@ -98,7 +105,7 @@ export class PtySession {
 		}
 		this.pty.resize(cols, rows);
 		this.terminal.resize(cols, rows);
-		this.events.emit("update");
+		this.noteUpdate();
 	}
 
 	snapshot(options: SnapshotOptions = {}): SessionSnapshot {
@@ -136,12 +143,16 @@ export class PtySession {
 		const controller = createWaitController(options);
 		try {
 			while (true) {
+				const seen = this.revision;
 				const snapshot = this.snapshot();
 				if (match(snapshot)) {
 					return snapshot;
 				}
 				if (this.exitedAt) {
 					throw this.buildWaitError(description, snapshot, new Error("process exited before condition was satisfied"));
+				}
+				if (this.revision !== seen) {
+					continue;
 				}
 				await waitForUpdate(this.events, controller.signal);
 			}
@@ -166,6 +177,7 @@ export class PtySession {
 
 		try {
 			while (true) {
+				const seen = this.revision;
 				const snapshot = this.snapshot();
 				if (snapshot.visible !== lastVisible) {
 					lastVisible = snapshot.visible;
@@ -176,6 +188,9 @@ export class PtySession {
 				}
 				if (this.exitedAt) {
 					return snapshot;
+				}
+				if (this.revision !== seen) {
+					continue;
 				}
 				await waitForUpdate(this.events, controller.signal, stableForMs);
 			}
@@ -197,6 +212,13 @@ export class PtySession {
 		const controller = createWaitController(options);
 		try {
 			while (!this.exitedAt) {
+				const seen = this.revision;
+				if (this.exitedAt) {
+					break;
+				}
+				if (this.revision !== seen) {
+					continue;
+				}
 				await waitForUpdate(this.events, controller.signal);
 			}
 			return this.status();
@@ -254,6 +276,11 @@ export class PtySession {
 			// Best-effort teardown only.
 		}
 		this.terminal.dispose();
+		this.noteUpdate();
+	}
+
+	private noteUpdate(): void {
+		this.revision += 1;
 		this.events.emit("update");
 	}
 

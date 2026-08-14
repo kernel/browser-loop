@@ -175,6 +175,40 @@ Napi::Value Snapshot(const Napi::CallbackInfo &info) {
 	return output;
 }
 
+Napi::Value EncodeSpecialKey(const Napi::CallbackInfo &info) {
+	Napi::Env env = info.Env();
+	TerminalState *state = GetState(info);
+	if (!EnsureOpen(env, state)) {
+		return env.Undefined();
+	}
+	if (info.Length() < 1 || !info[0].IsString()) {
+		Napi::TypeError::New(env, "encodeSpecialKey expects a key name").ThrowAsJavaScriptException();
+		return env.Undefined();
+	}
+
+	std::string name = info[0].As<Napi::String>().Utf8Value();
+	uint8_t *bytes = nullptr;
+	size_t len = 0;
+	int result = ptywright_ghostty_terminal_encode_special_key(
+		state->terminal,
+		name.c_str(),
+		&bytes,
+		&len);
+	if (result != 0) {
+		ThrowGhosttyError(env, "ptywright_ghostty_terminal_encode_special_key", result);
+		ptywright_ghostty_free_bytes(bytes);
+		return env.Undefined();
+	}
+	if (bytes == nullptr || len == 0) {
+		ptywright_ghostty_free_bytes(bytes);
+		return env.Undefined();
+	}
+
+	Napi::Buffer<uint8_t> output = Napi::Buffer<uint8_t>::Copy(env, bytes, len);
+	ptywright_ghostty_free_bytes(bytes);
+	return output;
+}
+
 Napi::Value Dispose(const Napi::CallbackInfo &info) {
 	TerminalState *state = GetState(info);
 	if (state && state->terminal) {
@@ -211,6 +245,7 @@ Napi::Value CreateTerminal(const Napi::CallbackInfo &info) {
 	object.Set("feed", Napi::Function::New(env, Feed, "feed", state));
 	object.Set("resize", Napi::Function::New(env, Resize, "resize", state));
 	object.Set("snapshot", Napi::Function::New(env, Snapshot, "snapshot", state));
+	object.Set("encodeSpecialKey", Napi::Function::New(env, EncodeSpecialKey, "encodeSpecialKey", state));
 	object.Set("dispose", Napi::Function::New(env, Dispose, "dispose", state));
 	return object;
 }
