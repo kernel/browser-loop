@@ -170,8 +170,17 @@ export default function cuaPiExtension(pi: ExtensionAPI): void {
 	pi.on("model_select", (_event, ctx) => reconcile(ctx));
 	pi.on("before_agent_start", (_event, ctx) => reconcile(ctx));
 	pi.on("before_provider_headers", (event, ctx) => {
+		// Reconcile first, and tolerate a catalog that no longer compiles: a model
+		// switch can invalidate one after this turn's tools were serialized, and
+		// omitting CUA's headers is the correct outcome there. Without this the hook
+		// throws, and a stale provider beta can survive into the request.
+		reconcile(ctx);
 		if (!activeNames.size || compatibilityError || !ctx.model) return;
-		Object.assign(event.headers, compileSpecs(ctx.model, activeSpecs()).headers.merge(event.headers));
+		try {
+			Object.assign(event.headers, compileSpecs(ctx.model, activeSpecs()).headers.merge(event.headers));
+		} catch {
+			/* the request hook strips the matching declarations */
+		}
 	});
 	pi.on("before_provider_request", async (event, ctx) => {
 		reconcile(ctx);

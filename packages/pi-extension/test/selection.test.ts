@@ -68,24 +68,25 @@ describe("CUA pi selectors", () => {
 		expect(() => compileSpecs(getCuaModel("openai:gpt-5.6-sol"), specs)).toThrow("requires a anthropic model");
 	});
 
-	it("offers every provider-native surface as its own selector", () => {
-		for (const selector of ["anthropic-computer", "anthropic-browser", "openai-computer", "google-browser"]) {
-			expect(CUA_SELECTORS).toContain(selector);
-			expect(expandSelection(parseSelection(selector, "pixels")).length).toBeGreaterThan(0);
-		}
+	it("offers only the native surface it can stream through pi", () => {
+		// A native surface whose binding declares `requiresApi` cannot work here: pi
+		// streams its own registry model, so the compiled api never reaches the wire.
+		expect(CUA_SELECTORS).toContain("anthropic-computer");
+		expect(CUA_SELECTORS).not.toContain("openai-computer");
+		expect(CUA_SELECTORS).not.toContain("google-browser");
+		expect(CUA_SELECTORS).not.toContain("anthropic-browser");
+		expect(expandSelection(parseSelection("anthropic-computer", "pixels")).map((tool) => tool.name)).toEqual(["computer"]);
 	});
 
 	it("reports selector availability per model with the compiler's own reason", () => {
 		const empty = parseSelection(undefined, "pixels");
-		const anthropic = selectorAvailability(getCuaModel("anthropic:claude-opus-5"), empty);
-		const byName = new Map(anthropic.map((entry) => [entry.selector, entry]));
+		const byName = new Map(selectorAvailability(getCuaModel("openai:gpt-5.6-sol"), empty).map((entry) => [entry.selector, entry]));
 
 		expect(byName.get("browser")?.available).toBe(true);
-		expect(byName.get("anthropic-computer")?.available).toBe(true);
-		// A different provider's native surface cannot compile for this model, and the
-		// reason shown is the compiler's, not a restatement of its rules.
-		expect(byName.get("openai-computer")?.available).toBe(false);
-		expect(byName.get("openai-computer")?.reason).toMatch(/requires a openai model/);
+		expect(byName.get("playwright")?.available).toBe(true);
+		// The reason shown is the compiler's, not a restatement of its rules.
+		expect(byName.get("anthropic-computer")?.available).toBe(false);
+		expect(byName.get("anthropic-computer")?.reason).toMatch(/requires a anthropic model/);
 	});
 
 	it("accepts an empty selection and rejects ambiguity", () => {

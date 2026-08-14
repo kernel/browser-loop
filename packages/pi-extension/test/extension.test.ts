@@ -302,9 +302,10 @@ describe("pi extension activation", () => {
 			"cua-browser-timeout": "300",
 			"cua-profile-save-changes": false,
 		});
+		// An OpenAI model so a native selector it cannot take shows up unavailable.
 		const listingCtx = {
 			...ctx,
-			model: getCuaModel("anthropic:claude-opus-5"),
+			model: getCuaModel("openai:gpt-5.6-sol"),
 			ui: { setStatus() {}, notify: (text: string) => notices.push(text) },
 		} as unknown as ExtensionContext;
 		extension(pi.api);
@@ -314,7 +315,7 @@ describe("pi extension activation", () => {
 		const listing = notices.at(-1) ?? "";
 		expect(listing).toContain("* browser_snapshot");
 		// The reason comes from the catalog compiler, not from a rule restated here.
-		expect(listing).toMatch(/openai-computer — unavailable: .*requires a openai model/);
+		expect(listing).toMatch(/anthropic-computer — unavailable: .*requires a anthropic model/);
 		// Listing is not a mutation: an empty argument must not clear the selection.
 		expect(pi.active).toContain("browser_snapshot");
 		expect(pi.entries).toEqual([]);
