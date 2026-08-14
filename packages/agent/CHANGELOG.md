@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.13.0 - 2026-08-13
+
+Breaking: Tzafon and Yutori support is removed.
+
+- Update `@onkernel/cua-ai` to 0.13.0. Constructing a `CuaAgent` or
+  `CuaAgentHarness` with a Tzafon or Yutori model ref now fails to resolve the
+  model, and `cua.providers.tzafon` / `cua.providers.yutori` no longer exist.
+- The tool-result image replay limit now exempts only OpenAI's native computer
+  tool, whose protocol requires every `computer_call_output` to carry a
+  screenshot. Tzafon's native computer results were exempt for the same reason
+  and are gone with the provider.
+- Remove `CuaExecutionResources.viewport`. It only fed the removed catalog
+  viewport option; the same value is still on `resources.browser.viewport`.
+
+## 0.12.0 - 2026-08-13
+
+- Add `CuaAgentHarness.setModelAndTools()`. A model switch that also swaps
+  interaction tools has to compile as one pair now that the selected tools
+  decide the transport: staging the two in sequence produces an intermediate
+  catalog whose derived transport differs from both the old and the new one,
+  and records a model change for a transport nothing ever streamed with.
+
+- Update `@onkernel/cua-ai` to 0.12.0. The model streamed for a Google model
+  now depends on which tools `CuaAgent`/`CuaAgentHarness` were constructed or
+  mutated with: selecting Google's native browser toolset still compiles to
+  the CUA-owned Interactions API, but a Google model selected with only CDP
+  browser tools now streams through pi's builtin Google transport instead of
+  always carrying the CUA-owned api. This applies uniformly across
+  construction, `setTools()`, and `setModel()`, since all three feed the same
+  compiled `catalog.model` into pi.
+- Fix `setTools()` recompiling from the previously *compiled* model instead of
+  the caller's model selection: dropping a native toolset that had derived a
+  tool-selection-dependent api (e.g. Google's Interactions API) left
+  subsequent tools-only recompiles stuck on that api even though the new
+  selection no longer required it. `CuaToolManager` now recompiles tools-only
+  changes from the model input the caller last selected.
+
 ## 0.11.0 - 2026-08-13
 
 - `responseThreading` (`CuaAgentOptions`/`CuaAgentHarnessOptions`) no longer

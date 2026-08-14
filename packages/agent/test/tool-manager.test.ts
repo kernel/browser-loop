@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { callerToolIdentity, cua } from "@onkernel/cua-ai";
+import { callerToolIdentity, cua, GOOGLE_CUA_INTERACTIONS_API } from "@onkernel/cua-ai";
 import type Kernel from "@onkernel/sdk";
 import {
 	CuaExecutionResources,
@@ -89,6 +89,22 @@ describe("CuaToolManager identity join", () => {
 		expect(calls).toEqual(["alpha", "zeta"]);
 		expect(manager.specFor("cua.browser.click.v1")).toBe(renamedClick);
 		expect(manager.specFor(callerToolIdentity("alpha"))).toBeUndefined();
+	});
+});
+
+describe("CuaToolManager transport derivation", () => {
+	it("derives the compiled model's api from selected tools on construction and on both mutation paths", () => {
+		const manager = new CuaToolManager(setup(), "google:gemini-3.6-flash", [cua.tools.browser.snapshot()]);
+		expect(manager.catalog.model.api).toBe("google-generative-ai");
+
+		manager.commit(manager.prepareTools(cua.providers.google.toolsets.browser()));
+		expect(manager.catalog.model.api).toBe(GOOGLE_CUA_INTERACTIONS_API);
+
+		manager.commit(manager.prepareModel("google:gemini-3.6-flash"));
+		expect(manager.catalog.model.api).toBe(GOOGLE_CUA_INTERACTIONS_API);
+
+		manager.commit(manager.prepareTools([cua.tools.browser.snapshot()]));
+		expect(manager.catalog.model.api).toBe("google-generative-ai");
 	});
 });
 

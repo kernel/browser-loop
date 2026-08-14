@@ -5,8 +5,6 @@ import {
 import { describe, expect, it } from "vitest";
 import { toolsForModel } from "../examples/shared/tools";
 
-const viewport = { width: 1440, height: 900 };
-
 /**
  * The example matrices are plain scripts: they are excluded from `tsc -b` and are
  * never executed in CI, so a provider policy that no longer compiles used to be
@@ -20,19 +18,17 @@ const models: readonly CuaModelRef[] = [
 	"anthropic:claude-opus-5",
 	"anthropic:claude-sonnet-5",
 	"google:gemini-3.6-flash",
-	"meta:muse-spark-1.1",
+	"openrouter:meta/muse-spark-1.1",
 	"xai:grok-4.5",
 	"moonshotai:kimi-k3",
 	"openrouter:moonshotai/kimi-k3",
-	"tzafon:tzafon.northstar-cua-fast",
-	"yutori:n1.5-latest",
 ];
 
 describe("example provider matrix tool policy", () => {
 	it("compiles a valid catalog for every model the matrices advertise", () => {
 		for (const model of models) {
 			expect(
-				() => compileCuaToolCatalog({ model, requestedTools: toolsForModel(model), viewport }),
+				() => compileCuaToolCatalog({ model, requestedTools: toolsForModel(model) }),
 				model,
 			).not.toThrow();
 		}
@@ -49,7 +45,7 @@ describe("example provider matrix tool policy", () => {
 	);
 
 	it("still advertises browser_act where the provider accepts it", () => {
-		for (const model of ["openai:gpt-5.6-sol", "meta:muse-spark-1.1", "xai:grok-4.5"] as const) {
+		for (const model of ["openai:gpt-5.6-sol", "xai:grok-4.5", "openrouter:meta/muse-spark-1.1"] as const) {
 			expect(toolsForModel(model).map((tool) => tool.name), model).toContain("browser_act");
 		}
 	});

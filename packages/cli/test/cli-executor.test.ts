@@ -31,8 +31,6 @@ const PROVIDER_ENV_KEYS = [
 	"META_API_KEY",
 	"XAI_API_KEY",
 	"MOONSHOT_API_KEY",
-	"TZAFON_API_KEY",
-	"YUTORI_API_KEY",
 ];
 
 function baseFlags(overrides: Partial<HarnessCliFlags> = {}): HarnessCliFlags {

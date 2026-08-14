@@ -16,7 +16,10 @@ vi.mock("openai", () => ({
 }));
 
 const model = getCuaModel("openai:gpt-5.5") as Model<"openai-responses">;
-const incoming = { openaiComputerName: "computer", yutoriNames: {}, googleNames: {}, googleExcludedNames: [], nativeToolNames: ["computer"] };
+// The catalog derives this api when OpenAI's native computer tool is selected;
+// the provider wrapper routes it to the adapter under test.
+const nativeModel = { ...model, api: openai.OPENAI_CUA_COMPUTER_API } as unknown as Model<"openai-responses">;
+const incoming = { openaiComputerName: "computer", googleNames: {}, googleExcludedNames: [], nativeToolNames: ["computer"] };
 
 describe("OpenAI native computer Responses adapter", () => {
 	it("emits one identity-selected local call for actions[] and safety checks", async () => {
@@ -30,7 +33,7 @@ describe("OpenAI native computer Responses adapter", () => {
 				pending_safety_checks: [{ id: "check_1", code: "malicious_instructions" }],
 			}],
 		});
-		const message = await openai.streamOpenAIResponses(model, {
+		const message = await openai.streamOpenAICuaComputer(nativeModel, {
 			messages: [],
 			tools: [{ name: "computer", description: "placeholder", parameters: { type: "object" } as never }],
 		}, {
@@ -55,7 +58,7 @@ describe("OpenAI native computer Responses adapter", () => {
 
 	it("sends the same prompt-cache fields as the function-tool path", async () => {
 		responsesCreate.mockReturnValueOnce({ id: "resp_cache", usage: {}, output: [] });
-		await openai.streamOpenAIResponses(model, {
+		await openai.streamOpenAICuaComputer(nativeModel, {
 			messages: [{ role: "user", content: "go", timestamp: 1 }],
 			tools: [{ name: "computer", description: "placeholder", parameters: { type: "object" } as never }],
 		}, { apiKey: "test", sessionId: "session_native", cuaIncomingToolPlan: incoming }).result();
@@ -78,7 +81,7 @@ describe("OpenAI native computer Responses adapter", () => {
 				arguments: '{"query":"status"}',
 			}],
 		});
-		const first = await openai.streamOpenAIResponses(model, {
+		const first = await openai.streamOpenAICuaComputer(nativeModel, {
 			messages: [{ role: "user", content: "look it up", timestamp: 1 }],
 			tools: [
 				{ name: "computer", description: "placeholder", parameters: { type: "object" } as never },
@@ -89,7 +92,7 @@ describe("OpenAI native computer Responses adapter", () => {
 		expect(call.namespace).toBe("deferred_tools");
 
 		responsesCreate.mockReturnValueOnce({ id: "resp_done", usage: {}, output: [] });
-		await openai.streamOpenAIResponses(model, {
+		await openai.streamOpenAICuaComputer(nativeModel, {
 			messages: [
 				{ role: "user", content: "look it up", timestamp: 1 },
 				first,
@@ -122,7 +125,7 @@ describe("OpenAI native computer Responses adapter", () => {
 
 	it("serializes native results as computer_call_output and ordinary results as function output", async () => {
 		responsesCreate.mockReturnValueOnce({ id: "resp_2", usage: {}, output: [] });
-		await openai.streamOpenAIResponses(model, {
+		await openai.streamOpenAICuaComputer(nativeModel, {
 			messages: [
 				{
 					role: "assistant",

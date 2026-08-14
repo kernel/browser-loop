@@ -4,13 +4,13 @@ import {
 	callerToolIdentity,
 	compileCuaToolCatalog,
 	cua,
+	GOOGLE_CUA_INTERACTIONS_API,
+	OPENAI_CUA_COMPUTER_API,
 	type CuaToolSpec,
 } from "../src/index";
 
-const viewport = { width: 1440, height: 900 };
-
 function compile(model: Parameters<typeof compileCuaToolCatalog>[0]["model"], requestedTools: Parameters<typeof compileCuaToolCatalog>[0]["requestedTools"]) {
-	return compileCuaToolCatalog({ model, requestedTools, viewport });
+	return compileCuaToolCatalog({ model, requestedTools });
 }
 
 /** Sanitized caller declaration: cua-ai never receives executable members. */
@@ -78,9 +78,6 @@ describe("cua tool namespace", () => {
 				cua.providers.anthropic.tools.computer(),
 			]],
 			[cua.providers.google.source, cua.providers.google.toolsets.browser()],
-			[cua.providers.tzafon.source, [cua.providers.tzafon.tools.computer()]],
-			[cua.providers.yutori.sources.n1, cua.providers.yutori.toolsets.n1()],
-			[cua.providers.yutori.sources.n15Core, cua.providers.yutori.toolsets.n15Core()],
 		];
 		for (const [source, tools] of surfaces) {
 			expect(source).toMatch(/^https:\/\//);
@@ -90,7 +87,7 @@ describe("cua tool namespace", () => {
 	});
 
 	it("uses the same CUA-authored browser toolset with custom-function providers", () => {
-		for (const model of ["meta:muse-spark-1.1", "xai:grok-4.5", "moonshotai:kimi-k3"] as const) {
+		for (const model of ["xai:grok-4.5", "moonshotai:kimi-k3", "openrouter:meta/muse-spark-1.1"] as const) {
 			const catalog = compile(model, cua.toolsets.browser());
 			expect(catalog.entries[0]).toMatchObject({
 				identity: "cua.browser.snapshot.v1",
@@ -187,7 +184,7 @@ describe("compileCuaToolCatalog", () => {
 	});
 
 	it("still accepts browser_act on providers that take its schema size", () => {
-		for (const model of ["openai:gpt-5.5", "anthropic:claude-opus-5", "meta:muse-spark-1.1", "xai:grok-4.5"] as const) {
+		for (const model of ["openai:gpt-5.5", "anthropic:claude-opus-5", "xai:grok-4.5", "openrouter:meta/muse-spark-1.1"] as const) {
 			expect(() => compile(model, [cua.tools.browser.act()]), model).not.toThrow();
 		}
 	});
@@ -197,9 +194,9 @@ describe("compileCuaToolCatalog", () => {
 		expect(() => compile("openai:gpt-5.5", [cua.providers.anthropic.tools.computer()])).toThrow(/requires a anthropic model/);
 	});
 
-	it("replaces only the selected Tzafon identity placeholder", async () => {
-		const catalog = compile("tzafon:tzafon.northstar-cua-fast", [
-			cua.providers.tzafon.tools.computer(),
+	it("replaces only the selected OpenAI identity placeholder", async () => {
+		const catalog = compile("openai:gpt-5.5", [
+			cua.providers.openai.tools.computer(),
 			callerTool("click"),
 			cua.tools.browser.click(),
 		]);
@@ -212,11 +209,11 @@ describe("compileCuaToolCatalog", () => {
 		};
 		const next = await catalog.payload.apply(payload, catalog.model) as { tools: Array<Record<string, unknown>> };
 		expect(next.tools).toEqual([
-			{ type: "computer_use", display_width: 1440, display_height: 900, environment: "browser" },
+			{ type: "computer" },
 			{ type: "function", name: "click" },
 			{ type: "function", name: "browser_click" },
 		]);
-		expect(catalog.incoming.tzafonComputerName).toBe("computer");
+		expect(catalog.incoming.openaiComputerName).toBe("computer");
 	});
 
 	it("composes Anthropic native browser declarations, access fallback, and ordinary functions", async () => {
@@ -241,15 +238,21 @@ describe("compileCuaToolCatalog", () => {
 		expect(catalog.entries[0]?.dynamicLoading).toBe("eager-only");
 	});
 
-	it("serializes Google's current native declaration", async () => {
+	it("serializes Google's current native declaration and keeps custom functions", async () => {
 		const selected = cua.providers.google.toolsets.browser({ exclude: ["right_click", "triple_click"] });
-		const catalog = compile("google:gemini-3.6-flash", selected);
-		const next = await catalog.payload.apply({ tools: selected.map((tool) => ({ type: "function", name: tool.name })) }, catalog.model) as { tools: unknown[] };
-		expect(next.tools).toEqual([{
-			type: "computer_use",
-			environment: "browser",
-			excluded_predefined_functions: ["triple_click", "right_click"],
-		}]);
+		const catalog = compile("google:gemini-3.6-flash", [...selected, callerTool("custom")]);
+		const next = await catalog.payload.apply({ tools: [
+			...selected.map((tool) => ({ type: "function", name: tool.name })),
+			{ type: "function", name: "custom" },
+		] }, catalog.model) as { tools: unknown[] };
+		expect(next.tools).toEqual([
+			{
+				type: "computer_use",
+				environment: "browser",
+				excluded_predefined_functions: ["triple_click", "right_click"],
+			},
+			{ type: "function", name: "custom" },
+		]);
 		expect(catalog.entries[0]?.declaration).toEqual(next.tools[0]);
 		expect(catalog.entries[0]?.coordinates).toEqual({ type: "normalized", range: [0, 999] });
 		const click = selected.find((tool) => tool.name === "click")!;
@@ -289,41 +292,18 @@ describe("compileCuaToolCatalog", () => {
 		}
 	});
 
-	it("serializes state-mutating Meta/xAI/Moonshot catalogs with serial tool calls", async () => {
-		for (const model of ["meta:muse-spark-1.1", "xai:grok-4.5", "moonshotai:kimi-k3", "openrouter:moonshotai/kimi-k3"] as const) {
+	it("serializes state-mutating catalogs with serial tool calls", async () => {
+		for (const model of ["xai:grok-4.5", "moonshotai:kimi-k3", "openrouter:moonshotai/kimi-k3", "openrouter:meta/muse-spark-1.1"] as const) {
 			const catalog = compile(model, cua.toolsets.browser());
 			await expect(catalog.payload.apply({ parallel_tool_calls: true }, catalog.model)).resolves.toMatchObject({ parallel_tool_calls: false });
 		}
 	});
 
-	it("uses selected Yutori identities for disable_tools and keeps custom functions", async () => {
-		const selected = cua.providers.yutori.toolsets.n15Core().slice(0, 2);
-		const catalog = compile("yutori:n1.5-latest", [...selected, callerTool("custom")]);
-		const payload = { messages: [{ role: "user", content: "go" }], tools: [
-			...selected.map((tool) => ({ type: "function", function: { name: tool.name } })),
-			{ type: "function", function: { name: "custom" } },
-		] };
-		const next = await catalog.payload.apply(payload, catalog.model) as {
-			tool_set: string;
-			disable_tools: string[];
-			tools: Array<{ function: { name: string } }>;
-			messages: Array<{ content: unknown }>;
-		};
-		expect(next.tool_set).toBe("browser_tools_core-20260403");
-		expect(next.disable_tools).not.toContain(selected[0]?.name);
-		expect(next.disable_tools).toContain("right_click");
-		expect(next.tools.map((tool) => tool.function.name)).toEqual(["custom"]);
-		expect(next.messages).toEqual(payload.messages);
-	});
-
-	it("rejects partial n1 selection and incompatible model changes", () => {
-		expect(() => compile("yutori:n1-latest", cua.providers.yutori.toolsets.n1().slice(0, 1))).toThrow(/complete .*n1\(\)/);
+	it("rejects incompatible model changes", () => {
 		const nativeTools: Array<[CuaToolSpec[], string]> = [
 			[[cua.providers.anthropic.tools.browser()], "anthropic"],
 			[[cua.providers.openai.tools.computer()], "openai"],
 			[[cua.providers.google.toolsets.browser()[0]!], "google"],
-			[[cua.providers.tzafon.tools.computer()], "tzafon"],
-			[cua.providers.yutori.toolsets.n1(), "yutori"],
 		];
 		for (const [tools, provider] of nativeTools) {
 			expect(() => compile("openrouter:moonshotai/kimi-k3", tools)).toThrow(new RegExp(`requires a ${provider} model`));
@@ -339,12 +319,63 @@ describe("compileCuaToolCatalog", () => {
 		expect(pixels.entries[0]?.fingerprint).not.toBe(normalized.entries[0]?.fingerprint);
 	});
 
-	it("produces deterministic fingerprints for identical declaration, model, and viewport inputs", () => {
+	it("produces deterministic fingerprints for identical declaration and model inputs", () => {
 		const compileInputs = () => [cua.tools.browser.snapshot(), cua.tools.computer.click(), callerTool("custom")];
 		const first = compile("openai:gpt-5.5", compileInputs());
 		const second = compile("openai:gpt-5.5", compileInputs());
 		expect(second.fingerprint).toBe(first.fingerprint);
 		expect(second.entries.map((entry) => entry.fingerprint)).toEqual(first.entries.map((entry) => entry.fingerprint));
 		expect(second.toolDeclarations.map((tool) => tool.name)).toEqual(first.toolDeclarations.map((tool) => tool.name));
+	});
+});
+
+describe("transport derivation", () => {
+	it("keeps an OpenAI model on its registry api when only CUA browser tools are selected", () => {
+		const catalog = compile("openai:gpt-5.5", cua.toolsets.browser());
+		expect(catalog.model.api).toBe("openai-responses");
+	});
+
+	it("derives OPENAI_CUA_COMPUTER_API when OpenAI's native computer tool is selected", () => {
+		const catalog = compile("openai:gpt-5.5", [cua.providers.openai.tools.computer()]);
+		expect(catalog.model.api).toBe(OPENAI_CUA_COMPUTER_API);
+	});
+
+	it("keeps a Google model on pi's builtin transport when only CDP browser tools are selected", () => {
+		const catalog = compile("google:gemini-3.6-flash", [cua.tools.browser.snapshot(), cua.tools.browser.click()]);
+		expect(catalog.model.api).toBe("google-generative-ai");
+	});
+
+	it("derives GOOGLE_CUA_INTERACTIONS_API when Google's native browser toolset is selected", () => {
+		const catalog = compile("google:gemini-3.6-flash", cua.providers.google.toolsets.browser());
+		expect(catalog.model.api).toBe(GOOGLE_CUA_INTERACTIONS_API);
+	});
+
+	it("rejects a catalog whose selected tools require conflicting transports", () => {
+		const [click, scroll] = cua.providers.google.toolsets.browser();
+		const conflicting: CuaToolSpec = {
+			...scroll!,
+			identity: "test.conflicting-transport.v1",
+			providerBinding: { kind: "google-native", nativeName: "conflict", allNativeNames: ["conflict"], requiresApi: OPENAI_CUA_COMPUTER_API },
+		};
+		expect(() => compile("google:gemini-3.6-flash", [click!, conflicting])).toThrow(/incompatible provider transports/);
+	});
+
+	it("re-derives from a model object that already carries a stale derived api, instead of pinning it", () => {
+		const nativeCatalog = compile("google:gemini-3.6-flash", cua.providers.google.toolsets.browser());
+		expect(nativeCatalog.model.api).toBe(GOOGLE_CUA_INTERACTIONS_API);
+
+		const recompiled = compile(nativeCatalog.model, [cua.tools.browser.snapshot(), cua.tools.browser.click()]);
+		expect(recompiled.model.api).toBe("google-generative-ai");
+
+		const reselected = compile(recompiled.model, cua.providers.google.toolsets.browser());
+		expect(reselected.model.api).toBe(GOOGLE_CUA_INTERACTIONS_API);
+	});
+
+	it("re-derives an OpenAI model object that already carries a stale derived api, instead of pinning it", () => {
+		const nativeCatalog = compile("openai:gpt-5.5", [cua.providers.openai.tools.computer()]);
+		expect(nativeCatalog.model.api).toBe(OPENAI_CUA_COMPUTER_API);
+
+		const recompiled = compile(nativeCatalog.model, cua.toolsets.browser());
+		expect(recompiled.model.api).toBe("openai-responses");
 	});
 });

@@ -1,9 +1,8 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { getBuiltinModel, getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
-import { GOOGLE_CUA_INTERACTIONS_API } from "./providers/google/provider";
 
 /** Providers with curated computer-use model support. */
-export type CuaProvider = "openai" | "anthropic" | "google" | "meta" | "xai" | "moonshotai" | "openrouter" | "tzafon" | "yutori";
+export type CuaProvider = "openai" | "anthropic" | "google" | "xai" | "moonshotai" | "openrouter";
 
 /** Provider-qualified model reference, e.g. `"openai:gpt-5.6-sol"` or `"google:gemini-3.6-flash"`. */
 export type CuaModelRef = `${CuaProvider}:${string}`;
@@ -20,7 +19,7 @@ export interface CuaModelInfo {
 }
 
 /** All providers this package curates computer-use models for. */
-export const CUA_PROVIDERS: readonly CuaProvider[] = ["openai", "anthropic", "google", "meta", "xai", "moonshotai", "openrouter", "tzafon", "yutori"];
+export const CUA_PROVIDERS: readonly CuaProvider[] = ["openai", "anthropic", "google", "xai", "moonshotai", "openrouter"];
 
 /**
  * How a {@link CuaModelAnnotation} matches model ids.
@@ -50,6 +49,14 @@ export interface CuaModelAnnotation {
 	/** Optional tool-catalog capabilities that describe which CUA schemas and state mutations the model supports. */
 	readonly capabilities?: CuaModelCapabilities;
 }
+
+// Muse Spark accepts the full CUA schema set; OpenRouter's provider-level
+// defaults are conservative because the proxy fronts many model families.
+const MUSE_SPARK_CAPABILITIES: CuaModelCapabilities = Object.freeze({
+	acceptsComplexSchemas: true,
+	acceptsLargeSchemas: true,
+	serializesStateMutations: true,
+});
 
 const KIMI_K3_CAPABILITIES: CuaModelCapabilities = Object.freeze({
 	acceptsComplexSchemas: true,
@@ -90,9 +97,6 @@ export const CUA_MODEL_ANNOTATIONS: Record<CuaProvider, readonly CuaModelAnnotat
 		{ match: { kind: "exact", id: "gemini-3.5-flash-lite" }, source: "https://ai.google.dev/gemini-api/docs/computer-use" },
 		{ match: { kind: "exact", id: "gemini-3.5-flash" }, source: "https://ai.google.dev/gemini-api/docs/computer-use" },
 	],
-	meta: [
-		{ match: { kind: "exact", id: "muse-spark-1.1" }, source: "https://dev.meta.ai/docs/getting-started/cookbook/computer-use-macos" },
-	],
 	xai: [
 		{ match: { kind: "exact", id: "grok-4.5" }, source: "https://docs.x.ai/developers/grok-4-5" },
 	],
@@ -104,51 +108,9 @@ export const CUA_MODEL_ANNOTATIONS: Record<CuaProvider, readonly CuaModelAnnotat
 	],
 	openrouter: [
 		{ match: { kind: "exact", id: "moonshotai/kimi-k3" }, source: "https://openrouter.ai/moonshotai/kimi-k3", capabilities: KIMI_K3_CAPABILITIES },
-	],
-	tzafon: [
-		{ match: { kind: "exact", id: "tzafon.northstar-cua-fast" }, source: "https://huggingface.co/Tzafon/Northstar-CUA-Fast" },
-		{ match: { kind: "exact", id: "tzafon.northstar-cua-fast-1.6" }, source: "https://huggingface.co/Tzafon/Northstar-CUA-Fast" },
-		{ match: { kind: "exact", id: "tzafon.northstar-cua-fast-1.7-experiment" }, source: "https://huggingface.co/Tzafon/Northstar-CUA-Fast" },
-	],
-	yutori: [
-		{ match: { kind: "exact", id: "n1-latest" }, source: "https://docs.yutori.com/reference/navigator" },
-		{ match: { kind: "exact", id: "n1-20260203" }, source: "https://docs.yutori.com/reference/navigator" },
-		{ match: { kind: "exact", id: "n1.5-latest" }, source: "https://docs.yutori.com/reference/navigator" },
-		{ match: { kind: "exact", id: "n1.5-20260428" }, source: "https://docs.yutori.com/reference/navigator" },
+		{ match: { kind: "exact", id: "meta/muse-spark-1.1" }, source: "https://openrouter.ai/meta/muse-spark-1.1", capabilities: MUSE_SPARK_CAPABILITIES },
 	],
 };
-
-// Models that CUA supports which pi-ai's registry does not yet carry. Each
-// entry is a complete Model<Api> so getCuaModel() can return it directly
-// without synthesizing fields at call time. Add an entry here when a provider
-// ships a new model before pi-ai picks it up — and add a matching annotation
-// in CUA_MODEL_ANNOTATIONS above so the support filter recognizes it.
-const CUA_MODEL_OVERRIDES: Record<CuaProvider, readonly Model<Api>[]> = {
-	openai: [],
-	anthropic: [],
-	google: [],
-	// pi-ai still lacks Meta's models.dev catalog entry.
-	meta: [cuaModel("meta", "muse-spark-1.1", "Muse Spark 1.1")],
-	xai: [],
-	moonshotai: [],
-	openrouter: [],
-	tzafon: [
-		cuaModel("tzafon", "tzafon.northstar-cua-fast", "Tzafon Northstar CUA Fast"),
-		cuaModel("tzafon", "tzafon.northstar-cua-fast-1.6", "Tzafon Northstar CUA Fast 1.6"),
-		cuaModel("tzafon", "tzafon.northstar-cua-fast-1.7-experiment", "Tzafon Northstar CUA Fast 1.7 (experiment)"),
-	],
-	yutori: [
-		cuaModel("yutori", "n1.5-latest", "Yutori Navigator n1.5"),
-		cuaModel("yutori", "n1.5-20260428", "Yutori Navigator n1.5 (2026-04-28)"),
-		cuaModel("yutori", "n1-latest", "Yutori Navigator n1"),
-		cuaModel("yutori", "n1-20260203", "Yutori Navigator n1 (2026-02-03)"),
-	],
-};
-
-/** Models CUA supports that pi-ai's registry does not carry for a provider. */
-export function cuaOverrideModels(provider: CuaProvider): readonly Model<Api>[] {
-	return CUA_MODEL_OVERRIDES[provider];
-}
 
 /**
  * Split a provider-qualified ref like `"openai:gpt-5.6-sol"` into its parts.
@@ -187,10 +149,6 @@ export function listCuaModels(provider?: CuaProvider): CuaModelInfo[] {
 	const byRef = new Map<CuaModelRef, CuaModelInfo>();
 
 	for (const p of providers) {
-		for (const model of CUA_MODEL_OVERRIDES[p]) {
-			const ref = formatCuaModelRef(p, model.id);
-			byRef.set(ref, { ref, provider: p, model: model.id, name: model.name });
-		}
 		for (const model of getBuiltinModels(p as never) as Model<Api>[]) {
 			if (!supportsCuaProvider(p, model.id)) continue;
 			const ref = formatCuaModelRef(p, model.id);
@@ -220,34 +178,10 @@ export function getCuaModel(ref: CuaModelRef): Model<Api> {
 		throw new Error(`unsupported CUA model "${ref}"`);
 	}
 	const fromRegistry = getBuiltinModel(provider as never, modelId as never) as Model<Api> | undefined;
-	if (fromRegistry) return routeCuaApi(fromRegistry);
-	const override = CUA_MODEL_OVERRIDES[provider].find((m) => m.id === modelId);
-	if (override) return routeCuaApi(override);
-	throw new Error(`CUA model "${ref}" is supported but not registered. Add it to pi-ai (models.dev) or CUA_MODEL_OVERRIDES.`);
+	if (fromRegistry) return fromRegistry;
+	throw new Error(`CUA model "${ref}" is supported but not carried by pi-ai's registry`);
 }
 
-// Route CUA models to provider-specific transports. OpenAI keeps pi-ai's
-// builtin "openai-responses" api and streams through its automatic prompt
-// caching; the CUA adapter dispatches on request shape (see
-// requiresCuaOpenAIAdapter), not on a rerouted api id. Other registry-resolved
-// models otherwise carry pi-ai's builtin API ids too.
-export function routeCuaApi(model: Model<Api>): Model<Api> {
-	if (model.provider === "google" && model.api !== GOOGLE_CUA_INTERACTIONS_API) {
-		return { ...model, api: GOOGLE_CUA_INTERACTIONS_API };
-	}
-	if (model.provider === "xai" && model.id === "grok-4.5") {
-		return {
-			...model,
-			thinkingLevelMap: { off: "low", minimal: "low", xhigh: "high" },
-			cost: {
-				...model.cost,
-				tiers: [{ inputTokensAbove: 200_000, input: 4, output: 12, cacheRead: 1, cacheWrite: 0 }],
-			},
-			compat: { supportsDeveloperRole: false, sessionAffinityFormat: "openai-nosession", supportsLongCacheRetention: false },
-		};
-	}
-	return model;
-}
 
 /** Return the {@link CuaProvider} for a concrete model, or throw when it is not a CUA provider. */
 export function providerForModel(model: Model<Api>): CuaProvider {
@@ -270,11 +204,11 @@ function supportsCuaProvider(provider: CuaProvider, modelId: string): boolean {
 export function cuaModelCapabilities(model: Model<Api>): CuaModelCapabilities {
 	const annotation = isCuaProvider(model.provider) ? findCuaAnnotation(model.provider, model.id) : undefined;
 	if (annotation?.capabilities) return annotation.capabilities;
-	const acceptsComplexSchemas = ["openai", "anthropic", "meta", "xai", "moonshotai"].includes(model.provider);
+	const acceptsComplexSchemas = ["openai", "anthropic", "xai", "moonshotai"].includes(model.provider);
 	return {
 		acceptsComplexSchemas,
 		acceptsLargeSchemas: acceptsComplexSchemas && model.provider !== "moonshotai",
-		serializesStateMutations: ["meta", "xai", "moonshotai"].includes(model.provider),
+		serializesStateMutations: ["xai", "moonshotai"].includes(model.provider),
 	};
 }
 
@@ -303,37 +237,6 @@ function isCuaFamilyMatch(id: string, family: string): boolean {
 		.slice(family.length + 1)
 		.split("-")
 		.every((segment) => /^\d+$/.test(segment));
-}
-
-function cuaModel(provider: "meta" | "tzafon" | "yutori", id: string, name: string): Model<Api> {
-	const base = {
-		id,
-		name,
-		provider,
-		reasoning: provider === "meta",
-		input: ["text", "image"],
-		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-	} satisfies Partial<Model<Api>>;
-
-	switch (provider) {
-		case "meta":
-			// Meta documents the 1,048,576-token context window, and its
-			// computer-use cookbook configures 128,000 maximum output tokens.
-			return {
-				...base,
-				api: "openai-responses",
-				baseUrl: "https://api.meta.ai/v1",
-				thinkingLevelMap: { off: null, xhigh: "xhigh" },
-				cost: { input: 1.25, output: 4.25, cacheRead: 0.15, cacheWrite: 0 },
-				contextWindow: 1_048_576,
-				maxTokens: 128_000,
-				compat: { supportsDeveloperRole: true, sessionAffinityFormat: "openai-nosession", supportsLongCacheRetention: true },
-			} as Model<Api>;
-		case "tzafon":
-			return { ...base, api: "tzafon-responses", baseUrl: "https://api.tzafon.ai", contextWindow: 128_000, maxTokens: 4_096 } as Model<Api>;
-		case "yutori":
-			return { ...base, api: "yutori-chat-completions", baseUrl: "https://api.yutori.com/v1", contextWindow: 128_000, maxTokens: 4_096 } as Model<Api>;
-	}
 }
 
 function compareCuaModels(a: CuaModelInfo, b: CuaModelInfo): number {

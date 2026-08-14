@@ -145,11 +145,10 @@ Useful flags:
 
 - `-m <model>` — pick the LLM for model-mediated subcommands (default `gpt-5.6-sol`).
   Recommended refs are `openai:gpt-5.6-sol`, `anthropic:claude-opus-5`,
-  `google:gemini-3.6-flash`, `meta:muse-spark-1.1`, `xai:grok-4.5`,
-  `moonshotai:kimi-k3`, `tzafon:tzafon.northstar-cua-fast`, and
-  `yutori:n1.5-latest`.
+  `google:gemini-3.6-flash`, `xai:grok-4.5`,
+  and `moonshotai:kimi-k3`.
 - `cua models` — list supported `-m` values and their providers; filter with
-  `cua models -p openai|anthropic|google|meta|xai|moonshotai|tzafon|yutori`.
+  `cua models -p openai|anthropic|google|meta|xai|moonshotai|openrouter`.
   `gemini` aliases `google`, and `moonshot` aliases `moonshotai`. Model refs
   print as `provider:model`; `-m` accepts either the full ref or a bare model id
   that matches exactly one entry.
@@ -172,10 +171,9 @@ Useful flags:
 The CLI selects its interaction tools from the model: structured CUA browser
 primitives plus `browser_act` verified plans for OpenAI, Meta, xAI, and older
 Anthropic models; browser primitives alone for Moonshot, whose API rejects
-`browser_act`'s schema; native browser tools for current Anthropic and
-Google models; Tzafon's native computer tool; and Yutori's documented native
-set plus an explicit screenshot tool. It also appends workspace coding tools in
-`--print`, TUI, and model-mediated action runs.
+`browser_act`'s schema; and native browser tools for current Anthropic and
+Google models. It also appends workspace coding tools in `--print`, TUI, and
+model-mediated action runs.
 
 There is no `--mode`, `--native-tool`, or `--playwright` flag. Those catalogs
 remain explicit SDK choices rather than CLI defaults. The CLI also does not
@@ -304,8 +302,8 @@ testing. It can only remove from that list, never add unsupported tools.
 Edits are staged — nothing applies until `ctrl+s`, and cancel leaves live state
 untouched. A selection rejected by catalog validation reports the error and
 changes nothing. Selections are session-only and are reset to the new model's
-defaults by `/model`. Yutori n1's native set toggles as one group; disabling
-everything is allowed and yields a text-only agent.
+defaults by `/model`. Disabling everything is allowed and yields a text-only
+agent.
 
 ## Don't forget
 

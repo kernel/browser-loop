@@ -1,5 +1,88 @@
 # Changelog
 
+## 0.13.0 - 2026-08-13
+
+- Remove the Meta provider. pi-ai ships no `meta` provider, so cua hand-wrote a
+  model entry and pointed pi's own `openai-responses` transport at
+  `api.meta.ai`. Meta was the last user of the model-override mechanism, so
+  `CUA_MODEL_OVERRIDES`, `cuaOverrideModels()`, and `META_API_KEY` go with it,
+  and `getCuaModel` no longer has a "supported but not registered" fallback.
+  Muse Spark remains available through pi's OpenRouter catalog as
+  `openrouter:meta/muse-spark-1.1`, annotated with explicit capabilities
+  because OpenRouter's provider-level defaults are conservative.
+
+- Remove `routeCuaApi`. With Tzafon and Yutori gone it routed no transport at
+  all, and its last branch only patched grok-4.5's thinking-level map, price
+  tiers, and compat flags onto pi-ai's registry entry. Live runs on grok-4.5
+  at the default, `off`, and `xhigh` thinking levels behave identically
+  without it, so model resolution now returns pi-ai's data unmodified. The
+  only lost detail is a >200k-token price tier that pi's registry does not
+  carry, which affects `usage.cost` reporting for long requests and nothing
+  else.
+
+Breaking: Tzafon and Yutori support is removed.
+
+- Remove the `tzafon` and `yutori` providers: their `CuaProvider` members,
+  model annotations and overrides, `cua.providers.tzafon`,
+  `cua.providers.yutori`, `TZAFON_API_KEY`/`YUTORI_API_KEY`, and the exported
+  `TZAFON_RESPONSES_API`, `YUTORI_CHAT_COMPLETIONS_API`,
+  `streamTzafonResponses`, `streamSimpleTzafonResponses`, `streamYutori`, and
+  `streamSimpleYutori` stream functions. `createCuaModels()` no longer
+  registers either provider, and refs like `tzafon:tzafon.northstar-cua-fast`
+  or `yutori:n1.5-latest` now fail to resolve.
+- `CuaProviderBinding` loses its `tzafon-native` and `yutori-native` variants,
+  and `CuaIncomingToolPlan` loses `tzafonComputerName` and `yutoriNames`. The
+  Yutori-only rule rejecting a partial n1 native action set is gone with them;
+  every surviving native toolset can be selected in part.
+- `CompileCuaToolCatalogOptions.viewport` is removed. It existed only to fill
+  Tzafon's `display_width`/`display_height` declaration defaults, and no
+  surviving declaration reads it.
+- `routeCuaApi` no longer routes any transport. Every remaining provider gets
+  its transport either from pi-ai's registry or from the selected tools'
+  `requiresApi`; what is left is grok-4.5's cost/compat/thinking-level
+  overrides.
+- Drop the `@tzafon/lightcone` dependency.
+
+## 0.12.0 - 2026-08-13
+
+- Route OpenAI's native computer adapter through its own stream function,
+  `streamOpenAICuaComputer`, selected by `model.api`. `streamOpenAIResponses`
+  no longer inspects the incoming tool plan to decide which adapter runs: the
+  compiled api id is the only dispatch key, and the provider wrapper is the
+  only place that reads it.
+- Remove the unreferenced Yutori n1.5 expanded action declarations
+  (`YUTORI_N15_EXPANDED_ACTION_TYPES`, `YUTORI_N15_EXPANDED_TOOL_SET`,
+  `YUTORI_N15_ACTION_TYPES`) and the canonical-action type aliases nothing
+  consumed. None were exported from the package root. The expanded set was
+  scaffolding for a ref/DOM execution path that does not exist.
+
+Breaking: Google's api id is now derived from selected tools, not stamped on
+every Google model.
+
+- `compileCuaToolCatalog` derives the compiled model's `api` from the selected
+  tools' provider bindings: a `CuaProviderBinding` may declare `requiresApi`,
+  and the returned `catalog.model` carries that transport. Selecting tools
+  whose bindings require different transports fails to compile with a named
+  catalog error. This makes transport a function of `(model, selected tools)`
+  instead of `(model)` alone.
+- `getCuaModel("google:...")` no longer forces `google-cua-interactions`. A
+  Google model resolved without Google's native browser toolset selected now
+  keeps pi-ai's builtin `google-generative-ai` transport; selecting
+  `cua.providers.google.toolsets.browser()` still compiles to
+  `google-cua-interactions` as before. `routeCuaApi` no longer touches Google
+  at all — it's now scoped to genuinely model-shaped routing (Tzafon and
+  Yutori, which pi ships no transport for at all, and grok-4.5's cost/compat
+  overrides).
+- Add `OPENAI_CUA_COMPUTER_API` (`"openai-cua-computer"`). A model compiled
+  with `cua.providers.openai.tools.computer()` selected now carries this api;
+  the OpenAI provider wrapper dispatches to the CUA adapter on `model.api`
+  alone for that case. The one remaining request-shape check,
+  `requiresCuaOpenAINamespaceAdapter` (renamed from `requiresCuaOpenAIAdapter`,
+  which also tested for the native computer tool), covers only the case that
+  cannot be derived from the model: a transcript carrying a deferred
+  tool-search addition or a replayed function-call namespace, which pi-ai's
+  builtin transport does not round-trip.
+
 ## 0.11.0 - 2026-08-13
 
 Breaking: OpenAI models no longer carry a CUA-owned api id.

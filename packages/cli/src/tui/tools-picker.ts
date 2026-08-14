@@ -177,11 +177,6 @@ export class ToolsPickerComponent extends Container implements Focusable {
 			if (selected.description) {
 				this.listContainer.addChild(new Text(colors.muted(`  ${selected.description}`), 0, 0));
 			}
-			if (selected.atomicGroup) {
-				this.listContainer.addChild(
-					new Text(colors.warning("  toggles as a group: the provider rejects partial native action sets"), 0, 0),
-				);
-			}
 		}
 	}
 
@@ -213,20 +208,20 @@ export class ToolsPickerComponent extends Container implements Focusable {
 		if (kb.matches(data, "tui.select.confirm") || (data === " " && !this.searchInput.getValue())) {
 			const item = this.filtered[this.selectedIndex];
 			if (item) {
-				this.staged = toggleTool(this.staged, this.items, item.key);
+				this.staged = toggleTool(this.staged, item.key);
 				this.refresh();
 				this.tui.requestRender();
 			}
 			return;
 		}
 		if (kb.matches(data, "cua.tools.enableAll")) {
-			this.staged = enableTools(this.staged, this.items, this.bulkTargets());
+			this.staged = enableTools(this.staged, this.bulkTargets());
 			this.refresh();
 			this.tui.requestRender();
 			return;
 		}
 		if (kb.matches(data, "cua.tools.clearAll")) {
-			this.staged = disableTools(this.staged, this.items, this.bulkTargets());
+			this.staged = disableTools(this.staged, this.bulkTargets());
 			this.refresh();
 			this.tui.requestRender();
 			return;

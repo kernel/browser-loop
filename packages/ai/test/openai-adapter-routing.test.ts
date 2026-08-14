@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ToolCall } from "@earendil-works/pi-ai";
-import { createCuaModels, getCuaModel } from "../src/index";
+import { createCuaModels, getCuaModel, OPENAI_CUA_COMPUTER_API } from "../src/index";
 
 const { responsesCreate } = vi.hoisted(() => ({ responsesCreate: vi.fn() }));
 
@@ -68,7 +68,7 @@ describe("OpenAI adapter routing", () => {
 		expect(payload.previous_response_id).toBeUndefined();
 	});
 
-	it("reaches the CUA adapter when the incoming plan selects OpenAI's native computer tool", async () => {
+	it("reaches the CUA adapter when the model carries OPENAI_CUA_COMPUTER_API", async () => {
 		responsesCreate.mockReturnValueOnce({
 			id: "resp_2",
 			output: [{
@@ -77,12 +77,16 @@ describe("OpenAI adapter routing", () => {
 				action: { type: "click", x: 10, y: 20 },
 			}],
 		});
-		const message = await createCuaModels().streamSimple(model, {
+		// compileCuaToolCatalog derives this api onto the model whenever OpenAI's
+		// native computer tool is selected; the provider wrapper dispatches on it
+		// alone, with no request-shape sniffing.
+		const computerModel = { ...model, api: OPENAI_CUA_COMPUTER_API };
+		const message = await createCuaModels().streamSimple(computerModel, {
 			messages: [{ role: "user", content: "click it", timestamp: 1 }],
 			tools: [{ name: "computer", description: "placeholder", parameters: { type: "object" } as never }],
 		}, {
 			apiKey: "test",
-			cuaIncomingToolPlan: { openaiComputerName: "computer", yutoriNames: {}, googleNames: {}, googleExcludedNames: [], nativeToolNames: ["computer"] },
+			cuaIncomingToolPlan: { openaiComputerName: "computer", googleNames: {}, googleExcludedNames: [], nativeToolNames: ["computer"] },
 		} as never).result();
 
 		// Only the CUA native-computer adapter understands computer_call items;
@@ -125,6 +129,39 @@ describe("OpenAI adapter routing", () => {
 		// The CUA adapter round-trips the namespace pi's builtin drops.
 		const call = message.content.find((part): part is ToolCall => part.type === "toolCall") as (ToolCall & { namespace?: string }) | undefined;
 		expect(call?.namespace).toBe("deferred_tools");
+	});
+
+	it("keeps cache-relevant payload fields identical across a mid-conversation escalation", async () => {
+		// A turn can move from pi's builtin transport to the CUA adapter mid-session
+		// (a deferred tool gets added). If that switch changed `store` or the cache
+		// key, it would silently invalidate the matched prompt-cache prefix.
+		responsesCreate.mockReturnValue({ id: "resp_parity", status: "completed", usage: {}, output: [] });
+		await createCuaModels().streamSimple(model, {
+			messages: [{ role: "user", content: "look it up", timestamp: 1 }],
+			tools,
+		}, { apiKey: "test", sessionId: "session_parity" }).result();
+		const builtinPayload = responsesCreate.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+
+		await createCuaModels().streamSimple(model, {
+			messages: [
+				{ role: "user", content: "load and look it up", timestamp: 1 },
+				{
+					role: "toolResult",
+					toolCallId: "call_loader",
+					toolName: "loader",
+					content: [{ type: "text", text: "loaded" }],
+					isError: false,
+					addedToolNames: ["lookup"],
+					timestamp: 2,
+				},
+			],
+			tools,
+		}, { apiKey: "test", sessionId: "session_parity" } as never).result();
+		const escalatedPayload = responsesCreate.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+
+		for (const field of ["store", "prompt_cache_key", "prompt_cache_retention", "prompt_cache_options"]) {
+			expect(escalatedPayload[field], field).toEqual(builtinPayload[field]);
+		}
 	});
 
 	it("pairs replayed namespaces by call id, not ordinal, across an aborted assistant turn", async () => {

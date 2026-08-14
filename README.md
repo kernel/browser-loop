@@ -94,10 +94,8 @@ npx tsx packages/cli/src/cli.ts --help
 export OPENAI_API_KEY=sk-...                 # for gpt-5.6-sol
 export ANTHROPIC_API_KEY=sk-ant-...          # for claude-opus-5
 export GOOGLE_API_KEY=...                    # for gemini-3.6-flash
-export META_API_KEY=...                      # for muse-spark-1.1
 export XAI_API_KEY=xai-...                   # for grok-4.5
 export MOONSHOT_API_KEY=sk-...               # for kimi-k3
-export YUTORI_API_KEY=yt_...                 # for n1.5-latest
 export KERNEL_API_KEY=sk_...                 # always required
 
 # single-shot
@@ -112,17 +110,14 @@ cua -p --model claude-opus-5 "Same prompt"
 # Gemini 3 Flash (built-in computer use)
 cua -p --model gemini-3.6-flash "Same prompt"
 
-# Meta Muse Spark
-cua -p --model meta:muse-spark-1.1 "Same prompt"
+# Meta Muse Spark, through OpenRouter
+cua -p --model openrouter:meta/muse-spark-1.1 "Same prompt"
 
 # xAI Grok 4.5
 cua -p --model xai:grok-4.5 "Same prompt"
 
 # Moonshot Kimi K3
 cua -p --model moonshotai:kimi-k3 "Same prompt"
-
-# Yutori Navigator
-cua -p --model n1.5-latest "Same prompt"
 
 # interactive TUI (default mode)
 cua

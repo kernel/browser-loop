@@ -3,11 +3,9 @@ import {
 	CUA_MODEL_ANNOTATIONS,
 	CUA_PROVIDERS,
 	type CuaModelRef,
-	cuaOverrideModels,
 	findCuaAnnotation,
 	formatCuaModelRef,
 	getCuaModel,
-	GOOGLE_CUA_INTERACTIONS_API,
 	listCuaModels,
 	parseCuaModelRef,
 } from "../src/index";
@@ -15,7 +13,7 @@ import {
 describe("CUA model refs", () => {
 	it("parses and formats provider-qualified refs", () => {
 		expect(parseCuaModelRef("openai:gpt-5.5")).toEqual({ provider: "openai", model: "gpt-5.5" });
-		expect(formatCuaModelRef("yutori", "n1.5-latest")).toBe("yutori:n1.5-latest");
+		expect(formatCuaModelRef("openrouter", "meta/muse-spark-1.1")).toBe("openrouter:meta/muse-spark-1.1");
 	});
 
 	it("rejects unqualified and unsupported refs", () => {
@@ -26,7 +24,7 @@ describe("CUA model refs", () => {
 
 	it("names the valid providers in the unsupported-provider error", () => {
 		expect(() => parseCuaModelRef("bogus:model")).toThrow(
-			'unsupported CUA provider "bogus" (expected one of: openai, anthropic, google, meta, xai, moonshotai, openrouter, tzafon, yutori)',
+			'unsupported CUA provider "bogus" (expected one of: openai, anthropic, google, xai, moonshotai, openrouter)',
 		);
 	});
 
@@ -50,13 +48,8 @@ describe("CUA model refs", () => {
 		expect(models.some((model) => "origin" in model)).toBe(false);
 	});
 
-	it("returns override models for refs missing from pi-ai", () => {
-		const model = getCuaModel("yutori:n1.5-latest");
-		expect(model.provider).toBe("yutori");
-		expect(model.api).toBe("yutori-chat-completions");
-
+	it("returns pi-ai registry entries verbatim", () => {
 		const opus = getCuaModel("anthropic:claude-opus-5");
-		expect(cuaOverrideModels("anthropic")).toEqual([]);
 		expect(opus).toMatchObject({
 			provider: "anthropic",
 			api: "anthropic-messages",
@@ -67,34 +60,24 @@ describe("CUA model refs", () => {
 		});
 		expect(opus.compat).toMatchObject({ forceAdaptiveThinking: true, supportsTemperature: false });
 
-		expect(cuaOverrideModels("google")).toEqual([]);
 		expect(getCuaModel("google:gemini-3.6-flash")).toMatchObject({
 			provider: "google",
-			api: GOOGLE_CUA_INTERACTIONS_API,
+			api: "google-generative-ai",
 			contextWindow: 1_048_576,
 		});
 
-		const muse = getCuaModel("meta:muse-spark-1.1");
-		expect(muse.provider).toBe("meta");
-		expect(muse.api).toBe("openai-responses");
-		expect(muse.baseUrl).toBe("https://api.meta.ai/v1");
-		expect(muse.contextWindow).toBe(1_048_576);
-		expect(muse.maxTokens).toBe(128_000);
-		expect(muse.thinkingLevelMap?.off).toBeNull();
+		const muse = getCuaModel("openrouter:meta/muse-spark-1.1");
+		expect(muse.provider).toBe("openrouter");
+		expect(muse.baseUrl).toBe("https://openrouter.ai/api/v1");
 	});
 
-	it("uses pi-ai's Grok catalog entry with CUA routing overrides", () => {
-		expect(cuaOverrideModels("xai")).toEqual([]);
+	it("returns pi-ai's Grok catalog entry", () => {
 		const grok = getCuaModel("xai:grok-4.5");
 		expect(grok.provider).toBe("xai");
 		expect(grok.api).toBe("openai-responses");
 		expect(grok.baseUrl).toBe("https://api.x.ai/v1");
 		expect(grok.contextWindow).toBe(500_000);
 		expect(grok.maxTokens).toBe(500_000);
-		expect(grok.thinkingLevelMap).toEqual({ off: "low", minimal: "low", xhigh: "high" });
-		expect(grok.cost.tiers).toEqual([
-			{ inputTokensAbove: 200_000, input: 4, output: 12, cacheRead: 1, cacheWrite: 0 },
-		]);
 	});
 
 	it("uses pi-ai's Kimi catalog entries for both transports", () => {
@@ -105,8 +88,7 @@ describe("CUA model refs", () => {
 		expect(listCuaModels("openrouter").map((model) => model.ref)).toContain("openrouter:moonshotai/kimi-k3");
 	});
 
-	it("uses pi-ai's Kimi catalog entry without CUA routing overrides", () => {
-		expect(cuaOverrideModels("moonshotai")).toEqual([]);
+	it("uses pi-ai's Kimi catalog entry", () => {
 		const kimi = getCuaModel("moonshotai:kimi-k3");
 		expect(kimi.provider).toBe("moonshotai");
 		expect(kimi.api).toBe("openai-completions");
@@ -126,28 +108,23 @@ describe("CUA model refs", () => {
 		expect(getCuaModel("moonshot:kimi-k3" as CuaModelRef).id).toBe("kimi-k3");
 	});
 
-	it("loads supported custom provider models without explicit registration", () => {
-		expect(getCuaModel("tzafon:tzafon.northstar-cua-fast").api).toBe("tzafon-responses");
-		expect(getCuaModel("yutori:n1.5-latest").api).toBe("yutori-chat-completions");
-	});
-
-	it("keeps every Responses model on pi's builtin transport except Google's Interactions API", () => {
-		// A CUA-owned api id now exists only where pi ships no equivalent
-		// transport. OpenAI, Meta, and xAI all speak the Responses protocol pi
-		// already implements, including its automatic prompt caching.
+	it("resolves every model to its ordinary registry transport, independent of tool selection", () => {
+		// getCuaModel() never derives a tool-driven transport: OPENAI_CUA_COMPUTER_API
+		// and GOOGLE_CUA_INTERACTIONS_API are only ever carried by a model that
+		// compileCuaToolCatalog compiled with the matching native tool selected
+		// (see tool-catalog.test.ts's transport derivation coverage).
 		expect(getCuaModel("openai:gpt-5.6-sol").api).toBe("openai-responses");
 		expect(getCuaModel("openai:gpt-5.5").api).toBe("openai-responses");
 		expect(getCuaModel("openai:gpt-5.4-mini").api).toBe("openai-responses");
-		expect(getCuaModel("google:gemini-3.6-flash").api).toBe(GOOGLE_CUA_INTERACTIONS_API);
-		expect(getCuaModel("meta:muse-spark-1.1").api).toBe("openai-responses");
+		expect(getCuaModel("google:gemini-3.6-flash").api).toBe("google-generative-ai");
 		expect(getCuaModel("xai:grok-4.5").api).toBe("openai-responses");
 	});
 
-	it("rejects supported model IDs that are not in pi-ai or overrides", () => {
+	it("rejects supported model IDs that pi-ai does not carry", () => {
 		// Dated snapshots match the family annotation but pi-ai's registry
 		// (generated from models.dev) only carries family roots.
 		expect(() => getCuaModel("openai:gpt-5.5-2026-04-23")).toThrow(
-			/not registered/,
+			/not carried by pi-ai's registry/,
 		);
 	});
 });
@@ -198,7 +175,7 @@ describe("CUA support annotations", () => {
 		expect(findCuaAnnotation("openai", "gpt-5.6-sol")?.match).toEqual({ kind: "exact", id: "gpt-5.6-sol" });
 		expect(findCuaAnnotation("openai", "gpt-5.6-sol-20260728")).toBeUndefined();
 		expect(findCuaAnnotation("google", "gemini-3.6-flash")).toBeDefined();
-		expect(findCuaAnnotation("meta", "muse-spark-1.1")).toBeDefined();
+		expect(findCuaAnnotation("openrouter", "meta/muse-spark-1.1")).toBeDefined();
 		expect(findCuaAnnotation("xai", "grok-4.5")).toBeDefined();
 		expect(findCuaAnnotation("xai", "grok-4.5-latest")).toBeUndefined();
 		expect(findCuaAnnotation("xai", "grok-4.3")).toBeUndefined();
@@ -206,9 +183,6 @@ describe("CUA support annotations", () => {
 		expect(findCuaAnnotation("moonshotai", "kimi-k2.5")).toBeUndefined();
 		expect(findCuaAnnotation("moonshotai", "kimi-latest")).toBeUndefined();
 		expect(findCuaAnnotation("google", "gemini-3.5-flash-lite")).toBeDefined();
-		expect(findCuaAnnotation("yutori", "n1.5-latest")).toBeDefined();
-		expect(findCuaAnnotation("tzafon", "tzafon.northstar-cua-fast")).toBeDefined();
-		expect(findCuaAnnotation("tzafon", "tzafon.northstar-cua-fast-1.6")).toBeDefined();
 	});
 
 	it("advertises only Google's current documented computer-use models", () => {

@@ -92,7 +92,7 @@ export type CuaAgentOptions = Omit<AgentOptions, "initialState" | "streamFn"> & 
 	streamFn?: AgentOptions["streamFn"];
 	emptyResponseRecovery?: CuaEmptyResponseRecoveryOptions;
 	toolResultImageReplayLimit?: ToolResultImageReplayLimit;
-	/** Governs Google and Tzafon's `previous_response_id`-style continuation. Every other provider streams through pi's transports and their automatic prompt caching regardless of this flag. Defaults to `true`. */
+	/** Governs Google's `previous_response_id`-style continuation. Every other provider streams through pi's transports and their automatic prompt caching regardless of this flag. Defaults to `true`. */
 	responseThreading?: boolean;
 	retry?: CuaRetryOptions;
 };
@@ -113,7 +113,7 @@ type CuaAgentHarnessOptionsBase<
 	onPayload?: SimpleStreamOptions["onPayload"];
 	emptyResponseRecovery?: CuaEmptyResponseRecoveryOptions;
 	toolResultImageReplayLimit?: ToolResultImageReplayLimit;
-	/** Governs Google and Tzafon's `previous_response_id`-style continuation. Every other provider streams through pi's transports and their automatic prompt caching regardless of this flag. Defaults to `true`. */
+	/** Governs Google's `previous_response_id`-style continuation. Every other provider streams through pi's transports and their automatic prompt caching regardless of this flag. Defaults to `true`. */
 	responseThreading?: boolean;
 	retry?: CuaRetryOptions;
 };
@@ -258,6 +258,7 @@ export class CuaAgent {
 
 	setTools(tools: readonly CuaAgentTool[]): void {
 		const prepared = this.tools.prepareTools(tools);
+		this.coreAgent.state.model = prepared.catalog.model;
 		this.coreAgent.state.tools = this.tools.agentTools(prepared);
 		this.tools.commit(prepared);
 		this.runtimeDirty = true;
@@ -402,12 +403,16 @@ export class CuaAgentHarness<
 	getTools(): readonly CuaHarnessTool<TContext>[] { return this.tools.getTools(); }
 
 	async setTools(tools: readonly CuaHarnessTool<TContext>[]): Promise<void> {
+		const previousModel = this.tools.catalog.model;
 		const previousTools = this.tools.harnessTools();
 		const prepared = this.tools.prepareTools(tools);
 		const materialized = this.tools.harnessTools(prepared);
+		const transportChanged = modelTransportChanged(previousModel, prepared.catalog.model);
 		try {
+			if (transportChanged) await this.coreHarness.setModel(prepared.catalog.model);
 			await this.coreHarness.setTools(materialized, materialized.map((tool) => tool.name));
 		} catch (error) {
+			if (transportChanged) await this.coreHarness.setModel(previousModel);
 			await this.coreHarness.setTools(previousTools, previousTools.map((tool) => tool.name));
 			throw error;
 		}
@@ -420,6 +425,28 @@ export class CuaAgentHarness<
 		const previousModel = this.tools.catalog.model;
 		const previousTools = this.tools.harnessTools();
 		const prepared = this.tools.prepareModel(model);
+		const materialized = this.tools.harnessTools(prepared);
+		try {
+			await this.coreHarness.setModel(prepared.catalog.model);
+			await this.coreHarness.setTools(materialized, materialized.map((tool) => tool.name));
+		} catch (error) {
+			await this.coreHarness.setModel(previousModel);
+			await this.coreHarness.setTools(previousTools, previousTools.map((tool) => tool.name));
+			throw error;
+		}
+		this.tools.commit(prepared);
+	}
+
+	/**
+	 * Select a model and its tool list in one compile. A model switch that also
+	 * swaps interaction tools would otherwise stage through an intermediate
+	 * catalog whose derived transport differs from both the old and the new one,
+	 * recording a `model_change` for a transport nothing ever streamed with.
+	 */
+	async setModelAndTools(model: CuaModelInput, tools: readonly CuaHarnessTool<TContext>[]): Promise<void> {
+		const previousModel = this.tools.catalog.model;
+		const previousTools = this.tools.harnessTools();
+		const prepared = this.tools.prepareModelAndTools(model, tools);
 		const materialized = this.tools.harnessTools(prepared);
 		try {
 			await this.coreHarness.setModel(prepared.catalog.model);
@@ -476,6 +503,11 @@ function resolveModelFromCollection(ref: CuaModelRef, models: Models): Model<Api
 	return models.getModel(provider, id) ?? getCuaModel(ref);
 }
 
+/** Whether a tools-only recompile actually changed the model pi streams with, so `setTools()` only pushes `setModel()` (and its session/event side effects) when the derived transport moved. */
+function modelTransportChanged(previous: Model<Api>, next: Model<Api>): boolean {
+	return previous.provider !== next.provider || previous.id !== next.id || previous.api !== next.api;
+}
+
 function withCatalogModels(
 	models: Models,
 	manager: CuaToolManager<any>,
@@ -529,7 +561,7 @@ function resolveToolResultImageReplayLimit(limit: ToolResultImageReplayLimit | u
 
 /** Native computer tool names whose screenshot history the provider protocol requires in full, regardless of the image replay limit. */
 function requiredImageToolNames(incoming: CuaIncomingToolPlan): ReadonlySet<string> {
-	return new Set([incoming.tzafonComputerName, incoming.openaiComputerName].filter((name): name is string => !!name));
+	return new Set(incoming.openaiComputerName ? [incoming.openaiComputerName] : []);
 }
 
 function projectToolResultImages<TMessage extends AgentMessage>(

@@ -47,10 +47,9 @@ cua models -p openai
 cua --print --model openai:gpt-5.6-sol "..."
 cua --print --model anthropic:claude-opus-5 "..."
 cua --print --model google:gemini-3.6-flash "..."
-cua --print --model meta:muse-spark-1.1 "..."
+cua --print --model openrouter:meta/muse-spark-1.1 "..."
 cua --print --model xai:grok-4.5 "..."
 cua --print --model moonshotai:kimi-k3 "..."
-cua --print --model yutori:n1.5-latest "..."
 
 # Named sessions (browser stays alive across calls):
 cua session start login                       # provisions Kernel browser
@@ -116,11 +115,7 @@ live tool list untouched. Applying calls the harness's `setTools()`, which
 compiles and validates the whole catalog before mutating anything — so a
 rejected selection reports the error and leaves the session unchanged.
 
-Two constraints show up in the picker:
-
-- Provider-native action sets that cannot be partially suppressed (currently
-  Yutori n1) toggle as one group.
-- Disabling every tool is allowed and yields a text-only agent.
+Disabling every tool is allowed and yields a text-only agent.
 
 Selections are session-only and never persisted. `/model` rebuilds the tool list
 from the new model's defaults and reports `tool selection reset to the new
@@ -138,7 +133,7 @@ Run `cua models` to list every supported `-m` / `--model` value and the
 provider it routes to. Filter by provider with `cua models -p openai`,
 `cua models -p anthropic`, `cua models -p google` (alias: `gemini`),
 `cua models -p meta`, `cua models -p xai`, `cua models -p moonshotai`
-(alias: `moonshot`), `cua models -p openrouter`, or `cua models -p yutori`.
+(alias: `moonshot`), or `cua models -p openrouter`.
 
 `-m` / `--model` accepts a provider-qualified `provider:model` ref (e.g.
 `openai:gpt-5.6-sol`) or a bare model id when it matches exactly one catalog
@@ -155,12 +150,9 @@ Configuration is by environment variable. There is no config file.
 | `ANTHROPIC_API_KEY`  | Anthropic API key (required when `-m anthropic:…`) |
 | `GOOGLE_API_KEY`     | Google API key (required when `-m google:…`)   |
 | `GEMINI_API_KEY`     | alias of `GOOGLE_API_KEY`                      |
-| `META_API_KEY`       | Meta Model API key (required when `-m meta:…`)  |
 | `XAI_API_KEY`        | xAI API key (required when `-m xai:…`)          |
 | `MOONSHOT_API_KEY`   | Moonshot AI API key (required when `-m moonshotai:…`) |
 | `OPENROUTER_API_KEY` | OpenRouter API key (required when `-m openrouter:…`) |
-| `TZAFON_API_KEY`     | Tzafon API key (required when `-m tzafon:…`)   |
-| `YUTORI_API_KEY`     | Yutori API key (required when `-m yutori:…`)   |
 | `KERNEL_BASE_URL`    | override Kernel base URL                       |
 | `OPENAI_BASE_URL`    | override OpenAI base URL                       |
 | `ANTHROPIC_BASE_URL` | override Anthropic base URL                    |
@@ -168,8 +160,6 @@ Configuration is by environment variable. There is no config file.
 | `META_BASE_URL`      | override Meta Model API base URL               |
 | `XAI_BASE_URL`       | override xAI API base URL                       |
 | `MOONSHOTAI_BASE_URL` | override Moonshot AI base URL                  |
-| `TZAFON_BASE_URL`    | override Tzafon base URL                       |
-| `YUTORI_BASE_URL`    | override Yutori base URL                       |
 | `XDG_DATA_HOME`      | sessions dir base (defaults to `~/.local/share`) |
 | `CUA_IMAGE_PROTOCOL` | force inline image protocol (`kitty`/`iterm2`/`none`/`auto`) |
 
@@ -180,13 +170,9 @@ The CLI chooses one explicit interaction catalog and appends pi's coding tools:
 CUA browser primitives plus the verified `browser_act` plan tool for OpenAI,
 Meta, xAI, and older Anthropic models; browser primitives alone for Moonshot,
 whose API rejects `browser_act`'s larger schema; Anthropic's native browser tool
-when supported; Google's native browser action set; Tzafon's native computer
-tool in a browser environment; and Yutori's native N1/N1.5 browser set. If the
-active Anthropic credential cannot access `browser_20260701`, the same selected
-browser tool uses its equivalent function transport. Tzafon's native tool allows
-explicit screenshots and terminal answers only; non-screenshot actions fail
-before browser execution because CUA does not synthesize the post-action images
-its continuation protocol requires. Library callers can select any catalog
+when supported; and Google's native browser action set. If the active Anthropic
+credential cannot access `browser_20260701`, the same selected browser tool uses
+its equivalent function transport. Library callers can select any catalog
 directly; see [`@onkernel/cua-agent`](../agent).
 
 ## Output formats

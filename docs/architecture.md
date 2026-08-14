@@ -154,10 +154,8 @@ catalog:
 - Anthropic native browser/computer declarations replace only their own
   placeholders and merge required beta headers with caller headers.
 - OpenAI streams through pi's builtin Responses transport and its automatic
-  prompt caching; a CUA-owned adapter handles OpenAI's native computer tool and
-  tool-search namespace round-trips.
-- Tzafon replaces only the selected computer identity and fills declaration
-  dimensions from the actual viewport.
+  prompt caching by default; a CUA-owned adapter handles OpenAI's native
+  computer tool and tool-search namespace round-trips.
 - Anthropic's native browser tool falls back to an equivalent function-tool
   declaration when the active credential cannot access `browser_20260701`;
   the selected tool identity, name, schema, and executor remain unchanged.
@@ -165,10 +163,32 @@ catalog:
   declaration plus exact exclusions through the CUA-owned Interactions API
   adapter. Excluded calls fail with a named catalog error instead of reaching
   generic tool dispatch.
-- Yutori emits its native `tool_set`/`disable_tools` fields while preserving
-  ordinary function tools.
 - Meta, xAI, and Moonshot disable parallel tool calls when the selected catalog
   can mutate browser state.
+
+### Transport derivation
+
+The transport a model streams through is a function of **(model, selected
+tools)**, derived at catalog compilation — never stamped on the model ahead of
+time and never branched on a provider name. A `CuaProviderBinding` may declare
+`requiresApi`: the api id its provider-native tool needs. `compileCuaToolCatalog`
+reads `requiresApi` off the selected bindings after normalizing the requested
+catalog and returns a `catalog.model` carrying that api; selecting tools whose
+bindings require different transports fails to compile with a named catalog
+error. A model resolved with no such tool selected keeps its ordinary registry
+api.
+
+This is why an OpenAI model selected with only CUA browser tools streams
+through pi's builtin `openai-responses` transport, but the same model selected
+with `cua.providers.openai.tools.computer()` compiles to the CUA-owned
+`openai-cua-computer` api — and symmetrically for Google's
+`google-cua-interactions` Interactions API versus pi's builtin Google
+transport.
+
+`CuaAgent` and `CuaAgentHarness` push the compiled `catalog.model` into pi on
+every construction and on every `setTools()`/`setModel()`, so the derived
+transport applies uniformly regardless of which mutation path selected the
+tools.
 
 Generated payload processing has fixed order: model preparation, tool
 serialization, provider fields, then the caller's `onPayload` hook.
@@ -185,8 +205,6 @@ serialization, provider fields, then the caller's `onPayload` hook.
      `browser_act`'s larger schema;
    - Anthropic's native browser tool when the model supports it;
    - Google's native browser action set;
-   - Tzafon's native computer tool configured for a browser;
-   - Yutori's native N1 or N1.5 browser set plus an explicit screenshot tool;
 3. creates and retains its own application-level coding-tool list;
 4. passes the complete list to `CuaAgentHarness`;
 5. builds a caller-owned prompt from loaded skills and context files;
@@ -207,8 +225,7 @@ to it so `ctrl+c` cancels the selector instead of quitting.
   `filterModelsForPicker`, `moveSelection`, `visibleWindow`) that make its
   behavior unit-testable without a terminal.
 - `tui/tool-selection.ts` — pure `/tools` state machine: identity keys matching
-  `normalizeTool`'s scheme, group badges, atomic provider groups, and
-  toggle/bulk operations.
+  `normalizeTool`'s scheme, group badges, and toggle/bulk operations.
 - `tui/tools-picker.ts` — the `/tools` component. Staged edits applied through
   `harness.setTools()` with a subset of the application-composed baseline, in
   baseline order.

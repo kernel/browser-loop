@@ -1,6 +1,6 @@
 ---
 name: update-models
-description: Discover latest OpenAI, Anthropic, Google/Gemini, Meta, xAI, Moonshot, Tzafon, and Yutori models and verify computer-use support. Use when updating CUA model defaults, checking new model releases, auditing provider-native computer tool actions, or comparing provider metadata, official examples, and smoke-test results.
+description: Discover latest OpenAI, Anthropic, Google/Gemini, Meta, xAI, and Moonshot models and verify computer-use support. Use when updating CUA model defaults, checking new model releases, auditing provider-native computer tool actions, or comparing provider metadata, official examples, and smoke-test results.
 ---
 
 # Update Models
@@ -9,14 +9,14 @@ Use this workflow to keep CUA current with provider model releases and computer-
 
 ## Quick Start
 
-1. Verify credentials are available: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY` or `GEMINI_API_KEY`, `META_API_KEY`, `XAI_API_KEY`, `MOONSHOT_API_KEY`, `TZAFON_API_KEY`, and `YUTORI_API_KEY`.
+1. Verify credentials are available: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY` or `GEMINI_API_KEY`, `XAI_API_KEY`, and `MOONSHOT_API_KEY`.
 2. If credentials live in `~/AGENTS.md`, load them into the current shell without printing them:
 
 ```bash
 eval "$(python3 - <<'PY'
 import pathlib, re, shlex
 text = pathlib.Path('~/AGENTS.md').expanduser().read_text()
-for key in ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GOOGLE_API_KEY', 'META_API_KEY', 'XAI_API_KEY', 'MOONSHOT_API_KEY', 'TZAFON_API_KEY', 'YUTORI_API_KEY']:
+for key in ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GOOGLE_API_KEY', 'XAI_API_KEY', 'MOONSHOT_API_KEY']:
     m = re.search(r'export\s+' + re.escape(key) + r'=(?:"([^"]+)"|([^\s\n]+))', text)
     if m:
         print(f'export {key}={shlex.quote(m.group(1) or m.group(2))}')
@@ -61,7 +61,7 @@ Treat example repos as strongest when they are provider-owned or linked from off
 
 There are two enumeration layers:
 
-- Live provider availability: `reference/discover-models.ts` uses provider APIs and docs (`OpenAI().models.list()`, `Anthropic().models.list({ limit: 1000 })`, `GoogleGenAI().models.list()` / documented Gemini computer-use IDs, xAI's OpenAI-compatible `models.list()`, Tzafon's `Lightcone().models.list()` with known-model fallback, and Yutori OpenAPI/docs model enums) to discover what the current API key can access.
+- Live provider availability: `reference/discover-models.ts` uses provider APIs and docs (`OpenAI().models.list()`, `Anthropic().models.list({ limit: 1000 })`, `GoogleGenAI().models.list()` / documented Gemini computer-use IDs, and xAI's OpenAI-compatible `models.list()`) to discover what the current API key can access.
 - CUA-supported refs: `listCuaModels(provider?)` from `@onkernel/cua-ai` reads `packages/ai/src/models.ts` and returns the provider-qualified refs CUA accepts (e.g. `anthropic:claude-opus-4-7`). The `CUA_MODEL_ANNOTATIONS` table there is also what `getCuaModel()` and runtime provider routing use.
 
 When live discovery finds a new model with passing smoke tests, update `packages/ai/src/models.ts`; then verify it appears in `listCuaModels("<provider>")`.
@@ -70,7 +70,6 @@ When live discovery finds a new model with passing smoke tests, update `packages
 
 Meta:
 
-- Discover with the OpenAI SDK against `https://api.meta.ai/v1` using `META_API_KEY`.
 - Smoke-test the Responses API with screenshot input and explicit function tools matching CUA's canonical actions.
 - Pass condition: response output contains a `function_call` for one of the supplied browser actions.
 - Use `store: true` plus `previous_response_id` for CUA tool loops. Meta rejects `include: ["reasoning.encrypted_content"]` on requests that set `previous_response_id`.
@@ -124,35 +123,16 @@ Moonshot:
 - Set `parallel_tool_calls: false` because browser actions mutate shared state. There is no response threading; the full context replays each turn.
 - Kimi K3 launched with max-only thinking effort. pi-ai's registry entry clamps other levels away; re-check `thinkingLevelMap` when Moonshot ships low/high modes.
 
-Tzafon:
-
-- Discover with `new Lightcone({ apiKey }).models.list()` from `@tzafon/lightcone` when available.
-- If model listing is unavailable or returns an undocumented shape, record the error/shape and fall back to known smoke-test candidates such as `tzafon.northstar-cua-fast`.
-- Smoke-test `responses.create` with explicit function tools matching the Tzafon template: `click`, `double_click`, `point_and_type`, `key`, `scroll`, `drag`, and `done`.
-- Pass condition: response output contains `type: "function_call"` with one of those tool names, or a documented `computer_call` action if Lightcone switches to native computer-use output.
-- Track coordinate convention separately from Gemini/Yutori: Tzafon uses a 0-999 grid.
-
-Yutori:
-
-- Discover model IDs from `https://docs.yutori.com/openapi.json` plus the Navigator docs. Current expected IDs include `n1.5-latest`, `n1.5-20260428`, `n1-latest`, and `n1-20260203`.
-- Smoke-test the OpenAI-compatible `chat.completions` endpoint with `baseURL: "https://api.yutori.com/v1"` and `YUTORI_API_KEY`.
-- Pass condition: response `choices[0].message.tool_calls[]` contains browser action function names such as `left_click`, `goto_url`, `type`, `scroll`, or `wait`.
-- Track action-space differences between n1 and n1.5. n1 uses the legacy fixed tool set; n1.5 supports `tool_set`, `disable_tools`, expanded actions, and structured JSON output.
-- Do not send duplicate browser action schemas when testing local CUA behavior. The local adapter registers matching AgentTools for execution but filters Yutori's built-in browser tool definitions out of the outbound API payload.
-
 ## Native Action Discovery
 
 Run action probes when updating adapters or when docs/examples show drift:
 
 ```bash
-npx tsx .agents/skills/update-models/reference/discover-models.ts --provider meta --models muse-spark-1.1
 npx tsx .agents/skills/update-models/reference/discover-models.ts --provider xai --models grok-4.5
 npx tsx .agents/skills/update-models/reference/native-action-probe.ts --provider openai --model gpt-5.5
 npx tsx .agents/skills/update-models/reference/native-action-probe.ts --provider anthropic --model claude-opus-4-7
 npx tsx .agents/skills/update-models/reference/native-action-probe.ts --provider gemini --model gemini-3-flash-preview
 npx tsx .agents/skills/update-models/reference/native-action-probe.ts --provider xai --model grok-4.5
-npx tsx .agents/skills/update-models/reference/native-action-probe.ts --provider tzafon --model tzafon.northstar-cua-fast
-npx tsx .agents/skills/update-models/reference/native-action-probe.ts --provider yutori --model n1.5-latest
 ```
 
 The probe does not execute browser actions. It elicits tool calls for screenshot, click, type, keypress, scroll, drag, hover/move, wait, back/forward, and navigation. Compare:
@@ -192,14 +172,11 @@ All CUA model and adapter support lives in `packages/ai` (`@onkernel/cua-ai`). W
   - Update the snapshot in `packages/ai/docs/supported-models.md` to match.
 
 - New provider-native action, response field, or tool version:
-  - Meta: update `packages/ai/src/providers/meta/index.ts` and `provider.ts`, including Responses threading and reasoning compatibility.
   - OpenAI: update `packages/ai/src/providers/openai/index.ts` and its action vocabulary, plus the shared canonical types in `packages/ai/src/providers/common.ts` if the action set changes.
   - Anthropic: update the `ANTHROPIC_CUA_ACTION_TYPES` set in `packages/ai/src/providers/anthropic/actions.ts` and `index.ts`. The computer tool version and `computer-use-*` beta header are selected by `pi-ai` per model, so a new dated tool version usually means bumping `@earendil-works/pi-ai`, not editing this package.
   - Gemini: update `packages/ai/src/providers/gemini/index.ts`, including coordinate handling if needed.
   - xAI: update `packages/ai/src/providers/xai/index.ts` and `provider.ts`, including normalized coordinate instructions, Responses threading, and reasoning compatibility.
   - Moonshot: update `packages/ai/src/providers/moonshot/index.ts`, including the fractional coordinate instructions and payload middleware. Streaming rides pi-ai's builtin `openai-completions` transport, so wire-format changes usually mean bumping `@earendil-works/pi-ai`.
-  - Tzafon: update `packages/ai/src/providers/tzafon/index.ts` and `provider.ts`, including coordinate/action handling.
-  - Yutori: update `packages/ai/src/providers/yutori/actions.ts`, `index.ts`, and `provider.ts`, including payload filtering and coordinate/action handling.
   - Shared canonical action semantics go in `packages/ai/src/providers/common.ts`.
 
 - New provider or routing rule:

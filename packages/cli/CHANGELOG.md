@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.12.0 - 2026-08-13
+
+- `-m meta:muse-spark-1.1` is removed; use `-m openrouter:meta/muse-spark-1.1`.
+  `META_API_KEY` is no longer read.
+- The default interaction toolset for OpenRouter models is now chosen per model
+  rather than per provider. OpenRouter fronts several model families, and Kimi
+  K3 rejects `browser_act`'s schema while Muse Spark accepts it, so the CLI
+  asks the model's capabilities instead of assuming one answer per provider.
+
+Breaking: Tzafon and Yutori support is removed.
+
+- Update `@onkernel/cua-ai` and `@onkernel/cua-agent` to 0.13.0. Refs like
+  `-m tzafon:…` and `-m yutori:…` are no longer accepted, `cua models` no
+  longer lists either provider, and `TZAFON_API_KEY`/`YUTORI_API_KEY` are no
+  longer read.
+- The `/tools` picker no longer has atomic tool groups. They existed only for
+  Yutori's n1 action set, which the catalog compiler refused to accept as a
+  partial selection; every remaining tool toggles on its own.
+
+## 0.11.0 - 2026-08-13
+
+- Update `@onkernel/cua-ai` and `@onkernel/cua-agent` to 0.12.0. The default
+  Google interaction catalog is unchanged (`defaultInteractionTools` still
+  selects Google's native browser toolset), so the default `cua` model and
+  `--print -o jsonl`'s `assistant_usage.api` field for Google are unaffected
+  as long as that native toolset stays selected, including across an in-session
+  `/model` switch. Only a `/tools` selection that drops Google's native toolset
+  now reports pi's builtin `google-generative-ai` api instead of the CUA-owned
+  one.
+
 ## 0.10.0 - 2026-08-13
 
 - `--print -o jsonl` schema bumps to version 2: every assistant message now

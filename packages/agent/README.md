@@ -139,15 +139,14 @@ const tools = [
 ];
 ```
 
-Other provider groups include OpenAI native computer, Tzafon native computer,
-Google's current predefined browser toolset, and Yutori native toolsets. Every
-provider surface exposes linked first-party documentation. Meta and xAI use CUA
-browser primitives plus `cua.tools.browser.act()` in the provider-matrix
-examples. Moonshot uses browser primitives alone because its API rejects
-`browser_act`'s larger schema. Compilation rejects incompatible tool/model
-combinations before a request. Anthropic's native browser tool
-uses an equivalent function-tool transport when the active credential cannot
-access `browser_20260701`.
+Other provider groups include OpenAI native computer and Google's current
+predefined browser toolset. Every provider surface exposes linked first-party
+documentation. xAI uses CUA browser primitives plus
+`cua.tools.browser.act()` in the provider-matrix examples. Moonshot uses browser
+primitives alone because its API rejects `browser_act`'s larger schema.
+Compilation rejects incompatible tool/model combinations before a request.
+Anthropic's native browser tool uses an equivalent function-tool transport when
+the active credential cannot access `browser_20260701`.
 
 ## Dynamic catalogs
 
@@ -202,9 +201,9 @@ Tools return only requested feedback:
   textual markers.
 
 `toolResultImageReplayLimit` controls how many recent tool-result images remain
-in model context (`4` by default, or `false` to disable projection). Tzafon
-native screenshot results are exempt because its continuation protocol requires
-the image.
+in model context (`4` by default, or `false` to disable projection). OpenAI
+native computer results are exempt because its protocol requires each
+`computer_call_output` to carry a screenshot.
 
 ## Custom tools
 

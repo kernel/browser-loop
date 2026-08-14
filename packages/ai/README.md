@@ -157,10 +157,6 @@ cua.providers.google.toolsets.browser({ exclude: ["right_click"] });
 
 // Meta, xAI, and Moonshot use the ordinary CUA browser tools.
 cua.toolsets.browser();
-
-cua.providers.tzafon.tools.computer();
-cua.providers.yutori.toolsets.n1();
-cua.providers.yutori.toolsets.n15Core();
 ```
 
 The Google browser set exposes the current predefined action names and uses
@@ -240,21 +236,27 @@ additions through pi's active-tool change entries.
 
 ## Provider behavior
 
-- **OpenAI**: streams through pi's builtin Responses transport and its
-  automatic prompt caching by default. A CUA-owned adapter is used only for
-  OpenAI's native computer tool and for tool-search namespace round-trips.
+Transport is derived, not stamped on the model ahead of time: a selected
+tool's provider binding may declare `requiresApi`, and `compileCuaToolCatalog`
+returns a `catalog.model` carrying that api. Selecting tools whose bindings
+require different transports fails to compile.
+
+- **OpenAI**: a model selected with only ordinary/CUA browser tools streams
+  through pi's builtin Responses transport and its automatic prompt caching.
+  Selecting `cua.providers.openai.tools.computer()` derives the CUA-owned
+  `openai-cua-computer` api instead, which a CUA adapter handles; that same
+  adapter also covers tool-search namespace round-trips regardless of api,
+  since pi's builtin transport does not replay them.
 - **Anthropic**: exact native declarations, beta-header composition, and
-  adaptive model preparation.
-- **Google**: a CUA-owned Interactions API adapter plus the current predefined
-  browser set with explicit exclusions.
+  adaptive model preparation. No api fork — every Anthropic model streams
+  through pi's builtin transport.
+- **Google**: a model selected without Google's native browser toolset streams
+  through pi's builtin transport. Selecting
+  `cua.providers.google.toolsets.browser()` derives the CUA-owned
+  `google-cua-interactions` api, which serializes one `computer_use`
+  declaration plus explicit exclusions through the Interactions API adapter.
 - **Meta/xAI/Moonshot**: ordinary function tools with serial tool calls when the
   selected catalog mutates browser state.
-- **Tzafon**: identity-scoped native declaration replacement with actual viewport
-  dimensions. Explicit screenshot and terminal answer actions are supported;
-  non-screenshot native action loops fail before browser execution because
-  Tzafon's continuation protocol requires implicit post-action screenshots.
-- **Yutori**: identity-scoped native `tool_set`/`disable_tools` fields while
-  preserving ordinary function tools such as an explicitly selected screenshot.
 
 ## API keys
 
@@ -267,8 +269,8 @@ import {
 ```
 
 Conventional variables are `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
-`GOOGLE_API_KEY`/`GEMINI_API_KEY`, `META_API_KEY`, `XAI_API_KEY`,
-`MOONSHOT_API_KEY`, `TZAFON_API_KEY`, and `YUTORI_API_KEY`.
+`GOOGLE_API_KEY`/`GEMINI_API_KEY`, `XAI_API_KEY`, and
+`MOONSHOT_API_KEY`.
 
 ## Development
 

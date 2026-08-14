@@ -55,11 +55,8 @@ Options:
                                    openai:    openai:gpt-5.6-sol
                                    anthropic: anthropic:claude-opus-5
                                    google:    google:gemini-3.6-flash
-                                   meta:      meta:muse-spark-1.1
                                    xai:       xai:grok-4.5
                                    moonshot:  moonshotai:kimi-k3
-                                   tzafon:    tzafon:tzafon.northstar-cua-fast
-                                   yutori:    yutori:n1.5-latest
       --thinking <level>         Thinking level: off | minimal | low | medium | high | xhigh | max
                                  (default: low; applies to providers that support it)
       --profile <name|id>        Kernel browser profile to load
@@ -97,12 +94,9 @@ Environment:
   ANTHROPIC_API_KEY     Anthropic API key (required when -m anthropic:…)
   GOOGLE_API_KEY        Google API key (required when -m google:…)
   GEMINI_API_KEY        Alias for GOOGLE_API_KEY
-  META_API_KEY          Meta Model API key (required when -m meta:…)
   XAI_API_KEY           xAI API key (required when -m xai:…)
   MOONSHOT_API_KEY      Moonshot AI API key (required when -m moonshotai:…)
   OPENROUTER_API_KEY    OpenRouter API key (required when -m openrouter:…)
-  TZAFON_API_KEY        Tzafon API key (required when -m tzafon:…)
-  YUTORI_API_KEY        Yutori API key (required when -m yutori:…)
   KERNEL_BASE_URL       Override Kernel base URL
   OPENAI_BASE_URL       Override OpenAI base URL
   ANTHROPIC_BASE_URL    Override Anthropic base URL
@@ -110,8 +104,6 @@ Environment:
   META_BASE_URL         Override Meta Model API base URL
   XAI_BASE_URL          Override xAI API base URL
   MOONSHOTAI_BASE_URL   Override Moonshot AI base URL
-  TZAFON_BASE_URL       Override Tzafon base URL
-  YUTORI_BASE_URL       Override Yutori base URL
   XDG_DATA_HOME         Sessions are stored under \$XDG_DATA_HOME/cua/sessions
                         (defaults to ~/.local/share/cua/sessions)
   CUA_IMAGE_PROTOCOL    Force inline image protocol (\`kitty\`|\`iterm2\`|\`none\`|\`auto\`)

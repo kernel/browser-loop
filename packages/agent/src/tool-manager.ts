@@ -40,6 +40,14 @@ export type CuaHarnessTool<TContext extends object | undefined = never> = CuaToo
  */
 export interface PreparedCuaTools<TRequested extends CuaHarnessTool<any> = CuaAgentTool> {
 	readonly requested: readonly TRequested[];
+	/**
+	 * The model input this state was compiled from, before catalog compilation
+	 * derived a tool-selection-dependent transport onto it. A tools-only
+	 * recompile reuses this (not `catalog.model`, which may carry a transport
+	 * the new tool selection no longer requires) so the derivation re-runs from
+	 * a clean model every time.
+	 */
+	readonly modelSelection: CuaModelRef | Model<Api>;
 	readonly catalog: CuaToolCatalog;
 	readonly tools: readonly AgentTool[];
 	readonly harnessTools: readonly AgentHarnessTool<any>[];
@@ -112,12 +120,17 @@ export class CuaToolManager<TRequested extends CuaHarnessTool<any> = CuaAgentToo
 
 	prepareTools(tools: readonly TRequested[]): PreparedCuaTools<TRequested> {
 		this.assertMutationScope("setTools");
-		return this.prepare(this.current.catalog.model, tools);
+		return this.prepare(this.current.modelSelection, tools);
 	}
 
 	prepareModel(model: CuaModelRef | Model<Api>): PreparedCuaTools<TRequested> {
 		this.assertMutationScope("setModel");
 		return this.prepare(model, this.current.requested);
+	}
+
+	prepareModelAndTools(model: CuaModelRef | Model<Api>, tools: readonly TRequested[]): PreparedCuaTools<TRequested> {
+		this.assertMutationScope("setModelAndTools");
+		return this.prepare(model, tools);
 	}
 
 	commit(prepared: PreparedCuaTools<TRequested>): void {
@@ -154,7 +167,6 @@ export class CuaToolManager<TRequested extends CuaHarnessTool<any> = CuaAgentToo
 		const catalog = compileCuaToolCatalog({
 			model: typeof model === "string" ? this.resolveModel(model) : model,
 			requestedTools: inputs,
-			viewport: this.resources.viewport,
 		});
 
 		const fingerprints: string[] = [];
@@ -174,6 +186,7 @@ export class CuaToolManager<TRequested extends CuaHarnessTool<any> = CuaAgentToo
 
 		return Object.freeze({
 			requested,
+			modelSelection: model,
 			catalog,
 			tools: Object.freeze(joined.map((tool) => this.wrapAgentExecutable(tool as AgentTool))),
 			harnessTools: Object.freeze(joined.map((tool) => this.wrapHarnessExecutable(tool))),
@@ -215,7 +228,7 @@ export class CuaToolManager<TRequested extends CuaHarnessTool<any> = CuaAgentToo
 		});
 	}
 
-	private assertMutationScope(api: "setTools" | "setModel"): void {
+	private assertMutationScope(api: "setTools" | "setModel" | "setModelAndTools"): void {
 		const scope = this.execution.getStore();
 		if (scope && scope.executionMode !== "sequential") {
 			throw new Error(`tool "${scope.toolName}" must declare executionMode: "sequential" before calling ${api}() during execution`);

@@ -419,7 +419,7 @@ Composition must:
 6. Establish explicit resource sharing without adding tools.
 7. Install exactly the requested tools.
 
-Payload transforms must operate on explicit tool identities, not infer ownership from names such as `click`. This is required for providers like Tzafon and Yutori, whose current native-tool adapters classify or replace tools by name.
+Payload transforms must operate on explicit tool identities, not infer ownership from names such as `click`. This is required for native-tool adapters that classify or replace tools by name.
 
 ## Mid-conversation tool changes and provider caches
 
@@ -512,7 +512,7 @@ A provider capability description may include:
 
 Coordinate uncertainty in one computer tool must not disable coordinate-free browser tools such as snapshots, refs, semantic waits, or action plans.
 
-Tzafon and Yutori adapters compose by selected identity: Tzafon replaces only its native computer placeholder, while Yutori removes only selected native placeholders and preserves unrelated function tools.
+Native adapters compose by selected identity: OpenAI replaces only its native computer placeholder, while Google removes only selected native placeholders and preserves unrelated function tools.
 
 ## Removal of `computer_use_extra`
 
@@ -542,7 +542,7 @@ anthropic browser_20260701 cannot be used with model openai:gpt-5.6-sol
 ```
 
 ```text
-tools "tzafon_computer" and "browser_click" require conflicting payload transforms
+tools "provider.<a>.native.computer" and "provider.<b>.native.browser" require conflicting payload transforms for "tools.computer_use"
 ```
 
 ```text
@@ -604,7 +604,7 @@ Every provider tool surface must expose the first-party source it mirrors. CUA-a
 4. **Batch overlap:** batches are mechanical; `browser_act` remains semantic; browser batches share ref state without a workflow DSL.
 5. **Dynamic loading:** `setTools()` uses pi 0.83.0 additive markers only for final, cache-preserving in-tool additions; other changes are eager.
 6. **Shared resources:** one resource pool survives tool/model changes and owns the translator and lazy CDP executor.
-7. **Provider exports:** the native OpenAI, Anthropic, Google, Tzafon, and Yutori surfaces are namespaced, cite first-party sources, and are tested against their declared contracts. Meta, xAI, and Moonshot use CUA-authored browser tools; the CLI explicitly appends `browser_act` to the Meta and xAI catalogs. Moonshot is excluded: its API accepts the complex `browser_wait_for` schema but rejects a request carrying `browser_act`'s much larger one, so the catalog gates oversized schemas separately from merely-complex ones.
+7. **Provider exports:** the native OpenAI, Anthropic, and Google surfaces are namespaced, cite first-party sources, and are tested against their declared contracts. Meta, xAI, and Moonshot use CUA-authored browser tools; the CLI explicitly appends `browser_act` to the Meta and xAI catalogs. Moonshot is excluded: its API accepts the complex `browser_wait_for` schema but rejects a request carrying `browser_act`'s much larger one, so the catalog gates oversized schemas separately from merely-complex ones.
 
 ## Decisions recorded
 

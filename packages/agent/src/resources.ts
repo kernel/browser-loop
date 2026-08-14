@@ -34,7 +34,6 @@ type ToolContent = Array<TextContent | ImageContent>;
 export class CuaExecutionResources {
 	readonly browser: KernelBrowser;
 	readonly client: Kernel;
-	readonly viewport: { readonly width: number; readonly height: number };
 	private readonly translator: InternalComputerTranslator;
 	/** Each spec is materialized exactly once per resource pool. */
 	private readonly materialized = new WeakMap<CuaToolSpec, AgentTool>();
@@ -47,7 +46,6 @@ export class CuaExecutionResources {
 	}) {
 		this.browser = options.browser;
 		this.client = options.client;
-		this.viewport = options.browser.viewport ?? { width: 1920, height: 1080 };
 		this.translator = new InternalComputerTranslator(options);
 	}
 

@@ -16,8 +16,6 @@ import {
 } from "../src/index";
 import { withAnthropicBrowserFallback } from "../src/providers/anthropic/browser-fallback";
 
-const viewport = { width: 1440, height: 900 };
-
 const context: Context = {
 	systemPrompt: "",
 	messages: [{ role: "user", content: [{ type: "text", text: "Use the browser." }], timestamp: 1 }],
@@ -30,7 +28,6 @@ describe("Anthropic native browser access fallback", () => {
 		const catalog = compileCuaToolCatalog({
 			model,
 			requestedTools: [cua.providers.anthropic.tools.browser()],
-			viewport,
 		});
 		const payloads: Array<{ tools: unknown[]; headers: SimpleStreamOptions["headers"] }> = [];
 		let calls = 0;
@@ -69,7 +66,6 @@ describe("Anthropic native browser access fallback", () => {
 		const catalog = compileCuaToolCatalog({
 			model,
 			requestedTools: [cua.providers.anthropic.tools.browser()],
-			viewport,
 		});
 		let calls = 0;
 		const provider = withAnthropicBrowserFallback(fakeProvider(async (selectedModel) => {

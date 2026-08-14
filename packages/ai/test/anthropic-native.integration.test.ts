@@ -8,8 +8,6 @@ import {
 const apiKey = process.env.ANTHROPIC_API_KEY;
 const liveIt = apiKey ? it : it.skip;
 
-const viewport = { width: 1440, height: 900 };
-
 const cases = [
 	{
 		name: "computer",
@@ -31,7 +29,6 @@ describe("Anthropic early-access native tools", () => {
 			const catalog = compileCuaToolCatalog({
 				model: "anthropic:claude-opus-5",
 				requestedTools: [current.tool],
-				viewport,
 			});
 			const response = await createCuaModels().complete(
 				catalog.model,

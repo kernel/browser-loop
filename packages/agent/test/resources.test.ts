@@ -203,10 +203,10 @@ describe("CuaExecutionResources results and batch boundaries", () => {
 		expect(result.details).not.toHaveProperty("isError");
 	});
 
-	it("returns status text for Yutori writes without capturing a screenshot", async () => {
+	it("returns status text for provider-native writes without capturing a screenshot", async () => {
 		const { resources, captureScreenshot } = setup();
-		const spec = cua.providers.yutori.toolsets.n15Core().find((tool) => tool.name === "left_click")!;
-		const result = await resources.materialize(spec).execute("click", { coordinates: [100, 200] });
+		const spec = cua.providers.google.toolsets.browser().find((tool) => tool.name === "click")!;
+		const result = await resources.materialize(spec).execute("click", { x: 100, y: 200 });
 		expect(result.content).toEqual([{ type: "text", text: "Actions executed successfully." }]);
 		expect(captureScreenshot).not.toHaveBeenCalled();
 	});

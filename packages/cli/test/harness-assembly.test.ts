@@ -4,7 +4,6 @@ import {
 	InMemorySessionRepo,
 	type Skill,
 } from "@onkernel/cua-agent";
-import { cua } from "@onkernel/cua-ai";
 import { tmpdir } from "node:os";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
@@ -24,7 +23,7 @@ describe("buildCuaHarness", () => {
 		const googleNames = defaultInteractionTools("google:gemini-3.6-flash").map((tool) => tool.name);
 		expect(googleNames).toContain("take_screenshot");
 		expect(googleNames).not.toContain("browser_act");
-		for (const model of ["meta:muse-spark-1.1", "xai:grok-4.5"] as const) {
+		for (const model of ["xai:grok-4.5", "openrouter:meta/muse-spark-1.1"] as const) {
 			const tools = defaultInteractionTools(model);
 			expect(tools[0]).toMatchObject({ name: "browser_snapshot", origin: "cua" });
 			expect(tools.at(-1)?.name).toBe("browser_act");
@@ -36,11 +35,6 @@ describe("buildCuaHarness", () => {
 			expect(kimiNames).not.toContain("browser_act");
 			expect(kimiNames).toContain("browser_wait_for");
 		}
-		expect(defaultInteractionTools("tzafon:tzafon.northstar-cua-fast")[0]?.name).toBe("computer");
-		expect(defaultInteractionTools("yutori:n1.5-latest").map((tool) => tool.name)).toEqual([
-			...cua.providers.yutori.toolsets.n15Core().map((tool) => tool.name),
-			"computer_screenshot",
-		]);
 	});
 
 	it("installs interaction and coding tools in one explicit default list", async () => {

@@ -72,19 +72,6 @@ model/tool surfaces are intentionally not exposed.
 
 Source: [Gemini computer use docs](https://ai.google.dev/gemini-api/docs/computer-use).
 
-## `meta`
-
-CLI default interaction: CUA browser primitives plus explicit `browser_act`.
-
-Exact IDs:
-
-- `muse-spark-1.1`
-
-Muse Spark uses Meta's OpenAI-compatible Responses API with ordinary function
-tools. CUA continues tool loops through `previous_response_id`.
-
-Source: [Meta computer-use cookbook](https://dev.meta.ai/docs/getting-started/cookbook/computer-use-macos).
-
 ## `xai`
 
 CLI default interaction: CUA browser primitives plus explicit `browser_act`.
@@ -123,39 +110,21 @@ Source: [Kimi K3 announcement](https://www.kimi.com/blog/kimi-k3), [tool use](ht
 
 ## `openrouter`
 
-CLI default interaction: CUA browser primitives only. OpenRouter's Kimi K3
-route accepts complex function schemas but rejects the larger `browser_act`
-schema, and state-mutating calls are serialized.
+CLI default interaction: per model, not per provider. OpenRouter fronts several
+model families, so the CLI asks each model whether it accepts `browser_act`'s
+schema rather than assuming one answer for the whole provider.
 
 Model refs use the `openrouter:` prefix:
 
-- `moonshotai/kimi-k3`
+- `moonshotai/kimi-k3` — browser primitives only: accepts complex function
+  schemas but rejects the larger `browser_act` schema. State mutations are
+  serialized.
+- `meta/muse-spark-1.1` — browser primitives plus explicit `browser_act`. State
+  mutations are serialized.
 
-Kimi K3 uses OpenRouter's OpenAI-compatible chat completions API with ordinary
-CUA browser function tools. OpenRouter does not expose the provider-native
-computer tools declared by other CUA providers.
+Both use OpenRouter's OpenAI-compatible chat completions API with ordinary CUA
+browser function tools. OpenRouter does not expose the provider-native computer
+tools declared by other CUA providers.
 
-Source: [OpenRouter model page](https://openrouter.ai/moonshotai/kimi-k3).
-
-## `tzafon`
-
-Coordinates: normalized 0–999
-
-Exact IDs:
-
-- `tzafon.northstar-cua-fast` ([model card](https://huggingface.co/Tzafon/Northstar-CUA-Fast))
-- `tzafon.northstar-cua-fast-1.6` ([model card](https://huggingface.co/Tzafon/Northstar-CUA-Fast))
-- `tzafon.northstar-cua-fast-1.7-experiment` ([model card](https://huggingface.co/Tzafon/Northstar-CUA-Fast))
-
-## `yutori`
-
-Coordinates: normalized 0–1000
-
-Exact IDs:
-
-- `n1-latest`
-- `n1-20260203`
-- `n1.5-latest`
-- `n1.5-20260428`
-
-Source: [Yutori Navigator reference](https://docs.yutori.com/reference/navigator).
+Sources: [Kimi K3](https://openrouter.ai/moonshotai/kimi-k3),
+[Muse Spark 1.1](https://openrouter.ai/meta/muse-spark-1.1).
