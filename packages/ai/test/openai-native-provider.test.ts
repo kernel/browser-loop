@@ -170,4 +170,37 @@ describe("OpenAI native computer Responses adapter", () => {
 		expect(payload.store).toBe(false);
 		expect(payload.previous_response_id).toBeUndefined();
 	});
+
+
+});
+describe("computer_call_output serialization", () => {
+	async function sendWithResult(content: Array<{ type: string; [k: string]: unknown }>, isError: boolean) {
+		responsesCreate.mockReturnValueOnce({ id: "resp_ser", usage: {}, output: [] });
+		await openai.streamOpenAICuaComputer(nativeModel, {
+			messages: [
+				{ role: "assistant", content: [{ type: "toolCall", id: "c1", name: "computer", arguments: {} }], stopReason: "toolUse" },
+				{ role: "toolResult", toolCallId: "c1", toolName: "computer", content, isError, timestamp: 1 },
+			] as never,
+			tools: [{ name: "computer", description: "placeholder", parameters: { type: "object" } as never }],
+		}, { apiKey: "test", cuaIncomingToolPlan: incoming }).result();
+		return JSON.stringify(responsesCreate.mock.calls.at(-1)?.[0]);
+	}
+
+	it("never emits an error key, and always carries a valid screenshot", async () => {
+		// Verified live: putting the failure text in an `error` key here makes the
+		// Responses API answer 400 `Unknown parameter: 'input[N].output.error'`, which
+		// poisoned every later request in the conversation.
+		const sent = await sendWithResult([{ type: "text", text: "click failed" }], true);
+		expect(sent).not.toContain('\\"error\\"');
+		expect(sent).toContain("computer_screenshot");
+		expect(sent).toContain("image_url");
+		// The text still reaches the model, as a message rather than an invalid field.
+		expect(sent).toContain("computer action produced no screenshot");
+	});
+
+	it("uses the real screenshot when the result carries one", async () => {
+		const sent = await sendWithResult([{ type: "image", data: "aW1n", mimeType: "image/png" }], false);
+		expect(sent).toContain("data:image/png;base64,aW1n");
+		expect(sent).not.toContain("produced no screenshot");
+	});
 });
