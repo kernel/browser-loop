@@ -33,9 +33,11 @@ describe("cuaToolMenu", () => {
 		expect(act?.available).toBe(false);
 		expect(act?.unavailableReason).toContain("does not accept the schema size");
 
+		// Google used to fail here. It no longer does: the two JSON Schema keywords
+		// the Gemini API rejects are narrowed by the catalog's payload transform, so
+		// browser_wait_for compiles like any other function tool.
 		const waitFor = cuaToolMenu("google:gemini-3.6-flash").find((entry) => entry.label === "browser_wait_for");
-		expect(waitFor?.available).toBe(false);
-		expect(waitFor?.unavailableReason).toContain("does not accept the schema");
+		expect(waitFor?.available).toBe(true);
 	});
 
 	it("offers a model's own native surfaces and no other provider's", () => {

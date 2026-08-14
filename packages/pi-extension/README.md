@@ -33,32 +33,30 @@ pi -p --provider anthropic --model claude-opus-5 --cua-tools anthropic-computer 
   "Open example.com and report its heading"
 ```
 
-### Selectors
+### The menu
 
-| selector | tools |
-| --- | --- |
-| `browser` | the CDP browser toolset |
-| `computer` | the canonical computer toolset |
-| `mixed` | both, deduplicated |
-| `browser-act` | `browser_act` alone, the verified-plan tool |
-| `browser-batch`, `computer-batch` | one mechanical batch tool |
-| `playwright` | `playwright_execute` |
-| `anthropic-computer`, `anthropic-browser` | Anthropic's native surfaces |
-| `openai-computer` | OpenAI's native computer tool |
-| `google-browser` | Google's predefined browser action set |
-| any individual tool name | that tool alone |
+Eight entries, one per capability. Availability is per model, and `/cua-tools`
+tells you which apply to the one you selected.
 
-Provider-native surfaces work because the extension **owns the stream** for the
-providers it registers. pi resolves and streams its own registry model, but the
-transport a native surface needs is derived onto the *compiled* model — so the
-registered provider swaps in `catalog.model` (the resolved model with only `api`
-replaced, so cost and context window are untouched) and adds the incoming
-native-call plan that normalizes `computer_call`-style items and drives
-Anthropic's browser-beta fallback. pi's resolved credential rides along in
-`options.apiKey`.
+| entry | tools | works on |
+| --- | --- | --- |
+| `browser` | CDP browser primitives plus the one-call `browser_batch` form | every provider |
+| `computer` | canonical computer primitives plus `computer_batch` | every provider |
+| `browser-act` | `browser_act`, the verified-plan tool | every provider except Moonshot, which rejects its schema size |
+| `playwright` | `playwright_execute` | every provider |
+| `anthropic-computer` | Anthropic's native computer tool | Anthropic only |
+| `anthropic-browser` | Anthropic's native browser tool | Anthropic only |
+| `openai-computer` | OpenAI's native computer tool | OpenAI only |
+| `google-browser` | Google's predefined browser action set | Google only |
+
+`anthropic-browser` and `anthropic-computer` cannot be selected together:
+Anthropic rejects the pair because the browser tool addresses a viewport
+coordinate frame and the computer tool a display frame. The catalog compiler
+refuses it before the request goes out, and `/cua-tools` reports it as a conflict
+rather than as unavailability.
 
 `--cua-coordinates` selects `pixels` (default) or `normalized-1000` for the
-computer toolset's coordinate contract.
+`computer` entry's coordinate contract.
 
 ### Commands
 
@@ -72,6 +70,11 @@ A selection is checked by compiling it, so a model that cannot take a tool
 deactivates it with a reason rather than failing at request time. Switching
 models re-checks, and restores a previously forced-off selection when the new
 model can take it.
+
+In TUI mode the reason appears in the status line. In print and RPC modes there
+is no status line, so the reason is written to **stderr** — once per distinct
+reason. Without that, a deactivated selection is invisible: the tools are gone,
+no browser is created, and the model answers from memory with exit 0.
 
 ### Browser
 

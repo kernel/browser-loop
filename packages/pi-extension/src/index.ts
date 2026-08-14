@@ -39,6 +39,7 @@ export default function cuaPiExtension(pi: ExtensionAPI): void {
 	let browserOptions: BrowserOptions = defaultBrowserOptions();
 	let activeNames = new Set<string>();
 	let compatibilityError: string | undefined;
+	let warnedError: string | undefined;
 	let initialized = false;
 	let forcedInactive = false;
 	let sessionActive = false;
@@ -118,8 +119,17 @@ export default function cuaPiExtension(pi: ExtensionAPI): void {
 			pi.setActiveTools(current.filter((name) => !allSpecs.has(name)));
 		}
 		initialized = true;
-		if (ctx.mode === "tui")
+		if (ctx.mode === "tui") {
 			ctx.ui.setStatus("cua", statusText(selection.selectors, [...activeNames], runtime?.getStatus() ?? {}, compatibilityError));
+		} else if (compatibilityError && compatibilityError !== warnedError) {
+			// Print and RPC have no status line, and silence here is the worst failure
+			// this extension can produce: the tools vanish, no browser is created, and
+			// the model answers from memory with exit 0. Say so on stderr, once per
+			// distinct reason so a multi-turn run does not repeat itself.
+			process.stderr.write(`cua: no browser tool is active — ${compatibilityError}\n`);
+			warnedError = compatibilityError;
+		}
+		if (!compatibilityError) warnedError = undefined;
 	}
 	/**
 	 * The compiled catalog for the model pi is about to stream with, or undefined
@@ -191,7 +201,7 @@ export default function cuaPiExtension(pi: ExtensionAPI): void {
 					ctx.ui.notify("cua: no pi model is selected", "error");
 					return;
 				}
-				ctx.ui.notify(availabilityText(selectorAvailability(ctx.model, selection), selection.selectors), "info");
+				ctx.ui.notify(availabilityText(selectorAvailability(ctx.model, selection)), "info");
 				return;
 			}
 			selection = parseSelection(args === "none" ? undefined : args, selection.coordinates);

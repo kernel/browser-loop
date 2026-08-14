@@ -10,11 +10,12 @@ export function statusText(selectors: readonly string[], active: readonly string
 }
 
 /** One line per selector, so an unavailable one carries the compiler's own reason. */
-export function availabilityText(entries: readonly SelectorAvailability[], selected: readonly string[]): string {
-	const chosen = new Set(selected);
+export function availabilityText(entries: readonly SelectorAvailability[]): string {
 	const lines = entries.map((entry) => {
-		const mark = chosen.has(entry.selector) ? "*" : " ";
-		return entry.available ? `${mark} ${entry.selector}` : `${mark} ${entry.selector} — unavailable: ${entry.reason ?? "unknown"}`;
+		const mark = entry.selected ? "*" : " ";
+		if (!entry.available) return `${mark} ${entry.selector} — unavailable: ${entry.reason ?? "unknown"}`;
+		const conflict = entry.conflictsWith.length ? ` (cannot combine with ${entry.conflictsWith.join(", ")})` : "";
+		return `${mark} ${entry.selector}${conflict}`;
 	});
 	return ["cua selectors for this model (* = selected):", ...lines].join("\n");
 }

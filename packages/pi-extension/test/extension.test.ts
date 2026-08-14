@@ -5,7 +5,7 @@ import { getCuaModel } from "@onkernel/cua-ai";
 import { describe, expect, it, vi } from "vitest";
 
 import { CuaBrowserRuntime } from "../src/browser-runtime";
-import { allSelectableSpecs } from "../src/selection";
+import { allSelectableSpecs, expandSelection, parseSelection } from "../src/selection";
 import extension from "../src/index";
 
 type Handler = (event: unknown, ctx: ExtensionContext) => unknown;
@@ -97,7 +97,7 @@ const anthropicCtx = { ...ctx, model: getCuaModel("anthropic:claude-fable-5") } 
 describe("pi extension activation", () => {
 	it("reads parsed flags at session_start, installs selectable batch tools, and preserves unrelated tools", async () => {
 		const pi = makePi({
-			"cua-tools": "browser-batch",
+			"cua-tools": "browser",
 			"cua-coordinates": "pixels",
 			"cua-browser-timeout": "300",
 			"cua-profile-save-changes": false,
@@ -105,7 +105,7 @@ describe("pi extension activation", () => {
 		extension(pi.api);
 		await getHandler(pi, "session_start")({}, ctx);
 		expect(pi.tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(allSelectableSpecs("pixels").map((tool) => tool.name)));
-		expect(pi.active).toEqual(["bash", "browser_batch"]);
+		expect(pi.active).toEqual(["bash", ...expandSelection(parseSelection("browser", "pixels")).map((spec) => spec.name)]);
 	});
 
 	it("rejects invalid parsed flags instead of silently activating no tools", () => {
@@ -171,7 +171,7 @@ describe("pi extension activation", () => {
 
 	it("applies provider transforms only for the active CUA subset", async () => {
 		const pi = makePi({
-			"cua-tools": "browser_snapshot",
+			"cua-tools": "playwright",
 			"cua-coordinates": "pixels",
 			"cua-browser-timeout": "300",
 			"cua-profile-save-changes": false,
@@ -191,7 +191,7 @@ describe("pi extension activation", () => {
 
 	it("does not persist a flag baseline and restores only command-origin selections", async () => {
 		const pi = makePi({
-			"cua-tools": "browser_snapshot",
+			"cua-tools": "playwright",
 			"cua-coordinates": "pixels",
 			"cua-browser-timeout": "300",
 			"cua-profile-save-changes": false,
@@ -211,7 +211,7 @@ describe("pi extension activation", () => {
 		]);
 
 		const resumed = makePi({
-			"cua-tools": "browser_snapshot",
+			"cua-tools": "playwright",
 			"cua-coordinates": "pixels",
 			"cua-browser-timeout": "300",
 			"cua-profile-save-changes": false,
@@ -223,7 +223,7 @@ describe("pi extension activation", () => {
 		expect(resumed.active).not.toContain("browser_snapshot");
 
 		const legacy = makePi({
-			"cua-tools": "browser_snapshot",
+			"cua-tools": "playwright",
 			"cua-coordinates": "pixels",
 			"cua-browser-timeout": "300",
 			"cua-profile-save-changes": false,
@@ -242,7 +242,7 @@ describe("pi extension activation", () => {
 		} as unknown as ExtensionContext;
 		extension(legacy.api);
 		await getHandler(legacy, "session_start")({}, legacyCtx);
-		expect(legacy.active).toContain("browser_snapshot");
+		expect(legacy.active).toContain("playwright_execute");
 		expect(legacy.active).not.toContain("computer_click");
 	});
 
@@ -277,7 +277,7 @@ describe("pi extension activation", () => {
 
 	it("keeps an ordinary function tool active on a model the registry does not carry", async () => {
 		const pi = makePi({
-			"cua-tools": "browser_snapshot",
+			"cua-tools": "playwright",
 			"cua-coordinates": "pixels",
 			"cua-browser-timeout": "300",
 			"cua-profile-save-changes": false,
@@ -292,13 +292,43 @@ describe("pi extension activation", () => {
 		// Removing the model allowlist made this the expected outcome: a plain
 		// function tool has no provider binding to violate, so it stays selected.
 		await getHandler(pi, "before_provider_request")({ payload: { tools: [] } }, unlisted);
-		expect(pi.active).toContain("browser_snapshot");
+		expect(pi.active).toContain("playwright_execute");
+	});
+
+	it("warns on stderr when a selection deactivates outside TUI mode", async () => {
+		const written: string[] = [];
+		const write = vi.spyOn(process.stderr, "write").mockImplementation(((chunk: string) => {
+			written.push(String(chunk));
+			return true;
+		}) as never);
+		try {
+			const pi = makePi({
+				"cua-tools": "anthropic-computer",
+				"cua-coordinates": "pixels",
+				"cua-browser-timeout": "300",
+				"cua-profile-save-changes": false,
+			});
+			extension(pi.api);
+			// An OpenAI model cannot take Anthropic's native computer tool. Without this
+			// warning the tools vanish, no browser is created, and the model answers
+			// from memory with exit 0 — the worst failure this extension can produce.
+			await getHandler(pi, "session_start")({}, ctx);
+
+			expect(pi.active).not.toContain("computer");
+			expect(written.join("")).toMatch(/cua: no browser tool is active — .*requires a anthropic model/);
+			// One warning per distinct reason, not once per reconcile.
+			const before = written.length;
+			await getHandler(pi, "before_agent_start")({}, ctx);
+			expect(written.length).toBe(before);
+		} finally {
+			write.mockRestore();
+		}
 	});
 
 	it("lists selector availability without changing the selection, and clears it only on request", async () => {
 		const notices: string[] = [];
 		const pi = makePi({
-			"cua-tools": "browser_snapshot",
+			"cua-tools": "playwright",
 			"cua-coordinates": "pixels",
 			"cua-browser-timeout": "300",
 			"cua-profile-save-changes": false,
@@ -314,15 +344,15 @@ describe("pi extension activation", () => {
 
 		await getCommand(pi, "cua-tools").handler("", listingCtx);
 		const listing = notices.at(-1) ?? "";
-		expect(listing).toContain("* browser_snapshot");
+		expect(listing).toContain("* playwright");
 		// The reason comes from the catalog compiler, not from a rule restated here.
 		expect(listing).toMatch(/anthropic-computer — unavailable: .*requires a anthropic model/);
 		// Listing is not a mutation: an empty argument must not clear the selection.
-		expect(pi.active).toContain("browser_snapshot");
+		expect(pi.active).toContain("playwright_execute");
 		expect(pi.entries).toEqual([]);
 
 		await getCommand(pi, "cua-tools").handler("none", listingCtx);
-		expect(pi.active).not.toContain("browser_snapshot");
+		expect(pi.active).not.toContain("playwright_execute");
 	});
 
 	it("re-registers declarations when a new session changes coordinate mode", async () => {

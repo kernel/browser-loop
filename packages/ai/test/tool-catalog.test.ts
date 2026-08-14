@@ -4,6 +4,7 @@ import {
 	callerToolIdentity,
 	compileCuaToolCatalog,
 	cua,
+	getCuaModel,
 	GOOGLE_CUA_INTERACTIONS_API,
 	OPENAI_CUA_COMPUTER_API,
 	type CuaToolSpec,
@@ -377,5 +378,44 @@ describe("transport derivation", () => {
 
 		const recompiled = compile(nativeCatalog.model, cua.toolsets.browser());
 		expect(recompiled.model.api).toBe("openai-responses");
+	});
+
+});
+describe("Gemini function-declaration schema", () => {
+	it("rewrites the two keywords the Gemini API rejects", async () => {
+		const catalog = compileCuaToolCatalog({
+			model: getCuaModel("google:gemini-3.6-flash"),
+			requestedTools: [cua.tools.browser.waitFor()],
+		});
+		const raw = {
+			tools: [
+				{
+					functionDeclarations: catalog.toolDeclarations.map((tool) => ({
+						name: tool.name,
+						description: tool.description,
+						parameters: tool.parameters,
+					})),
+				},
+			],
+		};
+		const sent = JSON.stringify(await catalog.payload.apply(raw, catalog.model));
+
+		// Verified live: the Gemini API answers 400 `Unknown name "const"` and the
+		// same for additionalProperties, rather than ignoring what it does not know.
+		expect(JSON.stringify(raw)).toContain('"const"');
+		expect(sent).not.toContain('"const"');
+		expect(sent).not.toContain('"additionalProperties"');
+		// `const: x` becomes a single-value enum, which means the same thing.
+		expect(sent).toContain('"enum":["text"]');
+	});
+
+	it("leaves other providers' declarations untouched", async () => {
+		const catalog = compileCuaToolCatalog({
+			model: getCuaModel("openai:gpt-5.6-sol"),
+			requestedTools: [cua.tools.browser.waitFor()],
+		});
+		const raw = { tools: [{ functionDeclarations: [{ name: "browser_wait_for", parameters: catalog.toolDeclarations[0]!.parameters }] }] };
+		const sent = JSON.stringify(await catalog.payload.apply(raw, catalog.model));
+		expect(sent).toContain('"const"');
 	});
 });

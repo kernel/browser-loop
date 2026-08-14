@@ -204,8 +204,12 @@ describe("model quirks", () => {
 	});
 
 	it("keeps the limits we have evidence for", () => {
-		// Observed live: the Gemini API rejects browser_wait_for's schema shape.
-		expect(cuaModelCapabilities(getCuaModel("google:gemini-3.6-flash")).acceptsComplexSchemas).toBe(false);
+		// Google no longer carries a schema quirk. What the Gemini API rejects is two
+		// JSON Schema keywords it does not know — `const` and `additionalProperties` —
+		// and the catalog narrows both for it, so the same declarations every other
+		// provider gets are accepted. Verified live against the Gemini API.
+		expect(cuaModelCapabilities(getCuaModel("google:gemini-3.6-flash")).acceptsComplexSchemas).toBe(true);
+		expect(cuaModelCapabilities(getCuaModel("google:gemini-3.6-flash")).acceptsLargeSchemas).toBe(true);
 		// Observed live: Kimi K3 rejects the request once browser_act is attached.
 		expect(cuaModelCapabilities(getCuaModel("moonshotai:kimi-k3")).acceptsLargeSchemas).toBe(false);
 		expect(cuaModelCapabilities(getCuaModel("openrouter:moonshotai/kimi-k3")).acceptsLargeSchemas).toBe(false);

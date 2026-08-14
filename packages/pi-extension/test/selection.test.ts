@@ -1,18 +1,9 @@
 import { getCuaModel } from "@onkernel/cua-ai";
 import { describe, expect, it } from "vitest";
-import {
-	BROWSER_BATCH_ACTIONS,
-	compileSpecs,
-	COMPUTER_BATCH_ACTIONS,
-	CUA_SELECTORS,
-	CUA_TOOL_NAMES,
-	expandSelection,
-	parseSelection,
-	selectorAvailability,
-} from "../src/selection";
+import { compileSpecs, CUA_SELECTORS, expandSelection, parseSelection, selectorAvailability } from "../src/selection";
 
 describe("CUA pi selectors", () => {
-	it("has stable exact browser and computer preset membership", () => {
+	it("has stable exact browser and computer entry membership, batch included", () => {
 		expect(expandSelection(parseSelection("browser", "pixels")).map((tool) => tool.name)).toEqual([
 			"browser_snapshot",
 			"browser_text",
@@ -31,6 +22,7 @@ describe("CUA pi selectors", () => {
 			"browser_screenshot",
 			"browser_evaluate",
 			"browser_wait_for",
+			"browser_batch",
 		]);
 		expect(expandSelection(parseSelection("computer", "normalized-1000")).map((tool) => tool.name)).toEqual([
 			"computer_click",
@@ -49,15 +41,29 @@ describe("CUA pi selectors", () => {
 			"computer_forward",
 			"computer_url",
 			"computer_cursor_position",
+			"computer_batch",
 		]);
 	});
-	it("expands special selectors without native provider tools", () => {
-		expect(
-			expandSelection(parseSelection("browser-act,browser-batch,computer-batch,playwright", "pixels")).map((tool) => tool.name),
-		).toEqual(["browser_act", "browser_batch", "computer_batch", "playwright_execute"]);
-		expect(BROWSER_BATCH_ACTIONS).toHaveLength(17);
-		expect(COMPUTER_BATCH_ACTIONS).toHaveLength(17);
-		expect(CUA_TOOL_NAMES).not.toContain("computer");
+	it("offers exactly the eight menu entries", () => {
+		expect([...CUA_SELECTORS]).toEqual([
+			"browser",
+			"computer",
+			"browser-act",
+			"playwright",
+			"anthropic-computer",
+			"anthropic-browser",
+			"openai-computer",
+			"google-browser",
+		]);
+		// Packaging variants are gone: the batch tool ships inside its generic entry,
+		// and the 37 individual tool names are no longer selectable on their own.
+		for (const retired of ["mixed", "browser-batch", "computer-batch", "browser_snapshot", "computer_click"]) {
+			expect(() => parseSelection(retired, "pixels")).toThrow(/unknown CUA tool selector/);
+		}
+		expect(expandSelection(parseSelection("browser-act,playwright", "pixels")).map((tool) => tool.name)).toEqual([
+			"browser_act",
+			"playwright_execute",
+		]);
 	});
 	it("compiles Anthropic native computer use only for supported Anthropic models", () => {
 		const specs = expandSelection(parseSelection("anthropic-computer", "pixels"));
@@ -106,6 +112,35 @@ describe("CUA pi selectors", () => {
 		expect(() => parseSelection("browser,browser", "pixels")).toThrow("duplicate");
 		expect(() => parseSelection("native-openai", "pixels")).toThrow("unknown");
 		expect(() => parseSelection("browser", "screen")).toThrow("coordinates");
-		expect(() => expandSelection(parseSelection("browser,browser_snapshot", "pixels"))).toThrow("duplicate tool identity");
+	});
+
+	it("rejects Anthropic's two native surfaces together, before the API does", () => {
+		// Anthropic answers 400: the browser tool's viewport coordinate frame is
+		// incompatible with the computer tool's display frame.
+		const both = expandSelection(parseSelection("anthropic-computer,anthropic-browser", "pixels"));
+		expect(() => compileSpecs(getCuaModel("anthropic:claude-opus-5"), both)).toThrow(/cannot be selected alongside/);
+	});
+
+	it("reports that pairwise conflict as a conflict, not as unavailability", () => {
+		const byName = new Map(
+			selectorAvailability(getCuaModel("anthropic:claude-opus-5"), parseSelection(undefined, "pixels")).map((e) => [e.selector, e]),
+		);
+		expect(byName.get("anthropic-computer")?.available).toBe(true);
+		expect(byName.get("anthropic-computer")?.conflictsWith).toContain("anthropic-browser");
+		expect(byName.get("anthropic-browser")?.conflictsWith).toContain("anthropic-computer");
+		expect(byName.get("playwright")?.conflictsWith).toEqual([]);
+	});
+
+	it("no longer marks every row unavailable when the current selection fails to compile", () => {
+		// The regression this replaces: a failing selection's error became the reason
+		// on every row, including rows that then activated fine.
+		const model = getCuaModel("anthropic:claude-opus-5");
+		const failing = parseSelection("anthropic-computer,anthropic-browser", "pixels");
+		expect(() => compileSpecs(model, expandSelection(failing))).toThrow();
+
+		const byName = new Map(selectorAvailability(model, failing).map((e) => [e.selector, e]));
+		expect(byName.get("playwright")?.available).toBe(true);
+		expect(byName.get("browser")?.available).toBe(true);
+		expect(byName.get("playwright")?.reason).toBeUndefined();
 	});
 });

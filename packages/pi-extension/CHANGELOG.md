@@ -8,10 +8,21 @@
   it rather than reimplementing it. The `cua act` model-free executor path and
   the `--print -o jsonl` telemetry schema are gone with it.
 - Add `@onkernel/cua-pi-extension`, an installable pi extension that contributes
-  Kernel browser tools to pi's own agent session. Selectors cover the CDP browser
-  toolset, the canonical computer toolset, the batch and Playwright tools, and
-  every provider-native surface: Anthropic's computer and browser tools, OpenAI's
-  native computer tool, and Google's predefined browser action set.
+  Kernel browser tools to pi's own agent session. The menu is eight entries, one
+  per capability: `browser` and `computer` (primitives plus their batch form),
+  `browser-act`, `playwright`, and the four provider-native surfaces —
+  `anthropic-computer`, `anthropic-browser`, `openai-computer`, `google-browser`.
+  Packaging variants are deliberately absent: `mixed`, the batch tools on their
+  own, and the 37 individual tool names offered nothing the eight entries do not.
+- A deactivated selection now reports itself on stderr in print and RPC modes,
+  once per distinct reason. Previously the reason reached only the TUI status
+  line, so a scripted run lost its tools silently, created no browser, and let
+  the model answer from memory with exit 0.
+- `/cua-tools` decides each entry's availability by compiling it on its own, and
+  reports pairwise conflicts separately. It previously passed the current
+  selection to the tool menu, whose verdicts are relative to that selection, so a
+  selection that failed to compile marked every entry unavailable with its
+  error — including entries that then activated fine.
 - Provider-native surfaces work because the extension owns the stream for the
   providers it registers, swapping pi's registry model for the compiled catalog's
   model — which carries the transport the selected tools derive — and passing the
