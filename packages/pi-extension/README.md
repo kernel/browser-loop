@@ -25,17 +25,17 @@ No selector means no Kernel tool is active and no browser is provisioned.
 
 ```sh
 pi -p --provider openai --model gpt-5.6-sol \
-  --cua-tools browser,browser-act "Open example.com and report its heading"
+  --browser-tools browser,browser-act "Open example.com and report its heading"
 
-pi --mode rpc --no-session --provider openai --model gpt-5.6-sol --cua-tools browser
+pi --mode rpc --no-session --provider openai --model gpt-5.6-sol --browser-tools browser
 
-pi -p --provider anthropic --model claude-opus-5 --cua-tools anthropic-computer \
+pi -p --provider anthropic --model claude-opus-5 --browser-tools anthropic-computer \
   "Open example.com and report its heading"
 ```
 
 ### The menu
 
-Eight entries, one per capability. Availability is per model, and `/cua-tools`
+Eight entries, one per capability. Availability is per model, and `/browser-tools`
 tells you which apply to the one you selected.
 
 | entry | tools | works on |
@@ -52,16 +52,16 @@ tells you which apply to the one you selected.
 `anthropic-browser` and `anthropic-computer` cannot be selected together:
 Anthropic rejects the pair because the browser tool addresses a viewport
 coordinate frame and the computer tool a display frame. The catalog compiler
-refuses it before the request goes out, and `/cua-tools` reports it as a conflict
+refuses it before the request goes out, and `/browser-tools` reports it as a conflict
 rather than as unavailability.
 
-`--cua-coordinates` selects `pixels` (default) or `normalized-1000` for the
+`--browser-coordinates` selects `pixels` (default) or `normalized-1000` for the
 `computer` entry's coordinate contract.
 
 ### Commands
 
-- `/cua` — current selectors, active tools, and browser status.
-- `/cua-tools` — with no argument, list every selector for the current model,
+- `/browser` — current selectors, active tools, and browser status.
+- `/browser-tools` — with no argument, list every selector for the current model,
   marking the selected ones and showing the compiler's own reason for any that
   this model cannot take. With an argument, replace the selection. `none` clears
   it.
@@ -80,10 +80,21 @@ no browser is created, and the model answers from memory with exit 0.
 
 | flag | effect |
 | --- | --- |
-| `--cua-browser-session` | attach an existing session; never deleted on exit |
-| `--cua-profile-id`, `--cua-profile-save-changes` | load and optionally persist a profile |
-| `--cua-proxy-id` | route through a Kernel proxy |
-| `--cua-browser-timeout` | owned-browser timeout in seconds (default 300) |
+| `--browser-session` | attach an existing session; never deleted on exit |
+| `--browser-options` | JSON forwarded verbatim to Kernel's browser-create call |
+
+`--browser-options` is one JSON object rather than a flag per field, so it tracks
+the Kernel SDK without this extension growing an option every time the SDK does:
+
+```sh
+pi -p --browser-tools browser \
+  --browser-options '{"stealth":true,"profile":{"id":"p1","save_changes":true},"proxy_id":"px1"}' \
+  "open example.com"
+```
+
+The only default is `timeout_seconds: 600` — the failure it prevents is a browser
+vanishing mid-task. Override it in the same JSON. `--browser-session` attaches an
+existing browser, so it cannot be combined with `--browser-options`.
 
 One browser is provisioned lazily per session, on first tool execution.
 Compiling declarations, generating headers, and transforming a payload never

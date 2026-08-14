@@ -197,7 +197,7 @@ describe("pi modes", () => {
 				KERNEL_BASE_URL: server.url,
 				KERNEL_API_KEY: "test-key",
 			};
-			const args = ["--extension", extension, "--provider", "openai", "--model", "gpt-5.6-sol", "--cua-tools", "playwright"];
+			const args = ["--extension", extension, "--provider", "openai", "--model", "gpt-5.6-sol", "--browser-tools", "playwright"];
 
 			const print = await runPrint([...args, "-p", "run the browser tool"], env, directory);
 			expect(print.code, `${print.stdout}\n${print.stderr}`).toBe(0);

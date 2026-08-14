@@ -51,16 +51,16 @@ export const CUA_SELECTORS: readonly string[] = Object.freeze(Object.keys(MENU))
 export function parseSelection(value: string | undefined, coordinates: string | undefined): CuaSelection {
 	const coordinateMode = coordinates ?? "pixels";
 	if (coordinateMode !== "pixels" && coordinateMode !== "normalized-1000") {
-		throw new Error('--cua-coordinates must be "pixels" or "normalized-1000"');
+		throw new Error('--browser-coordinates must be "pixels" or "normalized-1000"');
 	}
 	const selectors =
 		value
 			?.split(",")
 			.map((item) => item.trim())
 			.filter(Boolean) ?? [];
-	if (new Set(selectors).size !== selectors.length) throw new Error("--cua-tools contains duplicate selectors");
+	if (new Set(selectors).size !== selectors.length) throw new Error("--browser-tools contains duplicate selectors");
 	for (const selector of selectors) {
-		if (!CUA_SELECTORS.includes(selector)) throw new Error(`unknown CUA tool selector "${selector}"`);
+		if (!CUA_SELECTORS.includes(selector)) throw new Error(`unknown browser tool selector "${selector}"`);
 	}
 	return Object.freeze({ selectors: Object.freeze(selectors), coordinates: coordinateMode });
 }
@@ -85,12 +85,12 @@ export function expandSelection(selection: CuaSelection): CuaToolSpec[] {
 	const result: CuaToolSpec[] = [];
 	for (const selector of selection.selectors) {
 		const entry = MENU[selector];
-		if (!entry) throw new Error(`unknown CUA tool selector "${selector}"`);
+		if (!entry) throw new Error(`unknown browser tool selector "${selector}"`);
 		result.push(...entry(coordinates));
 	}
 	const identities = new Set<string>();
 	for (const spec of result) {
-		if (identities.has(spec.identity)) throw new Error(`CUA selection contains duplicate tool identity "${spec.identity}"`);
+		if (identities.has(spec.identity)) throw new Error(`selection contains duplicate tool identity "${spec.identity}"`);
 		identities.add(spec.identity);
 	}
 	return result;

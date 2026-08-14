@@ -6,7 +6,7 @@ export function statusText(selectors: readonly string[], active: readonly string
 	const browserText = browser.sessionId
 		? `${browser.owned ? "owned" : "attached"} ${browser.sessionId}${browser.liveUrl ? ` ${browser.liveUrl}` : ""}`
 		: "not provisioned";
-	return `cua: selected=${selectors.join(",") || "none"}; active=${tools}; browser=${browserText}${error ? `; unavailable=${error}` : ""}`;
+	return `browser tools: selected=${selectors.join(",") || "none"}; active=${tools}; browser=${browserText}${error ? `; unavailable=${error}` : ""}`;
 }
 
 /** One line per selector, so an unavailable one carries the compiler's own reason. */
@@ -17,5 +17,5 @@ export function availabilityText(entries: readonly SelectorAvailability[]): stri
 		const conflict = entry.conflictsWith.length ? ` (cannot combine with ${entry.conflictsWith.join(", ")})` : "";
 		return `${mark} ${entry.selector}${conflict}`;
 	});
-	return ["cua selectors for this model (* = selected):", ...lines].join("\n");
+	return ["browser tool selectors for this model (* = selected):", ...lines].join("\n");
 }

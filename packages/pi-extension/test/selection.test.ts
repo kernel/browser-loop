@@ -1,6 +1,8 @@
 import { getCuaModel } from "@onkernel/cua-ai";
 import { describe, expect, it } from "vitest";
 import { compileSpecs, CUA_SELECTORS, expandSelection, parseSelection, selectorAvailability } from "../src/selection";
+import { DEFAULT_BROWSER_TIMEOUT_SECONDS } from "../src/browser-runtime";
+import { parseBrowserOptions } from "../src/index";
 
 describe("CUA pi selectors", () => {
 	it("has stable exact browser and computer entry membership, batch included", () => {
@@ -58,7 +60,7 @@ describe("CUA pi selectors", () => {
 		// Packaging variants are gone: the batch tool ships inside its generic entry,
 		// and the 37 individual tool names are no longer selectable on their own.
 		for (const retired of ["mixed", "browser-batch", "computer-batch", "browser_snapshot", "computer_click"]) {
-			expect(() => parseSelection(retired, "pixels")).toThrow(/unknown CUA tool selector/);
+			expect(() => parseSelection(retired, "pixels")).toThrow(/unknown browser tool selector/);
 		}
 		expect(expandSelection(parseSelection("browser-act,playwright", "pixels")).map((tool) => tool.name)).toEqual([
 			"browser_act",
@@ -142,5 +144,25 @@ describe("CUA pi selectors", () => {
 		expect(byName.get("playwright")?.available).toBe(true);
 		expect(byName.get("browser")?.available).toBe(true);
 		expect(byName.get("playwright")?.reason).toBeUndefined();
+	});
+});
+
+describe("browser options", () => {
+	it("takes one JSON object and defaults only the timeout", () => {
+		expect(parseBrowserOptions(undefined, undefined)).toEqual({ create: {} });
+		expect(parseBrowserOptions(undefined, '{"stealth":true,"proxy_id":"p1"}')).toEqual({
+			create: { stealth: true, proxy_id: "p1" },
+		});
+		// Forwarded verbatim, so a field the SDK adds needs no flag here.
+		expect(parseBrowserOptions(undefined, '{"invented_future_field":42}').create).toMatchObject({ invented_future_field: 42 });
+		expect(DEFAULT_BROWSER_TIMEOUT_SECONDS).toBe(600);
+	});
+
+	it("rejects input that would silently do nothing", () => {
+		expect(() => parseBrowserOptions(undefined, "not json")).toThrow(/must be valid JSON/);
+		expect(() => parseBrowserOptions(undefined, "[1,2]")).toThrow(/must be a JSON object/);
+		// Attaching an existing browser and configuring a new one are contradictory.
+		expect(() => parseBrowserOptions("sess_1", '{"stealth":true}')).toThrow(/attaches an existing browser/);
+		expect(parseBrowserOptions("sess_1", undefined)).toEqual({ sessionId: "sess_1", create: {} });
 	});
 });
