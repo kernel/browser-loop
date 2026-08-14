@@ -60,3 +60,39 @@ This is what lets a model work the day the provider ships it rather than when
 models.dev catches up.
 
 Only an unqualified ref or a provider pi-ai does not carry is refused.
+
+## Keeping these tables current
+
+There is no periodic audit to run. The allowlist that once needed one is gone,
+so maintenance is reactive — four cases, in rough order of how often they come up.
+
+**A provider released a model.** Nothing to do. If pi-ai's registry carries it,
+it resolves; if not, it is synthesized from its nearest sibling. Neither needs a
+change here.
+
+**The catalog looks stale.** Bump `@earendil-works/pi-ai`. Its registry is
+generated from models.dev, so a newer pi-ai is how names, context windows, and
+pricing get refreshed. Note that cua does not read pi's `models.json`: that is a
+pi-coding-agent config file, and cua builds its `Models` collection from pi-ai
+directly. A provider pi-ai does not ship is not selectable without registering
+it in `src/providers.ts` — a deliberate decision, since the repo has removed
+four such providers rather than carry them unused.
+
+**A provider shipped or changed a native tool.** This is real adapter work, not
+a table edit. Probe what the model actually emits:
+
+```bash
+npx tsx packages/ai/scripts/native-action-probe.ts --provider openai --model gpt-5.5 --limit 3
+```
+
+Update that provider's adapter under `src/providers/` to execute the actions the
+probe returns, then add or adjust the `CUA_NATIVE_SURFACES` entry, citing the
+provider's documentation. Anthropic's computer tool version and its
+`computer-use-*` beta header are chosen by pi-ai per model, so a new dated
+version there usually means bumping pi-ai rather than editing this package.
+
+**A model rejects a tool CUA sends.** Add a `CUA_MODEL_QUIRKS` entry with the
+observed error as its `reason`, scoped as narrowly as the evidence supports: a
+single model id over a family, a family over a whole provider. Remove a quirk
+when the provider lifts the limit — a stale quirk silently denies a model a tool
+it now accepts, which is harder to notice than the reverse.
