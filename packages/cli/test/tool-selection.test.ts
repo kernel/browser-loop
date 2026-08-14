@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import { cua } from "@onkernel/cua-ai";
 import { defaultApplicationTools, defaultInteractionTools } from "../src/harness";
 import {
-	describeTools,
+	describeMenu,
 	disableTools,
+	selectedKeys,
+	toolsForSelection,
 	enableTools,
 	sameSelection,
 	toggleTool,
@@ -28,39 +30,73 @@ describe("toolKey", () => {
 	});
 });
 
-describe("describeTools", () => {
-	it("preserves the baseline order the application composed", () => {
+describe("describeMenu", () => {
+	it("offers the model's whole menu, not just what the application composed", () => {
 		const baseline = [...defaultInteractionTools("openai:gpt-5.6-sol"), ...defaultApplicationTools()];
-		expect(describeTools(baseline).map((item) => item.key)).toEqual(baseline.map(toolKey));
+		const items = describeMenu("openai:gpt-5.6-sol", defaultApplicationTools(), baseline);
+		expect(items.length).toBeGreaterThan(baseline.length);
+		// Not composed by the CLI for this model, but offerable.
+		expect(items.some((item) => item.label === "playwright_execute")).toBe(true);
+		expect(items.some((item) => item.label === "computer_click")).toBe(true);
+	});
+
+	it("marks what the live selection already holds", () => {
+		const baseline = [...defaultInteractionTools("openai:gpt-5.6-sol"), ...defaultApplicationTools()];
+		const items = describeMenu("openai:gpt-5.6-sol", defaultApplicationTools(), baseline);
+		const snapshot = items.find((item) => item.label === "browser_snapshot")!;
+		expect(snapshot.available).toBe(true);
+		expect(items.filter((item) => item.group === "application").every((item) => item.available)).toBe(true);
+	});
+
+	it("marks a tool the model cannot take, with the compiler's reason", () => {
+		const items = describeMenu("google:gemini-3.6-flash", defaultApplicationTools(), []);
+		const waitFor = items.find((item) => item.label === "browser_wait_for")!;
+		expect(waitFor.available).toBe(false);
+		expect(waitFor.unavailableReason).toContain("does not accept the schema");
+
+		const openaiNative = items.filter((item) => item.group === "native" && !item.available);
+		expect(openaiNative.length).toBeGreaterThan(0);
+	});
+
+	it("keeps the caller's configured spec for a row already installed", () => {
+		// The CLI enables `javascript` on Anthropic's native browser. A row that is
+		// already installed must contribute that exact object, or a no-op apply
+		// would rebuild the catalog without the option.
+		const model = "anthropic:claude-opus-5" as const;
+		const application = defaultApplicationTools();
+		const baseline = [...defaultInteractionTools(model), ...application];
+		const live = baseline.find((tool) => tool.name === "browser")!;
+		const items = describeMenu(model, application, baseline);
+		const row = items.find((item) => item.label === "browser" && item.group === "native")!;
+		expect(row.tools[0]).toBe(live);
+
+		const applied = toolsForSelection(items, selectedKeys(items, baseline));
+		expect(applied.find((tool) => tool.name === "browser")).toBe(live);
 	});
 
 	it("labels provider-native, cua, and application groups", () => {
-		const items = describeTools([
-			...defaultInteractionTools("google:gemini-3.6-flash"),
-			...defaultApplicationTools(),
-		]);
+		const items = describeMenu("google:gemini-3.6-flash", defaultApplicationTools(), []);
 		const groups = new Set(items.map((item) => item.group));
 		expect(groups.has("native")).toBe(true);
 		expect(groups.has("application")).toBe(true);
-
-		const cuaItems = describeTools(defaultInteractionTools("openai:gpt-5.6-sol"));
-		expect(cuaItems.every((item) => item.group === "cua")).toBe(true);
+		expect(groups.has("browser")).toBe(true);
 	});
 });
 
 describe("toolSearchText", () => {
 	it("covers the label, group, and identity", () => {
-		const [item] = describeTools([cua.tools.browser.snapshot()]);
-		const text = toolSearchText(item!);
-		expect(text).toContain(item!.label);
-		expect(text).toContain("cua");
+		const items = describeMenu("openai:gpt-5.6-sol", [], []);
+		const item = items.find((entry) => entry.label === "browser_snapshot")!;
+		const text = toolSearchText(item);
+		expect(text).toContain(item.label);
+		expect(text).toContain("browser");
 		expect(text).toContain("cua.browser.snapshot.v1");
 	});
 });
 
 describe("selection state machine", () => {
 	const baseline = [...defaultInteractionTools("openai:gpt-5.6-sol"), ...defaultApplicationTools()];
-	const items = describeTools(baseline);
+	const items = describeMenu("openai:gpt-5.6-sol", defaultApplicationTools(), baseline);
 	const allKeys = items.map((item) => item.key);
 
 	it("toggles a single tool off and back on", () => {

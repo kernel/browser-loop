@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import type { CuaModelRef } from "@onkernel/cua-ai";
 import { defaultApplicationTools, defaultInteractionTools } from "../src/harness";
+import { describeMenu } from "../src/tui/tool-selection";
 
 /**
  * Drive the interactive TUI through ptywright with a scripted provider sitting
@@ -52,6 +53,17 @@ const STABLE_MS = 250;
  */
 function baselineToolCount(modelRef: string): number {
 	return defaultInteractionTools(modelRef as CuaModelRef).length + defaultApplicationTools().length;
+}
+
+/**
+ * Rows the picker can select for a model. The footer counts selectable rows,
+ * not the baseline: `/tools` offers the model's whole menu, of which the
+ * application-composed baseline is just the part enabled on open.
+ */
+function selectableToolCount(modelRef: string): number {
+	const application = defaultApplicationTools();
+	const baseline = [...defaultInteractionTools(modelRef as CuaModelRef), ...application];
+	return describeMenu(modelRef as CuaModelRef, application, baseline).filter((item) => item.available).length;
 }
 
 suite("TUI ptywright scenarios", () => {
@@ -335,7 +347,9 @@ suite("TUI ptywright scenarios", () => {
 		assert.match(opened.visible, /ctrl\+s apply/);
 		assert.match(opened.visible, /ctrl\+a all/);
 		const baseline = baselineToolCount("openai:gpt-5.5");
-		assert.match(opened.visible, new RegExp(`${baseline}/${baseline} enabled`));
+		const selectable = selectableToolCount("openai:gpt-5.5");
+		assert.ok(selectable > baseline, "the menu offers more than the composed baseline");
+		assert.match(opened.visible, new RegExp(`${baseline}/${selectable} enabled`));
 
 		// Stage a toggle, then cancel: live state must be untouched.
 		session.send(" ");
@@ -359,7 +373,7 @@ suite("TUI ptywright scenarios", () => {
 		session.send(" ");
 		await session.waitForVisible("✗ disabled", { timeoutMs: WAIT_MS });
 		session.press(KeyCtrlS);
-		await session.waitForVisible(`tools → ${baseline - 1}/${baseline} enabled`, { timeoutMs: WAIT_MS });
+		await session.waitForVisible(`tools → ${baseline - 1} enabled`, { timeoutMs: WAIT_MS });
 		await session.waitForStable(STABLE_MS, { timeoutMs: WAIT_MS });
 		assert.doesNotMatch(session.snapshot().visible, /Tool Configuration/);
 
@@ -370,19 +384,24 @@ suite("TUI ptywright scenarios", () => {
 		await session.waitForStable(STABLE_MS, { timeoutMs: WAIT_MS });
 		const reopened = session.snapshot();
 		assert.match(reopened.visible, /✗ disabled/);
-		assert.match(reopened.visible, new RegExp(`${baseline - 1}/${baseline} enabled`));
+		assert.match(reopened.visible, new RegExp(`${baseline - 1}/${selectable} enabled`));
 
-		// ctrl+a re-enables everything listed and ctrl+x clears it; both are staged.
+		// ctrl+a enables every selectable row — including tools the application
+		// never composed — and ctrl+x clears it; both are staged.
 		session.press(KeyCtrlA);
-		await session.waitForVisible(`${baseline}/${baseline} enabled`, { timeoutMs: WAIT_MS });
+		// No `waitForVisible` here: the footer already reads `…/${selectable}
+		// enabled`, so a substring wait would resolve on the pre-keypress screen.
+		await session.waitForStable(STABLE_MS, { timeoutMs: WAIT_MS });
+		const enabledAll = /(\d+)\/\d+ enabled/.exec(session.snapshot().visible);
+		assert.ok(enabledAll && Number(enabledAll[1]) > baseline, "ctrl+a grows the selection past the baseline");
 		session.press(KeyCtrlX);
 		await session.waitForVisible("text-only agent", { timeoutMs: WAIT_MS });
 		await session.waitForStable(STABLE_MS, { timeoutMs: WAIT_MS });
-		assert.match(session.snapshot().visible, new RegExp(`0/${baseline} enabled`));
+		assert.match(session.snapshot().visible, new RegExp(`0/${selectable} enabled`));
 
 		// ctrl+r restores the model defaults, and escape discards all of it.
 		session.press(KeyCtrlR);
-		await session.waitForVisible(`${baseline}/${baseline} enabled`, { timeoutMs: WAIT_MS });
+		await session.waitForVisible(`${baseline}/${selectable} enabled`, { timeoutMs: WAIT_MS });
 		session.press(KeyEscape);
 		await session.waitForStable(STABLE_MS, { timeoutMs: WAIT_MS });
 		assert.doesNotMatch(session.snapshot().visible, /Tool Configuration/);

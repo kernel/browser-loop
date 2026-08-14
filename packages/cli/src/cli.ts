@@ -7,6 +7,7 @@ import {
 	runActionCommand,
 	runInteractiveCommand,
 	runModelsSubcommand as runModelsSubcommandHarness,
+	runToolsSubcommand as runToolsSubcommandHarness,
 	runPrintCommand,
 	runSessionSubcommand as runSessionSubcommandHarness,
 	type HarnessCliFlags,
@@ -35,6 +36,7 @@ Usage:
   cua observe ["<question>"]
   cua do "<instruction>"
   cua models [-p provider]
+  cua tools [-m model]
   cua session start [name] | stop <name> | list | show <name>
 
 Subcommands above the blank line are model-free: they run directly against
@@ -257,6 +259,10 @@ const MODEL_SUBCOMMANDS = new Set(["click", "type", "observe", "do"]);
 export async function main(argv: string[]): Promise<number> {
 	if (argv[0] === "models") {
 		return await runModelsSubcommandHarness(argv.slice(1));
+	}
+
+	if (argv[0] === "tools") {
+		return await runToolsSubcommandHarness(argv.slice(1));
 	}
 
 	let flags: CliFlags;

@@ -26,3 +26,4 @@ export {
 } from "./providers/common";
 export * from "./tool-catalog";
 export * from "./cua";
+export * from "./menu";

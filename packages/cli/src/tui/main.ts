@@ -36,7 +36,7 @@ import { buildAutocompleteProvider, parseSlashCommand } from "./slash-commands";
 import { StatusLine } from "./status-line";
 import { TelemetryFooter } from "./telemetry-footer";
 import { colors, getEditorTheme } from "./themes";
-import { describeTools, toolKey } from "./tool-selection";
+import { describeMenu, selectedKeys, toolKey, toolsForSelection, type ToolSelectionItem } from "./tool-selection";
 import { ToolsPickerComponent } from "./tools-picker";
 import { cuaVersion } from "./version";
 
@@ -191,9 +191,10 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 	// Ref of the live model, kept in sync by switchModel so the picker can mark
 	// it with a ✓. Undefined when opts.modelRef is not a catalog ref.
 	let currentModelRef: CuaModelRef | undefined = tryResolveModelRef(opts.modelRef);
-	// The full list the application composed for the active model. `/tools`
-	// selections are subsets of this; it is never grown by the picker, so an
-	// unsupported tool can never be added.
+	// The list the application composed for the active model: the picker's
+	// "defaults", restored by ctrl+r. A selection is no longer confined to it —
+	// the picker offers the model's whole menu — but every staged change is
+	// still compiled by `harness.setTools()` before it can land.
 	let baselineTools: readonly CuaCliTool[] = composeBaselineTools(opts, currentModelRef);
 	let toolSelectionCustomized = false;
 	// Serializes every catalog mutation (`/tools` applies and `/model` switches);
@@ -444,17 +445,17 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 	};
 
 	/**
-	 * Apply a staged tool selection as a subset of {@link baselineTools}, in
-	 * baseline order. `harness.setTools` compiles and validates before mutating,
-	 * so a rejected selection leaves the live catalog untouched.
+	 * Apply a staged selection of the model's tool menu, in menu order.
+	 * `harness.setTools` compiles and validates before mutating, so a rejected
+	 * selection leaves the live catalog untouched.
 	 */
-	const applyToolSelection = (enabledKeys: ReadonlySet<string>): Promise<void> =>
+	const applyToolSelection = (items: readonly ToolSelectionItem[], enabledKeys: ReadonlySet<string>): Promise<void> =>
 		catalogQueue.run(async () => {
-			const next = baselineTools.filter((tool) => enabledKeys.has(toolKey(tool)));
+			const next = toolsForSelection(items, enabledKeys);
 			try {
 				await opts.harness.setTools(next);
-				toolSelectionCustomized = next.length !== baselineTools.length;
-				messages.addNotice(`tools → ${next.length}/${baselineTools.length} enabled`);
+				toolSelectionCustomized = !sameToolList(next, baselineTools);
+				messages.addNotice(`tools → ${next.length} enabled`);
 				debug?.log("tools_applied", { enabled: next.length, baseline: baselineTools.length });
 			} catch (err) {
 				messages.addError(`tool selection rejected (tools unchanged): ${(err as Error).message}`);
@@ -465,29 +466,42 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 
 	const openToolsPicker = (): void => {
 		if (refuseWhileBusy("/tools")) return;
-		const items = describeTools(baselineTools);
+		const modelRef = currentModelRef;
+		if (!modelRef) {
+			messages.addError("the tool menu needs a catalog model ref; this session was started with a model object");
+			requestRender("tools_no_ref");
+			return;
+		}
+		const live = opts.harness.getTools();
+		// Availability is pairwise, so the menu is rebuilt against each staged
+		// selection rather than computed once when the picker opens.
+		const menuFor = (selected: readonly CuaCliTool[]) => describeMenu(modelRef, opts.applicationTools, selected);
+		const items = menuFor(live);
 		if (items.length === 0) {
-			messages.addError("no model-callable tools are configured for this session");
+			messages.addError("no model-callable tools are available for this model");
 			requestRender("tools_empty");
 			return;
 		}
-		const live = new Set(opts.harness.getTools().map(toolKey));
 		showSelector((done) => {
 			const picker = new ToolsPickerComponent({
 				tui,
 				items,
-				enabledKeys: live,
-				defaultKeys: new Set(items.map((item) => item.key)),
+				enabledKeys: selectedKeys(items, live),
+				defaultKeys: selectedKeys(items, baselineTools),
 				maxVisible: fitMaxVisible(terminal.rows, 25),
+				restage: (staged: ReadonlySet<string>) => menuFor(toolsForSelection(items, staged)),
 				onApply: (enabled) => {
 					done();
-					void applyToolSelection(enabled);
+					void applyToolSelection(items, enabled);
 				},
 				onCancel: done,
 			});
 			return { component: picker, focus: picker };
 		});
 	};
+
+	const sameToolList = (a: readonly CuaCliTool[], b: readonly CuaCliTool[]): boolean =>
+		a.length === b.length && a.every((tool, index) => toolKey(tool) === toolKey(b[index]!));
 
 	const promptAgent = async (text: string): Promise<void> => {
 		promptRunning += 1;

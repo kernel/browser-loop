@@ -22,8 +22,15 @@ export interface ToolsPickerConfig {
 	items: readonly ToolSelectionItem[];
 	/** Keys currently live on the harness. */
 	enabledKeys: ReadonlySet<string>;
-	/** The model defaults `ctrl+r` restores (usually every baseline key). */
+	/** The model defaults `ctrl+r` restores. */
 	defaultKeys: ReadonlySet<string>;
+	/**
+	 * Rebuild the menu for a staged selection. Availability is pairwise — two
+	 * providers' native surfaces cannot coexist, and a native surface pins the
+	 * transport — so rows are re-evaluated after every toggle rather than fixed
+	 * when the picker opens.
+	 */
+	restage?: (staged: ReadonlySet<string>) => ToolSelectionItem[];
 	/** Fired on apply only. Never called on cancel. */
 	onApply: (enabled: ReadonlySet<string>) => void;
 	onCancel: () => void;
@@ -42,10 +49,11 @@ export interface ToolsPickerConfig {
  */
 export class ToolsPickerComponent extends Container implements Focusable {
 	private readonly tui: TUI;
-	private readonly items: readonly ToolSelectionItem[];
+	private items: readonly ToolSelectionItem[];
 	private readonly liveKeys: ReadonlySet<string>;
 	private readonly defaultKeys: ReadonlySet<string>;
 	private readonly onApplyCallback: (enabled: ReadonlySet<string>) => void;
+	private readonly restage?: (staged: ReadonlySet<string>) => ToolSelectionItem[];
 	private readonly onCancelCallback: () => void;
 	private readonly searchInput: Input;
 	private readonly listContainer: Container;
@@ -70,6 +78,7 @@ export class ToolsPickerComponent extends Container implements Focusable {
 		super();
 		this.tui = config.tui;
 		this.items = config.items;
+		this.restage = config.restage;
 		this.liveKeys = new Set(config.enabledKeys);
 		this.defaultKeys = new Set(config.defaultKeys);
 		this.onApplyCallback = config.onApply;
@@ -133,7 +142,7 @@ export class ToolsPickerComponent extends Container implements Focusable {
 			`${cuaKeyText("cua.tools.reset")} defaults`,
 			`${cuaKeyText("cua.tools.apply")} apply`,
 			`${cuaKeyText("tui.select.cancel")} cancel`,
-			`${this.staged.size}/${this.items.length} enabled`,
+			`${this.staged.size}/${this.items.filter((item) => item.available).length} enabled`,
 		];
 		const line = colors.dim(`  ${parts.join(" · ")}`);
 		if (this.staged.size === 0) return `${line} ${colors.warning("(text-only agent)")}`;
@@ -162,7 +171,11 @@ export class ToolsPickerComponent extends Container implements Focusable {
 			const prefix = isSelected ? colors.accent("→ ") : "  ";
 			const label = isSelected ? colors.accent(item.label) : item.label;
 			const badge = colors.muted(` [${item.group}]`);
-			const status = this.staged.has(item.key) ? colors.success(" ✓ enabled") : colors.dim(" ✗ disabled");
+			const status = !item.available
+				? colors.muted(" — unavailable")
+				: this.staged.has(item.key)
+					? colors.success(" ✓ enabled")
+					: colors.dim(" ✗ disabled");
 			this.listContainer.addChild(new Text(`${prefix}${label}${badge}${status}`, 0, 0));
 		}
 		if (start > 0 || end < this.filtered.length) {
@@ -177,13 +190,24 @@ export class ToolsPickerComponent extends Container implements Focusable {
 			if (selected.description) {
 				this.listContainer.addChild(new Text(colors.muted(`  ${selected.description}`), 0, 0));
 			}
+			if (!selected.available && selected.unavailableReason) {
+				this.listContainer.addChild(new Text(colors.warning(`  ${selected.unavailableReason}`), 0, 0));
+			}
 		}
 	}
 
 	/** Bulk actions honour an active search filter, as pi's selector does. */
 	private bulkTargets(): string[] {
 		const scope = this.searchInput.getValue() ? this.filtered : this.items;
-		return scope.map((item) => item.key);
+		return scope.filter((item) => item.available).map((item) => item.key);
+	}
+
+	/** Re-evaluate availability against the staged selection, dropping rows that no longer compile. */
+	private restageItems(): void {
+		if (!this.restage) return;
+		this.items = this.restage(this.staged);
+		const selectable = new Set(this.items.filter((item) => item.available).map((item) => item.key));
+		this.staged = new Set([...this.staged].filter((key) => selectable.has(key)));
 	}
 
 	handleInput(data: string): void {
@@ -207,8 +231,9 @@ export class ToolsPickerComponent extends Container implements Focusable {
 		// (descriptions are searchable) stays typeable.
 		if (kb.matches(data, "tui.select.confirm") || (data === " " && !this.searchInput.getValue())) {
 			const item = this.filtered[this.selectedIndex];
-			if (item) {
+			if (item && (item.available || this.staged.has(item.key))) {
 				this.staged = toggleTool(this.staged, item.key);
+				this.restageItems();
 				this.refresh();
 				this.tui.requestRender();
 			}
@@ -216,18 +241,21 @@ export class ToolsPickerComponent extends Container implements Focusable {
 		}
 		if (kb.matches(data, "cua.tools.enableAll")) {
 			this.staged = enableTools(this.staged, this.bulkTargets());
+			this.restageItems();
 			this.refresh();
 			this.tui.requestRender();
 			return;
 		}
 		if (kb.matches(data, "cua.tools.clearAll")) {
 			this.staged = disableTools(this.staged, this.bulkTargets());
+			this.restageItems();
 			this.refresh();
 			this.tui.requestRender();
 			return;
 		}
 		if (kb.matches(data, "cua.tools.reset")) {
 			this.staged = new Set(this.defaultKeys);
+			this.restageItems();
 			this.refresh();
 			this.tui.requestRender();
 			return;
