@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- `browser_act` no longer spends a plan's whole deadline waiting for the effect of
+  a step whose action failed. An unresolvable ref throws immediately, but the
+  step's `expect` was still awaited afterwards, so a model that invented a ref
+  burned a full global timeout per attempt instead of being told to snapshot
+  first. A step whose action never dispatched now skips its own expectation and
+  stops the plan. Uncertain *delivery* still waits, because a lost acknowledgement
+  may mean the input landed and the expectation is how that is discovered.
+
 Breaking: `CuaAgent` and `CuaAgentHarness` are removed. cua-agent hands back
 plain pi objects; the caller constructs the agent.
 
