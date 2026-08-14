@@ -165,50 +165,6 @@ async function discoverOpenAI(args: Args): Promise<Record<string, unknown>> {
 	return { provider: "openai", metadata_source: "client.models.list()", models, candidates };
 }
 
-async function smokeMeta(client: any, model: string): Promise<SmokeResult> {
-	try {
-		const screenshot = await readFile(fixtureScreenshotPath());
-		const response = await client.responses.create({
-			model,
-			store: false,
-			parallel_tool_calls: false,
-			max_output_tokens: 512,
-			reasoning: { effort: "low" },
-			input: [{
-				role: "user",
-				content: [
-					{ type: "input_text", text: "Call the click tool for the sign in link. Do not answer only in text." },
-					{ type: "input_image", image_url: `data:image/png;base64,${screenshot.toString("base64")}` },
-				],
-			}],
-			tools: [{
-				type: "function",
-				name: "click",
-				description: "Click at normalized 0-1000 screen coordinates.",
-				parameters: {
-					type: "object",
-					properties: { x: { type: "number" }, y: { type: "number" } },
-					required: ["x", "y"],
-					additionalProperties: false,
-				},
-			}],
-		});
-		const output: any[] = response.output ?? [];
-		const calls = output.filter((item) => item?.type === "function_call");
-		return {
-			status: calls.length > 0 ? "pass" : "inconclusive",
-			tool_name: "function_tools",
-			tool_version: null,
-			beta_header: null,
-			observed_actions: unique(calls.map((call) => call?.name).filter(Boolean)),
-			response_item_types: unique(output.map((item) => item?.type).filter(Boolean)),
-			error: null,
-		};
-	} catch (err) {
-		return smokeError(err, { tool_name: "function_tools" });
-	}
-}
-
 async function discoverXai(args: Args): Promise<Record<string, unknown>> {
 	const OpenAI = await importDefault("openai", "OpenAI");
 	const client = new OpenAI({ apiKey: process.env.XAI_API_KEY, baseURL: "https://api.x.ai/v1" });

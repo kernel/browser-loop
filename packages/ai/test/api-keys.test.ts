@@ -60,6 +60,9 @@ describe("cua api key helpers", () => {
 	});
 
 	it("throws readable errors when missing", () => {
-		delete process.env.META_API_KEY;
+		delete process.env.OPENROUTER_API_KEY;
+		expect(() => requireCuaEnvApiKey("openrouter")).toThrowError(
+			'Missing API key for "openrouter". Set one of: OPENROUTER_API_KEY',
+		);
 	});
 });
