@@ -87,7 +87,7 @@ describe("cua tool namespace", () => {
 	});
 
 	it("uses the same CUA-authored browser toolset with custom-function providers", () => {
-		for (const model of ["meta:muse-spark-1.1", "xai:grok-4.5", "moonshotai:kimi-k3"] as const) {
+		for (const model of ["xai:grok-4.5", "moonshotai:kimi-k3", "openrouter:meta/muse-spark-1.1"] as const) {
 			const catalog = compile(model, cua.toolsets.browser());
 			expect(catalog.entries[0]).toMatchObject({
 				identity: "cua.browser.snapshot.v1",
@@ -184,7 +184,7 @@ describe("compileCuaToolCatalog", () => {
 	});
 
 	it("still accepts browser_act on providers that take its schema size", () => {
-		for (const model of ["openai:gpt-5.5", "anthropic:claude-opus-5", "meta:muse-spark-1.1", "xai:grok-4.5"] as const) {
+		for (const model of ["openai:gpt-5.5", "anthropic:claude-opus-5", "xai:grok-4.5", "openrouter:meta/muse-spark-1.1"] as const) {
 			expect(() => compile(model, [cua.tools.browser.act()]), model).not.toThrow();
 		}
 	});
@@ -292,8 +292,8 @@ describe("compileCuaToolCatalog", () => {
 		}
 	});
 
-	it("serializes state-mutating Meta/xAI/Moonshot catalogs with serial tool calls", async () => {
-		for (const model of ["meta:muse-spark-1.1", "xai:grok-4.5", "moonshotai:kimi-k3", "openrouter:moonshotai/kimi-k3"] as const) {
+	it("serializes state-mutating catalogs with serial tool calls", async () => {
+		for (const model of ["xai:grok-4.5", "moonshotai:kimi-k3", "openrouter:moonshotai/kimi-k3", "openrouter:meta/muse-spark-1.1"] as const) {
 			const catalog = compile(model, cua.toolsets.browser());
 			await expect(catalog.payload.apply({ parallel_tool_calls: true }, catalog.model)).resolves.toMatchObject({ parallel_tool_calls: false });
 		}

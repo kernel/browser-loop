@@ -57,7 +57,7 @@ Usage:
   cua models --json
 
 Options:
-  -p, --provider <id>  Filter by provider: openai | anthropic | google | gemini | meta | xai | moonshotai | openrouter
+  -p, --provider <id>  Filter by provider: openai | anthropic | google | gemini | xai | moonshotai | openrouter
       --json           Output JSON
   -h, --help           Show this help
 `;

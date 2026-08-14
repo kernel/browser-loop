@@ -9,14 +9,14 @@ Use this workflow to keep CUA current with provider model releases and computer-
 
 ## Quick Start
 
-1. Verify credentials are available: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY` or `GEMINI_API_KEY`, `META_API_KEY`, `XAI_API_KEY`, and `MOONSHOT_API_KEY`.
+1. Verify credentials are available: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY` or `GEMINI_API_KEY`, `XAI_API_KEY`, and `MOONSHOT_API_KEY`.
 2. If credentials live in `~/AGENTS.md`, load them into the current shell without printing them:
 
 ```bash
 eval "$(python3 - <<'PY'
 import pathlib, re, shlex
 text = pathlib.Path('~/AGENTS.md').expanduser().read_text()
-for key in ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GOOGLE_API_KEY', 'META_API_KEY', 'XAI_API_KEY', 'MOONSHOT_API_KEY']:
+for key in ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GOOGLE_API_KEY', 'XAI_API_KEY', 'MOONSHOT_API_KEY']:
     m = re.search(r'export\s+' + re.escape(key) + r'=(?:"([^"]+)"|([^\s\n]+))', text)
     if m:
         print(f'export {key}={shlex.quote(m.group(1) or m.group(2))}')
@@ -70,7 +70,6 @@ When live discovery finds a new model with passing smoke tests, update `packages
 
 Meta:
 
-- Discover with the OpenAI SDK against `https://api.meta.ai/v1` using `META_API_KEY`.
 - Smoke-test the Responses API with screenshot input and explicit function tools matching CUA's canonical actions.
 - Pass condition: response output contains a `function_call` for one of the supplied browser actions.
 - Use `store: true` plus `previous_response_id` for CUA tool loops. Meta rejects `include: ["reasoning.encrypted_content"]` on requests that set `previous_response_id`.
@@ -129,7 +128,6 @@ Moonshot:
 Run action probes when updating adapters or when docs/examples show drift:
 
 ```bash
-npx tsx .agents/skills/update-models/reference/discover-models.ts --provider meta --models muse-spark-1.1
 npx tsx .agents/skills/update-models/reference/discover-models.ts --provider xai --models grok-4.5
 npx tsx .agents/skills/update-models/reference/native-action-probe.ts --provider openai --model gpt-5.5
 npx tsx .agents/skills/update-models/reference/native-action-probe.ts --provider anthropic --model claude-opus-4-7
@@ -174,7 +172,6 @@ All CUA model and adapter support lives in `packages/ai` (`@onkernel/cua-ai`). W
   - Update the snapshot in `packages/ai/docs/supported-models.md` to match.
 
 - New provider-native action, response field, or tool version:
-  - Meta: update `packages/ai/src/providers/meta/index.ts` and `provider.ts`, including Responses threading and reasoning compatibility.
   - OpenAI: update `packages/ai/src/providers/openai/index.ts` and its action vocabulary, plus the shared canonical types in `packages/ai/src/providers/common.ts` if the action set changes.
   - Anthropic: update the `ANTHROPIC_CUA_ACTION_TYPES` set in `packages/ai/src/providers/anthropic/actions.ts` and `index.ts`. The computer tool version and `computer-use-*` beta header are selected by `pi-ai` per model, so a new dated tool version usually means bumping `@earendil-works/pi-ai`, not editing this package.
   - Gemini: update `packages/ai/src/providers/gemini/index.ts`, including coordinate handling if needed.

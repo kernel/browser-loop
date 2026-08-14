@@ -11,7 +11,7 @@ describe("resolveCuaModelRef", () => {
 		expect(resolveCuaModelRef("openai:gpt-5.6-sol")).toBe("openai:gpt-5.6-sol");
 		expect(resolveCuaModelRef("openai:gpt-5.5")).toBe("openai:gpt-5.5");
 		expect(resolveCuaModelRef("anthropic:claude-opus-5")).toBe("anthropic:claude-opus-5");
-		expect(resolveCuaModelRef("meta:muse-spark-1.1")).toBe("meta:muse-spark-1.1");
+		expect(resolveCuaModelRef("openrouter:meta/muse-spark-1.1")).toBe("openrouter:meta/muse-spark-1.1");
 		expect(resolveCuaModelRef("xai:grok-4.5")).toBe("xai:grok-4.5");
 		expect(resolveCuaModelRef("moonshotai:kimi-k3")).toBe("moonshotai:kimi-k3");
 		expect(resolveCuaModelRef("moonshot:kimi-k3")).toBe("moonshotai:kimi-k3");
@@ -21,7 +21,7 @@ describe("resolveCuaModelRef", () => {
 		expect(resolveCuaModelRef("gpt-5.6-sol")).toBe("openai:gpt-5.6-sol");
 		expect(resolveCuaModelRef("gpt-5.5")).toBe("openai:gpt-5.5");
 		expect(resolveCuaModelRef("claude-opus-5")).toBe("anthropic:claude-opus-5");
-		expect(resolveCuaModelRef("muse-spark-1.1")).toBe("meta:muse-spark-1.1");
+		expect(resolveCuaModelRef("meta/muse-spark-1.1")).toBe("openrouter:meta/muse-spark-1.1");
 		expect(resolveCuaModelRef("grok-4.5")).toBe("xai:grok-4.5");
 		expect(resolveCuaModelRef("kimi-k3")).toBe("moonshotai:kimi-k3");
 	});
@@ -31,11 +31,10 @@ describe("resolveCuaModelRef", () => {
 	});
 
 	it("filters custom provider catalogs", () => {
-		expect(listSupportedModels("meta").map((model) => model.ref)).toEqual(["meta:muse-spark-1.1"]);
 		expect(listSupportedModels("xai").map((model) => model.ref)).toEqual(["xai:grok-4.5"]);
 		expect(listSupportedModels("moonshotai").map((model) => model.ref)).toEqual(["moonshotai:kimi-k3"]);
 		expect(listSupportedModels("moonshot").map((model) => model.ref)).toEqual(["moonshotai:kimi-k3"]);
-		expect(listSupportedModels("openrouter").map((model) => model.ref)).toEqual(["openrouter:moonshotai/kimi-k3"]);
+		expect(listSupportedModels("openrouter").map((model) => model.ref)).toEqual(["openrouter:meta/muse-spark-1.1", "openrouter:moonshotai/kimi-k3"]);
 		expect(resolveCuaModelRef("openrouter:moonshotai/kimi-k3")).toBe("openrouter:moonshotai/kimi-k3");
 	});
 

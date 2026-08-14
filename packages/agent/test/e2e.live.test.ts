@@ -14,13 +14,12 @@ const LIVE = process.env.CUA_E2E_LIVE === "1";
 const KERNEL_API_KEY = process.env.KERNEL_API_KEY;
 
 type ProviderCase = {
-	name: "openai" | "anthropic" | "gemini" | "meta" | "xai" | "moonshotai";
+	name: "openai" | "anthropic" | "gemini" | "xai" | "moonshotai";
 	apiKeyEnvVar: string;
 	modelRef:
 		| "openai:gpt-5.6-sol"
 		| "anthropic:claude-opus-5"
 		| "google:gemini-3.6-flash"
-		| "meta:muse-spark-1.1"
 		| "xai:grok-4.5"
 		| "moonshotai:kimi-k3";
 	prompt: string;
@@ -76,19 +75,6 @@ const cases: ProviderCase[] = [
 		expectToolCalls: true,
 		timeoutMs: 300_000,
 		ciOptInEnvVar: "CUA_E2E_GEMINI",
-	},
-	{
-		name: "meta",
-		apiKeyEnvVar: "META_API_KEY",
-		modelRef: "meta:muse-spark-1.1",
-		prompt: [
-			"Use the tool named `browser_screenshot` exactly once to inspect the browser.",
-			"Pass empty arguments (`{}`).",
-			"Do not call any other tools.",
-			"After the tool result, provide a one-sentence summary.",
-		].join("\n"),
-		expectToolCalls: true,
-		timeoutMs: 180_000,
 	},
 	{
 		name: "xai",
@@ -158,7 +144,6 @@ function structuredBrowserTools() {
 function toolsForCase(c: ProviderCase) {
 	switch (c.name) {
 		case "openai":
-		case "meta":
 		case "xai":
 			return structuredBrowserTools();
 		case "moonshotai":

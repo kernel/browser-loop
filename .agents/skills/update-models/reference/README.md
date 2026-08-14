@@ -11,7 +11,6 @@ These scripts support the `update-models` skill. Run them from the repository ro
   - `OPENAI_API_KEY`
   - `ANTHROPIC_API_KEY`
   - `GOOGLE_API_KEY` or `GEMINI_API_KEY`
-  - `META_API_KEY`
   - `XAI_API_KEY`
   - `MOONSHOT_API_KEY`
 

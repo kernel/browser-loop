@@ -23,7 +23,7 @@ describe("buildCuaHarness", () => {
 		const googleNames = defaultInteractionTools("google:gemini-3.6-flash").map((tool) => tool.name);
 		expect(googleNames).toContain("take_screenshot");
 		expect(googleNames).not.toContain("browser_act");
-		for (const model of ["meta:muse-spark-1.1", "xai:grok-4.5"] as const) {
+		for (const model of ["xai:grok-4.5", "openrouter:meta/muse-spark-1.1"] as const) {
 			const tools = defaultInteractionTools(model);
 			expect(tools[0]).toMatchObject({ name: "browser_snapshot", origin: "cua" });
 			expect(tools.at(-1)?.name).toBe("browser_act");

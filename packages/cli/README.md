@@ -47,7 +47,7 @@ cua models -p openai
 cua --print --model openai:gpt-5.6-sol "..."
 cua --print --model anthropic:claude-opus-5 "..."
 cua --print --model google:gemini-3.6-flash "..."
-cua --print --model meta:muse-spark-1.1 "..."
+cua --print --model openrouter:meta/muse-spark-1.1 "..."
 cua --print --model xai:grok-4.5 "..."
 cua --print --model moonshotai:kimi-k3 "..."
 
@@ -150,7 +150,6 @@ Configuration is by environment variable. There is no config file.
 | `ANTHROPIC_API_KEY`  | Anthropic API key (required when `-m anthropic:…`) |
 | `GOOGLE_API_KEY`     | Google API key (required when `-m google:…`)   |
 | `GEMINI_API_KEY`     | alias of `GOOGLE_API_KEY`                      |
-| `META_API_KEY`       | Meta Model API key (required when `-m meta:…`)  |
 | `XAI_API_KEY`        | xAI API key (required when `-m xai:…`)          |
 | `MOONSHOT_API_KEY`   | Moonshot AI API key (required when `-m moonshotai:…`) |
 | `OPENROUTER_API_KEY` | OpenRouter API key (required when `-m openrouter:…`) |

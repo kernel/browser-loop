@@ -4,7 +4,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import process from "node:process";
 
-type Provider = "openai" | "anthropic" | "gemini" | "meta" | "xai" | "moonshot";
+type Provider = "openai" | "anthropic" | "gemini" | "xai" | "moonshot";
 
 interface Args {
 	provider: Provider | "all";
@@ -37,7 +37,7 @@ interface ModelResult {
 	cua?: Record<string, unknown>;
 }
 
-const PROVIDERS: Provider[] = ["openai", "anthropic", "gemini", "meta", "xai", "moonshot"];
+const PROVIDERS: Provider[] = ["openai", "anthropic", "gemini", "xai", "moonshot"];
 const GEMINI_DOC_COMPUTER_USE_MODELS = [
 	"gemini-3.5-flash",
 	"gemini-3-flash-preview",
@@ -99,7 +99,7 @@ function usage(): never {
   npx tsx .agents/skills/update-models/reference/discover-models.ts --provider openai --models gpt-5.5,gpt-5.4
 
 Options:
-  --provider <all|openai|anthropic|gemini|meta|xai|moonshot>
+  --provider <all|openai|anthropic|gemini|xai|moonshot>
   --models <comma-separated model ids>    Smoke-test explicit models instead of inferred candidates.
   --candidate-limit <n>                  Max inferred candidates per provider. Default: 20.
   --no-smoke                             Only list metadata.
@@ -127,7 +127,6 @@ async function runProvider(provider: Provider, args: Args): Promise<Record<strin
 		if (provider === "openai") return await discoverOpenAI(args);
 		if (provider === "anthropic") return await discoverAnthropic(args);
 		if (provider === "gemini") return await discoverGemini(args);
-		if (provider === "meta") return await discoverMeta(args);
 		if (provider === "xai") return await discoverXai(args);
 		if (provider === "moonshot") return await discoverMoonshot(args);
 		throw new Error(`unknown provider ${provider satisfies never}`);
@@ -164,30 +163,6 @@ async function discoverOpenAI(args: Args): Promise<Record<string, unknown>> {
 	}
 	await annotateCuaSupport("openai", models);
 	return { provider: "openai", metadata_source: "client.models.list()", models, candidates };
-}
-
-async function discoverMeta(args: Args): Promise<Record<string, unknown>> {
-	const OpenAI = await importDefault("openai", "OpenAI");
-	const apiKey = process.env.META_API_KEY;
-	const client = new OpenAI({ apiKey, baseURL: "https://api.meta.ai/v1" });
-	const rawModels = await collectAsync(client.models.list());
-	const models: ModelResult[] = rawModels.map((m) => ({
-		id: String(m.id),
-		display_name: String(m.id),
-		created_at: typeof m.created === "number" && m.created > 0 ? new Date(m.created * 1000).toISOString() : null,
-		raw: m,
-		supports_generation: true,
-	}));
-	const candidates = explicitOrCandidates(args, models.map((model) => model.id));
-	if (args.smoke) {
-		await Promise.all(candidates.map(async (id) => {
-			const model = models.find((candidate) => candidate.id === id) ?? { id, display_name: id, supports_generation: true };
-			model.computer_use = await smokeMeta(client, id);
-			if (!models.find((candidate) => candidate.id === id)) models.unshift(model);
-		}));
-	}
-	await annotateCuaSupport("meta", models);
-	return { provider: "meta", metadata_source: "Meta Model API models.list()", models, candidates };
 }
 
 async function smokeMeta(client: any, model: string): Promise<SmokeResult> {

@@ -145,7 +145,7 @@ Useful flags:
 
 - `-m <model>` — pick the LLM for model-mediated subcommands (default `gpt-5.6-sol`).
   Recommended refs are `openai:gpt-5.6-sol`, `anthropic:claude-opus-5`,
-  `google:gemini-3.6-flash`, `meta:muse-spark-1.1`, `xai:grok-4.5`,
+  `google:gemini-3.6-flash`, `xai:grok-4.5`,
   and `moonshotai:kimi-k3`.
 - `cua models` — list supported `-m` values and their providers; filter with
   `cua models -p openai|anthropic|google|meta|xai|moonshotai|openrouter`.

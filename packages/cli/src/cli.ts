@@ -55,7 +55,6 @@ Options:
                                    openai:    openai:gpt-5.6-sol
                                    anthropic: anthropic:claude-opus-5
                                    google:    google:gemini-3.6-flash
-                                   meta:      meta:muse-spark-1.1
                                    xai:       xai:grok-4.5
                                    moonshot:  moonshotai:kimi-k3
       --thinking <level>         Thinking level: off | minimal | low | medium | high | xhigh | max
@@ -95,7 +94,6 @@ Environment:
   ANTHROPIC_API_KEY     Anthropic API key (required when -m anthropic:…)
   GOOGLE_API_KEY        Google API key (required when -m google:…)
   GEMINI_API_KEY        Alias for GOOGLE_API_KEY
-  META_API_KEY          Meta Model API key (required when -m meta:…)
   XAI_API_KEY           xAI API key (required when -m xai:…)
   MOONSHOT_API_KEY      Moonshot AI API key (required when -m moonshotai:…)
   OPENROUTER_API_KEY    OpenRouter API key (required when -m openrouter:…)

@@ -18,7 +18,7 @@ const models: readonly CuaModelRef[] = [
 	"anthropic:claude-opus-5",
 	"anthropic:claude-sonnet-5",
 	"google:gemini-3.6-flash",
-	"meta:muse-spark-1.1",
+	"openrouter:meta/muse-spark-1.1",
 	"xai:grok-4.5",
 	"moonshotai:kimi-k3",
 	"openrouter:moonshotai/kimi-k3",
@@ -45,7 +45,7 @@ describe("example provider matrix tool policy", () => {
 	);
 
 	it("still advertises browser_act where the provider accepts it", () => {
-		for (const model of ["openai:gpt-5.6-sol", "meta:muse-spark-1.1", "xai:grok-4.5"] as const) {
+		for (const model of ["openai:gpt-5.6-sol", "xai:grok-4.5", "openrouter:meta/muse-spark-1.1"] as const) {
 			expect(toolsForModel(model).map((tool) => tool.name), model).toContain("browser_act");
 		}
 	});

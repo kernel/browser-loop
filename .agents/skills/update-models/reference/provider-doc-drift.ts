@@ -2,7 +2,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import process from "node:process";
 
-type Provider = "openai" | "anthropic" | "gemini" | "meta" | "xai" | "moonshot";
+type Provider = "openai" | "anthropic" | "gemini" | "xai" | "moonshot";
 
 interface Args {
 	examples: string;
@@ -30,11 +30,6 @@ const DOCS: Record<Provider, string[]> = {
 		"https://ai.google.dev/gemini-api/docs/computer-use",
 		"https://ai.google.dev/api/models",
 	],
-	meta: [
-		"https://dev.meta.ai/docs/getting-started/cookbook/computer-use-macos",
-		"https://dev.meta.ai/docs/features/responses",
-		"https://dev.meta.ai/docs/features/tool-calling",
-	],
 	xai: [
 		"https://docs.x.ai/developers/grok-4-5",
 		"https://docs.x.ai/developers/tools/function-calling",
@@ -51,7 +46,6 @@ const LOCAL_FILES: Record<Provider, string> = {
 	openai: "packages/ai/src/providers/openai/index.ts",
 	anthropic: "packages/ai/src/providers/anthropic/actions.ts",
 	gemini: "packages/ai/src/providers/gemini/index.ts",
-	meta: "packages/ai/src/providers/meta/index.ts",
 	xai: "packages/ai/src/providers/xai/index.ts",
 	moonshot: "packages/ai/src/providers/moonshot/index.ts",
 };
@@ -60,7 +54,6 @@ const ACTION_REGEXES: Record<Provider, RegExp> = {
 	openai: /\b(click|double_click|scroll|type|wait|keypress|drag|move|screenshot)\b/g,
 	anthropic: /\b(screenshot|left_click|right_click|middle_click|double_click|triple_click|left_click_drag|mouse_move|key|type|scroll|hold_key|wait|left_mouse_down|left_mouse_up|cursor_position|zoom)\b/g,
 	gemini: /\b(open_web_browser|open_web|wait_5_seconds|go_back|go_forward|search|navigate|click_at|hover_at|type_text_at|key_combination|scroll_document|scroll_at|drag_and_drop)\b/g,
-	meta: /\b(click|double_click|mouse_down|mouse_up|scroll|type|wait|keypress|drag|move|screenshot|goto|back|forward|url|cursor_position|left_click|right_click|middle_click|triple_click|left_click_drag|mouse_move|key|hold_key|left_mouse_down|left_mouse_up)\b/g,
 	xai: /\b(click|double_click|mouse_down|mouse_up|scroll|type|wait|keypress|drag|move|screenshot|goto|back|forward|url|cursor_position)\b/g,
 	moonshot: /\b(click|double_click|mouse_down|mouse_up|scroll|type|wait|keypress|drag|move|screenshot|goto|back|forward|url|cursor_position)\b/g,
 };
@@ -136,8 +129,8 @@ async function checkProvider(provider: Provider, examples: any): Promise<Record<
 		documented_actions: sorted(documentedActions),
 		example_repo_actions: sorted(exampleActions),
 		repo_supported_actions: sorted(localActions),
-		unknown_documented_actions: provider === "meta" || provider === "xai" || provider === "moonshot" ? [] : sorted(difference(new Set(documentedActions), new Set(localActions))),
-		unknown_example_actions: provider === "meta" || provider === "xai" || provider === "moonshot" ? [] : sorted(difference(new Set(exampleActions), new Set(localActions))),
+		unknown_documented_actions: provider === "xai" || provider === "moonshot" ? [] : sorted(difference(new Set(documentedActions), new Set(localActions))),
+		unknown_example_actions: provider === "xai" || provider === "moonshot" ? [] : sorted(difference(new Set(exampleActions), new Set(localActions))),
 		response_fields_from_examples: sorted(example.response_fields ?? []),
 		notes: notesFor(provider, documentedToolVersions, exampleToolVersions, localToolVersions),
 	};
@@ -166,9 +159,6 @@ function notesFor(provider: Provider, documentedToolVersions: string[], exampleT
 	}
 	if (provider === "gemini") {
 		notes.push("Gemini official computer use emits predefined function-call names; keep this separate from CUA custom function declarations.");
-	}
-	if (provider === "meta") {
-		notes.push("Meta uses developer-defined function tools, so provider action-name drift does not apply; compare payload threading and coordinate conventions instead.");
 	}
 	if (provider === "xai") {
 		notes.push("xAI uses developer-defined function tools and does not document a native coordinate protocol; compare Responses compatibility, reasoning controls, and CUA's normalized coordinate contract instead.");

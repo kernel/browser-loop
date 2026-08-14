@@ -33,7 +33,6 @@ describe("cua api key helpers", () => {
 		expect(cuaApiKeyEnvVarsForProvider("openai")).toEqual(["OPENAI_API_KEY"]);
 		expect(cuaApiKeyEnvVarsForProvider("google")).toEqual(["GOOGLE_API_KEY", "GEMINI_API_KEY"]);
 		expect(cuaApiKeyEnvVarsForProvider("gemini")).toEqual(["GOOGLE_API_KEY", "GEMINI_API_KEY"]);
-		expect(cuaApiKeyEnvVarsForProvider("meta")).toEqual(["META_API_KEY"]);
 		expect(cuaApiKeyEnvVarsForProvider("xai")).toEqual(["XAI_API_KEY"]);
 		expect(cuaApiKeyEnvVarsForProvider("moonshotai")).toEqual(["MOONSHOT_API_KEY"]);
 		expect(cuaApiKeyEnvVarsForProvider("moonshot")).toEqual(["MOONSHOT_API_KEY"]);
@@ -52,8 +51,6 @@ describe("cua api key helpers", () => {
 	it("resolves keys from model refs", () => {
 		process.env.OPENAI_API_KEY = "openai";
 		expect(getCuaEnvApiKeyForModel("openai:gpt-5.5")).toBe("openai");
-		process.env.META_API_KEY = "meta";
-		expect(getCuaEnvApiKeyForModel("meta:muse-spark-1.1")).toBe("meta");
 		process.env.XAI_API_KEY = "xai";
 		expect(getCuaEnvApiKeyForModel("xai:grok-4.5")).toBe("xai");
 		process.env.MOONSHOT_API_KEY = "moonshot";
@@ -64,6 +61,5 @@ describe("cua api key helpers", () => {
 
 	it("throws readable errors when missing", () => {
 		delete process.env.META_API_KEY;
-		expect(() => requireCuaEnvApiKey("meta")).toThrow("META_API_KEY");
 	});
 });

@@ -2,6 +2,13 @@
 
 ## 0.12.0 - 2026-08-13
 
+- `-m meta:muse-spark-1.1` is removed; use `-m openrouter:meta/muse-spark-1.1`.
+  `META_API_KEY` is no longer read.
+- The default interaction toolset for OpenRouter models is now chosen per model
+  rather than per provider. OpenRouter fronts several model families, and Kimi
+  K3 rejects `browser_act`'s schema while Muse Spark accepts it, so the CLI
+  asks the model's capabilities instead of assuming one answer per provider.
+
 Breaking: Tzafon and Yutori support is removed.
 
 - Update `@onkernel/cua-ai` and `@onkernel/cua-agent` to 0.13.0. Refs like

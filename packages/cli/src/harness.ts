@@ -11,6 +11,7 @@ import {
 import {
 	type Api,
 	cua,
+	cuaModelCapabilities,
 	type CuaModelRef,
 	getCuaModel,
 	type Model,
@@ -104,14 +105,16 @@ export function defaultInteractionTools(model: CuaModelRef): CuaCliTool[] {
 				: structuredBrowserTools();
 		case "google":
 			return cua.providers.google.toolsets.browser();
-		case "meta":
 		case "xai":
 			return structuredBrowserTools();
 		case "moonshotai":
 		case "openrouter":
-			// Kimi's API rejects the request outright once `browser_act`'s
-			// schema is attached, so Kimi keeps the browser primitives only.
-			return cua.toolsets.browser();
+			// Kimi's API rejects the request outright once `browser_act`'s schema
+			// is attached. OpenRouter fronts several model families, so this is a
+			// per-model capability question rather than a per-provider one.
+			return cuaModelCapabilities(getCuaModel(model)).acceptsLargeSchemas
+				? structuredBrowserTools()
+				: cua.toolsets.browser();
 	}
 }
 

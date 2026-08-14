@@ -2,6 +2,15 @@
 
 ## 0.13.0 - 2026-08-13
 
+- Remove the Meta provider. pi-ai ships no `meta` provider, so cua hand-wrote a
+  model entry and pointed pi's own `openai-responses` transport at
+  `api.meta.ai`. Meta was the last user of the model-override mechanism, so
+  `CUA_MODEL_OVERRIDES`, `cuaOverrideModels()`, and `META_API_KEY` go with it,
+  and `getCuaModel` no longer has a "supported but not registered" fallback.
+  Muse Spark remains available through pi's OpenRouter catalog as
+  `openrouter:meta/muse-spark-1.1`, annotated with explicit capabilities
+  because OpenRouter's provider-level defaults are conservative.
+
 - Remove `routeCuaApi`. With Tzafon and Yutori gone it routed no transport at
   all, and its last branch only patched grok-4.5's thinking-level map, price
   tiers, and compat flags onto pi-ai's registry entry. Live runs on grok-4.5

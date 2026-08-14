@@ -1,5 +1,7 @@
 import {
 	cua,
+	cuaModelCapabilities,
+	getCuaModel,
 	parseCuaModelRef,
 	type CuaModelRef,
 } from "@onkernel/cua-ai";
@@ -29,15 +31,17 @@ export function toolsForModel(model: CuaModelRef): CuaAgentTool[] {
 		case "google":
 			// Current Gemini computer-use models expect Google's predefined browser actions.
 			return cua.providers.google.toolsets.browser();
-		case "meta":
 		case "xai":
 			// No first-party native browser surface exists, so use CUA browser primitives
 			// plus verified dependent plans.
 			return structuredBrowserTools();
 		case "moonshotai":
 		case "openrouter":
-			// Same as meta/xai, minus browser_act: Kimi's API rejects that tool's
-			// oversized schema, so Kimi gets the browser primitives only.
-			return cua.toolsets.browser();
+			// Same as xai, minus browser_act where the model rejects that tool's
+			// oversized schema. OpenRouter fronts several model families, so ask
+			// the model rather than the provider.
+			return cuaModelCapabilities(getCuaModel(model)).acceptsLargeSchemas
+				? structuredBrowserTools()
+				: cua.toolsets.browser();
 	}
 }

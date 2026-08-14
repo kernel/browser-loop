@@ -10,13 +10,8 @@ import {
 	type SimpleStreamOptions,
 	type StreamOptions,
 } from "@earendil-works/pi-ai";
-import {
-	stream as piStreamOpenAIResponses,
-	streamSimple as piStreamSimpleOpenAIResponses,
-} from "@earendil-works/pi-ai/api/openai-responses";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { cuaApiKeyEnvVarsForProvider } from "./api-keys";
-import { cuaOverrideModels } from "./models";
 import { withAnthropicBrowserFallback } from "./providers/anthropic/browser-fallback";
 import { GOOGLE_CUA_INTERACTIONS_API, streamGoogleInteractions, streamSimpleGoogleInteractions } from "./providers/google/provider";
 import { OPENAI_CUA_COMPUTER_API, requiresCuaOpenAINamespaceAdapter, streamOpenAICuaComputer, streamOpenAIResponses, streamSimpleOpenAIResponses } from "./providers/openai/provider";
@@ -57,7 +52,6 @@ export function createCuaModels(options?: CreateModelsOptions): MutableModels {
 	if (openai) models.setProvider(withOpenAICuaAdapter(openai));
 	const google = models.getProvider("google");
 	if (google) models.setProvider(withGoogleCuaInteractions(google));
-	models.setProvider(metaProvider());
 	return models;
 }
 
@@ -113,16 +107,6 @@ function withGoogleCuaInteractions(base: Provider): Provider {
 }
 
 
-function metaProvider(): Provider {
-	return createProvider({
-		id: "meta",
-		name: "Meta",
-		baseUrl: "https://api.meta.ai/v1",
-		auth: { apiKey: envApiKeyAuth("Meta Model API key", cuaApiKeyEnvVarsForProvider("meta")) },
-		models: cuaOverrideModels("meta"),
-		api: { "openai-responses": { stream: piStreamOpenAIResponses, streamSimple: piStreamSimpleOpenAIResponses } },
-	});
-}
 
 export { GOOGLE_CUA_INTERACTIONS_API, streamGoogleInteractions, streamSimpleGoogleInteractions };
 export { OPENAI_CUA_COMPUTER_API, streamOpenAIResponses, streamSimpleOpenAIResponses };

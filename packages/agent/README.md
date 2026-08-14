@@ -141,7 +141,7 @@ const tools = [
 
 Other provider groups include OpenAI native computer and Google's current
 predefined browser toolset. Every provider surface exposes linked first-party
-documentation. Meta and xAI use CUA browser primitives plus
+documentation. xAI uses CUA browser primitives plus
 `cua.tools.browser.act()` in the provider-matrix examples. Moonshot uses browser
 primitives alone because its API rejects `browser_act`'s larger schema.
 Compilation rejects incompatible tool/model combinations before a request.
