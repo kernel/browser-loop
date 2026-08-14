@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.14.0 - 2026-08-14
+
+Breaking: the model allowlist is removed.
+
+- `listCuaModels()` returns pi-ai's whole catalog — 37 providers, ~1,150 models —
+  instead of a curated subset, and each entry now carries `nativeSurfaces` and
+  `vision` so callers can render what a model can do.
+- `getCuaModel(ref)` resolves any model pi-ai carries, and synthesizes one for
+  an id the registry has not caught up with, using the sibling that shares the
+  longest id prefix and preferring the latest such sibling. Providers migrate
+  transports mid-generation, so a new id follows its nearest, newest relative.
+  Only an unqualified ref or a provider pi-ai does not carry is refused.
+- `CUA_MODEL_ANNOTATIONS`, `CUA_PROVIDERS`, `isCuaProvider`, and the
+  `CuaProvider` union are gone; `CuaProvider` is now a provider id string and
+  `cuaProviders()` returns what pi-ai carries. `providerForModel` no longer
+  throws.
+- Two tables replace the allowlist, neither of which decides whether a model may
+  run: `CUA_NATIVE_SURFACES` (which models have a provider-native computer or
+  browser tool, with first-party sources) and `CUA_MODEL_QUIRKS` (request-shape
+  limits, each carrying the documented limit or observed failure that justifies
+  it). `cuaModelCapabilities` reads the quirk table and defaults to permissive;
+  `cuaNativeSurfaces(model)` and `cuaModelQuirks(model)` are exported for menus
+  and diagnostics.
+
 ## 0.13.0 - 2026-08-13
 
 - Remove the Meta provider. pi-ai ships no `meta` provider, so cua hand-wrote a

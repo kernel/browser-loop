@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.13.0 - 2026-08-14
+
+- `cua models` lists every model pi-ai carries, not a curated subset, and `-p`
+  accepts any provider it carries.
+- `-m` accepts any model id. A bare id that several providers carry now resolves
+  to the first-party provider rather than erroring, since gateways resell the
+  same ids; pass a qualified `provider:model` ref to reach a specific one.
+- The API-key preflight now runs only for providers CUA documents variable
+  names for. Any other pi-ai provider is still selectable; pi resolves its
+  credential when it streams, and failing up front would refuse a model that
+  works.
+- The default interaction toolset is chosen from the model rather than its
+  provider: a model with a native browser surface gets it, and everything else
+  gets CUA's CDP tools, with `browser_act` included only where the model accepts
+  its schema.
+
 ## 0.12.0 - 2026-08-13
 
 - `-m meta:muse-spark-1.1` is removed; use `-m openrouter:meta/muse-spark-1.1`.

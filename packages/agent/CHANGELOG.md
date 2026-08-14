@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.0 - 2026-08-14
+
+- `CuaAgentHarness` no longer refuses a model ref that is absent from its
+  supplied `Models` collection: it falls back to the registry, and an id the
+  registry lacks is synthesized. Update `@onkernel/cua-ai` to 0.14.0.
+
 ## 0.13.0 - 2026-08-13
 
 Breaking: Tzafon and Yutori support is removed.

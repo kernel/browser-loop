@@ -451,7 +451,7 @@ describe("CuaAgent explicit tools", () => {
 });
 
 describe("CuaAgentHarness explicit tools", () => {
-	it("resolves annotated refs from supplied models for construction and setModel", async () => {
+	it("resolves refs from supplied models for construction and setModel", async () => {
 		const models = createCuaModels();
 		const openai = models.getProvider("openai")!;
 		const first = { ...getCuaModel("openai:gpt-5.5"), baseUrl: "https://first.example" };
@@ -462,7 +462,11 @@ describe("CuaAgentHarness explicit tools", () => {
 		expect(harness.getModel()).toBe(first);
 		await harness.setModel("openai:gpt-5.6-sol");
 		expect(harness.getModel()).toBe(second);
-		expect(() => new CuaAgentHarness({ ...services, browser, client, models, model: "openai:gpt-4o", tools: [] })).toThrow(/unsupported CUA model/);
+
+		// A ref the supplied collection does not carry falls back to the registry
+		// rather than being refused: the provider decides what exists.
+		const fallback = new CuaAgentHarness({ ...services, browser, client, models, model: "openai:gpt-5.4", tools: [] });
+		expect(fallback.getModel().id).toBe("gpt-5.4");
 	});
 
 	it("uses composition, hides active-tool APIs, and supports an empty catalog", async () => {

@@ -30,12 +30,20 @@ describe("resolveCuaModelRef", () => {
 		expect(() => resolveCuaModelRef("does-not-exist")).toThrow(/unknown model/);
 	});
 
-	it("filters custom provider catalogs", () => {
-		expect(listSupportedModels("xai").map((model) => model.ref)).toEqual(["xai:grok-4.5"]);
-		expect(listSupportedModels("moonshotai").map((model) => model.ref)).toEqual(["moonshotai:kimi-k3"]);
-		expect(listSupportedModels("moonshot").map((model) => model.ref)).toEqual(["moonshotai:kimi-k3"]);
-		expect(listSupportedModels("openrouter").map((model) => model.ref)).toEqual(["openrouter:meta/muse-spark-1.1", "openrouter:moonshotai/kimi-k3"]);
+	it("filters to a provider's whole catalog", () => {
+		// No allowlist: every model the provider carries is listed, including the
+		// ones no CUA table mentions.
+		const xai = listSupportedModels("xai").map((model) => model.ref);
+		expect(xai).toContain("xai:grok-4.5");
+		expect(xai).toContain("xai:grok-4.3");
+		expect(listSupportedModels("moonshotai").map((model) => model.ref)).toContain("moonshotai:kimi-k3");
+		expect(listSupportedModels("moonshot").map((model) => model.ref)).toContain("moonshotai:kimi-k3");
+		expect(listSupportedModels("openrouter").map((model) => model.ref)).toContain("openrouter:meta/muse-spark-1.1");
 		expect(resolveCuaModelRef("openrouter:moonshotai/kimi-k3")).toBe("openrouter:moonshotai/kimi-k3");
+	});
+
+	it("rejects a provider pi-ai does not carry", () => {
+		expect(() => listSupportedModels("bogus")).toThrow(/unknown provider "bogus"/);
 	});
 
 	it("treats 'gemini' as an alias for google when filtering", () => {

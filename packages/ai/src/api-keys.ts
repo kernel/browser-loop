@@ -1,14 +1,16 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { parseCuaModelRef, providerForModel, type CuaModelRef, type CuaProvider } from "./models";
+import { parseCuaModelRef, providerForModel, type CuaModelRef } from "./models";
 
 /**
- * Environment variables accepted for each CUA provider.
+ * Environment variables for the providers CUA documents, in precedence order.
  *
- * This mirrors pi-ai's approach: model lookup is pure, while auth is resolved
- * when streaming. These helpers let callers share one readable convention for
- * explicit `getApiKey` wiring (especially useful for `google` vs `gemini`).
+ * Every provider pi-ai carries is selectable, and pi resolves each one's own
+ * credential when streaming. This table exists only so callers and the CLI can
+ * name the variable to set up front; a provider absent from it is not
+ * unsupported, it just has no CUA-side preflight. pi-ai does not export its
+ * own env-var registry, or this would read from that.
  */
-const CUA_PROVIDER_API_KEY_ENV_VARS: Record<CuaProvider, readonly string[]> = {
+const CUA_PROVIDER_API_KEY_ENV_VARS: Readonly<Record<string, readonly string[]>> = {
 	openai: ["OPENAI_API_KEY"],
 	anthropic: ["ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY"],
 	google: ["GOOGLE_API_KEY", "GEMINI_API_KEY"],
@@ -17,20 +19,16 @@ const CUA_PROVIDER_API_KEY_ENV_VARS: Record<CuaProvider, readonly string[]> = {
 	openrouter: ["OPENROUTER_API_KEY"],
 };
 
+/** Provider prefixes accepted as aliases for a pi-ai provider id. */
+const PROVIDER_ALIASES: Readonly<Record<string, string>> = { gemini: "google", moonshot: "moonshotai" };
+
 /**
  * List the environment variables checked for a provider's API key, in
- * precedence order. Accepts `"gemini"` as an alias for `"google"` and
- * `"moonshot"` as an alias for `"moonshotai"`; returns an empty list for
- * unknown providers.
+ * precedence order. Returns an empty list for a provider CUA does not document,
+ * whose credential pi resolves at request time instead.
  */
 export function cuaApiKeyEnvVarsForProvider(provider: string): readonly string[] {
-	if (provider === "gemini") {
-		return CUA_PROVIDER_API_KEY_ENV_VARS.google;
-	}
-	if (provider === "moonshot") {
-		return CUA_PROVIDER_API_KEY_ENV_VARS.moonshotai;
-	}
-	return CUA_PROVIDER_API_KEY_ENV_VARS[provider as keyof typeof CUA_PROVIDER_API_KEY_ENV_VARS] ?? [];
+	return CUA_PROVIDER_API_KEY_ENV_VARS[PROVIDER_ALIASES[provider] ?? provider] ?? [];
 }
 
 /** Read a provider's API key from the environment, or return undefined when unset. */
@@ -42,7 +40,12 @@ export function getCuaEnvApiKey(provider: string): string | undefined {
 	return undefined;
 }
 
-/** Read a provider's API key from the environment, or throw naming the variables to set. */
+/**
+ * Read a provider's API key from the environment, or throw naming the variables
+ * to set. Throws for a provider CUA documents no variables for — callers that
+ * accept any pi-ai provider should use {@link cuaApiKeyEnvVarsForProvider} to
+ * decide whether a preflight is possible at all.
+ */
 export function requireCuaEnvApiKey(provider: string): string {
 	const apiKey = getCuaEnvApiKey(provider);
 	if (apiKey) return apiKey;

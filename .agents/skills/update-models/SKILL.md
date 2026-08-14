@@ -1,11 +1,19 @@
 ---
 name: update-models
-description: Discover latest OpenAI, Anthropic, Google/Gemini, Meta, xAI, and Moonshot models and verify computer-use support. Use when updating CUA model defaults, checking new model releases, auditing provider-native computer tool actions, or comparing provider metadata, official examples, and smoke-test results.
+description: Detect drift in CUA's provider-native tool surfaces and per-model request limits. Use when a provider ships a new native computer/browser tool version, when a model starts rejecting a tool schema CUA sends, or when auditing provider-native action vocabularies against official docs and examples.
 ---
 
 # Update Models
 
-Use this workflow to keep CUA current with provider model releases and computer-use support. Do not trust a static model list: combine provider metadata, official docs, official example repos, and live non-destructive smoke tests.
+Use this workflow to keep CUA's two model tables honest. Note what it is **not** for: CUA has no model allowlist. Every model pi-ai carries is selectable, and an id pi-ai has not caught up with is synthesized from its nearest sibling, so a newly released model needs no repo change to be usable.
+
+What still needs maintaining is narrow:
+
+- `CUA_NATIVE_SURFACES` — which models have a provider-native computer or browser tool CUA can offer.
+- `CUA_MODEL_QUIRKS` — request-shape limits, each justified by a documented limit or an observed failure.
+- The provider adapters themselves, when a native action vocabulary or tool version changes.
+
+Do not trust a static list for any of those: combine provider metadata, official docs, official example repos, and live non-destructive smoke tests.
 
 ## Quick Start
 
@@ -62,7 +70,7 @@ Treat example repos as strongest when they are provider-owned or linked from off
 There are two enumeration layers:
 
 - Live provider availability: `reference/discover-models.ts` uses provider APIs and docs (`OpenAI().models.list()`, `Anthropic().models.list({ limit: 1000 })`, `GoogleGenAI().models.list()` / documented Gemini computer-use IDs, and xAI's OpenAI-compatible `models.list()`) to discover what the current API key can access.
-- CUA-supported refs: `listCuaModels(provider?)` from `@onkernel/cua-ai` reads `packages/ai/src/models.ts` and returns the provider-qualified refs CUA accepts (e.g. `anthropic:claude-opus-4-7`). The `CUA_MODEL_ANNOTATIONS` table there is also what `getCuaModel()` and runtime provider routing use.
+- Selectable refs: `listCuaModels(provider?)` from `@onkernel/cua-ai` returns pi-ai's whole catalog, each entry marked with the native surfaces CUA can offer for it. `cuaNativeSurfaces(model)` and `cuaModelQuirks(model)` answer those two questions for a single model.
 
 When live discovery finds a new model with passing smoke tests, update `packages/ai/src/models.ts`; then verify it appears in `listCuaModels("<provider>")`.
 
@@ -145,14 +153,18 @@ The probe does not execute browser actions. It elicits tool calls for screenshot
 
 ## Decision Rules
 
-Recommend a model as CUA-supported only if:
+Add a `CUA_NATIVE_SURFACES` entry only if:
 
-- It appears in the provider metadata API for the available key.
-- Its model-specific docs do not rule out required CUA runtime features such as streaming.
-- Its provider-appropriate computer-use smoke test passes: native tools where offered, or supplied function tools for Meta and xAI.
-- Its local cua-ai smoke test emits a computer tool call: `CUA_MODEL=<provider>:<model> npm run example:quickstart --workspace @onkernel/cua-ai` returns a `toolCall` block.
-- Official docs or examples support the same tool mechanism, or the smoke result clearly supersedes stale docs.
-- The model is annotated in `CUA_MODEL_ANNOTATIONS` in `packages/ai/src/models.ts`, resolved from `pi-ai`'s registry or backed by a `CUA_MODEL_OVERRIDES` entry.
+- The provider documents a native computer or browser tool for that model.
+- A live probe elicits a native tool call: `npx tsx .agents/skills/update-models/reference/native-action-probe.ts --provider <p> --model <id>`.
+- The local adapter can execute the actions the probe emits; otherwise the adapter needs updating first.
+
+Add a `CUA_MODEL_QUIRKS` entry only if you can state the failure it prevents. A quirk is not a preference — it is
+a request CUA must not send because the provider rejects it. Record the evidence in the entry's `reason`, and
+prefer the narrowest scope that covers it: a single model id over a family, a family over a whole provider.
+
+Remove a quirk when the provider lifts the limit. A stale quirk silently denies a model a tool it now accepts,
+which is harder to notice than the reverse.
 
 Recommend adapter updates when:
 
@@ -160,29 +172,29 @@ Recommend adapter updates when:
 - Official examples handle response fields the local adapter ignores.
 - Smoke probes emit native actions not present in local constants.
 
-Do not print API keys. Keep smoke tests non-destructive. Do not edit repo defaults or adapters unless the user explicitly asks after reviewing the report.
+Do not print API keys. Keep smoke tests non-destructive. Do not edit repo defaults or adapters unless the user
+explicitly asks after reviewing the report.
 
 ## Updating CUA Support
 
-All CUA model and adapter support lives in `packages/ai` (`@onkernel/cua-ai`). When a new model is discovered, decide which layer needs changing:
+All model and adapter support lives in `packages/ai` (`@onkernel/cua-ai`).
 
-- New model ID, same provider/tool surface:
-  - Add a `CUA_MODEL_ANNOTATIONS` entry in `packages/ai/src/models.ts` under the correct provider, citing the official source that documents computer-use support. Use a `family` match for a root that covers numeric revisions and dated snapshots (e.g. `claude-opus-4`), or an `exact` match for a single ID. A model already covered by an existing family annotation needs no change.
-  - If `pi-ai`'s registry does not carry the ID yet (`pi_ai_registry: "missing"` in the discovery report), add a `CUA_MODEL_OVERRIDES` entry so `getCuaModel()` can return a provider-shaped model. When the ID is already in the registry, the annotation alone is enough.
-  - Update the snapshot in `packages/ai/docs/supported-models.md` to match.
+- **New model id, no native surface, no quirk**: nothing to do. It already works.
+- **New model with a provider-native tool**: add a `CUA_NATIVE_SURFACES` entry in `packages/ai/src/models.ts`
+  citing first-party documentation. Use a `family` match to cover numeric revisions and dated snapshots, or an
+  `exact` match for a single id. Anthropic's surfaces are version-gated in
+  `providers/anthropic/capabilities.ts` instead.
+- **A model rejects a tool CUA sends**: add a `CUA_MODEL_QUIRKS` entry with the observed error as its `reason`.
+- **New provider-native action, response field, or tool version**: update that provider's adapter under
+  `packages/ai/src/providers/`. Anthropic's computer tool version and `computer-use-*` beta header are selected
+  by pi-ai per model, so a new dated version usually means bumping `@earendil-works/pi-ai`.
+- **A provider pi-ai does not carry**: it is not selectable. Adding one means registering a provider in
+  `packages/ai/src/providers.ts`, which is a deliberate decision — the repo has removed four such providers
+  rather than carry them unused.
 
-- New provider-native action, response field, or tool version:
-  - OpenAI: update `packages/ai/src/providers/openai/index.ts` and its action vocabulary, plus the shared canonical types in `packages/ai/src/providers/common.ts` if the action set changes.
-  - Anthropic: update the `ANTHROPIC_CUA_ACTION_TYPES` set in `packages/ai/src/providers/anthropic/actions.ts` and `index.ts`. The computer tool version and `computer-use-*` beta header are selected by `pi-ai` per model, so a new dated tool version usually means bumping `@earendil-works/pi-ai`, not editing this package.
-  - Gemini: update `packages/ai/src/providers/gemini/index.ts`, including coordinate handling if needed.
-  - xAI: update `packages/ai/src/providers/xai/index.ts` and `provider.ts`, including normalized coordinate instructions, Responses threading, and reasoning compatibility.
-  - Moonshot: update `packages/ai/src/providers/moonshot/index.ts`, including the fractional coordinate instructions and payload middleware. Streaming rides pi-ai's builtin `openai-completions` transport, so wire-format changes usually mean bumping `@earendil-works/pi-ai`.
-  - Shared canonical action semantics go in `packages/ai/src/providers/common.ts`.
-
-- New provider or routing rule:
-  - Update `CuaProvider`, `CUA_PROVIDERS`, `CUA_MODEL_ANNOTATIONS`, and `CUA_MODEL_OVERRIDES` in `packages/ai/src/models.ts`, plus the provider-module wiring in `packages/ai/src/providers.ts`.
-
-After changing support, run `npm run typecheck`, `npm test --workspace @onkernel/cua-ai`, and at least one live smoke per changed provider, for example `CUA_MODEL=<provider>:<model> npm run example:quickstart --workspace @onkernel/cua-ai`.
+Update `packages/ai/docs/supported-models.md` to match either table change. Then run `npm run typecheck`,
+`npm test --workspace @onkernel/cua-ai`, and at least one live smoke per changed provider, for example
+`CUA_MODEL=<provider>:<model> npm run example:quickstart --workspace @onkernel/cua-ai`.
 
 ## Reference Files
 

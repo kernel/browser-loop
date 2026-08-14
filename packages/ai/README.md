@@ -32,8 +32,8 @@ console.table(listCuaModels("google"));
 ```
 
 `gemini:` aliases `google:` and `moonshot:` aliases `moonshotai:`. The package
-does not export a default model. See [supported models](docs/supported-models.md)
-for the curated list.
+does not export a default model. See [models and native surfaces](docs/supported-models.md)
+for which models have provider-native tools and which have known request limits.
 
 ## Explicit tools
 

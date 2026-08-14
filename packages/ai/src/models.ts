@@ -1,11 +1,15 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { getBuiltinModel, getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
+import { getBuiltinModel, getBuiltinModels, getBuiltinProviders } from "@earendil-works/pi-ai/providers/all";
+import { supportsAnthropicNativeBrowser, supportsAnthropicNativeComputer } from "./providers/anthropic/capabilities";
 
-/** Providers with curated computer-use model support. */
-export type CuaProvider = "openai" | "anthropic" | "google" | "xai" | "moonshotai" | "openrouter";
+/** A pi-ai provider id. Any provider pi-ai carries can be selected. */
+export type CuaProvider = string;
 
 /** Provider-qualified model reference, e.g. `"openai:gpt-5.6-sol"` or `"google:gemini-3.6-flash"`. */
-export type CuaModelRef = `${CuaProvider}:${string}`;
+export type CuaModelRef = `${string}:${string}`;
+
+/** A provider-native tool surface CUA can offer for a model. */
+export type CuaNativeSurface = "computer" | "browser";
 
 /** One entry returned by {@link listCuaModels}. */
 export interface CuaModelInfo {
@@ -16,13 +20,14 @@ export interface CuaModelInfo {
 	model: string;
 	/** Human-readable model name. */
 	name: string;
+	/** Provider-native tool surfaces available for this model, if any. */
+	nativeSurfaces: readonly CuaNativeSurface[];
+	/** Whether the model accepts image input, i.e. whether screenshot-based tools are usable. */
+	vision: boolean;
 }
 
-/** All providers this package curates computer-use models for. */
-export const CUA_PROVIDERS: readonly CuaProvider[] = ["openai", "anthropic", "google", "xai", "moonshotai", "openrouter"];
-
 /**
- * How a {@link CuaModelAnnotation} matches model ids.
+ * How a model-id table entry matches.
  *
  * - `exact`: `id === match.id`
  * - `family`: `id === match.family`, or `match.family` plus hyphen-separated
@@ -41,84 +46,96 @@ export interface CuaModelCapabilities {
 	readonly serializesStateMutations: boolean;
 }
 
-/** One CUA-support annotation: a model-id match plus the official source documenting support. */
-export interface CuaModelAnnotation {
-	readonly match: CuaModelMatch;
-	/** URL of the provider documentation establishing computer-use support. */
-	readonly source: string;
-	/** Optional tool-catalog capabilities that describe which CUA schemas and state mutations the model supports. */
-	readonly capabilities?: CuaModelCapabilities;
+/**
+ * A model or provider whose request handling differs from the permissive
+ * default, with the evidence for it. Entries exist to prevent a request the
+ * provider would reject — never to express a preference.
+ */
+export interface CuaModelQuirk {
+	readonly provider: CuaProvider;
+	/** Omit to apply the quirk to every model from the provider. */
+	readonly match?: CuaModelMatch;
+	readonly capabilities: Partial<CuaModelCapabilities>;
+	/** Why this quirk exists: the documented limit or the observed failure. */
+	readonly reason: string;
 }
 
-// Muse Spark accepts the full CUA schema set; OpenRouter's provider-level
-// defaults are conservative because the proxy fronts many model families.
-const MUSE_SPARK_CAPABILITIES: CuaModelCapabilities = Object.freeze({
-	acceptsComplexSchemas: true,
-	acceptsLargeSchemas: true,
-	serializesStateMutations: true,
-});
-
-const KIMI_K3_CAPABILITIES: CuaModelCapabilities = Object.freeze({
-	acceptsComplexSchemas: true,
-	acceptsLargeSchemas: false,
-	serializesStateMutations: true,
-});
+/**
+ * Models with a provider-native computer or browser tool, and the first-party
+ * documentation for it. This table answers "can CUA offer a native tool for
+ * this model", not "may this model run" — every model pi-ai carries runs, with
+ * CUA's own CDP browser tools.
+ *
+ * Anthropic is absent deliberately: its native surfaces are version-gated in
+ * `providers/anthropic/capabilities.ts`, which {@link cuaNativeSurfaces} reads.
+ */
+export const CUA_NATIVE_SURFACES: readonly {
+	readonly provider: CuaProvider;
+	readonly match: CuaModelMatch;
+	readonly surfaces: readonly CuaNativeSurface[];
+	readonly source: string;
+}[] = [
+	{ provider: "openai", match: { kind: "exact", id: "gpt-5.6-sol" }, surfaces: ["computer"], source: "https://developers.openai.com/api/docs/models/gpt-5.6-sol" },
+	{ provider: "openai", match: { kind: "family", family: "gpt-5.4" }, surfaces: ["computer"], source: "https://developers.openai.com/api/docs/models/gpt-5.4" },
+	{ provider: "openai", match: { kind: "family", family: "gpt-5.4-mini" }, surfaces: ["computer"], source: "https://developers.openai.com/api/docs/models/gpt-5.4-mini" },
+	{ provider: "openai", match: { kind: "family", family: "gpt-5.5" }, surfaces: ["computer"], source: "https://developers.openai.com/api/docs/models/gpt-5.5" },
+	{ provider: "google", match: { kind: "exact", id: "gemini-3.6-flash" }, surfaces: ["browser"], source: "https://ai.google.dev/gemini-api/docs/computer-use" },
+	{ provider: "google", match: { kind: "exact", id: "gemini-3.5-flash" }, surfaces: ["browser"], source: "https://ai.google.dev/gemini-api/docs/computer-use" },
+	{ provider: "google", match: { kind: "exact", id: "gemini-3.5-flash-lite" }, surfaces: ["browser"], source: "https://ai.google.dev/gemini-api/docs/computer-use" },
+];
 
 /**
- * Per-provider computer-use support annotations.
- *
- * pi-ai's model registry is generated from models.dev (see
- * node_modules/@earendil-works/pi-ai/scripts/generate-models.ts) and lists every
- * model a provider offers. Only some of those models support computer-use, so
- * this table layers per-provider CUA-support annotations on top of the
- * registry. Each entry cites the official source documenting CUA support.
- *
- * To verify support and add new entries, follow the `update-models` skill at
- * .agents/skills/update-models/SKILL.md.
+ * Known request-shape limits. Anything absent from this table gets the
+ * permissive default and is allowed to try; a provider-side error is the
+ * feedback. Every entry below is a limit we have documentation for or have
+ * observed against the live API.
  */
-export const CUA_MODEL_ANNOTATIONS: Record<CuaProvider, readonly CuaModelAnnotation[]> = {
-	openai: [
-		{ match: { kind: "exact", id: "gpt-5.6-sol" }, source: "https://developers.openai.com/api/docs/models/gpt-5.6-sol" },
-		{ match: { kind: "family", family: "gpt-5.4" }, source: "https://developers.openai.com/api/docs/models/gpt-5.4" },
-		{ match: { kind: "family", family: "gpt-5.4-mini" }, source: "https://developers.openai.com/api/docs/models/gpt-5.4-mini" },
-		{ match: { kind: "family", family: "gpt-5.5" }, source: "https://developers.openai.com/api/docs/models/gpt-5.5" },
-	],
-	anthropic: [
-		{ match: { kind: "family", family: "claude-3-7-sonnet" }, source: "https://docs.anthropic.com/en/docs/build-with-claude/computer-use" },
-		{ match: { kind: "family", family: "claude-opus-4" }, source: "https://docs.anthropic.com/en/docs/build-with-claude/computer-use" },
-		{ match: { kind: "family", family: "claude-opus-5" }, source: "https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool" },
-		{ match: { kind: "family", family: "claude-sonnet-4" }, source: "https://docs.anthropic.com/en/docs/build-with-claude/computer-use" },
-		{ match: { kind: "family", family: "claude-sonnet-5" }, source: "https://docs.anthropic.com/en/docs/build-with-claude/computer-use" },
-		{ match: { kind: "family", family: "claude-haiku-4" }, source: "https://docs.anthropic.com/en/docs/build-with-claude/computer-use" },
-		{ match: { kind: "family", family: "claude-fable-5" }, source: "https://docs.anthropic.com/en/docs/build-with-claude/computer-use" },
-	],
-	google: [
-		{ match: { kind: "exact", id: "gemini-3.6-flash" }, source: "https://ai.google.dev/gemini-api/docs/computer-use" },
-		{ match: { kind: "exact", id: "gemini-3.5-flash-lite" }, source: "https://ai.google.dev/gemini-api/docs/computer-use" },
-		{ match: { kind: "exact", id: "gemini-3.5-flash" }, source: "https://ai.google.dev/gemini-api/docs/computer-use" },
-	],
-	xai: [
-		{ match: { kind: "exact", id: "grok-4.5" }, source: "https://docs.x.ai/developers/grok-4-5" },
-	],
-	// Kimi computer use is custom-function-tool support over Moonshot's
-	// OpenAI-compatible API, not a provider-native computer tool. K3 ships
-	// native vision plus screenshot-grounded agentic tool use.
-	moonshotai: [
-		{ match: { kind: "exact", id: "kimi-k3" }, source: "https://www.kimi.com/blog/kimi-k3", capabilities: KIMI_K3_CAPABILITIES },
-	],
-	openrouter: [
-		{ match: { kind: "exact", id: "moonshotai/kimi-k3" }, source: "https://openrouter.ai/moonshotai/kimi-k3", capabilities: KIMI_K3_CAPABILITIES },
-		{ match: { kind: "exact", id: "meta/muse-spark-1.1" }, source: "https://openrouter.ai/meta/muse-spark-1.1", capabilities: MUSE_SPARK_CAPABILITIES },
-	],
-};
+export const CUA_MODEL_QUIRKS: readonly CuaModelQuirk[] = [
+	{
+		provider: "google",
+		capabilities: { acceptsComplexSchemas: false, acceptsLargeSchemas: false },
+		reason: "The Gemini API accepts a subset of JSON Schema for function declarations and rejects browser_wait_for's shape.",
+	},
+	{
+		provider: "moonshotai",
+		match: { kind: "exact", id: "kimi-k3" },
+		capabilities: { acceptsLargeSchemas: false, serializesStateMutations: true },
+		reason: "Kimi K3 rejects the request outright once browser_act's schema is attached.",
+	},
+	{
+		provider: "openrouter",
+		match: { kind: "exact", id: "moonshotai/kimi-k3" },
+		capabilities: { acceptsLargeSchemas: false, serializesStateMutations: true },
+		reason: "Same Kimi K3 limit, reached through OpenRouter.",
+	},
+	{
+		provider: "openrouter",
+		match: { kind: "exact", id: "meta/muse-spark-1.1" },
+		capabilities: { serializesStateMutations: true },
+		reason: "Muse Spark's computer-use cookbook disables parallel tool calls.",
+	},
+	{
+		provider: "xai",
+		capabilities: { serializesStateMutations: true },
+		reason: "Grok's computer-use guidance disables parallel tool calls for state-mutating catalogs.",
+	},
+];
+
+const PERMISSIVE_CAPABILITIES: CuaModelCapabilities = Object.freeze({
+	acceptsComplexSchemas: true,
+	acceptsLargeSchemas: true,
+	serializesStateMutations: false,
+});
+
+/** Provider prefixes accepted as aliases for a pi-ai provider id. */
+const PROVIDER_ALIASES: Readonly<Record<string, string>> = { gemini: "google", moonshot: "moonshotai" };
 
 /**
  * Split a provider-qualified ref like `"openai:gpt-5.6-sol"` into its parts.
  *
- * `"gemini:"` is accepted as an alias for the canonical `"google:"` prefix
- * and normalizes to provider `"google"`; `"moonshot:"` likewise normalizes
- * to `"moonshotai"`. Throws when the ref is unqualified or names an
- * unsupported provider.
+ * `"gemini:"` is accepted as an alias for the canonical `"google:"` prefix and
+ * `"moonshot:"` for `"moonshotai"`. Throws when the ref is unqualified or names
+ * a provider pi-ai does not carry.
  */
 export function parseCuaModelRef(ref: string): { provider: CuaProvider; model: string } {
 	const idx = ref.indexOf(":");
@@ -126,10 +143,10 @@ export function parseCuaModelRef(ref: string): { provider: CuaProvider; model: s
 		throw new Error(`CUA model ref must be provider-qualified as "<provider>:<model>"; got "${ref}"`);
 	}
 	const prefix = ref.slice(0, idx);
-	const provider = prefix === "gemini" ? "google" : prefix === "moonshot" ? "moonshotai" : prefix;
+	const provider = PROVIDER_ALIASES[prefix] ?? prefix;
 	const model = ref.slice(idx + 1);
-	if (!isCuaProvider(provider)) {
-		throw new Error(`unsupported CUA provider "${prefix}" (expected one of: ${CUA_PROVIDERS.join(", ")})`);
+	if (!cuaProviders().includes(provider)) {
+		throw new Error(`unknown provider "${prefix}" (pi-ai carries: ${cuaProviders().join(", ")})`);
 	}
 	return { provider, model };
 }
@@ -139,18 +156,21 @@ export function formatCuaModelRef(provider: CuaProvider, model: string): CuaMode
 	return `${provider}:${model}` as CuaModelRef;
 }
 
+/** Every provider id pi-ai carries. */
+export function cuaProviders(): readonly CuaProvider[] {
+	return getBuiltinProviders();
+}
+
 /**
- * List the computer-use-capable models this package curates, optionally
- * filtered to one provider. Merges pi-ai's registry with local overrides and
- * keeps only models annotated in {@link CUA_MODEL_ANNOTATIONS}.
+ * List the models pi-ai carries, optionally filtered to one provider, each
+ * annotated with the provider-native surfaces CUA can offer for it.
  */
 export function listCuaModels(provider?: CuaProvider): CuaModelInfo[] {
-	const providers = provider ? [provider] : [...CUA_PROVIDERS];
+	const providers = provider ? [PROVIDER_ALIASES[provider] ?? provider] : [...cuaProviders()];
 	const byRef = new Map<CuaModelRef, CuaModelInfo>();
 
 	for (const p of providers) {
 		for (const model of getBuiltinModels(p as never) as Model<Api>[]) {
-			if (!supportsCuaProvider(p, model.id)) continue;
 			const ref = formatCuaModelRef(p, model.id);
 			if (byRef.has(ref)) continue;
 			byRef.set(ref, {
@@ -158,6 +178,8 @@ export function listCuaModels(provider?: CuaProvider): CuaModelInfo[] {
 				provider: p,
 				model: model.id,
 				name: model.name,
+				nativeSurfaces: cuaNativeSurfaces(model),
+				vision: model.input.includes("image"),
 			});
 		}
 	}
@@ -168,68 +190,101 @@ export function listCuaModels(provider?: CuaProvider): CuaModelInfo[] {
 /**
  * Resolve a {@link CuaModelRef} to a concrete pi-ai model.
  *
- * Throws when the ref is unqualified, names an unsupported provider, or names
- * a model without a CUA-support annotation. `"gemini:"` refs are accepted as
- * an alias for `"google:"` (see {@link parseCuaModelRef}).
+ * A ref pi-ai's registry does not carry is synthesized from the provider's
+ * other models, so a model id works the day the provider ships it rather than
+ * when models.dev catches up. Throws only for an unqualified ref or a provider
+ * pi-ai does not carry.
  */
 export function getCuaModel(ref: CuaModelRef): Model<Api> {
 	const { provider, model: modelId } = parseCuaModelRef(ref);
-	if (!supportsCuaProvider(provider, modelId)) {
-		throw new Error(`unsupported CUA model "${ref}"`);
-	}
 	const fromRegistry = getBuiltinModel(provider as never, modelId as never) as Model<Api> | undefined;
 	if (fromRegistry) return fromRegistry;
-	throw new Error(`CUA model "${ref}" is supported but not carried by pi-ai's registry`);
+	return synthesizeCuaModel(provider, modelId);
 }
 
-
-/** Return the {@link CuaProvider} for a concrete model, or throw when it is not a CUA provider. */
-export function providerForModel(model: Model<Api>): CuaProvider {
-	if (!isCuaProvider(model.provider)) {
-		throw new Error(`unsupported CUA model provider "${model.provider}" (expected one of: ${CUA_PROVIDERS.join(", ")})`);
+/**
+ * Build a model entry for an id pi-ai's registry does not carry, using another
+ * model from the same provider for the transport, base URL, and compatibility
+ * fields it cannot know from the id alone.
+ *
+ * The template is the sibling sharing the longest id prefix, and the latest
+ * such sibling when several tie. Providers migrate transports mid-generation —
+ * xAI carries grok-4.3 on chat completions and grok-4.5 on Responses — so a new
+ * id should follow its nearest, newest relative rather than whichever model
+ * happens to come first.
+ */
+function synthesizeCuaModel(provider: CuaProvider, modelId: string): Model<Api> {
+	const siblings = getBuiltinModels(provider as never) as Model<Api>[];
+	if (siblings.length === 0) {
+		throw new Error(`provider "${provider}" carries no models to infer "${modelId}" from`);
 	}
+	let template = siblings[0]!;
+	let bestPrefix = -1;
+	siblings.forEach((sibling, index) => {
+		const prefix = sharedPrefixLength(sibling.id.toLowerCase(), modelId.toLowerCase());
+		if (prefix >= bestPrefix) {
+			bestPrefix = prefix;
+			template = siblings[index]!;
+		}
+	});
+	return { ...template, id: modelId, name: modelId };
+}
+
+function sharedPrefixLength(a: string, b: string): number {
+	let length = 0;
+	while (length < a.length && length < b.length && a[length] === b[length]) length += 1;
+	return length;
+}
+
+/** Return the provider id for a concrete model. */
+export function providerForModel(model: Model<Api>): CuaProvider {
 	return model.provider;
 }
 
-/** Narrow an arbitrary string to {@link CuaProvider}. */
-export function isCuaProvider(value: string): value is CuaProvider {
-	return (CUA_PROVIDERS as readonly string[]).includes(value);
-}
-
-function supportsCuaProvider(provider: CuaProvider, modelId: string): boolean {
-	return findCuaAnnotation(provider, modelId) !== undefined;
-}
-
-/** Return tool-catalog capabilities for a model, using annotation or provider defaults. */
-export function cuaModelCapabilities(model: Model<Api>): CuaModelCapabilities {
-	const annotation = isCuaProvider(model.provider) ? findCuaAnnotation(model.provider, model.id) : undefined;
-	if (annotation?.capabilities) return annotation.capabilities;
-	const acceptsComplexSchemas = ["openai", "anthropic", "xai", "moonshotai"].includes(model.provider);
-	return {
-		acceptsComplexSchemas,
-		acceptsLargeSchemas: acceptsComplexSchemas && model.provider !== "moonshotai",
-		serializesStateMutations: ["xai", "moonshotai"].includes(model.provider),
-	};
-}
-
-/** Find the CUA-support annotation covering a model id, if any. */
-export function findCuaAnnotation(provider: CuaProvider, modelId: string): CuaModelAnnotation | undefined {
-	const id = modelId.toLowerCase();
-	for (const annotation of CUA_MODEL_ANNOTATIONS[provider]) {
-		if (annotation.match.kind === "exact") {
-			if (id === annotation.match.id.toLowerCase()) return annotation;
-		} else if (isCuaFamilyMatch(id, annotation.match.family.toLowerCase())) {
-			return annotation;
-		}
+/** Provider-native tool surfaces available for a model, if any. */
+export function cuaNativeSurfaces(model: Model<Api>): readonly CuaNativeSurface[] {
+	if (model.provider === "anthropic") {
+		const surfaces: CuaNativeSurface[] = [];
+		if (supportsAnthropicNativeComputer(model.id)) surfaces.push("computer");
+		if (supportsAnthropicNativeBrowser(model.id)) surfaces.push("browser");
+		return surfaces;
 	}
-	return undefined;
+	for (const entry of CUA_NATIVE_SURFACES) {
+		if (entry.provider === model.provider && matchesModelId(model.id, entry.match)) return entry.surfaces;
+	}
+	return [];
 }
 
-// A family annotation covers its root id plus suffixes made of
-// hyphen-separated numeric segments: revisions like "claude-opus-4-7" and
-// dated snapshots like "gpt-5.5-2026-04-23" or "claude-3-7-sonnet-20250219".
-// Named sibling variants ("gpt-5.4-mini") may not support computer use and
-// must be annotated explicitly.
+/**
+ * Tool-catalog capabilities for a model: permissive unless a quirk says
+ * otherwise. Provider-wide quirks apply first, then model-specific ones.
+ */
+export function cuaModelCapabilities(model: Model<Api>): CuaModelCapabilities {
+	let capabilities = PERMISSIVE_CAPABILITIES;
+	for (const quirk of CUA_MODEL_QUIRKS) {
+		if (quirk.provider !== model.provider) continue;
+		if (quirk.match && !matchesModelId(model.id, quirk.match)) continue;
+		capabilities = { ...capabilities, ...quirk.capabilities };
+	}
+	return capabilities;
+}
+
+/** Find the quirks that apply to a model, for diagnostics and menu hints. */
+export function cuaModelQuirks(model: Model<Api>): readonly CuaModelQuirk[] {
+	return CUA_MODEL_QUIRKS.filter(
+		(quirk) => quirk.provider === model.provider && (!quirk.match || matchesModelId(model.id, quirk.match)),
+	);
+}
+
+function matchesModelId(modelId: string, match: CuaModelMatch): boolean {
+	const id = modelId.toLowerCase();
+	return match.kind === "exact" ? id === match.id.toLowerCase() : isCuaFamilyMatch(id, match.family.toLowerCase());
+}
+
+// A family entry covers its root id plus suffixes made of hyphen-separated
+// numeric segments: revisions like "claude-opus-4-7" and dated snapshots like
+// "gpt-5.5-2026-04-23". Named sibling variants ("gpt-5.4-mini") are distinct
+// models and need their own entry.
 function isCuaFamilyMatch(id: string, family: string): boolean {
 	if (id === family) return true;
 	if (!id.startsWith(`${family}-`)) return false;
@@ -240,6 +295,6 @@ function isCuaFamilyMatch(id: string, family: string): boolean {
 }
 
 function compareCuaModels(a: CuaModelInfo, b: CuaModelInfo): number {
-	if (a.provider !== b.provider) return CUA_PROVIDERS.indexOf(a.provider) - CUA_PROVIDERS.indexOf(b.provider);
+	if (a.provider !== b.provider) return a.provider.localeCompare(b.provider);
 	return a.model.localeCompare(b.model);
 }
