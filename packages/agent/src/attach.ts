@@ -161,15 +161,17 @@ export function installCuaBehaviors(
 		hasPendingQueue = false;
 		return undefined;
 	}));
-	offs.push(harness.subscribe((event: any, signal?: AbortSignal) => {
+	offs.push(harness.subscribe(async (event: any, signal?: AbortSignal) => {
 		if (event.type === "message_end" && event.message.role === "assistant") turnFailed = false;
 		else if (event.type === "tool_execution_end" && event.isError) turnFailed = true;
 		else if (event.type === "queue_update") hasPendingQueue = event.steer.length > 0 || event.followUp.length > 0;
 		if (!recovery || recovery.maxAttempts <= 0) return;
 		if (event.type !== "turn_end" || !isEmptyAssistantResponse(event.message)) return;
 		if (signal?.aborted || recoveryAttempts >= recovery.maxAttempts || hasPendingQueue) return;
+		// Count the attempt only once the follow-up is actually queued: a rejected
+		// queue leaves the turn exactly as it was, so it must not consume a retry.
+		await harness.followUp(recovery.followUp);
 		recoveryAttempts += 1;
-		return harness.followUp(recovery.followUp);
 	}));
 
 	return () => {

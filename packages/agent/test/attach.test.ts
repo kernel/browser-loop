@@ -10,6 +10,7 @@ import {
 } from "@onkernel/cua-ai";
 import type Kernel from "@onkernel/sdk";
 import { Agent, AgentHarness, attach, InMemorySessionRepo, type KernelBrowser, type StreamFn } from "../src/index";
+import { installCuaBehaviors } from "../src/attach";
 
 const browser = { session_id: "browser_123", viewport: { width: 1440, height: 900 } } as KernelBrowser;
 const client = {} as Kernel;
@@ -111,6 +112,35 @@ describe("attach", () => {
 		expect(seen[0]!.context.tools?.map((tool) => tool.name)).toEqual(["browser_snapshot"]);
 		expect(typeof uninstall).toBe("function");
 		uninstall();
+	});
+
+	it("spends an empty-response retry only when the follow-up is queued", async () => {
+		const attempted: string[] = [];
+		let reject = true;
+		let emit!: (event: unknown, signal?: AbortSignal) => Promise<void>;
+		const stub = {
+			on: () => () => {},
+			subscribe: (handler: (event: unknown, signal?: AbortSignal) => Promise<void>) => {
+				emit = handler;
+				return () => {};
+			},
+			followUp: async (message: string) => {
+				attempted.push(message);
+				if (reject) throw new Error("queue closed");
+			},
+		};
+		const manager = { catalog: { entries: [] }, specFor: () => undefined };
+		installCuaBehaviors(stub as never, manager as never, { followUp: "continue", maxAttempts: 1 });
+
+		const emptyTurn = { type: "turn_end", message: { role: "assistant", stopReason: "stop", content: [] } };
+		await expect(emit(emptyTurn)).rejects.toThrow("queue closed");
+		reject = false;
+		await emit(emptyTurn);
+		// The rejected queue left the turn untouched, so it must not have spent the
+		// single attempt; the second follow-up does, and a third is refused.
+		await emit(emptyTurn);
+
+		expect(attempted).toEqual(["continue", "continue"]);
 	});
 
 	it("disposes the shared execution pool once, not per compile", async () => {
