@@ -191,7 +191,7 @@ describe("computer_call_output serialization", () => {
 		// Responses API answer 400 `Unknown parameter: 'input[N].output.error'`, which
 		// poisoned every later request in the conversation.
 		const sent = await sendWithResult([{ type: "text", text: "click failed" }], true);
-		expect(sent).not.toContain('\\"error\\"');
+		expect(sent).not.toContain('"error"');
 		expect(sent).toContain("computer_screenshot");
 		expect(sent).toContain("image_url");
 		// The text still reaches the model, as a message rather than an invalid field.

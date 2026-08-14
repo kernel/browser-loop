@@ -578,13 +578,20 @@ function createGeminiSchemaTransform(): CuaPayloadTransform {
 		phase: "tool-declarations",
 		apply(payload) {
 			if (!isRecord(payload) || !Array.isArray(payload.tools)) return payload;
+			// Google serializes function tools two ways: the Generative Language API
+			// nests them under `functionDeclarations`, while the Interactions transport
+			// emits flat `{ type: "function", parameters }` entries. Narrow both, because
+			// selecting a native surface alongside a function tool derives the second
+			// shape and a shape-specific transform would silently skip it.
 			return {
 				...payload,
-				tools: payload.tools.map((tool) =>
-					isRecord(tool) && Array.isArray(tool.functionDeclarations)
-						? { ...tool, functionDeclarations: tool.functionDeclarations.map(narrowToGeminiSchema) }
-						: tool,
-				),
+				tools: payload.tools.map((tool) => {
+					if (!isRecord(tool)) return tool;
+					if (Array.isArray(tool.functionDeclarations)) {
+						return { ...tool, functionDeclarations: tool.functionDeclarations.map(narrowToGeminiSchema) };
+					}
+					return "parameters" in tool ? { ...tool, parameters: narrowToGeminiSchema(tool.parameters) } : tool;
+				}),
 			};
 		},
 	};

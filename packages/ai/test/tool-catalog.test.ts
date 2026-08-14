@@ -409,6 +409,22 @@ describe("Gemini function-declaration schema", () => {
 		expect(sent).toContain('"enum":["text"]');
 	});
 
+	it("narrows the flat tool shape the Interactions transport emits", async () => {
+		// Selecting a native surface alongside a function tool derives the Interactions
+		// transport, which serializes tools flat instead of under functionDeclarations.
+		const catalog = compileCuaToolCatalog({
+			model: getCuaModel("google:gemini-3.6-flash"),
+			requestedTools: [...cua.providers.google.toolsets.browser(), cua.tools.browser.waitFor()],
+		});
+		const flat = {
+			tools: [{ type: "function", name: "browser_wait_for", parameters: cua.tools.browser.waitFor().declaration.parameters }],
+		};
+		const sent = JSON.stringify(await catalog.payload.apply(flat, catalog.model));
+		expect(JSON.stringify(flat)).toContain('"const"');
+		expect(sent).not.toContain('"const"');
+		expect(sent).not.toContain('"additionalProperties"');
+	});
+
 	it("leaves other providers' declarations untouched", async () => {
 		const catalog = compileCuaToolCatalog({
 			model: getCuaModel("openai:gpt-5.6-sol"),

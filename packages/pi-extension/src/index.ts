@@ -13,6 +13,7 @@ import {
 import {
 	allSelectableSpecs,
 	compileSpecs,
+	CUA_SELECTORS,
 	expandSelection,
 	parseSelection,
 	selectorAvailability,
@@ -218,7 +219,18 @@ export default function cuaPiExtension(pi: ExtensionAPI): void {
 		selection = flags.selection;
 		browserOptions = flags.browserOptions;
 		const saved = restoreConfig(ctx.sessionManager.getBranch());
-		if (saved) selection = parseSelection(saved.selectors.join(","), saved.coordinates);
+		if (saved) {
+			// A session persisted before the menu shrank can name a selector that no
+			// longer exists. Restoring must not throw: drop what is gone, keep the rest,
+			// and say so — a resumed session that refuses to start is worse than one
+			// that starts with fewer tools.
+			const known = saved.selectors.filter((selector) => CUA_SELECTORS.includes(selector));
+			const dropped = saved.selectors.filter((selector) => !CUA_SELECTORS.includes(selector));
+			if (dropped.length) {
+				process.stderr.write(`cua: ignoring retired tool selector(s) from this session: ${dropped.join(", ")}\n`);
+			}
+			if (known.length) selection = parseSelection(known.join(","), saved.coordinates);
+		}
 		configureDeclarations();
 		installTools();
 		initialized = false;
