@@ -19,9 +19,14 @@ both explicitly and may use pi's orchestration primitives directly.
   `AgentTool` or materialization types and no `pi-agent-core` dependency.
 - `@onkernel/cua-agent` is provider-neutral runtime glue around
   `pi-agent-core`. It defines `CuaAgentTool`, materializes catalog specs
-  exactly once per shared resource pool against a Kernel browser, owns
-  implementation identity for replacement detection, owns shared execution
-  resources, and applies catalog plans supplied as data.
+  exactly once per shared resource pool against a Kernel browser, owns shared
+  execution resources, and applies catalog plans supplied as data.
+- `@onkernel/cua-pi-extension` contributes these tools to a pi session that pi
+  itself owns. It is the one consumer that uses neither `attach()` nor the
+  harness: pi owns the model collection and the agent loop, so the extension
+  takes the two pieces that are not pi-shaped — the catalog compiler and
+  `CuaExecutionResources` — and applies headers and payload transforms through
+  pi's own `before_provider_headers` and `before_provider_request` hooks.
 - `@onkernel/cua-cli` owns application policy: it chooses an explicit tool list
   for each selected model, adds pi coding tools, supplies the system prompt,
   resolves credentials/sessions/skills, and renders text, JSONL, or TUI output.
