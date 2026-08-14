@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.15.0 - 2026-08-14
+
+- Add `cuaToolMenu(model, selected)`: every tool CUA can offer for a model, each
+  marked available or not with the compiler's own reason when it is not. It
+  decides availability by compiling the candidate catalog rather than restating
+  the compiler's rules, so the menu cannot drift from what
+  `compileCuaToolCatalog` accepts. Availability is relative to the current
+  selection, because two providers' native surfaces cannot coexist and a native
+  surface pins the transport.
+
 ## 0.14.0 - 2026-08-14
 
 Breaking: the model allowlist is removed.

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { defaultApplicationTools, defaultInteractionTools } from "../src/harness";
-import { describeTools, toolKey } from "../src/tui/tool-selection";
+import { describeMenu, selectedKeys, toolKey, toolsForSelection } from "../src/tui/tool-selection";
 import { buildTestHarness } from "./fixtures/harness";
 
 /**
- * The `/tools` picker applies a subset of the application-owned baseline via
+ * The `/tools` picker applies a selection of the model's tool menu via
  * `harness.setTools()`. These tests pin the behavior the picker relies on:
  * compile-and-validate happens before any mutation, so a rejected selection
  * leaves the live catalog untouched.
@@ -15,8 +15,8 @@ describe("/tools selection revalidation", () => {
 		const baseline = [...defaultInteractionTools(modelRef), ...defaultApplicationTools()];
 		const fixture = await buildTestHarness({ turns: [], modelRef, tools: baseline });
 
-		const items = describeTools(baseline);
-		const dropped = items.find((item) => item.group === "native")!;
+		const items = describeMenu(modelRef, defaultApplicationTools(), baseline);
+		const dropped = items.find((item) => item.group === "native" && item.available)!;
 		const next = baseline.filter((tool) => toolKey(tool) !== dropped.key);
 
 		await fixture.harness.setTools(next);
@@ -41,7 +41,8 @@ describe("/tools selection revalidation", () => {
 		const baseline = [...defaultInteractionTools(modelRef), ...defaultApplicationTools()];
 		const fixture = await buildTestHarness({ turns: [], modelRef, tools: baseline });
 
-		const nativeKeys = new Set(describeTools(baseline).filter((item) => item.group === "native").map((item) => item.key));
+		const items = describeMenu(modelRef, defaultApplicationTools(), baseline);
+		const nativeKeys = new Set(items.filter((item) => item.group === "native").flatMap((item) => item.tools.map(toolKey)));
 		const next = baseline.filter((tool) => !nativeKeys.has(toolKey(tool)));
 
 		await fixture.harness.setTools(next);
@@ -75,5 +76,22 @@ describe("/tools selection revalidation", () => {
 		const expected = [...defaultInteractionTools(to), ...application].map(toolKey);
 		expect(fixture.harness.getTools().map(toolKey)).toEqual(expected);
 		expect(fixture.harness.getModel().provider).toBe("anthropic");
+	});
+
+	it("adds a tool the application never composed", async () => {
+		const modelRef = "openai:gpt-5.6-sol";
+		const baseline = [...defaultInteractionTools(modelRef), ...defaultApplicationTools()];
+		const fixture = await buildTestHarness({ turns: [], modelRef, tools: baseline });
+		expect(baseline.some((tool) => tool.name === "playwright_execute")).toBe(false);
+
+		// The picker offers the model's whole menu, not just the baseline, so a
+		// selection can grow past what the CLI composed.
+		const items = describeMenu(modelRef, defaultApplicationTools(), baseline);
+		const playwright = items.find((item) => item.label === "playwright_execute")!;
+		expect(playwright.available).toBe(true);
+
+		const enabled = new Set([...selectedKeys(items, baseline), playwright.key]);
+		await fixture.harness.setTools(toolsForSelection(items, enabled));
+		expect(fixture.harness.getTools().map((tool) => tool.name)).toContain("playwright_execute");
 	});
 });

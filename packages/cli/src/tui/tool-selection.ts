@@ -1,8 +1,8 @@
-import { callerToolIdentity, isCuaToolSpec } from "@onkernel/cua-ai";
+import { callerToolIdentity, cuaToolMenu, isCuaToolSpec, type CuaModelRef, type CuaToolSpec } from "@onkernel/cua-ai";
 import type { CuaCliTool } from "../harness";
 
 /** Where a tool came from, used purely as a display badge. */
-export type ToolGroup = "native" | "cua" | "application";
+export type ToolGroup = "native" | "browser" | "computer" | "playwright" | "application";
 
 /** One row in the `/tools` picker, derived from a caller-owned tool. */
 export interface ToolSelectionItem {
@@ -16,6 +16,12 @@ export interface ToolSelectionItem {
 	label: string;
 	group: ToolGroup;
 	description?: string;
+	/** Whether selecting this row produces a catalog the model accepts. */
+	available: boolean;
+	/** Why it cannot be selected, from the catalog compiler. */
+	unavailableReason?: string;
+	/** The tools this row contributes when enabled. */
+	tools: readonly CuaCliTool[];
 }
 
 /** Identity key for a caller-owned tool, using cua-ai's canonical identity helper. */
@@ -23,10 +29,7 @@ export function toolKey(tool: CuaCliTool): string {
 	return isCuaToolSpec(tool) ? tool.identity : callerToolIdentity(tool.name);
 }
 
-function toolGroup(tool: CuaCliTool): ToolGroup {
-	if (!isCuaToolSpec(tool)) return "application";
-	return tool.origin === "provider-native" ? "native" : "cua";
-}
+
 
 function toolDescription(tool: CuaCliTool): string | undefined {
 	const raw = isCuaToolSpec(tool) ? tool.declaration.description : tool.description;
@@ -36,21 +39,53 @@ function toolDescription(tool: CuaCliTool): string | undefined {
 }
 
 /**
- * Describe the baseline tool list for display. Order is preserved exactly as
- * the application composed it (`[...interactionTools, ...applicationTools]`),
- * so applying a selection can filter the baseline in place and keep the
- * provider-native catalog and application policy byte-for-byte identical.
+ * Describe everything selectable for a model: CUA's whole tool menu, then the
+ * application's own tools.
+ *
+ * Availability comes from `cuaToolMenu`, which decides it by compiling the
+ * resulting catalog, so a row shown as available is one `harness.setTools()`
+ * will accept. Some of those rules are pairwise — two providers' native
+ * surfaces cannot coexist — so this is rebuilt against each staged selection
+ * rather than computed once.
  */
-export function describeTools(tools: readonly CuaCliTool[]): ToolSelectionItem[] {
-	return tools.map((tool) => {
+export function describeMenu(
+	model: CuaModelRef,
+	applicationTools: readonly CuaCliTool[],
+	selectedTools: readonly CuaCliTool[],
+): ToolSelectionItem[] {
+	const selectedSpecs = selectedTools.filter(isCuaToolSpec);
+	const items: ToolSelectionItem[] = cuaToolMenu(model, selectedSpecs).map((entry) => ({
+		key: entry.key,
+		label: entry.label,
+		group: entry.group,
+		...(entry.description ? { description: entry.description } : {}),
+		available: entry.available,
+		...(entry.unavailableReason ? { unavailableReason: entry.unavailableReason } : {}),
+		tools: entry.tools as readonly CuaCliTool[],
+	}));
+	for (const tool of applicationTools) {
 		const description = toolDescription(tool);
-		return {
+		items.push({
 			key: toolKey(tool),
 			label: tool.name,
-			group: toolGroup(tool),
+			group: "application",
 			...(description ? { description } : {}),
-		};
-	});
+			available: true,
+			tools: [tool],
+		});
+	}
+	return items;
+}
+
+/** The exact tool list a staged selection produces, in menu order. */
+export function toolsForSelection(items: readonly ToolSelectionItem[], enabled: ReadonlySet<string>): CuaCliTool[] {
+	return items.filter((item) => enabled.has(item.key)).flatMap((item) => [...item.tools]);
+}
+
+/** Keys currently satisfied by a live tool list, for seeding the picker. */
+export function selectedKeys(items: readonly ToolSelectionItem[], tools: readonly CuaCliTool[]): Set<string> {
+	const present = new Set(tools.map(toolKey));
+	return new Set(items.filter((item) => item.tools.every((tool) => present.has(toolKey(tool)))).map((item) => item.key));
 }
 
 /** Search text for the `/tools` filter: name, group badge, and description. */

@@ -9,6 +9,9 @@ import {
 import {
 	cuaApiKeyEnvVarsForProvider,
 	type CuaModelRef,
+	type CuaToolMenuEntry,
+	cuaToolMenu,
+	isCuaToolSpec,
 	parseCuaModelRef,
 	requireCuaEnvApiKey,
 } from "@onkernel/cua-ai";
@@ -166,6 +169,116 @@ function formatModelsTable(models: ReturnType<typeof listSupportedModels>): stri
 				row.name,
 			].join("  "),
 		);
+	}
+	return `${lines.join("\n")}\n`;
+}
+
+const TOOLS_HELP = `cua tools — list the tools CUA can offer for a model
+
+Usage:
+  cua tools
+  cua tools -m anthropic:claude-opus-5
+  cua tools --json
+
+Options:
+  -m, --model <ref>    Model to build the menu for (default: the CLI default model)
+      --json           Output JSON
+  -h, --help           Show this help
+
+Availability is decided by compiling the resulting catalog, so a tool listed as
+available is one the selected model will accept.
+`;
+
+interface ToolsFlags {
+	model?: string;
+	json: boolean;
+	help: boolean;
+}
+
+function parseToolsArgs(argv: string[]): ToolsFlags {
+	const parsed = parseArgs({
+		args: argv,
+		options: {
+			model: { type: "string", short: "m" },
+			json: { type: "boolean", default: false },
+			help: { type: "boolean", short: "h", default: false },
+		},
+		allowPositionals: true,
+		strict: true,
+	});
+	if (parsed.positionals.length > 0) {
+		throw new Error(`unexpected arguments: ${parsed.positionals.join(" ")}`);
+	}
+	return {
+		model: parsed.values.model as string | undefined,
+		json: !!parsed.values.json,
+		help: !!parsed.values.help,
+	};
+}
+
+/** `cua tools` subcommand: the model-derived tool menu, as `cua models` is to the catalog. */
+export async function runToolsSubcommand(argv: string[]): Promise<number> {
+	let flags: ToolsFlags;
+	try {
+		flags = parseToolsArgs(argv);
+	} catch (err) {
+		stderr.write(`${(err as Error).message}\n\n${TOOLS_HELP}`);
+		return 2;
+	}
+	if (flags.help) {
+		stdout.write(TOOLS_HELP);
+		return 0;
+	}
+	let menu: CuaToolMenuEntry[];
+	let modelRef: CuaModelRef;
+	try {
+		modelRef = resolveCuaModelRef(flags.model);
+		menu = cuaToolMenu(modelRef, defaultInteractionTools(modelRef).filter(isCuaToolSpec));
+	} catch (err) {
+		stderr.write(`${(err as Error).message}\n`);
+		return 2;
+	}
+	if (flags.json) {
+		stdout.write(`${JSON.stringify({ model: modelRef, tools: menu.map(toJsonEntry) }, null, 2)}\n`);
+		return 0;
+	}
+	stdout.write(formatToolsTable(modelRef, menu));
+	return 0;
+}
+
+function toJsonEntry(entry: CuaToolMenuEntry) {
+	return {
+		key: entry.key,
+		label: entry.label,
+		group: entry.group,
+		selected: entry.selected,
+		available: entry.available,
+		...(entry.unavailableReason ? { unavailable_reason: entry.unavailableReason } : {}),
+		...(entry.description ? { description: entry.description } : {}),
+	};
+}
+
+function formatToolsTable(modelRef: CuaModelRef, menu: readonly CuaToolMenuEntry[]): string {
+	const rows = menu.map((entry) => ({
+		tool: entry.label,
+		group: entry.group,
+		state: entry.available ? (entry.selected ? "default" : "available") : "unavailable",
+		note: entry.available ? entry.description ?? "" : entry.unavailableReason ?? "",
+	}));
+	const headers = { tool: "TOOL", group: "GROUP", state: "STATE", note: "NOTE" };
+	const widths = {
+		tool: columnWidth(headers.tool, rows.map((r) => r.tool)),
+		group: columnWidth(headers.group, rows.map((r) => r.group)),
+		state: columnWidth(headers.state, rows.map((r) => r.state)),
+	};
+	const lines = [
+		`model: ${modelRef}`,
+		"",
+		[headers.tool.padEnd(widths.tool), headers.group.padEnd(widths.group), headers.state.padEnd(widths.state), headers.note].join("  "),
+		["-".repeat(widths.tool), "-".repeat(widths.group), "-".repeat(widths.state), "-".repeat(headers.note.length)].join("  "),
+	];
+	for (const row of rows) {
+		lines.push([row.tool.padEnd(widths.tool), row.group.padEnd(widths.group), row.state.padEnd(widths.state), row.note].join("  "));
 	}
 	return `${lines.join("\n")}\n`;
 }

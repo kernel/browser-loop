@@ -14,9 +14,9 @@ function fakeTui(): TUI {
 }
 
 const items: readonly ToolSelectionItem[] = [
-	{ key: "cua.browser.snapshot", label: "browser_snapshot", group: "cua", description: "Capture a page snapshot" },
-	{ key: "cua.browser.act", label: "browser_act", group: "cua", description: "Run an action plan" },
-	{ key: "caller.read_file", label: "read_file", group: "application", description: "Read a stale ref safely" },
+	{ key: "cua.browser.snapshot", label: "browser_snapshot", group: "browser", description: "Capture a page snapshot", available: true, tools: [] },
+	{ key: "cua.browser.act", label: "browser_act", group: "browser", description: "Run an action plan", available: true, tools: [] },
+	{ key: "caller.read_file", label: "read_file", group: "application", description: "Read a stale ref safely", available: true, tools: [] },
 ];
 
 interface Harness {

@@ -75,7 +75,7 @@ Inside the TUI, `/` opens the command autocomplete. The supported commands are:
 | --- | --- |
 | `/model` | Open an interactive, searchable model picker. |
 | `/model <provider:model>` | Switch directly, without opening the picker. An unresolvable ref reports the error and then opens the picker prefilled with what you typed. |
-| `/tools` | Open an interactive menu to enable/disable this session's model-callable tools. |
+| `/tools` | Open the model's tool menu and change this session's selection. |
 | `/thinking <level>` | Set the reasoning level for future turns. |
 | `/compact` | Summarize older turns to free context budget. |
 | `/skill:<name> [args]` | Invoke a loaded skill. |
@@ -94,10 +94,18 @@ provider's API key is set. Run `cua models` for the same catalog on stdout.
 
 ### `/tools` picker
 
-`/tools` lists exactly the tools the CLI composed for the active model — the
-model's interaction tools plus the CLI's coding tools — and lets you disable a
-subset for the current session. It is a testing and debugging aid: it can only
-remove tools from that list, never add ones the model does not support.
+`/tools` lists everything CUA can offer the active model — every browser and
+computer tool, `playwright_execute`, the provider-native surfaces the model has,
+and the CLI's own coding tools — with the current session's selection marked.
+You can add tools the CLI did not compose, not just remove ones it did.
+
+A tool the model cannot take is shown as unavailable and cannot be selected,
+with the reason on the detail line. Availability is decided by compiling the
+resulting catalog, so it matches exactly what the session will accept, and it is
+re-evaluated as you stage: selecting a provider-native surface pins the
+transport, which can make other rows unavailable.
+
+`cua tools` prints the same menu to stdout for a model, without the TUI.
 
 | Key | Action |
 | --- | --- |

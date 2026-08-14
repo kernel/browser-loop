@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.14.0 - 2026-08-14
+
+- `/tools` now offers the model's whole tool menu instead of filtering the list
+  the CLI composed. Tools the CLI did not choose — `playwright_execute`, the
+  computer toolset, a provider-native surface — can be enabled, and tools the
+  model cannot take are shown as unavailable with the reason, re-evaluated as
+  the selection is staged. `ctrl+r` still restores the model's defaults.
+- Add `cua tools`, which prints that menu for a model without the TUI, with
+  `--json` for scripting.
+
 ## 0.13.0 - 2026-08-14
 
 - `cua models` lists every model pi-ai carries, not a curated subset, and `-p`

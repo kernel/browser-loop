@@ -185,6 +185,21 @@ with `cua.providers.openai.tools.computer()` compiles to the CUA-owned
 `google-cua-interactions` Interactions API versus pi's builtin Google
 transport.
 
+### The tool menu
+
+`cuaToolMenu(model, selected)` in `packages/ai/src/menu.ts` returns every tool
+CUA can offer for a model, each marked available or not. It decides availability
+by compiling the candidate catalog rather than by restating the compiler's
+rules, so the menu cannot drift from what `compileCuaToolCatalog` accepts: an
+entry is available exactly when selecting it compiles. Compilation is pure and
+declaration-only, so probing it per entry is cheap and side-effect-free.
+
+Availability is relative to the current selection, because several rules are
+pairwise: two providers' native surfaces cannot coexist, and a native surface
+derives a transport that the rest of the selection must be compatible with.
+Callers rebuild the menu after each staged change rather than caching a per-tool
+verdict.
+
 `CuaAgent` and `CuaAgentHarness` push the compiled `catalog.model` into pi on
 every construction and on every `setTools()`/`setModel()`, so the derived
 transport applies uniformly regardless of which mutation path selected the
@@ -225,10 +240,13 @@ to it so `ctrl+c` cancels the selector instead of quitting.
   `filterModelsForPicker`, `moveSelection`, `visibleWindow`) that make its
   behavior unit-testable without a terminal.
 - `tui/tool-selection.ts` — pure `/tools` state machine: identity keys matching
-  `normalizeTool`'s scheme, group badges, and toggle/bulk operations.
+  `normalizeTool`'s scheme, group badges, toggle/bulk operations, and
+  `describeMenu()`, which turns `cuaToolMenu()` plus the application's own tools
+  into rows.
 - `tui/tools-picker.ts` — the `/tools` component. Staged edits applied through
-  `harness.setTools()` with a subset of the application-composed baseline, in
-  baseline order.
+  `harness.setTools()`, in menu order. A selection is no longer confined to the
+  application-composed baseline: the picker offers the model's whole menu, and
+  the baseline is what `ctrl+r` restores.
 - `tui/keybindings.ts` — registers `cua.tools.*` ids on top of pi-tui's
   `TUI_KEYBINDINGS` and formats their hints.
 - `tui/mutation-queue.ts` — the serialization queue both catalog mutations run
