@@ -4,7 +4,6 @@
     { "path": "./packages/ai" },
     { "path": "./packages/agent" },
     { "path": "./packages/ptywright" },
-    { "path": "./packages/cli" },
     { "path": "./packages/pi-extension" }
   ]
 }

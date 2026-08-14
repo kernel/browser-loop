@@ -92,8 +92,8 @@ export type CuaCallerToolDeclaration = Tool;
 export type CuaCatalogToolInput = CuaToolSpec | CuaCallerToolDeclaration;
 
 /**
- * Canonical identity scheme for caller-owned tools. Exported so cua-agent and
- * cua-cli share exactly one definition and cannot drift.
+ * Canonical identity scheme for caller-owned tools. Exported so every consumer
+ * shares exactly one definition and cannot drift.
  */
 export function callerToolIdentity(name: string): string {
 	return `caller.${name}`;

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `@onkernel/cua-cli` and the `cua` binary are removed. Everything the CLI built
+  because it needed an agent front-end — sessions and resume, skills, the TUI,
+  print and RPC modes, model selection — pi supplies, so the extension replaces
+  it rather than reimplementing it. The `cua act` model-free executor path and
+  the `--print -o jsonl` telemetry schema are gone with it.
 - Add `@onkernel/cua-pi-extension`, an installable pi extension that contributes
   Kernel browser tools to pi's own agent session. Selectors cover the CDP browser
   toolset, the canonical computer toolset, the batch and Playwright tools, and

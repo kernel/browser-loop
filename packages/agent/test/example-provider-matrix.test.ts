@@ -11,7 +11,7 @@ import { toolsForModel } from "../examples/shared/tools";
  * invisible until someone ran the script against a live key.
  *
  * Limited to models the registry can resolve, so Anthropic's older non-native
- * fallback branch is covered by the CLI's `defaultInteractionTools` test instead.
+ * fallback branch is covered by the tool menu's availability tests instead.
  */
 const models: readonly CuaModelRef[] = [
 	"openai:gpt-5.6-sol",
