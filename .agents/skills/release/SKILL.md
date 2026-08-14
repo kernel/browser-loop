@@ -258,7 +258,7 @@ node --input-type=module -e "import('@onkernel/cua-ai').then((m) => { if (typeof
 ```
 
 For `@onkernel/cua-agent`, install `@onkernel/cua-agent@<version>` the same
-way and check `typeof m.CuaAgent === "function"`. For the CLI, install it in a
+way and check `typeof m.attach === "function"`. For the CLI, install it in a
 fresh directory and verify `./node_modules/.bin/cua --help` prints `Usage:`.
 
 If a workflow fails after a tag is pushed, do not reuse the same package
