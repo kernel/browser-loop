@@ -231,8 +231,8 @@ unioned and deduplicated; exact-value conflicts throw.
 
 Ordinary function tools are marked eligible only where pi 0.83.0 supports
 deferred loading. Provider-native tools are eager-only. The catalog itself does
-not guess when tools were added; `CuaAgent`/`CuaAgentHarness` record in-tool
-additions through pi's active-tool change entries.
+not guess when tools were added; a caller that adds tools mid-turn records the
+addition through pi's active-tool change entries.
 
 ## Provider behavior
 

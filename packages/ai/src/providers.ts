@@ -60,7 +60,7 @@ let defaultCuaModels: MutableModels | undefined;
 /**
  * Shared default {@link createCuaModels} collection, created on first use.
  *
- * `CuaAgent` and `CuaAgentHarness` stream through this instance unless given
+ * cua-agent streams through this instance unless given
  * another one. Auth resolves from the documented CUA env-var convention (see
  * `cuaApiKeyEnvVarsForProvider`); pass an explicit `options.apiKey` per
  * request to override.

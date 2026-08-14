@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The CLI now builds a stock pi `AgentHarness` from `attach()` instead of
+  `CuaAgentHarness`. `buildCuaHarness()` returns `{ harness, catalog }`: the
+  harness is pi's, and `CuaCliCatalog` holds the live (model, tools) selection
+  that `/model` and `/tools` recompile. Behavior is unchanged, including the
+  guarantee that a rejected selection leaves the session exactly as it was.
 - `/tools` now offers the model's whole tool menu instead of filtering the list
   the CLI composed. Tools the CLI did not choose — `playwright_execute`, the
   computer toolset, a provider-native surface — can be enabled, and tools the

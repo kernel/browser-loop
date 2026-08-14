@@ -1,8 +1,9 @@
 import Kernel from "@onkernel/sdk";
 import { describe, expect, it } from "vitest";
 import {
-	CuaAgent,
-	CuaAgentHarness,
+	Agent,
+	AgentHarness,
+	attach,
 	cua,
 	InMemorySessionRepo,
 	type AgentEvent,
@@ -259,18 +260,17 @@ describe("Cua live e2e", () => {
 		const test = shouldRunCase(c) ? it : it.skip;
 
 		test(
-			`${c.name}: CuaAgent executes browser steps`,
+			`${c.name}: a plain pi Agent executes browser steps`,
 			async () => {
 				await withBrowser(async (client, browser) => {
 					const stats = createRunStats();
-					const agent = new CuaAgent({
-						browser,
-						client,
-						getApiKey: () => apiKeyForCase(c),
+					const compiled = attach({ browser, client }).compile({ model: c.modelRef, tools: toolsForCase(c) });
+					const agent = new Agent({
+						streamFn: (model, context, options) => compiled.models.streamSimple(model, context, options),
 						afterToolCall: async () => ({ terminate: true }),
-						tools: toolsForCase(c),
 						initialState: {
-							model: c.modelRef,
+							model: compiled.model,
+							tools: [...compiled.agentTools],
 							systemPrompt: systemPromptForCase(c),
 						},
 					});
@@ -286,18 +286,20 @@ describe("Cua live e2e", () => {
 		);
 
 		test(
-			`${c.name}: CuaAgentHarness executes browser steps`,
+			`${c.name}: a plain pi AgentHarness executes browser steps`,
 			async () => {
 				await withBrowser(async (client, browser) => {
 					const stats = createRunStats();
-					const harness = new CuaAgentHarness({
+					const compiled = attach({ browser, client }).compile({ model: c.modelRef, tools: toolsForCase(c) });
+					const harness = new AgentHarness({
 						...(await createHarnessServices(`${c.name}-harness`)),
-						browser,
-						client,
-						model: c.modelRef,
-						tools: toolsForCase(c),
+						model: compiled.model,
+						models: compiled.models,
+						tools: [...compiled.tools],
+						activeToolNames: compiled.tools.map((tool) => tool.name),
 						systemPrompt: systemPromptForCase(c),
 					});
+					compiled.activate(harness);
 					harness.on("tool_result", () => ({ terminate: true }));
 
 					harness.subscribe((event) => {
@@ -316,21 +318,17 @@ describe("Cua live e2e", () => {
 		const test = shouldRunSwitchCase(c) ? it : it.skip;
 
 		test(
-			`${c.name}: CuaAgent switches models after a turn`,
+			`${c.name}: a plain pi Agent switches models after a turn`,
 			async () => {
 				await withBrowser(async (client, browser) => {
 					let stats = createRunStats();
-					const agent = new CuaAgent({
-						browser,
-						client,
-						getApiKey: (provider) => {
-							if (provider === c.from.modelRef.split(":")[0]) return apiKeyForCase(c.from);
-							if (provider === c.to.modelRef.split(":")[0]) return apiKeyForCase(c.to);
-							return undefined;
-						},
-						tools: modelSwitchTools(),
+					const handle = attach({ browser, client });
+					const from = handle.compile({ model: c.from.modelRef, tools: modelSwitchTools() });
+					const agent = new Agent({
+						streamFn: (model, context, options) => handle.models.streamSimple(model, context, options),
 						initialState: {
-							model: c.from.modelRef,
+							model: from.model,
+							tools: [...from.agentTools],
 							systemPrompt: "Use only the explicitly selected screenshot tool.",
 						},
 					});
@@ -341,8 +339,12 @@ describe("Cua live e2e", () => {
 					await agent.prompt(modelSwitchPrompt);
 					assertStats(stats, c.from, "agent");
 
+					// A switch recompiles: the new model carries the transport its
+					// tools derive, and its executables replace the old pair.
 					stats = createRunStats();
-					agent.state.model = c.to.modelRef;
+					const to = handle.compile({ model: c.to.modelRef, tools: modelSwitchTools() });
+					agent.state.model = to.model;
+					agent.state.tools = [...to.agentTools];
 					await agent.prompt(modelSwitchPrompt);
 					assertStats(stats, c.to, "agent");
 				});
@@ -351,18 +353,21 @@ describe("Cua live e2e", () => {
 		);
 
 		test(
-			`${c.name}: CuaAgentHarness switches models after a turn`,
+			`${c.name}: a plain pi AgentHarness switches models after a turn`,
 			async () => {
 				await withBrowser(async (client, browser) => {
 					let stats = createRunStats();
-					const harness = new CuaAgentHarness({
+					const handle = attach({ browser, client });
+					const from = handle.compile({ model: c.from.modelRef, tools: modelSwitchTools() });
+					const harness = new AgentHarness({
 						...(await createHarnessServices(`${c.name}-harness-switch`)),
-						browser,
-						client,
-						model: c.from.modelRef,
-						tools: modelSwitchTools(),
+						model: from.model,
+						models: from.models,
+						tools: [...from.tools],
+						activeToolNames: from.tools.map((tool) => tool.name),
 						systemPrompt: "Use only the explicitly selected screenshot tool.",
 					});
+					from.activate(harness);
 					harness.subscribe((event) => {
 						recordRunEvent(stats, event);
 					});
@@ -371,7 +376,7 @@ describe("Cua live e2e", () => {
 					assertStats(stats, c.from, "harness");
 
 					stats = createRunStats();
-					await harness.setModel(c.to.modelRef);
+					await handle.compile({ model: c.to.modelRef, tools: modelSwitchTools() }).apply(harness);
 					await harness.prompt(modelSwitchPrompt);
 					assertStats(stats, c.to, "harness");
 				});

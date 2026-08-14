@@ -31,7 +31,6 @@ export type {
 	BrowserWaitForResult,
 	BrowserWaitReason,
 } from "./translator/types";
-export { CuaAgent, CuaAgentHarness } from "./agent";
 export { attach } from "./attach";
 export type {
 	CuaAttachOptions,
@@ -41,5 +40,4 @@ export type {
 	CuaModelInput,
 	ToolResultImageReplayLimit,
 } from "./attach";
-export type { CuaAgentHarnessOptions, CuaAgentOptions, CuaAgentState } from "./agent";
 export type { CuaRetryOptions } from "./provider-retry";

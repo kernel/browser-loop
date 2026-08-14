@@ -17,7 +17,7 @@ export interface CuaExecutionDetails {
 	readResults?: Array<Record<string, unknown>>;
 	skippedActions?: number;
 	failedActionIndex?: number;
-	/** Internal marker consumed by CuaAgent/CuaAgentHarness to set ToolResultMessage.isError. */
+	/** Internal marker consumed by the behaviors `activate()` installs, to set ToolResultMessage.isError. */
 	isError?: boolean;
 	result?: unknown;
 	stdout?: string;

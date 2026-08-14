@@ -23,7 +23,13 @@ import {
 	type ModelActionType,
 } from "./action/prompts";
 import { runAction, emitCompact } from "./action/harness-runner";
-import { buildCuaHarness, defaultApplicationTools, defaultInteractionTools } from "./harness";
+import {
+	buildCuaHarness,
+	type CuaCliCatalog,
+	type CuaCliHarness,
+	defaultApplicationTools,
+	defaultInteractionTools,
+} from "./harness";
 import { provisionBrowser } from "./harness-browser";
 import { DEFAULT_CUA_MODEL_REF, listSupportedModels, resolveCuaModelRef } from "./harness-models";
 import {
@@ -472,7 +478,8 @@ interface HarnessRuntime {
 	skills: Skill[];
 	contextFiles: ContextFile[];
 	applicationTools: ReturnType<typeof defaultApplicationTools>;
-	harness: ReturnType<typeof buildCuaHarness>;
+	harness: CuaCliHarness;
+	catalog: CuaCliCatalog;
 	provider: string;
 	modelRef: CuaModelRef;
 }
@@ -567,7 +574,7 @@ async function finishHarnessRuntime(
 	const thinkingLevel = mapThinkingLevel(flags.thinking);
 	const baseUrlOverride = providerBaseUrlOverride(provider);
 	const applicationTools = defaultApplicationTools();
-	const harness = buildCuaHarness({
+	const { harness, catalog } = buildCuaHarness({
 		cwd,
 		client: provisioned.handle.client,
 		browser: provisioned.handle.browser,
@@ -588,6 +595,7 @@ async function finishHarnessRuntime(
 		contextFiles,
 		applicationTools,
 		harness,
+		catalog,
 		provider,
 		modelRef: auth.modelRef,
 	};
@@ -672,6 +680,7 @@ export async function runInteractiveCommand(
 		return await runInteractive({
 			cwd: process.cwd(),
 			harness: runtime.harness,
+			catalog: runtime.catalog,
 			browserHandle: runtime.handle,
 			session: runtime.session,
 			skills: runtime.skills,

@@ -41,14 +41,14 @@ describe("buildCuaHarness", () => {
 		const cwd = mkdtempSync(join(tmpdir(), "cua-cli-harness-"));
 		const kernel = createFakeKernelEnvironment();
 		const session = await new InMemorySessionRepo().create();
-		const harness = buildCuaHarness({
+		const { harness, catalog } = buildCuaHarness({
 			cwd,
 			client: kernel.client,
 			browser: kernel.browser,
 			session,
 			model: "openai:gpt-5.5",
 		});
-		const toolNames = harness.getTools().map((tool) => tool.name);
+		const toolNames = catalog.getTools().map((tool) => tool.name);
 		expect(toolNames).toContain("browser_click");
 		expect(toolNames).toContain("browser_screenshot");
 		expect(toolNames).toContain("browser_act");
@@ -69,7 +69,7 @@ describe("buildCuaHarness", () => {
 			content: "Use the demo workflow.",
 			filePath: join(cwd, "demo.md"),
 		};
-		const harness = buildCuaHarness({
+		const { harness } = buildCuaHarness({
 			cwd,
 			client: kernel.client,
 			browser: kernel.browser,
@@ -96,7 +96,7 @@ describe("buildCuaHarness", () => {
 		const cwd = mkdtempSync(join(tmpdir(), "cua-cli-harness-"));
 		const kernel = createFakeKernelEnvironment();
 		const session = await new InMemorySessionRepo().create();
-		const harness = buildCuaHarness({
+		const { harness } = buildCuaHarness({
 			cwd,
 			client: kernel.client,
 			browser: kernel.browser,
@@ -123,7 +123,7 @@ describe("buildCuaHarness", () => {
 		const cwd = mkdtempSync(join(tmpdir(), "cua-cli-harness-"));
 		const kernel = createFakeKernelEnvironment();
 		const session = await new InMemorySessionRepo().create();
-		const harness = buildCuaHarness({
+		const { harness } = buildCuaHarness({
 			cwd,
 			client: kernel.client,
 			browser: kernel.browser,
@@ -147,7 +147,7 @@ describe("buildCuaHarness", () => {
 		const cwd = mkdtempSync(join(tmpdir(), "cua-cli-harness-"));
 		const kernel = createFakeKernelEnvironment();
 		const session = await new InMemorySessionRepo().create();
-		const harness = buildCuaHarness({
+		const { harness } = buildCuaHarness({
 			cwd,
 			client: kernel.client,
 			browser: kernel.browser,

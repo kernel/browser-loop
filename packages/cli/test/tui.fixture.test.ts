@@ -10,7 +10,7 @@ import { describeMenu } from "../src/tui/tool-selection";
 
 /**
  * Drive the interactive TUI through ptywright with a scripted provider sitting
- * below the real {@link CuaAgentHarness}. The runner script ({@link tuiRunnerPath})
+ * below the real harness. The runner script ({@link tuiRunnerPath})
  * registers the scripted provider, assembles the harness via the production
  * {@link buildCuaHarness}, and starts {@link runInteractive}. Each test case
  * spawns a fresh process with its own per-scenario fixture JSON so the
