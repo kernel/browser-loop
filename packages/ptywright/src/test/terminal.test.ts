@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { SpecialArrowUp, SpecialBacktab } from "../keys";
 import { createTerminal } from "../terminal";
 
 test("terminal snapshots formatted visible text", () => {
@@ -27,6 +28,27 @@ test("terminal snapshots include title and pwd metadata", () => {
 		assert.equal(snapshot.pwd, "file://localhost/tmp/ptywright");
 		assert.ok(snapshot.totalRows >= snapshot.height);
 		assert.ok(snapshot.scrollbackRows >= 0);
+	} finally {
+		terminal.dispose();
+	}
+});
+
+test("encodeSpecialKey follows application cursor keys", () => {
+	const terminal = createTerminal({ cols: 40, rows: 6 });
+	try {
+		const normal = Buffer.from(terminal.encodeSpecialKey(SpecialArrowUp)).toString("latin1");
+		assert.equal(normal, "\x1b[A");
+
+		terminal.feed("\x1b[?1h");
+		const application = Buffer.from(terminal.encodeSpecialKey(SpecialArrowUp)).toString("latin1");
+		assert.equal(application, "\x1bOA");
+
+		terminal.feed("\x1b[?1l");
+		const restored = Buffer.from(terminal.encodeSpecialKey(SpecialArrowUp)).toString("latin1");
+		assert.equal(restored, "\x1b[A");
+
+		const backtab = Buffer.from(terminal.encodeSpecialKey(SpecialBacktab)).toString("latin1");
+		assert.equal(backtab, "\x1b[Z");
 	} finally {
 		terminal.dispose();
 	}

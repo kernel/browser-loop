@@ -36,6 +36,11 @@ int ptywright_ghostty_terminal_feed(PtywrightGhosttyTerminal *terminal,
 int ptywright_ghostty_terminal_resize(PtywrightGhosttyTerminal *terminal,
 				      uint16_t cols, uint16_t rows);
 
+int ptywright_ghostty_terminal_encode_special_key(PtywrightGhosttyTerminal *terminal,
+						 const char *name,
+						 uint8_t **out_bytes,
+						 size_t *out_len);
+
 int ptywright_ghostty_terminal_snapshot(PtywrightGhosttyTerminal *terminal,
 					int trim, int unwrap,
 					PtywrightGhosttySnapshot *out_snapshot);

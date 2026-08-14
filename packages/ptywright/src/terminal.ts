@@ -1,3 +1,4 @@
+import { SPECIAL_KEY_KIND, type SpecialKey } from "./keys";
 import { loadNativeBinding, type NativeSnapshot, type NativeTerminalHandle } from "./native-loader";
 
 export interface CreateTerminalOptions {
@@ -64,6 +65,14 @@ export class TerminalSurface {
 		this.ensureOpen();
 		const snapshot = this.native.snapshot(options);
 		return normalizeSnapshot(snapshot);
+	}
+
+	encodeSpecialKey(key: SpecialKey): Uint8Array {
+		this.ensureOpen();
+		if (key.kind !== SPECIAL_KEY_KIND) {
+			throw new Error("encodeSpecialKey expects a SpecialKey");
+		}
+		return this.native.encodeSpecialKey(key.name) ?? new Uint8Array();
 	}
 
 	dispose(): void {

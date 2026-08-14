@@ -17,6 +17,7 @@ enum {
 
 struct PtywrightGhosttyTerminal {
 	GhosttyTerminal handle;
+	GhosttyKeyEncoder encoder;
 	uint8_t *reply_buf;
 	size_t reply_len;
 	size_t reply_cap;
@@ -26,6 +27,44 @@ struct PtywrightGhosttyTerminal {
 	int osc_state;
 	int reply_error;
 };
+
+static int ptywright_ghostty_special_key(const char *name, GhosttyKey *out_key,
+					 GhosttyMods *out_mods) {
+	if (name == NULL || out_key == NULL || out_mods == NULL) {
+		return GHOSTTY_INVALID_VALUE;
+	}
+
+	*out_mods = 0;
+	if (strcmp(name, "arrow_up") == 0) {
+		*out_key = GHOSTTY_KEY_ARROW_UP;
+	} else if (strcmp(name, "arrow_down") == 0) {
+		*out_key = GHOSTTY_KEY_ARROW_DOWN;
+	} else if (strcmp(name, "arrow_left") == 0) {
+		*out_key = GHOSTTY_KEY_ARROW_LEFT;
+	} else if (strcmp(name, "arrow_right") == 0) {
+		*out_key = GHOSTTY_KEY_ARROW_RIGHT;
+	} else if (strcmp(name, "home") == 0) {
+		*out_key = GHOSTTY_KEY_HOME;
+	} else if (strcmp(name, "end") == 0) {
+		*out_key = GHOSTTY_KEY_END;
+	} else if (strcmp(name, "page_up") == 0) {
+		*out_key = GHOSTTY_KEY_PAGE_UP;
+	} else if (strcmp(name, "page_down") == 0) {
+		*out_key = GHOSTTY_KEY_PAGE_DOWN;
+	} else if (strcmp(name, "insert") == 0) {
+		*out_key = GHOSTTY_KEY_INSERT;
+	} else if (strcmp(name, "delete") == 0) {
+		*out_key = GHOSTTY_KEY_DELETE;
+	} else if (strcmp(name, "escape") == 0) {
+		*out_key = GHOSTTY_KEY_ESCAPE;
+	} else if (strcmp(name, "backtab") == 0) {
+		*out_key = GHOSTTY_KEY_TAB;
+		*out_mods = GHOSTTY_MODS_SHIFT;
+	} else {
+		return GHOSTTY_INVALID_VALUE;
+	}
+	return GHOSTTY_SUCCESS;
+}
 
 static int ptywright_ghostty_reserve_buffer(uint8_t **buf,
 					    size_t *cap,
@@ -218,6 +257,13 @@ int ptywright_ghostty_terminal_create(uint16_t cols, uint16_t rows, size_t scrol
 		return result;
 	}
 
+	result = ghostty_key_encoder_new(NULL, &terminal->encoder);
+	if (result != GHOSTTY_SUCCESS) {
+		ghostty_terminal_free(terminal->handle);
+		free(terminal);
+		return result;
+	}
+
 	*out_terminal = terminal;
 	return GHOSTTY_SUCCESS;
 }
@@ -261,6 +307,78 @@ int ptywright_ghostty_terminal_resize(PtywrightGhosttyTerminal *terminal,
 	}
 
 	return ghostty_terminal_resize(terminal->handle, cols, rows, kCellWidthPx, kCellHeightPx);
+}
+
+int ptywright_ghostty_terminal_encode_special_key(PtywrightGhosttyTerminal *terminal,
+						 const char *name,
+						 uint8_t **out_bytes,
+						 size_t *out_len) {
+	if (terminal == NULL || terminal->handle == NULL || terminal->encoder == NULL ||
+	    name == NULL || out_bytes == NULL || out_len == NULL) {
+		return GHOSTTY_INVALID_VALUE;
+	}
+
+	*out_bytes = NULL;
+	*out_len = 0;
+
+	GhosttyKey key = GHOSTTY_KEY_UNIDENTIFIED;
+	GhosttyMods mods = 0;
+	int mapped = ptywright_ghostty_special_key(name, &key, &mods);
+	if (mapped != GHOSTTY_SUCCESS) {
+		return mapped;
+	}
+
+	GhosttyKeyEvent event = NULL;
+	GhosttyResult result = ghostty_key_event_new(NULL, &event);
+	if (result != GHOSTTY_SUCCESS) {
+		return result;
+	}
+
+	ghostty_key_event_set_action(event, GHOSTTY_KEY_ACTION_PRESS);
+	ghostty_key_event_set_key(event, key);
+	ghostty_key_event_set_mods(event, mods);
+	ghostty_key_encoder_setopt_from_terminal(terminal->encoder, terminal->handle);
+
+	char stack[128];
+	size_t written = 0;
+	result = ghostty_key_encoder_encode(terminal->encoder, event, stack, sizeof(stack), &written);
+	if (result == GHOSTTY_OUT_OF_SPACE) {
+		char *dynamic = malloc(written > 0 ? written : 1);
+		if (dynamic == NULL) {
+			ghostty_key_event_free(event);
+			return GHOSTTY_OUT_OF_MEMORY;
+		}
+		result = ghostty_key_encoder_encode(terminal->encoder, event, dynamic, written, &written);
+		if (result != GHOSTTY_SUCCESS) {
+			free(dynamic);
+			ghostty_key_event_free(event);
+			return result;
+		}
+		*out_bytes = (uint8_t *)dynamic;
+		*out_len = written;
+		ghostty_key_event_free(event);
+		return GHOSTTY_SUCCESS;
+	}
+	if (result != GHOSTTY_SUCCESS) {
+		ghostty_key_event_free(event);
+		return result;
+	}
+
+	if (written == 0) {
+		ghostty_key_event_free(event);
+		return GHOSTTY_SUCCESS;
+	}
+
+	uint8_t *copy = malloc(written);
+	if (copy == NULL) {
+		ghostty_key_event_free(event);
+		return GHOSTTY_OUT_OF_MEMORY;
+	}
+	memcpy(copy, stack, written);
+	*out_bytes = copy;
+	*out_len = written;
+	ghostty_key_event_free(event);
+	return GHOSTTY_SUCCESS;
 }
 
 int ptywright_ghostty_terminal_snapshot(PtywrightGhosttyTerminal *terminal,
@@ -416,6 +534,10 @@ void ptywright_ghostty_terminal_destroy(PtywrightGhosttyTerminal *terminal) {
 		return;
 	}
 
+	if (terminal->encoder != NULL) {
+		ghostty_key_encoder_free(terminal->encoder);
+		terminal->encoder = NULL;
+	}
 	if (terminal->handle != NULL) {
 		ghostty_terminal_free(terminal->handle);
 		terminal->handle = NULL;

@@ -88,6 +88,8 @@ jobs:
         run: npx tsc -b
       - name: Build ptywright (native binding)
         run: npm run build --workspace @onkernel/ptywright
+      - name: Ptywright tests
+        run: npm test --workspace @onkernel/ptywright
       - name: CLI unit tests
         env:
           PTYWRIGHT_REQUIRED: "1"
