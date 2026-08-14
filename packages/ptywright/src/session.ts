@@ -65,7 +65,7 @@ export class PtySession {
 			this.transcript += data;
 			const { replyBytes } = this.terminal.feed(data);
 			if (replyBytes && replyBytes.length > 0) {
-				this.pty.write(Buffer.from(replyBytes).toString("utf8"));
+				this.writeBytes(replyBytes);
 			}
 			this.noteUpdate();
 		});
@@ -94,8 +94,7 @@ export class PtySession {
 
 	pressKey(key: SpecialKey): void {
 		this.ensureOpen();
-		const bytes = this.terminal.encodeSpecialKey(key);
-		this.pty.write(Buffer.from(bytes).toString("latin1"));
+		this.writeBytes(this.terminal.encodeSpecialKey(key));
 	}
 
 	resize(cols: number, rows: number): void {
@@ -151,10 +150,7 @@ export class PtySession {
 				if (this.exitedAt) {
 					throw this.buildWaitError(description, snapshot, new Error("process exited before condition was satisfied"));
 				}
-				if (this.revision !== seen) {
-					continue;
-				}
-				await waitForUpdate(this.events, controller.signal);
+				await waitForUpdate(this.events, controller.signal, undefined, () => this.revision !== seen);
 			}
 		} catch (error) {
 			if (controller.signal.aborted) {
@@ -189,10 +185,7 @@ export class PtySession {
 				if (this.exitedAt) {
 					return snapshot;
 				}
-				if (this.revision !== seen) {
-					continue;
-				}
-				await waitForUpdate(this.events, controller.signal, stableForMs);
+				await waitForUpdate(this.events, controller.signal, stableForMs, () => this.revision !== seen);
 			}
 		} catch (error) {
 			if (controller.signal.aborted) {
@@ -213,13 +206,7 @@ export class PtySession {
 		try {
 			while (!this.exitedAt) {
 				const seen = this.revision;
-				if (this.exitedAt) {
-					break;
-				}
-				if (this.revision !== seen) {
-					continue;
-				}
-				await waitForUpdate(this.events, controller.signal);
+				await waitForUpdate(this.events, controller.signal, undefined, () => this.revision !== seen || Boolean(this.exitedAt));
 			}
 			return this.status();
 		} catch (error) {
@@ -282,6 +269,13 @@ export class PtySession {
 	private noteUpdate(): void {
 		this.revision += 1;
 		this.events.emit("update");
+	}
+
+	private writeBytes(bytes: Uint8Array): void {
+		if (bytes.length === 0) {
+			return;
+		}
+		this.pty.write(Buffer.from(bytes).toString("utf8"));
 	}
 
 	private ensureOpen(): void {
@@ -356,7 +350,12 @@ function createWaitController(options?: WaitOptions): { signal: AbortSignal; cle
 	};
 }
 
-async function waitForUpdate(events: EventEmitter, signal: AbortSignal, timeoutMs?: number): Promise<void> {
+async function waitForUpdate(
+	events: EventEmitter,
+	signal: AbortSignal,
+	timeoutMs?: number,
+	alreadyChanged?: () => boolean,
+): Promise<void> {
 	if (signal.aborted) {
 		throw abortReason(signal);
 	}
@@ -381,6 +380,11 @@ async function waitForUpdate(events: EventEmitter, signal: AbortSignal, timeoutM
 
 		events.once("update", onUpdate);
 		signal.addEventListener("abort", onAbort, { once: true });
+		if (alreadyChanged?.()) {
+			cleanup();
+			resolve();
+			return;
+		}
 		if (timeoutMs !== undefined) {
 			timer = setTimeout(() => {
 				cleanup();

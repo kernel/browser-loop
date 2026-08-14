@@ -196,7 +196,6 @@ Napi::Value EncodeSpecialKey(const Napi::CallbackInfo &info) {
 		&len);
 	if (result != 0) {
 		ThrowGhosttyError(env, "ptywright_ghostty_terminal_encode_special_key", result);
-		ptywright_ghostty_free_bytes(bytes);
 		return env.Undefined();
 	}
 	if (bytes == nullptr || len == 0) {

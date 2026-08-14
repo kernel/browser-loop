@@ -18,7 +18,7 @@
     "build:native": "node ./scripts/build-ghostty.mjs && node-gyp rebuild --directory native",
     "clean": "tsc -b --clean",
     "clean:native": "node-gyp clean --directory native",
-    "test": "node --test dist/test/*.test.js"
+    "test": "tsx --test src/test/*.test.ts"
   },
   "gypfile": false,
   "dependencies": {

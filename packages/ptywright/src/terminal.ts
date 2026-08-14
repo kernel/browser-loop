@@ -1,20 +1,4 @@
-import {
-	KeyArrowDown,
-	KeyArrowLeft,
-	KeyArrowRight,
-	KeyArrowUp,
-	KeyBacktab,
-	KeyDelete,
-	KeyEnd,
-	KeyEscape,
-	KeyHome,
-	KeyInsert,
-	KeyPageDown,
-	KeyPageUp,
-	SPECIAL_KEY_KIND,
-	type SpecialKey,
-	type SpecialKeyName,
-} from "./keys";
+import { SPECIAL_KEY_KIND, type SpecialKey } from "./keys";
 import { loadNativeBinding, type NativeSnapshot, type NativeTerminalHandle } from "./native-loader";
 
 export interface CreateTerminalOptions {
@@ -88,11 +72,7 @@ export class TerminalSurface {
 		if (key.kind !== SPECIAL_KEY_KIND) {
 			throw new Error("encodeSpecialKey expects a SpecialKey");
 		}
-		const encoded = this.native.encodeSpecialKey(key.name);
-		if (encoded && encoded.length > 0) {
-			return encoded;
-		}
-		return Buffer.from(legacySpecialKey(key.name), "latin1");
+		return this.native.encodeSpecialKey(key.name) ?? new Uint8Array();
 	}
 
 	dispose(): void {
@@ -126,35 +106,6 @@ function normalizeSnapshot(snapshot: NativeSnapshot): TerminalSnapshot {
 		totalRows: snapshot.totalRows,
 		scrollbackRows: snapshot.scrollbackRows,
 	};
-}
-
-function legacySpecialKey(name: SpecialKeyName): string {
-	switch (name) {
-		case "arrow_up":
-			return KeyArrowUp;
-		case "arrow_down":
-			return KeyArrowDown;
-		case "arrow_left":
-			return KeyArrowLeft;
-		case "arrow_right":
-			return KeyArrowRight;
-		case "home":
-			return KeyHome;
-		case "end":
-			return KeyEnd;
-		case "page_up":
-			return KeyPageUp;
-		case "page_down":
-			return KeyPageDown;
-		case "insert":
-			return KeyInsert;
-		case "delete":
-			return KeyDelete;
-		case "escape":
-			return KeyEscape;
-		case "backtab":
-			return KeyBacktab;
-	}
 }
 
 function splitLines(text: string): string[] {
