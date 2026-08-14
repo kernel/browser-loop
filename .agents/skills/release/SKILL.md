@@ -93,24 +93,37 @@ and every version returned by `npm view <package> versions --json`.
 
 ## Changelog
 
-Update only the changelog for packages being released:
+Changes land under a `## Unreleased` heading as they merge, so every changelog
+has at most one unreleased section:
 
 - `packages/ai/CHANGELOG.md`
 - `packages/agent/CHANGELOG.md`
 - `packages/cli/CHANGELOG.md`
 
-Add a new top entry:
+Releasing renames that heading in place — do not add a second top entry:
 
 ```markdown
 ## <version> - YYYY-MM-DD
-
-- ...
 ```
+
+Then read the section as a whole before tagging. It accumulated over several
+merges, so it can carry entries that contradict each other or describe a state
+that never shipped: an API added and then removed, or a note that a provider
+"keeps" a behavior when a later entry deletes that provider. Consumers upgrade
+from the previous release, not through the intermediate steps, so collapse
+those into the net change and drop what nobody can observe. Cross-package
+"update `@onkernel/cua-ai` to X" notes belong here too — the version is not
+known until this step.
 
 Write customer-facing changes. Do not dump commit subjects, internal issue
 names, Slack context, or vague entries like "misc improvements." Group details
 only when it improves readability. If the release is only metadata or docs,
 say that plainly.
+
+Merges between releases add to `## Unreleased`, creating it directly under
+`# Changelog` when it is absent. Never invent a version heading for a merge:
+package versions are chosen at release time from the accumulated changes, and a
+per-merge heading claims a release that never happened.
 
 ## Edit Release Metadata
 

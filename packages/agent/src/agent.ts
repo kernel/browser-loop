@@ -45,24 +45,24 @@ import {
 } from "./provider-retry";
 import { CuaExecutionResources, type CuaExecutionDetails } from "./resources";
 import { CuaToolManager, type CuaAgentTool, type CuaHarnessTool } from "./tool-manager";
+import {
+	type CuaEmptyResponseRecoveryOptions,
+	type CuaModelInput,
+	defaultCuaStream,
+	hasExecutionError,
+	isEmptyAssistantResponse,
+	modelTransportChanged,
+	projectToolResultImages,
+	requiredImageToolNames,
+	resolveEmptyResponseRecovery,
+	resolveModelFromCollection,
+	resolveResponseThreading,
+	resolveToolResultImageReplayLimit,
+	type ToolResultImageReplayLimit,
+	turnFailureStopMessage,
+	withCatalogModels,
+} from "./attach";
 import type { KernelBrowser } from "./translator/translator";
-
-/** A registered CUA model reference or an already resolved pi model. */
-export type CuaModelInput = CuaModelRef | Model<Api>;
-
-const DEFAULT_TOOL_RESULT_IMAGE_REPLAY_LIMIT = 4;
-const OMITTED_TOOL_RESULT_IMAGES = "[stale tool-result images omitted]";
-
-/** Maximum recent tool-result images retained in model context, or `false` to retain all images. Provider-required native tool images are always retained. */
-export type ToolResultImageReplayLimit = number | false;
-
-/** Optional follow-up policy for otherwise empty successful assistant responses. */
-export interface CuaEmptyResponseRecoveryOptions {
-	/** User message queued to ask the model to continue. */
-	followUp: string;
-	/** Maximum automatic follow-ups per prompt. */
-	maxAttempts: number;
-}
 
 /** Mutable conversation state exposed by {@link CuaAgent}. */
 export interface CuaAgentState {
@@ -492,144 +492,4 @@ export class CuaAgentHarness<
 		await this.abort();
 		await this.tools.resources.dispose();
 	}
-}
-
-const defaultCuaStream: StreamFn = (model, context, options) => cuaModels().streamSimple(model, context, options);
-
-function resolveModelFromCollection(ref: CuaModelRef, models: Models): Model<Api> {
-	const { provider, model: id } = parseCuaModelRef(ref);
-	return models.getModel(provider, id) ?? getCuaModel(ref);
-}
-
-/** Whether a tools-only recompile actually changed the model pi streams with, so `setTools()` only pushes `setModel()` (and its session/event side effects) when the derived transport moved. */
-function modelTransportChanged(previous: Model<Api>, next: Model<Api>): boolean {
-	return previous.provider !== next.provider || previous.id !== next.id || previous.api !== next.api;
-}
-
-function withCatalogModels(
-	models: Models,
-	manager: CuaToolManager<any>,
-	imageReplayLimit: ToolResultImageReplayLimit,
-	responseThreading: boolean,
-): Models {
-	const contextFor = (context: Context) => projectModelContext(
-		context,
-		imageReplayLimit,
-		requiredImageToolNames(manager.catalog.incoming),
-	);
-	const optionsFor = <T extends SimpleStreamOptions | undefined>(options: T): T => {
-		const catalog = manager.catalog;
-		const callerOnPayload = options?.onPayload;
-		return {
-			...options,
-			headers: catalog.headers.merge(options?.headers),
-			disableResponseThreading: responseThreading ? undefined : true,
-			cuaIncomingToolPlan: catalog.incoming,
-			onPayload: async (payload: unknown, model: Model<Api>) => {
-				const generated = await catalog.payload.apply(payload, model);
-				return callerOnPayload ? (await callerOnPayload(generated, model)) ?? generated : generated;
-			},
-		} as T;
-	};
-	return {
-		getProviders: () => models.getProviders(),
-		getProvider: (id) => models.getProvider(id),
-		getModels: (provider) => models.getModels(provider),
-		getModel: (provider, id) => models.getModel(provider, id),
-		refresh: (provider) => models.refresh(provider),
-		getAuth: (input, overrides) => models.getAuth(input as never, overrides),
-		checkAuth: (providerId) => models.checkAuth(providerId),
-		getAvailable: (providerId) => models.getAvailable(providerId),
-		login: (providerId, type, interaction) => models.login(providerId, type, interaction),
-		logout: (providerId) => models.logout(providerId),
-		stream: (model, context, options) => models.stream(model, contextFor(context), optionsFor(options)),
-		complete: (model, context, options) => models.complete(model, contextFor(context), optionsFor(options)),
-		streamSimple: (model, context, options) => models.streamSimple(model, contextFor(context), optionsFor(options)),
-		completeSimple: (model, context, options) => models.completeSimple(model, contextFor(context), optionsFor(options)),
-	};
-}
-
-function resolveToolResultImageReplayLimit(limit: ToolResultImageReplayLimit | undefined): ToolResultImageReplayLimit {
-	if (limit === undefined) return DEFAULT_TOOL_RESULT_IMAGE_REPLAY_LIMIT;
-	if (limit !== false && (!Number.isFinite(limit) || !Number.isInteger(limit) || limit < 0)) {
-		throw new TypeError("toolResultImageReplayLimit must be a finite non-negative integer or false");
-	}
-	return limit;
-}
-
-/** Native computer tool names whose screenshot history the provider protocol requires in full, regardless of the image replay limit. */
-function requiredImageToolNames(incoming: CuaIncomingToolPlan): ReadonlySet<string> {
-	return new Set(incoming.openaiComputerName ? [incoming.openaiComputerName] : []);
-}
-
-function projectToolResultImages<TMessage extends AgentMessage>(
-	messages: TMessage[],
-	limit: ToolResultImageReplayLimit,
-	requiredToolNames: ReadonlySet<string> = new Set(),
-): TMessage[] {
-	if (limit === false) return messages;
-	let imageCount = 0;
-	for (const message of messages) {
-		if (message.role === "toolResult" && !requiredToolNames.has(message.toolName)) {
-			imageCount += message.content.filter((block) => block.type === "image").length;
-		}
-	}
-	if (imageCount <= limit) return messages;
-	const firstRetainedImage = Math.max(0, imageCount - limit);
-	let imageOrdinal = 0;
-	return messages.map((message) => {
-		if (message.role !== "toolResult" || requiredToolNames.has(message.toolName)) return message;
-		let changed = false;
-		let markerInserted = false;
-		const content = [] as typeof message.content;
-		for (const block of message.content) {
-			if (block.type !== "image" || imageOrdinal++ >= firstRetainedImage) {
-				content.push(block);
-				continue;
-			}
-			changed = true;
-			if (!markerInserted) {
-				content.push({ type: "text", text: OMITTED_TOOL_RESULT_IMAGES });
-				markerInserted = true;
-			}
-		}
-		return changed ? { ...message, content } as TMessage : message;
-	});
-}
-
-function projectModelContext(
-	context: Context,
-	imageReplayLimit: ToolResultImageReplayLimit,
-	requiredToolNames: ReadonlySet<string>,
-): Context {
-	const messages = projectToolResultImages(context.messages, imageReplayLimit, requiredToolNames);
-	return messages === context.messages ? context : { ...context, messages };
-}
-
-function resolveEmptyResponseRecovery(options: CuaEmptyResponseRecoveryOptions | undefined): CuaEmptyResponseRecoveryOptions | undefined {
-	if (!options) return undefined;
-	if (options.followUp.trim().length === 0) throw new Error("emptyResponseRecovery.followUp must not be blank");
-	if (!Number.isInteger(options.maxAttempts) || options.maxAttempts < 0) throw new Error("emptyResponseRecovery.maxAttempts must be a non-negative finite integer");
-	return { followUp: options.followUp, maxAttempts: options.maxAttempts };
-}
-
-function resolveResponseThreading(value: boolean | undefined): boolean {
-	if (value !== undefined && typeof value !== "boolean") throw new TypeError("responseThreading must be a boolean");
-	return value ?? true;
-}
-
-function isEmptyAssistantResponse(message: AgentMessage): boolean {
-	return message.role === "assistant" && message.stopReason === "stop" && message.content.length === 0;
-}
-
-function hasExecutionError(details: unknown): boolean {
-	return Boolean(details && typeof details === "object" && (details as CuaExecutionDetails).isError === true);
-}
-
-function turnFailureStopMessage(manager: CuaToolManager<any>): string | undefined {
-	for (const entry of manager.catalog.entries) {
-		const execution = manager.specFor(entry.identity)?.execution;
-		if (execution?.kind === "actions" && execution.stopTurnOnFailureMessage) return execution.stopTurnOnFailureMessage;
-	}
-	return undefined;
 }

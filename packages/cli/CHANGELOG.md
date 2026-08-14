@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.14.0 - 2026-08-14
+## Unreleased
 
 - `/tools` now offers the model's whole tool menu instead of filtering the list
   the CLI composed. Tools the CLI did not choose — `playwright_execute`, the
@@ -9,59 +9,40 @@
   the selection is staged. `ctrl+r` still restores the model's defaults.
 - Add `cua tools`, which prints that menu for a model without the TUI, with
   `--json` for scripting.
-
-## 0.13.0 - 2026-08-14
-
 - `cua models` lists every model pi-ai carries, not a curated subset, and `-p`
   accepts any provider it carries.
 - `-m` accepts any model id. A bare id that several providers carry now resolves
   to the first-party provider rather than erroring, since gateways resell the
   same ids; pass a qualified `provider:model` ref to reach a specific one.
-- The API-key preflight now runs only for providers CUA documents variable
-  names for. Any other pi-ai provider is still selectable; pi resolves its
-  credential when it streams, and failing up front would refuse a model that
-  works.
+- The API-key preflight now runs only for providers CUA documents variable names
+  for. Any other pi-ai provider is still selectable; pi resolves its credential
+  when it streams, and failing up front would refuse a model that works.
 - The default interaction toolset is chosen from the model rather than its
   provider: a model with a native browser surface gets it, and everything else
   gets CUA's CDP tools, with `browser_act` included only where the model accepts
-  its schema.
+  its schema. A provider can front several model families — Kimi K3 rejects
+  `browser_act`'s schema while Muse Spark accepts it — so one answer per
+  provider was never right.
+- `--print -o jsonl` schema bumps to version 2: every assistant message now also
+  emits an `assistant_usage` event (`turn`, `model`, `api`, `input`, `output`,
+  `cache_read`, `cache_write`, `reasoning`, `total_tokens`, and a derived
+  `cache_hit_ratio`), including tool-only turns with no text.
+- `defaultInteractionTools` still selects Google's native browser toolset, so
+  `assistant_usage.api` for a Google model is unchanged as long as that toolset
+  stays selected. A `/tools` selection that drops it now reports pi's builtin
+  `google-generative-ai` api instead of the CUA-owned one, since the selected
+  tools decide the transport.
 
-## 0.12.0 - 2026-08-13
+Breaking: the Tzafon, Yutori, and Meta providers are removed.
 
+- Refs like `-m tzafon:…` and `-m yutori:…` are no longer accepted, `cua models`
+  no longer lists either provider, and `TZAFON_API_KEY`/`YUTORI_API_KEY` are no
+  longer read.
 - `-m meta:muse-spark-1.1` is removed; use `-m openrouter:meta/muse-spark-1.1`.
   `META_API_KEY` is no longer read.
-- The default interaction toolset for OpenRouter models is now chosen per model
-  rather than per provider. OpenRouter fronts several model families, and Kimi
-  K3 rejects `browser_act`'s schema while Muse Spark accepts it, so the CLI
-  asks the model's capabilities instead of assuming one answer per provider.
-
-Breaking: Tzafon and Yutori support is removed.
-
-- Update `@onkernel/cua-ai` and `@onkernel/cua-agent` to 0.13.0. Refs like
-  `-m tzafon:…` and `-m yutori:…` are no longer accepted, `cua models` no
-  longer lists either provider, and `TZAFON_API_KEY`/`YUTORI_API_KEY` are no
-  longer read.
 - The `/tools` picker no longer has atomic tool groups. They existed only for
   Yutori's n1 action set, which the catalog compiler refused to accept as a
   partial selection; every remaining tool toggles on its own.
-
-## 0.11.0 - 2026-08-13
-
-- Update `@onkernel/cua-ai` and `@onkernel/cua-agent` to 0.12.0. The default
-  Google interaction catalog is unchanged (`defaultInteractionTools` still
-  selects Google's native browser toolset), so the default `cua` model and
-  `--print -o jsonl`'s `assistant_usage.api` field for Google are unaffected
-  as long as that native toolset stays selected, including across an in-session
-  `/model` switch. Only a `/tools` selection that drops Google's native toolset
-  now reports pi's builtin `google-generative-ai` api instead of the CUA-owned
-  one.
-
-## 0.10.0 - 2026-08-13
-
-- `--print -o jsonl` schema bumps to version 2: every assistant message now
-  also emits an `assistant_usage` event (`turn`, `model`, `api`, `input`,
-  `output`, `cache_read`, `cache_write`, `reasoning`, `total_tokens`, and a
-  derived `cache_hit_ratio`), including tool-only turns with no text.
 
 ## 0.9.0 - 2026-08-04
 
