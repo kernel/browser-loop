@@ -54,6 +54,11 @@ export function describeMenu(
 	selectedTools: readonly CuaCliTool[],
 ): ToolSelectionItem[] {
 	const selectedSpecs = selectedTools.filter(isCuaToolSpec);
+	// A live spec may carry options the menu's freshly built one does not (the
+	// CLI enables `javascript` on Anthropic's native browser, for instance), so
+	// a row that is already installed contributes the exact object in use.
+	// Otherwise a no-op apply would quietly rebuild the catalog without them.
+	const live = new Map(selectedSpecs.map((tool) => [tool.identity, tool] as const));
 	const items: ToolSelectionItem[] = cuaToolMenu(model, selectedSpecs).map((entry) => ({
 		key: entry.key,
 		label: entry.label,
@@ -61,7 +66,7 @@ export function describeMenu(
 		...(entry.description ? { description: entry.description } : {}),
 		available: entry.available,
 		...(entry.unavailableReason ? { unavailableReason: entry.unavailableReason } : {}),
-		tools: entry.tools as readonly CuaCliTool[],
+		tools: entry.tools.map((tool) => live.get(tool.identity) ?? tool) as readonly CuaCliTool[],
 	}));
 	for (const tool of applicationTools) {
 		const description = toolDescription(tool);

@@ -4,6 +4,8 @@ import { defaultApplicationTools, defaultInteractionTools } from "../src/harness
 import {
 	describeMenu,
 	disableTools,
+	selectedKeys,
+	toolsForSelection,
 	enableTools,
 	sameSelection,
 	toggleTool,
@@ -54,6 +56,22 @@ describe("describeMenu", () => {
 
 		const openaiNative = items.filter((item) => item.group === "native" && !item.available);
 		expect(openaiNative.length).toBeGreaterThan(0);
+	});
+
+	it("keeps the caller's configured spec for a row already installed", () => {
+		// The CLI enables `javascript` on Anthropic's native browser. A row that is
+		// already installed must contribute that exact object, or a no-op apply
+		// would rebuild the catalog without the option.
+		const model = "anthropic:claude-opus-5" as const;
+		const application = defaultApplicationTools();
+		const baseline = [...defaultInteractionTools(model), ...application];
+		const live = baseline.find((tool) => tool.name === "browser")!;
+		const items = describeMenu(model, application, baseline);
+		const row = items.find((item) => item.label === "browser" && item.group === "native")!;
+		expect(row.tools[0]).toBe(live);
+
+		const applied = toolsForSelection(items, selectedKeys(items, baseline));
+		expect(applied.find((tool) => tool.name === "browser")).toBe(live);
 	});
 
 	it("labels provider-native, cua, and application groups", () => {

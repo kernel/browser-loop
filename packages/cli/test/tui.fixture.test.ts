@@ -389,7 +389,8 @@ suite("TUI ptywright scenarios", () => {
 		// ctrl+a enables every selectable row — including tools the application
 		// never composed — and ctrl+x clears it; both are staged.
 		session.press(KeyCtrlA);
-		await session.waitForVisible(`/${selectable} enabled`, { timeoutMs: WAIT_MS });
+		// No `waitForVisible` here: the footer already reads `…/${selectable}
+		// enabled`, so a substring wait would resolve on the pre-keypress screen.
 		await session.waitForStable(STABLE_MS, { timeoutMs: WAIT_MS });
 		const enabledAll = /(\d+)\/\d+ enabled/.exec(session.snapshot().visible);
 		assert.ok(enabledAll && Number(enabledAll[1]) > baseline, "ctrl+a grows the selection past the baseline");

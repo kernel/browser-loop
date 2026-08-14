@@ -255,6 +255,7 @@ export class ToolsPickerComponent extends Container implements Focusable {
 		}
 		if (kb.matches(data, "cua.tools.reset")) {
 			this.staged = new Set(this.defaultKeys);
+			this.restageItems();
 			this.refresh();
 			this.tui.requestRender();
 			return;
