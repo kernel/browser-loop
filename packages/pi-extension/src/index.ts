@@ -229,7 +229,11 @@ export default function cuaPiExtension(pi: ExtensionAPI): void {
 			if (dropped.length) {
 				process.stderr.write(`cua: ignoring retired tool selector(s) from this session: ${dropped.join(", ")}\n`);
 			}
-			if (known.length) selection = parseSelection(known.join(","), saved.coordinates);
+			// Always apply what was restored, even when nothing survives. A persisted
+			// selection came from `/cua-tools`, which deliberately overrides the flags,
+			// so falling back to them would re-enable tools this session had replaced.
+			// An empty selection with the note above is the honest outcome.
+			selection = parseSelection(known.join(",") || undefined, saved.coordinates);
 		}
 		configureDeclarations();
 		installTools();

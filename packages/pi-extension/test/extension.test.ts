@@ -333,6 +333,44 @@ describe("pi extension activation", () => {
 		}
 	});
 
+	it("does not fall back to flags when every persisted selector is retired", async () => {
+		const written: string[] = [];
+		const write = vi.spyOn(process.stderr, "write").mockImplementation(((chunk: string) => {
+			written.push(String(chunk));
+			return true;
+		}) as never);
+		try {
+			const pi = makePi({
+				"cua-tools": "playwright",
+				"cua-coordinates": "pixels",
+				"cua-browser-timeout": "300",
+				"cua-profile-save-changes": false,
+			});
+			extension(pi.api);
+			const resumedCtx = {
+				...ctx,
+				sessionManager: {
+					getBranch: () => [
+						{
+							type: "custom",
+							customType: "cua-pi-config-v1",
+							data: { version: 1, origin: "command", selectors: ["browser-batch"], coordinates: "pixels" },
+						},
+					],
+				},
+			} as unknown as ExtensionContext;
+
+			await getHandler(pi, "session_start")({}, resumedCtx);
+
+			// The persisted selection came from /cua-tools, which overrides the flags.
+			// Reviving `playwright` here would re-enable a tool this session replaced.
+			expect(pi.active).not.toContain("playwright_execute");
+			expect(written.join("")).toMatch(/ignoring retired tool selector\(s\).*browser-batch/);
+		} finally {
+			write.mockRestore();
+		}
+	});
+
 	it("warns on stderr when a selection deactivates outside TUI mode", async () => {
 		const written: string[] = [];
 		const write = vi.spyOn(process.stderr, "write").mockImplementation(((chunk: string) => {
