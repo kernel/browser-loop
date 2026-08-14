@@ -62,6 +62,52 @@ jobs:
       - name: Pi extension unit tests
         run: npm test --workspace @onkernel/cua-pi-extension
 
+  typecheck-and-ptywright:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PTYWRIGHT_ZIG_VERSION: "0.15.2"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Cache Zig toolchain
+        uses: actions/cache@v4
+        with:
+          path: .dev/tools/zig-x86_64-linux-${{ env.PTYWRIGHT_ZIG_VERSION }}
+          key: zig-${{ runner.os }}-${{ env.PTYWRIGHT_ZIG_VERSION }}
+      - name: Install Zig ${{ env.PTYWRIGHT_ZIG_VERSION }}
+        run: |
+          set -euo pipefail
+          ZIG_DIR=".dev/tools/zig-x86_64-linux-${PTYWRIGHT_ZIG_VERSION}"
+          if [ ! -x "${ZIG_DIR}/zig" ]; then
+            mkdir -p .dev/tools
+            curl -fsSL "https://ziglang.org/download/${PTYWRIGHT_ZIG_VERSION}/zig-x86_64-linux-${PTYWRIGHT_ZIG_VERSION}.tar.xz" \
+              | tar -xJ -C .dev/tools
+          fi
+          "${ZIG_DIR}/zig" version
+          echo "${GITHUB_WORKSPACE}/${ZIG_DIR}" >> "${GITHUB_PATH}"
+      - name: Cache ptywright native artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            packages/ptywright/.cache
+            packages/ptywright/native/build
+          key: ptywright-${{ runner.os }}-${{ hashFiles('packages/ptywright/GHOSTTY_UPSTREAM', 'packages/ptywright/native/**', 'packages/ptywright/scripts/**') }}
+      - run: npm run build --workspace @onkernel/cua-ai
+      - run: npm run build --workspace @onkernel/cua-agent
+      # The only job that typechecks the whole project graph rather than one
+      # package, and the only one that builds and tests ptywright.
+      - name: Typecheck workspace
+        run: npx tsc -b
+      - name: Build ptywright (native binding)
+        run: npm run build --workspace @onkernel/ptywright
+      - name: Ptywright tests
+        run: npm test --workspace @onkernel/ptywright
+
   integration:
     runs-on: ubuntu-latest
     timeout-minutes: 15
