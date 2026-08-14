@@ -16,8 +16,9 @@ const repoRoot = resolve(agentRoot, "..", "..");
 const CONSUMER = `
 import { Type } from "typebox";
 import {
-	CuaAgent,
-	CuaAgentHarness,
+	Agent,
+	AgentHarness,
+	attach,
 	InMemorySessionRepo,
 	NodeExecutionEnv,
 	createBashTool,
@@ -63,32 +64,31 @@ const agentTools: readonly CuaAgentTool[] = [...cua.toolsets.browser()];
 
 async function build() {
 	const session = await new InMemorySessionRepo().create();
-	const harness = new CuaAgentHarness<ExecutionToolContext>({
-		browser,
-		client,
+	const handle = attach({ browser, client });
+
+	const compiled = handle.compile<ExecutionToolContext>({ model: "openai:gpt-5.6-sol", tools: harnessTools });
+	const harness = new AgentHarness<ExecutionToolContext>({
 		session,
-		model: "openai:gpt-5.6-sol",
-		tools: harnessTools,
+		model: compiled.model,
+		models: compiled.models,
+		tools: [...compiled.tools],
+		activeToolNames: compiled.tools.map((tool) => tool.name),
 		toolContext,
 	});
-	const contextFree = new CuaAgentHarness({
-		browser,
-		client,
-		session,
-		model: getCuaModel("openai:gpt-5.6-sol"),
-		tools: [],
+	const release = compiled.activate(harness);
+	// A swap compiles for the same tool context the harness delivers.
+	await handle.compile<ExecutionToolContext>({ model: getCuaModel("openai:gpt-5.6-sol"), tools: [] }).apply(harness);
+
+	const lowLevel = handle.compile({ model: "openai:gpt-5.6-sol", tools: agentTools });
+	const agent = new Agent({
+		streamFn: (model, context, options) => lowLevel.models.streamSimple(model, context, options),
+		initialState: { model: lowLevel.model, tools: [...lowLevel.agentTools] },
 	});
-	new CuaAgentHarness({
-		browser,
-		client,
-		session,
-		model: "openai:gpt-5.6-sol",
-		tools: [],
-		// @ts-expect-error env was removed; the tool context now carries the execution env
-		env: new NodeExecutionEnv({ cwd: process.cwd() }),
-	});
-	const agent = new CuaAgent({ browser, client, tools: agentTools, initialState: { model: "openai:gpt-5.6-sol" } });
-	return { harness, contextFree, agent };
+
+	// @ts-expect-error the browser and client belong to attach(), not to a compile
+	handle.compile({ browser, model: "openai:gpt-5.6-sol", tools: [] });
+
+	return { harness, agent, release };
 }
 
 void build;

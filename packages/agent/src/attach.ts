@@ -63,17 +63,30 @@ export interface CuaCompiled<TContext extends object | undefined = undefined> {
 	/** Same tools viewed as pi `AgentTool`s, for the low-level `Agent`. */
 	readonly agentTools: readonly AgentTool[];
 	/**
-	 * A `Models` collection that adds what CUA owns per request: provider retry,
-	 * required headers, the catalog's payload transforms, and the tool-result
-	 * image bound.
+	 * The handle's `Models` collection, adding what CUA owns per request:
+	 * provider retry, required headers, the catalog's payload transforms, and
+	 * the tool-result image bound. Shared by every compile from this handle,
+	 * because pi fixes `models` at construction while those transforms are
+	 * per-catalog; it serves whichever pair is currently active.
 	 */
 	readonly models: Models;
 	/**
-	 * Register the behaviors that are pi event handlers rather than constructor
-	 * options: marking failed tool results, blocking a turn's remaining calls
-	 * after one fails, and empty-response recovery. Returns an unsubscribe.
+	 * Make this the handle's live pair on a harness: register the behaviors that
+	 * are pi event handlers rather than constructor options (marking failed tool
+	 * results, blocking a turn's remaining calls after one fails, empty-response
+	 * recovery), and point `models` at this catalog. Returns a release that undoes
+	 * both. Activating another pair releases this one.
 	 */
-	install(harness: AgentHarness<any, any, any, any>): () => void;
+	activate(harness: AgentHarness<any, any, any, any>): () => void;
+	/**
+	 * Swap a running harness onto this pair, then activate it. Model and tools
+	 * move together because the transport is derived from both: setting one
+	 * without the other leaves pi streaming a combination that never compiled.
+	 * The model is only set when the derived transport actually moved, so a
+	 * tools-only change records no model change. A failure restores the harness's
+	 * previous pair before rethrowing, leaving the old pair active.
+	 */
+	apply(harness: AgentHarness<any, any, any, AgentHarnessTool<TContext>>): Promise<void>;
 }
 
 /**
@@ -93,6 +106,8 @@ export interface CuaBrowserHandle {
 	}): CuaCompiled<TContext>;
 	/** The shared execution pool, for callers that need it directly. */
 	readonly resources: CuaExecutionResources;
+	/** Same collection every {@link CuaCompiled.models} returns; see the note there. */
+	readonly models: Models;
 	dispose(): Promise<void>;
 }
 
@@ -113,8 +128,28 @@ export function attach(options: CuaAttachOptions): CuaBrowserHandle {
 	const recovery = resolveEmptyResponseRecovery(options.emptyResponseRecovery);
 	const retrying = withProviderRetryModels(options.models ?? cuaModels(), resolveProviderRetryPolicy(options.retry));
 
+	// pi fixes `models` at construction, but the headers, payload transforms and
+	// incoming tool plan it applies are per-catalog. One collection per handle,
+	// reading whichever pair is live, is what lets a caller swap the pair on a
+	// running harness at all.
+	let live: CuaToolManager<any> | undefined;
+	let lastCompiled: CuaToolManager<any> | undefined;
+	let release: (() => void) | undefined;
+	const models = withCatalogModels(
+		retrying,
+		() => {
+			const manager = live ?? lastCompiled;
+			if (!manager) throw new Error("cua: compile a (model, tools) pair before streaming");
+			return manager;
+		},
+		imageReplayLimit,
+		useResponseThreading,
+		options.onPayload,
+	);
+
 	return {
 		resources,
+		models,
 		dispose: () => resources.dispose(),
 		compile<TContext extends object | undefined = undefined>(request: {
 			model: CuaModelInput;
@@ -126,16 +161,54 @@ export function attach(options: CuaAttachOptions): CuaBrowserHandle {
 				request.tools,
 				(ref) => resolveModelFromCollection(ref, retrying),
 			);
-			const models = withCatalogModels(retrying, manager, imageReplayLimit, useResponseThreading, options.onPayload);
+			lastCompiled = manager;
+			const model = manager.catalog.model;
+			const tools = manager.harnessTools() as readonly AgentHarnessTool<TContext>[];
+			const activate = (harness: AgentHarness<any, any, any, any>): (() => void) => {
+				release?.();
+				const uninstall = installCuaBehaviors(harness, manager, recovery);
+				live = manager;
+				// Identity-checked so calling a stale release cannot clear a newer
+				// activation: only the pair still live releases anything.
+				const releaseThis = (): void => {
+					uninstall();
+					if (live === manager) live = undefined;
+					if (release === releaseThis) release = undefined;
+				};
+				release = releaseThis;
+				return releaseThis;
+			};
 			return {
-				model: manager.catalog.model,
-				tools: manager.harnessTools() as readonly AgentHarnessTool<TContext>[],
+				model,
+				tools,
 				agentTools: manager.agentTools(),
 				models,
-				install: (harness) => installCuaBehaviors(harness, manager, recovery),
+				activate,
+				async apply(harness) {
+					await applyCompiled(harness, model, tools);
+					activate(harness);
+				},
 			};
 		},
 	};
+}
+
+async function applyCompiled<TContext extends object | undefined>(
+	harness: AgentHarness<any, any, any, AgentHarnessTool<TContext>>,
+	model: Model<Api>,
+	tools: readonly AgentHarnessTool<TContext>[],
+): Promise<void> {
+	const previousModel = harness.getModel();
+	const previousTools = harness.getTools();
+	const transportChanged = modelTransportChanged(previousModel, model);
+	try {
+		if (transportChanged) await harness.setModel(model);
+		await harness.setTools([...tools], tools.map((tool) => tool.name));
+	} catch (error) {
+		if (transportChanged) await harness.setModel(previousModel);
+		await harness.setTools(previousTools, previousTools.map((tool) => tool.name));
+		throw error;
+	}
 }
 
 /**
@@ -179,25 +252,25 @@ export function installCuaBehaviors(
 	};
 }
 
-/** @internal shared with the agent classes until they retire. */
+/** @internal */
 export const defaultCuaStream: StreamFn = (model, context, options) => cuaModels().streamSimple(model, context, options);
 
-/** @internal shared with the agent classes until they retire. */
+/** @internal */
 export function resolveModelFromCollection(ref: CuaModelRef, models: Models): Model<Api> {
 	const { provider, model: id } = parseCuaModelRef(ref);
 	return models.getModel(provider, id) ?? getCuaModel(ref);
 }
 
 /** Whether a tools-only recompile actually changed the model pi streams with, so `setTools()` only pushes `setModel()` (and its session/event side effects) when the derived transport moved. */
-/** @internal shared with the agent classes until they retire. */
+/** @internal */
 export function modelTransportChanged(previous: Model<Api>, next: Model<Api>): boolean {
 	return previous.provider !== next.provider || previous.id !== next.id || previous.api !== next.api;
 }
 
-/** @internal shared with the agent classes until they retire. */
+/** @internal */
 export function withCatalogModels(
 	models: Models,
-	manager: CuaToolManager<any>,
+	liveManager: () => CuaToolManager<any>,
 	imageReplayLimit: ToolResultImageReplayLimit,
 	responseThreading: boolean,
 	handleOnPayload?: SimpleStreamOptions["onPayload"],
@@ -205,10 +278,10 @@ export function withCatalogModels(
 	const contextFor = (context: Context) => projectModelContext(
 		context,
 		imageReplayLimit,
-		requiredImageToolNames(manager.catalog.incoming),
+		requiredImageToolNames(liveManager().catalog.incoming),
 	);
 	const optionsFor = <T extends SimpleStreamOptions | undefined>(options: T): T => {
-		const catalog = manager.catalog;
+		const catalog = liveManager().catalog;
 		const callerOnPayload = options?.onPayload ?? handleOnPayload;
 		return {
 			...options,
@@ -239,7 +312,7 @@ export function withCatalogModels(
 	};
 }
 
-/** @internal shared with the agent classes until they retire. */
+/** @internal */
 export function resolveToolResultImageReplayLimit(limit: ToolResultImageReplayLimit | undefined): ToolResultImageReplayLimit {
 	if (limit === undefined) return DEFAULT_TOOL_RESULT_IMAGE_REPLAY_LIMIT;
 	if (limit !== false && (!Number.isFinite(limit) || !Number.isInteger(limit) || limit < 0)) {
@@ -249,12 +322,12 @@ export function resolveToolResultImageReplayLimit(limit: ToolResultImageReplayLi
 }
 
 /** Native computer tool names whose screenshot history the provider protocol requires in full, regardless of the image replay limit. */
-/** @internal shared with the agent classes until they retire. */
+/** @internal */
 export function requiredImageToolNames(incoming: CuaIncomingToolPlan): ReadonlySet<string> {
 	return new Set(incoming.openaiComputerName ? [incoming.openaiComputerName] : []);
 }
 
-/** @internal shared with the agent classes until they retire. */
+/** @internal */
 export function projectToolResultImages<TMessage extends AgentMessage>(
 	messages: TMessage[],
 	limit: ToolResultImageReplayLimit,
@@ -299,7 +372,7 @@ function projectModelContext(
 	return messages === context.messages ? context : { ...context, messages };
 }
 
-/** @internal shared with the agent classes until they retire. */
+/** @internal */
 export function resolveEmptyResponseRecovery(options: CuaEmptyResponseRecoveryOptions | undefined): CuaEmptyResponseRecoveryOptions | undefined {
 	if (!options) return undefined;
 	if (options.followUp.trim().length === 0) throw new Error("emptyResponseRecovery.followUp must not be blank");
@@ -307,23 +380,23 @@ export function resolveEmptyResponseRecovery(options: CuaEmptyResponseRecoveryOp
 	return { followUp: options.followUp, maxAttempts: options.maxAttempts };
 }
 
-/** @internal shared with the agent classes until they retire. */
+/** @internal */
 export function resolveResponseThreading(value: boolean | undefined): boolean {
 	if (value !== undefined && typeof value !== "boolean") throw new TypeError("responseThreading must be a boolean");
 	return value ?? true;
 }
 
-/** @internal shared with the agent classes until they retire. */
+/** @internal */
 export function isEmptyAssistantResponse(message: AgentMessage): boolean {
 	return message.role === "assistant" && message.stopReason === "stop" && message.content.length === 0;
 }
 
-/** @internal shared with the agent classes until they retire. */
+/** @internal */
 export function hasExecutionError(details: unknown): boolean {
 	return Boolean(details && typeof details === "object" && (details as CuaExecutionDetails).isError === true);
 }
 
-/** @internal shared with the agent classes until they retire. */
+/** @internal */
 export function turnFailureStopMessage(manager: CuaToolManager<any>): string | undefined {
 	for (const entry of manager.catalog.entries) {
 		const execution = manager.specFor(entry.identity)?.execution;

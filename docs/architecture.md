@@ -82,15 +82,17 @@ before a model request.
 
 ## Dynamic catalogs
 
-`CuaAgent` and `CuaAgentHarness` use composition around pi and expose:
+`attach()` returns a handle; `compile()` turns a (model, tools) pair into plain
+pi objects, and `apply()` swaps a running harness onto a new pair:
 
 ```ts
-agent.getTools();
-agent.setTools(nextTools);
-agent.setModel(nextModel);
+const kb = attach({ browser, client });
+const compiled = kb.compile({ model, tools });
+await compiled.apply(harness);
 ```
 
-`setTools()` recompiles atomically before mutating pi state. Existing tool
+Nothing mutates in place: a change compiles a new pair, and `compile()` throws
+before anything reaches pi. Existing tool
 identity with a changed schema, executor, or coordinates counts as a real
 replacement. Additions made from inside a running tool are recorded in pi's
 Anthropic-compatible `addedToolNames` marker only when that provider/model can
@@ -200,10 +202,14 @@ derives a transport that the rest of the selection must be compatible with.
 Callers rebuild the menu after each staged change rather than caching a per-tool
 verdict.
 
-`CuaAgent` and `CuaAgentHarness` push the compiled `catalog.model` into pi on
-every construction and on every `setTools()`/`setModel()`, so the derived
-transport applies uniformly regardless of which mutation path selected the
-tools.
+`apply()` pushes the compiled `catalog.model` into pi alongside its tools, and
+only when the derived transport actually moved, so a tools-only change records
+no model change while a transport-moving change records exactly one.
+
+pi fixes a harness's `models` at construction, but the headers, payload
+transforms, and incoming tool plan it applies are per-catalog. The handle
+therefore owns one `Models` collection that serves whichever pair was last
+activated; `activate()` is what redirects it, and `apply()` calls it.
 
 Generated payload processing has fixed order: model preparation, tool
 serialization, provider fields, then the caller's `onPayload` hook.
@@ -221,7 +227,9 @@ serialization, provider fields, then the caller's `onPayload` hook.
    - Anthropic's native browser tool when the model supports it;
    - Google's native browser action set;
 3. creates and retains its own application-level coding-tool list;
-4. passes the complete list to `CuaAgentHarness`;
+4. compiles the complete list through the handle and hands the result to a
+   stock pi `AgentHarness`, retaining the selection in `CuaCliCatalog` so
+   `/model` and `/tools` can recompile it;
 5. builds a caller-owned prompt from loaded skills and context files;
 6. uses one `Session` for transcript persistence and resume;
 7. exposes `cua act '<json>'` as a model-free path to the same `browser_act`
@@ -257,14 +265,14 @@ switch — run through that one queue, because each suspends across several
 `setTools()`/`setModel()` calls. Without it an apply could land between a
 switch's `setModel()` and its final `setTools()` and fail its compile against
 the wrong provider. Selectors also refuse to open mid-turn: the agent's
-execution-scope guard only covers mutation from inside a tool's `execute`, so
-this TUI-side check is what protects a streaming request.
+compiled pair is immutable, so this TUI-side check is what keeps a swap from
+landing mid-request.
 
 ## Per-turn flow
 
 ```text
 user prompt
-  -> CuaAgentHarness / pi agent loop
+  -> pi agent loop
      -> active identity-keyed catalog
      -> generated headers and payload transforms
      -> caller onPayload

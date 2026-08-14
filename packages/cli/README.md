@@ -1,7 +1,7 @@
 # `@onkernel/cua-cli`
 
 The CLI / TUI binary for the [`cua`](../../README.md) monorepo. Wires
-[`@onkernel/cua-agent`](../agent)'s `CuaAgentHarness` to
+[`@onkernel/cua-agent`](../agent)'s `attach()` handle and a pi `AgentHarness` to
 [`pi-tui`](https://www.npmjs.com/package/@earendil-works/pi-tui) for an
 interactive front-end and to
 [`pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)'s

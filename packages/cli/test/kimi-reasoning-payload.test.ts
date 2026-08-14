@@ -29,7 +29,7 @@ async function capturePayloads(apiKeyEnv: string, model: CuaModelRef): Promise<R
 	vi.stubEnv(apiKeyEnv, "test-key");
 	vi.stubGlobal("fetch", vi.fn(async () => sseResponse()));
 	const kernel = createFakeKernelEnvironment();
-	const harness = buildCuaHarness({
+	const { harness } = buildCuaHarness({
 		cwd: mkdtempSync(join(tmpdir(), "cua-kimi-payload-")),
 		client: kernel.client,
 		browser: kernel.browser,

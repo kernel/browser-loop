@@ -1,8 +1,10 @@
 # CUA CLI Harness Migration
 
-**Status:** Completed and superseded.
+**Status:** Historical (2026-08-14). The CLI now composes a stock pi `AgentHarness` from
+`attach()` rather than `CuaAgentHarness`, which no longer exists. Retained as the record of
+the print/action/interactive consolidation this describes.
 
-The CLI now uses the shared `CuaAgentHarness` composition path for print,
+The CLI uses one shared composition path for print,
 action, and TUI flows. Its current architecture—including explicit tool-list
 selection, coding-tool composition, sessions, skills, and rendering—is
 documented in [`architecture.md`](architecture.md#cli-composition).

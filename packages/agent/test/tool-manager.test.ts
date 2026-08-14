@@ -48,13 +48,6 @@ describe("CuaToolManager declaration projection", () => {
 		expect("agentTools" in manager.catalog).toBe(false);
 	});
 
-	it("keeps the caller list as the sole owner of requested objects", () => {
-		const spec = cua.tools.browser.snapshot();
-		const tool = callerTool("lookup");
-		const manager = new CuaToolManager(setup(), "openai:gpt-5.5", [spec, tool]);
-		expect(manager.getTools()[0]).toBe(spec);
-		expect(manager.getTools()[1]).toBe(tool);
-	});
 });
 
 describe("CuaToolManager identity join", () => {
@@ -93,63 +86,29 @@ describe("CuaToolManager identity join", () => {
 });
 
 describe("CuaToolManager transport derivation", () => {
-	it("derives the compiled model's api from selected tools on construction and on both mutation paths", () => {
-		const manager = new CuaToolManager(setup(), "google:gemini-3.6-flash", [cua.tools.browser.snapshot()]);
-		expect(manager.catalog.model.api).toBe("google-generative-ai");
+	it("derives the compiled model's api from the tools selected with it", () => {
+		const resources = setup();
+		const cdp = new CuaToolManager(resources, "google:gemini-3.6-flash", [cua.tools.browser.snapshot()]);
+		const native = new CuaToolManager(resources, "google:gemini-3.6-flash", cua.providers.google.toolsets.browser());
 
-		manager.commit(manager.prepareTools(cua.providers.google.toolsets.browser()));
-		expect(manager.catalog.model.api).toBe(GOOGLE_CUA_INTERACTIONS_API);
-
-		manager.commit(manager.prepareModel("google:gemini-3.6-flash"));
-		expect(manager.catalog.model.api).toBe(GOOGLE_CUA_INTERACTIONS_API);
-
-		manager.commit(manager.prepareTools([cua.tools.browser.snapshot()]));
-		expect(manager.catalog.model.api).toBe("google-generative-ai");
+		expect(cdp.catalog.model.api).toBe("google-generative-ai");
+		expect(native.catalog.model.api).toBe(GOOGLE_CUA_INTERACTIONS_API);
 	});
 });
 
-describe("CuaToolManager implementation identity", () => {
-	it("materializes each spec exactly once across model and tool recompilation", () => {
+describe("CuaToolManager materialization", () => {
+	it("materializes each spec exactly once, however many pairs it is compiled into", () => {
 		const resources = setup();
 		const spy = vi.spyOn(resources, "materialize");
 		const spec = cua.tools.browser.snapshot();
-		const manager = new CuaToolManager<CuaAgentTool>(resources, "openai:gpt-5.5", [spec]);
 
-		manager.commit(manager.prepareModel("openai:gpt-5.6-sol"));
-		manager.commit(manager.prepareTools([...manager.getTools(), callerTool("added")]));
+		new CuaToolManager<CuaAgentTool>(resources, "openai:gpt-5.5", [spec]);
+		new CuaToolManager<CuaAgentTool>(resources, "openai:gpt-5.6-sol", [spec]);
+		new CuaToolManager<CuaAgentTool>(resources, "openai:gpt-5.6-sol", [spec, callerTool("added")]);
 
-		// Every materialization for the same spec object returned one identical executable.
+		// The executable is cached per pool and per spec object, so pi sees one
+		// stable implementation across every recompile.
 		expect(spy.mock.calls.length).toBeGreaterThan(1);
 		expect(new Set(spy.mock.results.map((result) => result.value)).size).toBe(1);
-	});
-
-	it("keeps the same spec object stable across model recompilation", () => {
-		const manager = new CuaToolManager(setup(), "openai:gpt-5.5", [cua.tools.browser.snapshot()]);
-		const first = manager.prepareModel("openai:gpt-5.6-sol");
-		const second = manager.prepareModel("openai:gpt-5.6-sol");
-		expect(second.fingerprints).toEqual(first.fingerprints);
-	});
-
-	it("treats a freshly created spec object as a conservative replacement", () => {
-		const manager = new CuaToolManager(setup(), "openai:gpt-5.5", [cua.tools.browser.snapshot()]);
-		const stable = manager.prepareModel("openai:gpt-5.6-sol");
-		const replaced = manager.prepareTools([cua.tools.browser.snapshot()]);
-		expect(replaced.catalog.entries[0]?.fingerprint).toBe(stable.catalog.entries[0]?.fingerprint);
-		expect(replaced.fingerprints[0]).not.toBe(stable.fingerprints[0]);
-	});
-
-	it("retains implementation identity for a new wrapper reusing the same execute function", () => {
-		const sharedExecute: AgentTool["execute"] = async () => ({ content: [{ type: "text", text: "ok" }], details: {} });
-		const original = callerTool("worker", sharedExecute);
-		const manager = new CuaToolManager(setup(), "openai:gpt-5.5", [original]);
-		const baseline = manager.prepareModel("openai:gpt-5.6-sol");
-
-		const rewrapped = { ...original };
-		expect(rewrapped).not.toBe(original);
-		expect(manager.prepareTools([rewrapped]).fingerprints).toEqual(baseline.fingerprints);
-
-		const freshExecute = manager.prepareTools([callerTool("worker")]);
-		expect(freshExecute.catalog.entries[0]?.fingerprint).toBe(baseline.catalog.entries[0]?.fingerprint);
-		expect(freshExecute.fingerprints[0]).not.toBe(baseline.fingerprints[0]);
 	});
 });

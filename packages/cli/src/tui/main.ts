@@ -20,7 +20,7 @@ import {
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { homedir } from "node:os";
 import { type CuaModelRef, listCuaModels, type Model } from "@onkernel/cua-ai";
-import { type CuaCliHarness, type CuaCliTool } from "../harness";
+import { type CuaCliCatalog, type CuaCliHarness, type CuaCliTool } from "../harness";
 import type { CuaBrowserHandle } from "../harness-browser";
 import { resolveCuaModelRef } from "../harness-models";
 import { updateNamedSessionRuntime } from "../harness-named-sessions";
@@ -43,6 +43,8 @@ import { cuaVersion } from "./version";
 export interface InteractiveOptions {
 	cwd: string;
 	harness: CuaCliHarness;
+	/** The live (model, tools) selection `/model` and `/tools` change. */
+	catalog: CuaCliCatalog;
 	browserHandle: CuaBrowserHandle;
 	session: Session;
 	skills?: Skill[];
@@ -379,9 +381,9 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 			// Native catalogs are incompatible across providers, and the selected
 			// tools decide the transport, so the new model and its interaction
 			// catalog have to compile as one pair rather than in sequence.
-			await opts.harness.setModelAndTools(resolved, installedTools);
+			await opts.catalog.setModelAndTools(resolved, installedTools);
 		} else {
-			await opts.harness.setModel(resolved);
+			await opts.catalog.setModel(resolved);
 		}
 		const model = opts.harness.getModel();
 		footer.update({
@@ -453,7 +455,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 		catalogQueue.run(async () => {
 			const next = toolsForSelection(items, enabledKeys);
 			try {
-				await opts.harness.setTools(next);
+				await opts.catalog.setTools(next);
 				toolSelectionCustomized = !sameToolList(next, baselineTools);
 				messages.addNotice(`tools → ${next.length} enabled`);
 				debug?.log("tools_applied", { enabled: next.length, baseline: baselineTools.length });
@@ -472,7 +474,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<number> 
 			requestRender("tools_no_ref");
 			return;
 		}
-		const live = opts.harness.getTools();
+		const live = opts.catalog.getTools();
 		// Availability is pairwise, so the menu is rebuilt against each staged
 		// selection rather than computed once when the picker opens.
 		const menuFor = (selected: readonly CuaCliTool[]) => describeMenu(modelRef, opts.applicationTools, selected);
@@ -770,7 +772,7 @@ function tryResolveModelRef(input: string | undefined): CuaModelRef | undefined 
  * customization would have shrunk.
  */
 function composeBaselineTools(opts: InteractiveOptions, ref: CuaModelRef | undefined): readonly CuaCliTool[] {
-	if (!opts.interactionToolsForModel || !ref) return opts.harness.getTools();
+	if (!opts.interactionToolsForModel || !ref) return opts.catalog.getTools();
 	return [...opts.interactionToolsForModel(ref), ...opts.applicationTools];
 }
 

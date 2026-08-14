@@ -2,52 +2,56 @@
 
 ## Unreleased
 
+Breaking: `CuaAgent` and `CuaAgentHarness` are removed. cua-agent hands back
+plain pi objects; the caller constructs the agent.
+
 - Add `attach({ browser, client })`, returning a handle that compiles
-  (model, tools) pairs into plain pi objects: the model carrying the transport
-  its tools derive, executables materialized against the handle's browser pool,
-  a `Models` collection adding provider retry, required headers, the catalog's
-  payload transforms and the tool-result image bound, and an `install(harness)`
-  for the behaviors that are pi event handlers rather than constructor options.
-  The handle owns what actually persists — the Kernel client and browser, the
-  translator, the raw-CDP executor, ref and frame state — so a spec materializes
-  once across repeat compiles.
-- `CuaAgent` and `CuaAgentHarness` are unchanged and now share their internals
-  with `attach()` rather than owning private copies. They are slated to retire
-  in favor of the handle.
-- Add `CuaAgentHarness.setModelAndTools()`. A model switch that also swaps
-  interaction tools has to compile as one pair now that the selected tools
-  decide the transport: staging the two in sequence produces an intermediate
-  catalog whose derived transport differs from both the old and the new one, and
-  records a model change for a transport nothing ever streamed with.
-- `CuaAgentHarness` no longer refuses a model ref that is absent from its
-  supplied `Models` collection: it falls back to the registry, and an id the
-  registry lacks is synthesized.
-- The model streamed for a Google model now depends on which tools `CuaAgent` /
-  `CuaAgentHarness` were constructed or mutated with: selecting Google's native
-  browser toolset still compiles to the CUA-owned Interactions API, but a Google
-  model selected with only CDP browser tools now streams through pi's builtin
-  Google transport instead of always carrying the CUA-owned api. This applies
-  uniformly across construction, `setTools()`, and `setModel()`, since all three
-  feed the same compiled `catalog.model` into pi.
-- Fix `setTools()` recompiling from the previously *compiled* model instead of
-  the caller's model selection: dropping a native toolset that had derived a
-  tool-selection-dependent api (e.g. Google's Interactions API) left subsequent
-  tools-only recompiles stuck on that api even though the new selection no
-  longer required it. `CuaToolManager` now recompiles tools-only changes from
-  the model input the caller last selected.
-- `responseThreading` (`CuaAgentOptions`/`CuaAgentHarnessOptions`) no longer
-  affects OpenAI models: OpenAI now streams through pi-ai's builtin Responses
-  transport and its automatic prompt caching regardless of this flag. The option
-  still governs Google's `previous_response_id`-style continuation.
+  (model, tools) pairs into plain pi objects: `model` carrying the transport its
+  tools derive, `tools` / `agentTools` materialized against the handle's browser
+  pool, `models` adding provider retry, required headers, the catalog's payload
+  transforms and the tool-result image bound, `activate(harness)` for the
+  behaviors that are pi event handlers rather than constructor options, and
+  `apply(harness)` to swap a running harness onto a new pair. The handle owns
+  what actually persists — the Kernel client and browser, the translator, the
+  raw-CDP executor, ref and frame state — so a spec materializes once across
+  repeat compiles.
+- `getTools()`, `setTools()`, `setModel()`, and `setModelAndTools()` are gone
+  with the classes. A change compiles a new pair and applies it, so the current
+  selection belongs to the caller and there is no second copy of it to drift.
+  `compile()` throws before anything reaches pi, and `apply()` restores the
+  previous pair if pi rejects the new one, so the atomicity those methods
+  provided is preserved. `apply()` sets the model only when the derived
+  transport actually moved, so a tools-only change records no model change.
+- `CuaToolManager` is now immutable: one compiled pair per instance, with
+  `prepareTools`/`prepareModel`/`prepareModelAndTools`/`commit`/`getTools` and
+  the async-local execution scope removed. Removing the execution scope also
+  removes cache-preserving deferred tool addition: a tool that added tools mid
+  execution used to have those names recorded on its result as
+  `addedToolNames`, letting pi extend an OpenAI request without invalidating the
+  prompt-cache prefix. Nothing produced them outside that mutation path. The
+  transport still consumes `addedToolNames` on a transcript that carries them.
+- The tool-result image bound, payload transforms, and required headers now
+  follow whichever pair is active rather than the one a harness was built with.
+  pi fixes `models` at construction while those are per-catalog, so one
+  collection per handle is what makes a swap possible at all.
+- A model ref absent from a supplied `Models` collection falls back to the
+  registry, and an id the registry lacks is synthesized.
+- The model streamed for a Google model depends on which tools it was compiled
+  with: selecting Google's native browser toolset compiles to the CUA-owned
+  Interactions API, while a Google model selected with only CDP browser tools
+  streams through pi's builtin Google transport.
+- `responseThreading` (`CuaAttachOptions`) no longer affects OpenAI models:
+  OpenAI streams through pi-ai's builtin Responses transport and its automatic
+  prompt caching regardless of this flag. The option still governs Google's
+  `previous_response_id`-style continuation.
 - Exempt OpenAI's native computer tool from the tool-result image replay limit.
   Its `computer_call_output` items must each carry a screenshot, and stateless
   replay no longer leaves them in provider-stored state.
 
 Breaking: Tzafon and Yutori support is removed.
 
-- Constructing a `CuaAgent` or `CuaAgentHarness` with a Tzafon or Yutori model
-  ref now fails to resolve the model, and `cua.providers.tzafon` /
-  `cua.providers.yutori` no longer exist.
+- Compiling a Tzafon or Yutori model ref now fails to resolve the model, and
+  `cua.providers.tzafon` / `cua.providers.yutori` no longer exist.
 - Remove `CuaExecutionResources.viewport`. It only fed the removed catalog
   viewport option; the same value is still on `resources.browser.viewport`.
 

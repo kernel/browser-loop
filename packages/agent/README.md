@@ -12,22 +12,31 @@ npm install @onkernel/cua-agent @onkernel/cua-ai @onkernel/sdk
 Requires Node 22.19 or newer, `KERNEL_API_KEY`, and the selected model provider's
 API key.
 
-## `CuaAgent`
+## `attach()`
+
+`attach()` binds a Kernel browser to CUA's execution resources and returns a
+handle. `compile()` turns a (model, tools) pair into plain pi objects; you
+construct whatever pi agent you want with them. There is no CUA agent class.
 
 ```ts
 import Kernel from "@onkernel/sdk";
 import { cua } from "@onkernel/cua-ai";
-import { CuaAgent } from "@onkernel/cua-agent";
+import { Agent, attach } from "@onkernel/cua-agent";
 
 const client = new Kernel({ apiKey: process.env.KERNEL_API_KEY! });
 const browser = await client.browsers.create({ stealth: true });
+const kb = attach({ client, browser });
 
-const agent = new CuaAgent({
-  client,
-  browser,
+const { model, agentTools, models } = kb.compile({
+  model: "anthropic:claude-opus-5",
   tools: cua.toolsets.browser(),
+});
+
+const agent = new Agent({
+  streamFn: (selected, context, options) => models.streamSimple(selected, context, options),
   initialState: {
-    model: "anthropic:claude-opus-5",
+    model,
+    tools: [...agentTools],
     systemPrompt: "Inspect and interact with the page using the requested tools.",
   },
 });
@@ -35,35 +44,53 @@ const agent = new CuaAgent({
 try {
   await agent.prompt("Open example.com and report the heading.");
 } finally {
+  await kb.dispose();
   await client.browsers.deleteByID(browser.session_id);
 }
 ```
 
-## `CuaAgentHarness`
+The compiled `model` carries the transport its tools derive: selecting a
+provider-native browser or computer surface can change `model.api`, so the pair
+has to reach pi together.
 
-Use the harness for session-backed transcripts, skills, prompt templates,
-compaction, steering, and follow-ups:
+## With pi's `AgentHarness`
+
+Use pi's harness for session-backed transcripts, skills, prompt templates,
+compaction, steering, and follow-ups. `activate()` registers the behaviors CUA
+owns that are pi event handlers rather than constructor options, and points the
+handle's `models` at this catalog:
 
 ```ts
-import {
-  CuaAgentHarness,
-  InMemorySessionRepo,
-} from "@onkernel/cua-agent";
+import { AgentHarness, attach, InMemorySessionRepo } from "@onkernel/cua-agent";
 import { cua } from "@onkernel/cua-ai";
 
-const repo = new InMemorySessionRepo();
-const session = await repo.create();
-const harness = new CuaAgentHarness({
-  client,
-  browser,
+const session = await new InMemorySessionRepo().create();
+const kb = attach({ client, browser });
+const compiled = kb.compile({ model: "openai:gpt-5.6-sol", tools: cua.toolsets.browser() });
+
+const harness = new AgentHarness({
   session,
-  model: "openai:gpt-5.6-sol",
-  tools: cua.toolsets.browser(),
+  model: compiled.model,
+  models: compiled.models,
+  tools: [...compiled.tools],
+  activeToolNames: compiled.tools.map((tool) => tool.name),
   systemPrompt: "Use the supplied browser tools.",
 });
+compiled.activate(harness);
 
 await harness.prompt("Find the pricing page.");
 ```
+
+To change the model or the tool list on a running harness, compile the new pair
+and apply it:
+
+```ts
+await kb.compile({ model: "google:gemini-3.6-flash", tools: cua.providers.google.toolsets.browser() }).apply(harness);
+```
+
+`apply()` moves the model and tools together, sets the model only when the
+derived transport actually moved, and restores the previous pair if pi rejects
+the new one.
 
 The package re-exports pi-agent-core session, skill, prompt-template, compaction,
 and execution-environment primitives used with the harness.
@@ -77,27 +104,34 @@ to every tool call:
 
 ```ts
 import {
-  CuaAgentHarness,
+  AgentHarness,
+  attach,
   NodeExecutionEnv,
   createBashTool,
   createReadTool,
   type ExecutionToolContext,
 } from "@onkernel/cua-agent";
 
-const harness = new CuaAgentHarness<ExecutionToolContext>({
-  client,
-  browser,
-  session,
+const compiled = kb.compile<ExecutionToolContext>({
   model: "openai:gpt-5.6-sol",
   tools: [createReadTool(), createBashTool(), ...cua.toolsets.browser()],
+});
+const harness = new AgentHarness<ExecutionToolContext>({
+  session,
+  model: compiled.model,
+  models: compiled.models,
+  tools: [...compiled.tools],
+  activeToolNames: compiled.tools.map((tool) => tool.name),
   toolContext: { env: new NodeExecutionEnv({ cwd: process.cwd() }) },
   systemPrompt: "Use the supplied tools.",
 });
+compiled.activate(harness);
 ```
 
-CUA specs and plain pi `AgentTool`s are accepted too — they simply ignore the
-context. The low-level `CuaAgent` stays context-free: its tools are ordinary
-pi `AgentTool`s (`CuaAgentTool`).
+Compile for the same context the harness delivers, so a later swap stays
+type-compatible. CUA specs and plain pi `AgentTool`s are accepted too — they
+simply ignore the context. `compiled.agentTools` is the context-free view for
+the low-level `Agent`.
 
 ## Choosing tools
 
@@ -150,24 +184,23 @@ the active credential cannot access `browser_20260701`.
 
 ## Dynamic catalogs
 
-Both classes expose the same catalog controls:
+Changing the model or the tool list compiles a new pair; nothing mutates in
+place:
 
 ```ts
-agent.getTools();       // copy of the exact requested inputs
-agent.setTools(next);   // atomic compile + replace
-agent.setModel(nextModel);
+const next = kb.compile({ model: nextModel, tools: nextTools });
+await next.apply(harness);
 ```
 
-The requested catalog is recompiled on every `setTools()` or `setModel()`.
 Duplicate identities, caller-visible name collisions, provider-normalized name
-collisions, and incompatible model/tool combinations fail before state changes.
+collisions, and incompatible model/tool combinations fail in `compile()`, before
+anything reaches pi. `apply()` then moves the model and tools together and
+restores the previous pair if pi rejects the new one.
 
-Tools may call `setTools()` or `setModel()` while they execute, but only if they
-declare `executionMode: "sequential"`; mutating the catalog from a tool that can
-run in parallel is rejected. Eligible ordinary function-tool additions are
-recorded for pi's deferred-loading protocol; additions outside a tool execution
-are eager. Provider-native tools are always eager. Replacing an existing
-identity's schema, executor, or coordinates is a real replacement.
+The handle holds the current selection only in the sense that `models` serves
+whichever pair was last activated; the *selection* itself belongs to the caller,
+which is what removes the class of bug where a compiled pair and the live one
+disagree.
 
 One shared execution-resource pool survives all catalog/model changes, so
 browser refs, tabs, connections, and translator state are not reset.
@@ -222,7 +255,7 @@ const lookup = {
   },
 };
 
-agent.setTools([lookup, ...cua.toolsets.browser()]);
+kb.compile({ model, tools: [lookup, ...cua.toolsets.browser()] });
 ```
 
 Caller tools receive identity `caller.<name>` through cua-ai's canonical
@@ -230,17 +263,15 @@ Caller tools receive identity `caller.<name>` through cua-ai's canonical
 fingerprint rules. `CuaAgentTool` is defined and exported by this package:
 cua-ai compiles declaration-only catalogs and never sees executors, while
 cua-agent projects caller `AgentTool`s into fresh declarations, joins compiled
-entries back by identity, materializes each CUA spec exactly once per shared
-execution-resource pool, and owns implementation identity for replacement
-detection (a reused `execute` function keeps its identity across wrappers; a
-new `execute` or freshly created spec object is a conservative replacement).
+entries back by identity, and materializes each CUA spec exactly once per shared
+execution-resource pool, so repeat compiles hand pi a stable implementation.
 
 ## Events and state
 
-`CuaAgent` delegates pi's prompt/continue/steer/follow-up/abort lifecycle and
-subscriptions. `CuaAgentHarness` delegates harness events and session APIs.
-`CuaAgent.state.tools` is the active materialized list; use `getTools()` for a
-copy of the exact requested catalog.
+The agent is pi's, so its lifecycle, events, and session APIs are pi's too.
+What CUA adds on top is `activate()`: failed tool results are marked, a turn's
+remaining calls are blocked after one fails, and an empty successful response
+can be followed up. It returns a release.
 
 ## Development
 

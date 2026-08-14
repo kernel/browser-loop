@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { parseCuaModelRef } from "@onkernel/cua-ai";
-import { buildCuaHarness, type CuaCliTool, defaultInteractionTools } from "../../src/harness";
+import { buildCuaHarness, type CuaCliSession, type CuaCliTool, defaultInteractionTools } from "../../src/harness";
 import { createFakeKernelEnvironment, type FakeKernelEnvironment } from "./fake-kernel";
 import type { ScriptedProviderHandle, ScriptedTurn } from "./scripted-provider";
 import { createScriptedCuaModels } from "./scripted-provider";
@@ -17,7 +17,8 @@ export interface TestHarnessFixture {
 	kernel: FakeKernelEnvironment;
 	session: Session;
 	cwd: string;
-	harness: ReturnType<typeof buildCuaHarness>;
+	harness: CuaCliSession["harness"];
+	catalog: CuaCliSession["catalog"];
 }
 
 export interface BuildTestHarnessOptions {
@@ -39,7 +40,7 @@ export async function buildTestHarness(opts: BuildTestHarnessOptions): Promise<T
 	const sessionRepo = new InMemorySessionRepo();
 	const session = await sessionRepo.create();
 
-	const harness = buildCuaHarness({
+	const { harness, catalog } = buildCuaHarness({
 		cwd,
 		client: kernel.client,
 		browser: kernel.browser,
@@ -57,5 +58,6 @@ export async function buildTestHarness(opts: BuildTestHarnessOptions): Promise<T
 		session,
 		cwd,
 		harness,
+		catalog,
 	};
 }

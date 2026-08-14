@@ -5,7 +5,7 @@ import { buildTestHarness } from "./fixtures/harness";
 
 /**
  * The `/tools` picker applies a selection of the model's tool menu via
- * `harness.setTools()`. These tests pin the behavior the picker relies on:
+ * `catalog.setTools()`. These tests pin the behavior the picker relies on:
  * compile-and-validate happens before any mutation, so a rejected selection
  * leaves the live catalog untouched.
  */
@@ -19,21 +19,21 @@ describe("/tools selection revalidation", () => {
 		const dropped = items.find((item) => item.group === "native" && item.available)!;
 		const next = baseline.filter((tool) => toolKey(tool) !== dropped.key);
 
-		await fixture.harness.setTools(next);
-		expect(fixture.harness.getTools().map(toolKey)).toEqual(next.map(toolKey));
-		expect(fixture.harness.getTools().map(toolKey)).not.toContain(dropped.key);
+		await fixture.catalog.setTools(next);
+		expect(fixture.catalog.getTools().map(toolKey)).toEqual(next.map(toolKey));
+		expect(fixture.catalog.getTools().map(toolKey)).not.toContain(dropped.key);
 	});
 
 	it("rejects a duplicated tool name and leaves the catalog unchanged", async () => {
 		const modelRef = "google:gemini-3.6-flash";
 		const baseline = [...defaultInteractionTools(modelRef), ...defaultApplicationTools()];
 		const fixture = await buildTestHarness({ turns: [], modelRef, tools: baseline });
-		const before = fixture.harness.getTools().map(toolKey);
+		const before = fixture.catalog.getTools().map(toolKey);
 
 		const [first] = baseline;
-		await expect(fixture.harness.setTools([...baseline, first!])).rejects.toThrow(/requested more than once/);
+		await expect(fixture.catalog.setTools([...baseline, first!])).rejects.toThrow(/requested more than once/);
 		// Atomicity: the failed compile must not have mutated live state.
-		expect(fixture.harness.getTools().map(toolKey)).toEqual(before);
+		expect(fixture.catalog.getTools().map(toolKey)).toEqual(before);
 	});
 
 	it("accepts dropping the whole Google native group", async () => {
@@ -45,8 +45,8 @@ describe("/tools selection revalidation", () => {
 		const nativeKeys = new Set(items.filter((item) => item.group === "native").flatMap((item) => item.tools.map(toolKey)));
 		const next = baseline.filter((tool) => !nativeKeys.has(toolKey(tool)));
 
-		await fixture.harness.setTools(next);
-		expect(fixture.harness.getTools().map(toolKey)).toEqual(next.map(toolKey));
+		await fixture.catalog.setTools(next);
+		expect(fixture.catalog.getTools().map(toolKey)).toEqual(next.map(toolKey));
 	});
 
 	it("accepts an empty selection (text-only agent)", async () => {
@@ -54,8 +54,8 @@ describe("/tools selection revalidation", () => {
 		const baseline = [...defaultInteractionTools(modelRef), ...defaultApplicationTools()];
 		const fixture = await buildTestHarness({ turns: [], modelRef, tools: baseline });
 
-		await fixture.harness.setTools([]);
-		expect(fixture.harness.getTools()).toEqual([]);
+		await fixture.catalog.setTools([]);
+		expect(fixture.catalog.getTools()).toEqual([]);
 	});
 
 	it("recomposes the baseline after a model switch across providers", async () => {
@@ -71,10 +71,10 @@ describe("/tools selection revalidation", () => {
 
 		// Mirrors switchModel(): the new model and its interaction catalog compile
 		// as one pair, because the selected tools decide the transport.
-		await fixture.harness.setModelAndTools(to, [...defaultInteractionTools(to), ...application]);
+		await fixture.catalog.setModelAndTools(to, [...defaultInteractionTools(to), ...application]);
 
 		const expected = [...defaultInteractionTools(to), ...application].map(toolKey);
-		expect(fixture.harness.getTools().map(toolKey)).toEqual(expected);
+		expect(fixture.catalog.getTools().map(toolKey)).toEqual(expected);
 		expect(fixture.harness.getModel().provider).toBe("anthropic");
 	});
 
@@ -91,7 +91,7 @@ describe("/tools selection revalidation", () => {
 		expect(playwright.available).toBe(true);
 
 		const enabled = new Set([...selectedKeys(items, baseline), playwright.key]);
-		await fixture.harness.setTools(toolsForSelection(items, enabled));
-		expect(fixture.harness.getTools().map((tool) => tool.name)).toContain("playwright_execute");
+		await fixture.catalog.setTools(toolsForSelection(items, enabled));
+		expect(fixture.catalog.getTools().map((tool) => tool.name)).toContain("playwright_execute");
 	});
 });

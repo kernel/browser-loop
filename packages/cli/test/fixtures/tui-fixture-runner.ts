@@ -47,7 +47,7 @@ async function main(): Promise<void> {
 	const contextFiles = fixture.contextFiles ?? [];
 	const applicationTools = fixture.tools ? defaultApplicationTools(cwd) : [];
 	const interactionToolsForModel = fixture.tools ? defaultInteractionTools : undefined;
-	const harness = buildCuaHarness({
+	const { harness, catalog } = buildCuaHarness({
 		cwd,
 		client: kernel.client,
 		browser: kernel.browser,
@@ -64,6 +64,7 @@ async function main(): Promise<void> {
 	const code = await runInteractive({
 		cwd,
 		harness,
+		catalog,
 		browserHandle: {
 			client: kernel.client,
 			browser: kernel.browser,

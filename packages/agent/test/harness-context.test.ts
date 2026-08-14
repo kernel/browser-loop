@@ -14,7 +14,8 @@ import {
 	createEditTool,
 	createReadTool,
 	createWriteTool,
-	CuaAgentHarness,
+	AgentHarness,
+	attach,
 	InMemorySessionRepo,
 	NodeExecutionEnv,
 	type AgentHarnessTool,
@@ -71,11 +72,27 @@ function modelsFromStream(streamFn: StreamFn, provider = "openai") {
 	return models;
 }
 
-async function harnessSession() {
-	return new InMemorySessionRepo().create();
+/** Build a stock pi harness from a handle, exactly as a consumer does. */
+async function openHarness<TContext extends object | undefined>(options: {
+	models: ReturnType<typeof modelsFromStream>;
+	tools: readonly AgentHarnessTool<TContext>[];
+	toolContext: TContext;
+}): Promise<AgentHarness<TContext>> {
+	const handle = attach({ browser, client, models: options.models });
+	const compiled = handle.compile<TContext>({ model: "openai:gpt-5.5", tools: options.tools });
+	const harness = new AgentHarness<TContext>({
+		session: await new InMemorySessionRepo().create(),
+		model: compiled.model,
+		models: compiled.models,
+		tools: [...compiled.tools],
+		activeToolNames: compiled.tools.map((tool) => tool.name),
+		toolContext: options.toolContext,
+	});
+	compiled.activate(harness);
+	return harness;
 }
 
-describe("CuaAgentHarness tool context", () => {
+describe("harness tool context", () => {
 	it("delivers the exact supplied context object to custom harness tools", async () => {
 		interface CustomContext {
 			env: ExecutionToolContext["env"];
@@ -94,11 +111,7 @@ describe("CuaAgentHarness tool context", () => {
 				return { content: [{ type: "text", text: "ok" }], details: {} };
 			},
 		};
-		const harness = new CuaAgentHarness<CustomContext>({
-			browser,
-			client,
-			session: await harnessSession(),
-			model: "openai:gpt-5.5",
+		const harness = await openHarness<CustomContext>({
 			models: modelsFromStream(scriptedStream([
 				(model) => assistant(model, [{ type: "toolCall", id: "call-1", name: "custom_context", arguments: {} }], "toolUse"),
 				(model) => assistant(model, [{ type: "text", text: "done" }]),
@@ -115,11 +128,7 @@ describe("CuaAgentHarness tool context", () => {
 
 	it("runs pi's native read/write/edit/bash tools against the context's execution env", async () => {
 		const cwd = mkdtempSync(join(tmpdir(), "cua-harness-tools-"));
-		const harness = new CuaAgentHarness<ExecutionToolContext>({
-			browser,
-			client,
-			session: await harnessSession(),
-			model: "openai:gpt-5.5",
+		const harness = await openHarness<ExecutionToolContext>({
 			models: modelsFromStream(scriptedStream([
 				(model) => assistant(model, [{ type: "toolCall", id: "write-1", name: "write", arguments: { path: "notes.txt", content: "hello cua\n" } }], "toolUse"),
 				(model) => assistant(model, [{ type: "toolCall", id: "edit-1", name: "edit", arguments: { path: "notes.txt", edits: [{ oldText: "hello", newText: "goodbye" }] } }], "toolUse"),

@@ -41,8 +41,8 @@ packages/
 ```
 
 **Building your own agent? Start here:** [`packages/agent`](packages/agent)
-(`@onkernel/cua-agent`) — `CuaAgent`/`CuaAgentHarness` run the full
-computer-use loop against a Kernel browser. It sits on
+(`@onkernel/cua-agent`) — `attach()` binds a Kernel browser and compiles a
+(model, tools) pair into plain pi objects you drive yourself. It sits on
 [`packages/ai`](packages/ai) (`@onkernel/cua-ai`), the model layer with the
 pi-ai model catalog, canonical tool schemas, and per-provider
 adapters on top of pi-ai; reach for cua-ai directly only when you bring your
@@ -148,7 +148,7 @@ cua -p -o jsonl "open example.com and tell me the heading"
    `pi-agent-core`'s `Agent`/`AgentHarness`. It materializes the caller's exact
    catalog over one shared resource pool and executes canonical actions through
    Kernel's computer API or a raw-CDP browser executor.
-3. **CLI** — `@onkernel/cua-cli` assembles a `CuaAgentHarness` from
+3. **CLI** — `@onkernel/cua-cli` assembles a pi `AgentHarness` from
    command-line flags, env-var-based API keys, a `JsonlSessionRepo` for
    transcripts, and pi skills; renders the result either as plain text
    (`--print`), JSONL events (`-o jsonl`), or an interactive pi-tui

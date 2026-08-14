@@ -4,8 +4,10 @@ import {
 	createCuaModels,
 	cua,
 	GOOGLE_CUA_INTERACTIONS_API,
+	OPENAI_CUA_COMPUTER_API,
 	type AssistantMessage,
 	type Context,
+	type CuaSimpleStreamOptions,
 	type Model,
 } from "@onkernel/cua-ai";
 import type Kernel from "@onkernel/sdk";
@@ -28,9 +30,9 @@ function assistant(model: Model<string>): AssistantMessage {
 	};
 }
 
-function recordingStream(seen: { model: Model<string>; context: Context }[]): StreamFn {
-	return (model, context) => {
-		seen.push({ model, context: { ...context, tools: context.tools?.slice() } });
+function recordingStream(seen: { model: Model<string>; context: Context; options?: CuaSimpleStreamOptions }[]): StreamFn {
+	return (model, context, options) => {
+		seen.push({ model, context: { ...context, tools: context.tools?.slice() }, options: options as CuaSimpleStreamOptions });
 		const stream = createAssistantMessageEventStream();
 		const message = assistant(model);
 		stream.push({ type: "start", partial: message });
@@ -77,7 +79,7 @@ describe("attach", () => {
 	});
 
 	it("drives a plain pi Agent with no CUA agent class", async () => {
-		const seen: { model: Model<string>; context: Context }[] = [];
+		const seen: { model: Model<string>; context: Context; options?: CuaSimpleStreamOptions }[] = [];
 		const handle = attach({ browser, client });
 		const compiled = handle.compile({ model: "openai:gpt-5.5", tools: [cua.tools.browser.snapshot()] });
 
@@ -93,7 +95,7 @@ describe("attach", () => {
 	});
 
 	it("drives a plain pi AgentHarness, with CUA's behaviors installed", async () => {
-		const seen: { model: Model<string>; context: Context }[] = [];
+		const seen: { model: Model<string>; context: Context; options?: CuaSimpleStreamOptions }[] = [];
 		const handle = attach({ browser, client, models: modelsFromStream(recordingStream(seen)) });
 		const compiled = handle.compile({ model: "openai:gpt-5.5", tools: [cua.tools.browser.snapshot()] });
 		const session = await new InMemorySessionRepo().create();
@@ -104,14 +106,41 @@ describe("attach", () => {
 			models: compiled.models,
 			tools: [...compiled.tools],
 			activeToolNames: compiled.tools.map((tool) => tool.name),
-		} as never);
-		const uninstall = compiled.install(harness);
+		});
+		const release = compiled.activate(harness);
 
 		await harness.prompt("go");
 		expect(seen).toHaveLength(1);
 		expect(seen[0]!.context.tools?.map((tool) => tool.name)).toEqual(["browser_snapshot"]);
-		expect(typeof uninstall).toBe("function");
-		uninstall();
+		expect(typeof release).toBe("function");
+		release();
+	});
+
+	it("streams the live catalog's tool plan after a swap, not the one the harness was built with", async () => {
+		const seen: { model: Model<string>; context: Context; options?: CuaSimpleStreamOptions }[] = [];
+		const handle = attach({ browser, client, models: modelsFromStream(recordingStream(seen)) });
+		const first = handle.compile({ model: "openai:gpt-5.5", tools: [cua.tools.browser.snapshot()] });
+		const session = await new InMemorySessionRepo().create();
+
+		const harness = new AgentHarness({
+			session,
+			model: first.model,
+			models: first.models,
+			tools: [...first.tools],
+			activeToolNames: first.tools.map((tool) => tool.name),
+		});
+		first.activate(harness);
+
+		const second = handle.compile({ model: "openai:gpt-5.5", tools: [cua.providers.openai.tools.computer()] });
+		await second.apply(harness);
+		await harness.prompt("go");
+
+		// pi fixes `models` at construction while the headers, payload transforms
+		// and tool plan it carries are per-catalog, so a per-compile collection
+		// would keep sending the first catalog's plan for the rest of the session.
+		expect(seen).toHaveLength(1);
+		expect(seen[0]!.options?.cuaIncomingToolPlan?.openaiComputerName).toBe("computer");
+		expect(seen[0]!.model.api).toBe(OPENAI_CUA_COMPUTER_API);
 	});
 
 	it("spends an empty-response retry only when the follow-up is queued", async () => {

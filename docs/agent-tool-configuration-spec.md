@@ -1,6 +1,11 @@
 # Agent Tool Configuration
 
-**Status:** Implemented
+**Status:** Superseded by `attach()` (2026-08-14). The tool-array-as-single-source-of-truth
+rule it establishes still holds; what changed is where the array lives. `CuaAgent` and
+`CuaAgentHarness` are gone, and a caller now compiles a (model, tools) pair through
+`attach()` and owns the selection itself, so the `setTools()`/`setModel()` mutation surface
+and its in-tool `executionMode: "sequential"` guard described below no longer exist.
+Retained as the record of why the tool array is explicit and required.
 
 **Scope:** `@onkernel/cua-agent` and the tool-building surface in `@onkernel/cua-ai`  
 **Compatibility:** Not a goal; these packages are alpha and may make breaking API changes.
