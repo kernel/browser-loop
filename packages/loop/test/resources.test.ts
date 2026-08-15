@@ -210,6 +210,16 @@ describe("LoopExecutionResources results and batch boundaries", () => {
 		expect(captureScreenshot).not.toHaveBeenCalled();
 	});
 
+	it("returns a screenshot for every OpenAI native computer action", async () => {
+		const { resources, captureScreenshot } = setup();
+		const result = await resources.materialize(loop.providers.openai.tools.computer())
+			.execute("computer", { action: { type: "click", x: 10, y: 20 } });
+		// OpenAI's computer-use loop expects one screenshot back per computer_call;
+		// without it the model is blind after each action.
+		expect(result.content.some((block) => block.type === "image")).toBe(true);
+		expect(captureScreenshot).toHaveBeenCalledTimes(1);
+	});
+
 	it("materializes each spec exactly once per resource pool", () => {
 		const { resources } = setup();
 		const spec = loop.tools.browser.snapshot();

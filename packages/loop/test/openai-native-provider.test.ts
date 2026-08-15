@@ -203,4 +203,21 @@ describe("computer_call_output serialization", () => {
 		expect(sent).toContain("data:image/png;base64,aW1n");
 		expect(sent).not.toContain("produced no screenshot");
 	});
+
+	it("replays assistant text as output_text", async () => {
+		responsesCreate.mockReturnValueOnce({ id: "resp_turn2", usage: {}, output: [] });
+		await openai.streamOpenAIComputerUse(nativeModel, {
+			messages: [
+				{ role: "user", content: "say hi" },
+				{ role: "assistant", content: [{ type: "text", text: "hi" }], stopReason: "stop" },
+				{ role: "user", content: "say hi again" },
+			] as never,
+			tools: [{ name: "computer", description: "placeholder", parameters: { type: "object" } as never }],
+		}, { apiKey: "test", loopIncomingToolPlan: incoming }).result();
+
+		// Responses rejects `input_text` on an assistant item, so replaying it that
+		// way answers 400 on every turn after the first.
+		const payload = responsesCreate.mock.calls.at(-1)?.[0] as { input: Array<Record<string, unknown>> };
+		expect(payload.input).toContainEqual({ role: "assistant", content: [{ type: "output_text", text: "hi" }] });
+	});
 });

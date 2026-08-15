@@ -652,6 +652,10 @@ function mapOpenAIComputerInput(input: unknown): ComputerUseAction[] {
 			default: throw new Error(`unsupported OpenAI computer action "${type}"`);
 		}
 	}
+	// OpenAI's computer-use loop expects a screenshot back from every
+	// `computer_call`: without one the adapter has to send a placeholder, leaving
+	// the model blind after each action and re-screenshotting to recover.
+	if (result.length > 0 && result[result.length - 1]!.type !== "screenshot") result.push({ type: "screenshot" });
 	return result;
 }
 

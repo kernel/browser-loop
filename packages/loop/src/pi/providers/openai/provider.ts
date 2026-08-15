@@ -402,7 +402,10 @@ function convertMessages(messages: readonly Context["messages"][number][], nativ
 		}
 		if (message.role === "assistant") {
 			const text = message.content.filter((part): part is TextContent => part.type === "text").map((part) => part.text).join("\n");
-			if (text) input.push({ role: "assistant", content: [{ type: "input_text", text }] });
+			// Responses accepts only `output_text` (or `refusal`) on an assistant
+			// input item; `input_text` is rejected outright, so replaying a prior
+			// assistant reply this way 400s every request after the first turn.
+			if (text) input.push({ role: "assistant", content: [{ type: "output_text", text }] });
 			for (const part of message.content) {
 				if (part.type !== "toolCall") continue;
 				if (part.name === nativeName) {
