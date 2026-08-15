@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { type AgentTool, GOOGLE_INTERACTIONS_API } from "../src/pi/index";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
+import { GOOGLE_INTERACTIONS_API } from "../src/pi/index";
 import {
 	callerToolIdentity,
 	type KernelBrowser,

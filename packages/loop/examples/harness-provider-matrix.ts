@@ -1,11 +1,6 @@
 import Kernel from "@onkernel/sdk";
-import {
-	AgentHarness,
-	attach,
-	InMemorySessionRepo,
-	type LoopModelRef,
-	requireLoopEnvApiKeyForModel,
-} from "../src/pi/index";
+import { AgentHarness, InMemorySessionRepo } from "@earendil-works/pi-agent-core";
+import { attach, type LoopModelRef, requireLoopEnvApiKeyForModel } from "../src/pi/index";
 import { logAgentEvent, logAssistant } from "./shared/logging";
 import { SCENARIOS } from "./shared/scenarios";
 import { toolsForModel } from "./shared/tools";

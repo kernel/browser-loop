@@ -17,7 +17,7 @@ extension described under [pi extension](#pi-extension).
 ## Install
 
 ```bash
-npm install @onkernel/loop @onkernel/sdk
+npm install @onkernel/loop @onkernel/sdk @earendil-works/pi-agent-core
 ```
 
 Requires Node 22.19 or newer, `KERNEL_API_KEY` for browser execution, and the
@@ -31,8 +31,9 @@ you construct whatever pi agent you want with them. There is no agent class here
 
 ```ts
 import Kernel from "@onkernel/sdk";
+import { Agent } from "@earendil-works/pi-agent-core";
 import { loop } from "@onkernel/loop";
-import { Agent, attach } from "@onkernel/loop/pi";
+import { attach } from "@onkernel/loop/pi";
 
 const client = new Kernel({ apiKey: process.env.KERNEL_API_KEY! });
 const browser = await client.browsers.create({ stealth: true });
@@ -72,8 +73,9 @@ package owns that are pi event handlers rather than constructor options, and
 points the handle's `models` at this catalog:
 
 ```ts
+import { AgentHarness, InMemorySessionRepo } from "@earendil-works/pi-agent-core";
 import { loop } from "@onkernel/loop";
-import { AgentHarness, attach, InMemorySessionRepo } from "@onkernel/loop/pi";
+import { attach } from "@onkernel/loop/pi";
 
 const session = await new InMemorySessionRepo().create();
 const kb = attach({ client, browser });
@@ -105,8 +107,9 @@ the new one. Changing the model or the tool list compiles a new pair; nothing
 mutates in place, and one shared execution-resource pool survives every change,
 so browser refs, tabs, connections, and translator state are not reset.
 
-`@onkernel/loop/pi` re-exports pi-agent-core's session, skill, prompt-template,
-compaction, and execution-environment primitives used with the harness.
+`@onkernel/loop/pi` does not re-export pi: install `@earendil-works/pi-agent-core`
+and import its session, skill, prompt-template, compaction, and
+execution-environment primitives directly, as these examples do.
 
 ### Tool context
 
@@ -116,15 +119,10 @@ and pi delivers the exact object (or the result of a zero-argument provider)
 to every tool call:
 
 ```ts
+import { AgentHarness, createBashTool, createReadTool, type ExecutionToolContext } from "@earendil-works/pi-agent-core";
+import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
 import { loop } from "@onkernel/loop";
-import {
-  AgentHarness,
-  attach,
-  NodeExecutionEnv,
-  createBashTool,
-  createReadTool,
-  type ExecutionToolContext,
-} from "@onkernel/loop/pi";
+import { attach } from "@onkernel/loop/pi";
 
 const compiled = kb.compile<ExecutionToolContext>({
   model: "openai:gpt-5.6-sol",

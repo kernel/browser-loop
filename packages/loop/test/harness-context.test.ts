@@ -6,17 +6,16 @@ import { type AssistantMessage, createAssistantMessageEventStream, type Model } 
 import {
 	AgentHarness,
 	type AgentHarnessTool,
-	attach,
 	createBashTool,
 	createEditTool,
-	createLoopModels,
 	createReadTool,
 	createWriteTool,
 	type ExecutionToolContext,
 	InMemorySessionRepo,
-	NodeExecutionEnv,
 	type StreamFn,
-} from "../src/pi/index";
+} from "@earendil-works/pi-agent-core";
+import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
+import { attach, createLoopModels } from "../src/pi/index";
 import type Kernel from "@onkernel/sdk";
 import type { KernelBrowser } from "../src/index";
 

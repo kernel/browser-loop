@@ -24,17 +24,16 @@ import {
 import {
 	Agent,
 	AgentHarness,
-	attach,
-	getLoopModel,
 	InMemorySessionRepo,
-	NodeExecutionEnv,
 	createBashTool,
 	createEditTool,
 	createReadTool,
 	createWriteTool,
 	type AgentHarnessTool,
 	type ExecutionToolContext,
-} from "@onkernel/loop/pi";
+} from "@earendil-works/pi-agent-core";
+import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
+import { attach, getLoopModel } from "@onkernel/loop/pi";
 import type Kernel from "@onkernel/sdk";
 
 declare const browser: KernelBrowser;
@@ -159,6 +158,9 @@ describe("published declarations", () => {
 				paths: {
 					"@onkernel/loop": [join(out, "index.d.ts")],
 					"@onkernel/loop/pi": [join(out, "pi", "index.d.ts")],
+					// The "*" fallback resolves a package root through its package.json,
+					// but not subpath exports; map this one explicitly.
+					"@earendil-works/pi-agent-core/node": [join(repoRoot, "node_modules", "@earendil-works", "pi-agent-core", "dist", "node.d.ts")],
 					"*": ["./node_modules/*"],
 				},
 			},
