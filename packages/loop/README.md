@@ -161,7 +161,12 @@ Tools return only requested feedback:
 `toolResultImageReplayLimit` controls how many recent tool-result images remain
 in model context (`4` by default, or `false` to disable projection). OpenAI
 native computer results are exempt because its protocol requires each
-`computer_call_output` to carry a screenshot.
+`computer_call_output` to carry a screenshot, so every native computer action
+returns one.
+
+`emptyResponseRecovery: { followUp, maxAttempts }` queues a follow-up when a
+turn ends with a successful tool call but no assistant text — Google's native
+browser surface does that occasionally. It is off by default.
 
 ## Custom tools
 
@@ -300,6 +305,9 @@ loop.tools.browser.batch({ actions: ["snapshot", "click", "wait_for", "text"] })
 loop.tools.playwright();
 ```
 
+A toolset carries that surface's primitives, not every tool it has: `browser_act`,
+`computer_zoom`, and the batch forms are selected explicitly.
+
 Batches are mechanical primitive lists. They have no branching, saved values,
 references, or workflow DSL.
 
@@ -344,6 +352,11 @@ Moonshot accepts the ordinary browser toolset, including `browser_wait_for`,
 but rejects `browser_act`'s substantially larger function schema. Catalog
 compilation rejects that specific combination before a provider request.
 
+A provider enables its native surface per model, not for its whole catalog, so
+selecting one for a model without it fails during catalog compilation rather
+than on the wire. [Models and native surfaces](docs/supported-models.md) lists
+which models carry which surface.
+
 Provider-native caller-visible names are fixed by protocol. Version/tool/model
 mismatches fail during catalog compilation. If an Anthropic credential cannot
 access `browser_20260701`, Loop retries with an equivalent `browser` function
@@ -361,7 +374,6 @@ themselves:
 const catalog = compileLoopToolCatalog({
   model: "anthropic:claude-opus-5",
   requestedTools: tools, // Loop specs and plain pi-ai Tool declarations
-  viewport: { width: 1440, height: 900 },
 });
 
 catalog.entries;          // identities, fingerprints, declarations, coordinates
@@ -371,9 +383,9 @@ await catalog.payload.apply(payload, catalog.model);
 catalog.incoming;
 ```
 
-Compilation is declaration-only and deterministic: identical declaration,
-model, and viewport inputs produce identical catalogs, and compilation never
-constructs executable tools or retains the requested input objects. Execution is
+Compilation is declaration-only and deterministic: identical declaration and
+model inputs produce identical catalogs, and compilation never constructs
+executable tools or retains the requested input objects. Execution is
 a separate concern: `attach()` materializes specs against a Kernel browser and
 owns implementation identity.
 
@@ -477,10 +489,10 @@ tells you which apply to the one you selected.
 | `computer` | canonical computer primitives plus `computer_batch` | every provider |
 | `browser-act` | `browser_act`, the verified-plan tool | every provider except Moonshot, which rejects its schema size |
 | `playwright` | `playwright_execute` | every provider |
-| `anthropic-computer` | Anthropic's native computer tool | Anthropic only |
-| `anthropic-browser` | Anthropic's native browser tool | Anthropic only |
-| `openai-computer` | OpenAI's native computer tool | OpenAI only |
-| `google-browser` | Google's predefined browser action set | Google only |
+| `anthropic-computer` | Anthropic's native computer tool | Anthropic models with that native surface |
+| `anthropic-browser` | Anthropic's native browser tool | Anthropic models with that native surface |
+| `openai-computer` | OpenAI's native computer tool | OpenAI models with that native surface |
+| `google-browser` | Google's predefined browser action set | Google models with that native surface |
 
 `--browser-coordinates` selects `pixels` (default) or `normalized-1000` for the
 `computer` entry's coordinate contract.

@@ -12,7 +12,9 @@ model may run.
 ## Native surfaces
 
 `COMPUTER_USE_NATIVE_SURFACES` records which models have a provider-native computer or
-browser tool, so the tool menu can offer it. Entries match either an exact id or
+browser tool, so the tool menu can offer it and catalog compilation can refuse
+it for a model the provider has not enabled it for — every provider answers 400
+for that combination. Entries match either an exact id or
 a `family` — the family root plus suffixes made of hyphen-separated numeric
 segments, covering revisions and dated snapshots such as `claude-opus-4-7` or
 `gpt-5.5-2026-04-23`. Named sibling variants like `gpt-5.4-mini` are distinct
@@ -23,9 +25,9 @@ models and need their own entry. Each cites first-party documentation.
 | `anthropic` | `claude-opus-4-8`, `claude-opus-5`, `claude-sonnet-5` families | computer, browser |
 | `anthropic` | `claude-fable-5` family | computer |
 | `openai` | `gpt-5.6-sol`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.5` | computer |
-| `google` | `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-3.5-flash-lite` | browser |
+| `google` | `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-3.5-flash-lite`, `gemini-2.5-computer-use-preview-10-2025` | browser |
 
-Anthropic's entries live in `providers/anthropic/capabilities.ts`, which is
+Anthropic's entries live in `src/pi/providers/anthropic/capabilities.ts`, which is
 version-gated separately; `computerUseNativeSurfaces(model)` reads both sources.
 
 A model with no native surface is not restricted — it drives a Kernel browser
@@ -40,11 +42,15 @@ failure, and carries its reason inline.
 
 | provider | models | limit |
 | --- | --- | --- |
-| `google` | all | rejects `browser_wait_for`'s schema shape; the Gemini API accepts a subset of JSON Schema for function declarations |
-| `moonshotai` | `kimi-k3` | rejects the request once `browser_act`'s schema is attached; serializes state mutations |
-| `openrouter` | `moonshotai/kimi-k3` | the same Kimi limit, reached through OpenRouter |
+| `moonshotai` | all | rejects the request once `browser_act`'s schema is attached |
+| `moonshotai` | `kimi-k3` | serializes state mutations |
+| `openrouter` | `moonshotai/kimi-k3` | the same Kimi limits, reached through OpenRouter |
 | `openrouter` | `meta/muse-spark-1.1` | serializes state mutations |
 | `xai` | all | serializes state mutations |
+
+Google is absent on purpose: the Gemini function-declaration dialect is a subset
+of JSON Schema, and a payload transform rewrites `const` and
+`additionalProperties` into what it accepts, so no tool has to be withheld.
 
 `loopModelCapabilities(model)` applies provider-wide quirks first, then
 model-specific ones. `loopModelQuirks(model)` returns the entries that applied,
@@ -85,7 +91,7 @@ a table edit. Probe what the model actually emits:
 npx tsx packages/loop/scripts/native-action-probe.ts --provider openai --model gpt-5.5 --limit 3
 ```
 
-Update that provider's adapter under `src/providers/` to execute the actions the
+Update that provider's adapter under `src/pi/providers/` to execute the actions the
 probe returns, then add or adjust the `COMPUTER_USE_NATIVE_SURFACES` entry, citing the
 provider's documentation. Anthropic's computer tool version and its
 `computer-use-*` beta header are chosen by pi-ai per model, so a new dated
