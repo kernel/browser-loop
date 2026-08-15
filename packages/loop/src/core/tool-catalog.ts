@@ -285,18 +285,6 @@ export function isLoopToolSpec(value: unknown): value is LoopToolSpec {
 	return Boolean(value && typeof value === "object" && (value as { kind?: unknown }).kind === LOOP_TOOL_SPEC_KIND);
 }
 
-export function modelSupportsDeferredTools(model: LoopCatalogModel): boolean {
-	const compat = isRecord(model.compat) ? model.compat : undefined;
-	if (model.provider === "openai") return compat?.supportsToolSearch === true;
-	if (model.provider !== "anthropic" || model.id.toLowerCase().includes("haiku")) return false;
-	if (typeof compat?.supportsToolReferences === "boolean") return compat.supportsToolReferences;
-	const version = model.id.toLowerCase().match(/^claude-(?:opus|sonnet|fable)-(\d+)(?:-(\d+))?(?:-|$)/);
-	if (!version) return false;
-	const major = Number(version[1]);
-	const minor = version[2] && version[2].length < 8 ? Number(version[2]) : 0;
-	return major > 4 || (major === 4 && minor >= 5);
-}
-
 function normalizeTool(tool: LoopCatalogToolInput): LoopCatalogEntryDraft {
 	if (isLoopToolSpec(tool)) {
 		const schemaFingerprint = stableStringify(tool.declaration.parameters);

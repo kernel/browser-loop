@@ -6,9 +6,11 @@ export * from "./core/tools";
 export { normalizeGotoUrl } from "./core/url";
 
 // pi-flavored entry points: these shadow the star exports above, keeping
-// provider-qualified model refs ("openai:gpt-5.5") working on this surface
-// while src/core stays free of pi model resolution.
+// provider-qualified model refs ("openai:gpt-5.5") and pi-supplied model
+// availability working on this surface while src/core stays free of both.
 export { compileLoopToolCatalog, loopToolMenu } from "./pi/catalog";
+export { loop, type LoopNamespace } from "./pi/loop";
+export { modelSupportsDeferredTools } from "./pi/models";
 
 export type { LoopAgentTool, LoopHarnessTool } from "./pi/tool-manager";
 export { LoopExecutionResources } from "./core/resources";

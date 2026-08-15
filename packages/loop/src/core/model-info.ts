@@ -15,13 +15,12 @@ export interface LoopModelCapabilities {
 }
 
 /**
- * Framework-neutral view of the model a catalog is compiled for: identity, the
- * transport it carries, and compat flags. A pi-ai `Model` satisfies this shape
- * structurally; core never sees more of it.
+ * Framework-neutral view of the model a catalog is compiled for: identity and
+ * the transport it carries. A pi-ai `Model` satisfies this shape structurally;
+ * core never sees more of it.
  */
 export interface LoopCatalogModel extends LoopModelIdentity {
 	readonly api: string;
-	readonly compat?: unknown;
 }
 
 /**

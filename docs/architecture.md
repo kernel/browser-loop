@@ -31,8 +31,11 @@ both explicitly and may use pi's orchestration primitives directly.
 - `./pi` (`src/pi/`) is the pi binding: `attach()`/`compile()`, the tool
   manager that joins compiled catalogs to executable pi `AgentTool`s, model
   resolution and availability facts (`compileLoopToolCatalog`/`loopToolMenu`
-  accept provider-qualified refs here and supply `LoopModelFacts`), transport
-  derivation, the provider adapters, provider retry, and header composition.
+  accept provider-qualified refs here and supply `LoopModelFacts`,
+  `modelSupportsDeferredTools` interprets pi compat flags, and the published
+  `loop` namespace composes `loop.providers.anthropic.supports` over core's
+  declarations), transport derivation, the provider adapters, provider retry,
+  and header composition.
 - `src/pi-extension/` contributes these tools to a pi session that pi itself
   owns. It is the one consumer that uses neither `attach()` nor the harness: pi
   owns the model collection and the agent loop, so the extension takes the two

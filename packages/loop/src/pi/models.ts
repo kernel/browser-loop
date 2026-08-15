@@ -1,7 +1,7 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { getBuiltinModel, getBuiltinModels, getBuiltinProviders } from "@earendil-works/pi-ai/providers/all";
 import type { ComputerUseNativeSurface, LoopModelCapabilities, LoopModelFacts } from "../core/model-info";
-import { supportsAnthropicNativeBrowser, supportsAnthropicNativeComputer } from "../core/tools";
+import { supportsAnthropicNativeBrowser, supportsAnthropicNativeComputer } from "./providers/anthropic/capabilities";
 
 export type { ComputerUseNativeSurface, LoopModelCapabilities } from "../core/model-info";
 
@@ -236,6 +236,19 @@ export function providerForModel(model: Model<Api>): LoopProvider {
 	return model.provider;
 }
 
+/** Whether pi can defer loading this model's ordinary function tools. */
+export function modelSupportsDeferredTools(model: Model<Api>): boolean {
+	const compat = isRecord(model.compat) ? model.compat : undefined;
+	if (model.provider === "openai") return compat?.supportsToolSearch === true;
+	if (model.provider !== "anthropic" || model.id.toLowerCase().includes("haiku")) return false;
+	if (typeof compat?.supportsToolReferences === "boolean") return compat.supportsToolReferences;
+	const version = model.id.toLowerCase().match(/^claude-(?:opus|sonnet|fable)-(\d+)(?:-(\d+))?(?:-|$)/);
+	if (!version) return false;
+	const major = Number(version[1]);
+	const minor = version[2] && version[2].length < 8 ? Number(version[2]) : 0;
+	return major > 4 || (major === 4 && minor >= 5);
+}
+
 /** Provider-native tool surfaces available for a model, if any. */
 export function computerUseNativeSurfaces(model: Model<Api>): readonly ComputerUseNativeSurface[] {
 	if (model.provider === "anthropic") {
@@ -305,4 +318,8 @@ function isFamilyMatch(id: string, family: string): boolean {
 function compareLoopModels(a: LoopModelInfo, b: LoopModelInfo): number {
 	if (a.provider !== b.provider) return a.provider.localeCompare(b.provider);
 	return a.model.localeCompare(b.model);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
