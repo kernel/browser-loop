@@ -62,7 +62,7 @@ export default function loopPiExtension(pi: ExtensionAPI): void {
 					const selected = currentSpecs().find((candidate) => candidate.name === name);
 					if (!selected || compatibilityError) throw new Error(compatibilityError ?? `browser tool "${name}" is no longer selected`);
 					const resources = await ensureRuntime().get(signal);
-					return resources.materialize(selected).execute(toolCallId, input, signal);
+					return resources.materialize(selected).execute(input, signal);
 				},
 			});
 		}
@@ -132,7 +132,7 @@ export default function loopPiExtension(pi: ExtensionAPI): void {
 	 * when no Loop tool is active. Compiling is pure and cheap, so this re-derives
 	 * per request rather than caching a catalog that a model switch could stale.
 	 */
-	function streamCatalog(model: Model<Api>): LoopToolCatalog | undefined {
+	function streamCatalog(model: Model<Api>): LoopToolCatalog<Model<Api>> | undefined {
 		if (!activeNames.size || compatibilityError) return undefined;
 		try {
 			return compileSpecs(model, activeSpecs());

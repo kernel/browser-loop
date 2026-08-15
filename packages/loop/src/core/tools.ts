@@ -1,4 +1,4 @@
-import { Type, type Tool, type TSchema } from "@earendil-works/pi-ai";
+import { Type, type TSchema } from "typebox";
 import {
 	COMPUTER_ACTION_TYPES,
 	createBrowserActionSchemaByType,
@@ -6,14 +6,15 @@ import {
 	type BrowserActionType,
 	type ComputerActionType,
 } from "./actions/index";
-import { supportsAnthropicNativeBrowser } from "../pi/providers/anthropic/capabilities";
-import { mapNativeBrowserInput, mapNativeComputerInput } from "../pi/providers/anthropic/native";
-import { GOOGLE_INTERACTIONS_API } from "../pi/providers/google/provider";
-import { OPENAI_COMPUTER_USE_API } from "../pi/providers/openai/provider";
+import { mapNativeBrowserInput, mapNativeComputerInput } from "./anthropic-native";
+import { supportsAnthropicNativeBrowser } from "./model-info";
 import {
+	GOOGLE_INTERACTIONS_API,
 	LOOP_TOOL_SPEC_KIND,
+	OPENAI_COMPUTER_USE_API,
 	type LoopCoordinateContract,
 	type LoopProviderBinding,
+	type LoopToolDeclaration,
 	type LoopToolDynamicLoading,
 	type LoopToolExecution,
 	type LoopToolOrigin,
@@ -501,7 +502,7 @@ function createSpec(options: {
 	source?: string;
 	transport?: LoopToolTransport;
 	dynamicLoading?: LoopToolDynamicLoading;
-	declaration: Tool;
+	declaration: LoopToolDeclaration;
 	execution: LoopToolExecution;
 	providerBinding?: LoopProviderBinding;
 	stateMutating: boolean;

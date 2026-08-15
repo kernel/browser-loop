@@ -15,14 +15,18 @@ both explicitly and may use pi's orchestration primitives directly.
 `@onkernel/loop` is one package with two entry points and three source trees:
 
 - `.` (`src/core/`) is the framework-neutral core: canonical actions, the tool
-  declarations namespace, the catalog compiler, the tool menu, the tool manager,
-  and Kernel-browser execution (translator, CDP executor, execution resources).
-  Catalog compilation is declaration-only and deterministic. Its coupling to pi
-  is type-level — `Api`, `Model`, `Tool`, `AgentTool` — except for the model
-  resolution and provider modules it still reaches into, which the next split
-  moves behind an interface.
-- `./pi` (`src/pi/`) is the pi binding: `attach()`/`compile()`, model
-  resolution, transport derivation, the provider adapters, provider retry, and
+  declarations namespace, the catalog compiler, the tool menu, and
+  Kernel-browser execution (translator, CDP executor, execution resources).
+  Catalog compilation is declaration-only and deterministic. The core imports
+  nothing from pi — declarations are `LoopToolDeclaration`, executables are
+  `LoopExecutableTool` with an `(input, signal)` contract, models are the
+  neutral `LoopCatalogModel` view, and schemas come from `typebox` directly.
+  `test/core-boundary.test.ts` fails the unit suite on any `src/core` import of
+  a pi package or of `src/pi`.
+- `./pi` (`src/pi/`) is the pi binding: `attach()`/`compile()`, the tool
+  manager that joins compiled catalogs to executable pi `AgentTool`s, model
+  resolution (`compileLoopToolCatalog`/`loopToolMenu` accept provider-qualified
+  refs here), transport derivation, the provider adapters, provider retry, and
   header composition.
 - `src/pi-extension/` contributes these tools to a pi session that pi itself
   owns. It is the one consumer that uses neither `attach()` nor the harness: pi

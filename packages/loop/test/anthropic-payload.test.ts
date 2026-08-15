@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getLoopModel } from "../src/pi/models";
-import { anthropicAdaptiveThinkingOnPayload } from "../src/pi/providers/anthropic/adaptive-thinking";
+import { anthropicAdaptiveThinkingOnPayload } from "../src/core/anthropic-adaptive-thinking";
 
 describe("anthropicAdaptiveThinkingOnPayload", () => {
 	it("converts Sonnet 5 manual thinking to adaptive thinking with effort", () => {

@@ -1,5 +1,3 @@
-import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
-import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import type Kernel from "@onkernel/sdk";
 import type { ComputerUseAction } from "./actions/index";
 import type { LoopCoordinateContract, LoopToolSpec } from "./tool-catalog";
@@ -22,7 +20,28 @@ export interface LoopExecutionDetails {
 	error?: string;
 }
 
-type ToolContent = Array<TextContent | ImageContent>;
+/** One content block returned to the model by a materialized Loop tool. */
+export type LoopToolResultContent =
+	| { type: "text"; text: string }
+	| { type: "image"; data: string; mimeType: string };
+
+/** Framework-neutral result of executing a materialized Loop tool. */
+export interface LoopToolExecutionResult {
+	content: LoopToolResultContent[];
+	details: LoopExecutionDetails;
+}
+
+/**
+ * Framework-neutral executable: a spec bound to this pool's browser. A
+ * framework binding wraps `execute` in its own tool shape; the executable
+ * itself only ever sees the model-provided input and an abort signal.
+ */
+export interface LoopExecutableTool {
+	readonly spec: LoopToolSpec;
+	execute(input: unknown, signal?: AbortSignal): Promise<LoopToolExecutionResult>;
+}
+
+type ToolContent = LoopToolResultContent[];
 
 /**
  * One per-agent browser resource pool. Tool catalogs may be rebuilt without
@@ -33,7 +52,7 @@ export class LoopExecutionResources {
 	readonly client: Kernel;
 	private readonly translator: InternalComputerTranslator;
 	/** Each spec is materialized exactly once per resource pool. */
-	private readonly materialized = new WeakMap<LoopToolSpec, AgentTool>();
+	private readonly materialized = new WeakMap<LoopToolSpec, LoopExecutableTool>();
 
 	constructor(options: {
 		browser: KernelBrowser;
@@ -46,17 +65,12 @@ export class LoopExecutionResources {
 		this.translator = new InternalComputerTranslator(options);
 	}
 
-	materialize(spec: LoopToolSpec): AgentTool {
+	materialize(spec: LoopToolSpec): LoopExecutableTool {
 		const cached = this.materialized.get(spec);
 		if (cached) return cached;
-		const definition = spec.declaration;
-		const tool: AgentTool = {
-			name: spec.name,
-			label: spec.name,
-			description: definition.description,
-			parameters: definition.parameters,
-			executionMode: "sequential",
-			execute: async (_toolCallId, input, signal) => {
+		const tool: LoopExecutableTool = {
+			spec,
+			execute: async (input, signal) => {
 				if (spec.execution.kind === "playwright") return this.executePlaywright(spec.name, input);
 				const actions = spec.execution.toActions(input);
 				return this.executeActions(spec, actions, signal);
@@ -82,7 +96,7 @@ export class LoopExecutionResources {
 		this.translator.dispose();
 	}
 
-	private async executeActions(spec: LoopToolSpec, actions: ComputerUseAction[], signal?: AbortSignal): Promise<AgentToolResult<LoopExecutionDetails>> {
+	private async executeActions(spec: LoopToolSpec, actions: ComputerUseAction[], signal?: AbortSignal): Promise<LoopToolExecutionResult> {
 		if (spec.execution.kind !== "actions") throw new Error(`tool "${spec.name}" has no action executor`);
 		let result: BatchExecutionResult;
 		let failure: BatchExecutionError | undefined;
@@ -124,7 +138,7 @@ export class LoopExecutionResources {
 		};
 	}
 
-	private async executePlaywright(name: string, input: unknown): Promise<AgentToolResult<LoopExecutionDetails>> {
+	private async executePlaywright(name: string, input: unknown): Promise<LoopToolExecutionResult> {
 		const parameters = asRecord(input);
 		const code = parameters.code;
 		if (typeof code !== "string") throw new Error(`${name} requires string code`);
@@ -207,7 +221,7 @@ function formatBrowserWaitResult(result: BrowserWaitForResult): string {
 	return [`wait_for: ${result.status}/${result.evidence}${reason} after ${result.elapsed_ms}ms`, ...result.details].join("\n");
 }
 
-function toImage(screenshot: { data: Buffer; mimeType: string }): ImageContent {
+function toImage(screenshot: { data: Buffer; mimeType: string }): LoopToolResultContent {
 	return { type: "image", data: screenshot.data.toString("base64"), mimeType: screenshot.mimeType };
 }
 

@@ -22,11 +22,10 @@ import {
 import { createGrammarToolInputProperties } from "@earendil-works/pi-ai/api/constrained-sampling";
 import { clampOpenAIPromptCacheKey } from "@earendil-works/pi-ai/api/openai-prompt-cache";
 import { buildBaseOptions } from "@earendil-works/pi-ai/api/simple-options";
-import type { LoopIncomingToolPlan } from "../../../core/tool-catalog";
+import { OPENAI_COMPUTER_USE_API, type LoopIncomingToolPlan } from "../../../core/tool-catalog";
 import type { LoopSimpleStreamOptions } from "../common";
 
-/** Loop-owned api id for OpenAI's native computer tool, derived onto the model by compileLoopToolCatalog when that tool is selected. */
-export const OPENAI_COMPUTER_USE_API = "openai-computer-use";
+export { OPENAI_COMPUTER_USE_API };
 
 /**
  * 64x64 black PNG, used when a computer action produced no screenshot so the

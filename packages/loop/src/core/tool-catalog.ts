@@ -1,16 +1,32 @@
-import type { Api, Model, Tool } from "@earendil-works/pi-ai";
+import type { TSchema } from "typebox";
 import type { ComputerUseAction } from "./actions/index";
-import type { ComputerUseNativeSurface, LoopModelRef } from "../pi/models";
-import { computerUseNativeSurfaces, loopModelCapabilities, getLoopModel } from "../pi/models";
-import { anthropicAdaptiveThinkingOnPayload } from "../pi/providers/anthropic/adaptive-thinking";
+import { anthropicAdaptiveThinkingOnPayload } from "./anthropic-adaptive-thinking";
 import {
+	computerUseNativeSurfaces,
+	loopModelCapabilities,
 	supportsAnthropicNativeBrowser,
 	supportsAnthropicNativeComputer,
-} from "../pi/providers/anthropic/capabilities";
-import { GOOGLE_INTERACTIONS_API } from "../pi/providers/google/provider";
-import { OPENAI_COMPUTER_USE_API } from "../pi/providers/openai/provider";
+	type ComputerUseNativeSurface,
+	type LoopCatalogModel,
+} from "./model-info";
 
 export const LOOP_TOOL_SPEC_KIND = "@onkernel/loop-tool-spec/v1" as const;
+
+/** Loop-owned api id for OpenAI's native computer tool, derived onto the model by {@link compileLoopToolCatalog} when that tool is selected. */
+export const OPENAI_COMPUTER_USE_API = "openai-computer-use";
+
+/** Loop-owned api id for Google's native computer-use toolset, derived onto the model by {@link compileLoopToolCatalog} when that toolset is selected. */
+export const GOOGLE_INTERACTIONS_API = "google-interactions";
+
+/**
+ * Framework-neutral tool declaration: what a model is told about a tool.
+ * Structurally assignable to a pi-ai `Tool`.
+ */
+export interface LoopToolDeclaration {
+	readonly name: string;
+	readonly description: string;
+	readonly parameters: TSchema;
+}
 
 export type LoopToolOrigin = "loop" | "provider-native";
 export type LoopToolTransport = "function" | "native";
@@ -42,14 +58,14 @@ export type LoopProviderBinding =
 			readonly kind: "openai-native";
 			readonly declaration: Record<string, unknown>;
 			/** Transport this binding requires the compiled catalog's model to carry. */
-			readonly requiresApi?: Api;
+			readonly requiresApi?: string;
 	  }
 	| {
 			readonly kind: "google-native";
 			readonly nativeName: string;
 			readonly allNativeNames: readonly string[];
 			/** Transport this binding requires the compiled catalog's model to carry. */
-			readonly requiresApi?: Api;
+			readonly requiresApi?: string;
 	  };
 
 /** Declarative Loop tool. Identity is immutable and independent from its model-facing alias. */
@@ -63,7 +79,7 @@ export interface LoopToolSpec {
 	readonly source?: string;
 	readonly transport: LoopToolTransport;
 	readonly dynamicLoading: LoopToolDynamicLoading;
-	readonly declaration: Tool;
+	readonly declaration: LoopToolDeclaration;
 	/** @internal Local execution policy consumed by the tool manager. */
 	readonly execution: LoopToolExecution;
 	/** @internal Provider transport contribution consumed by the catalog compiler. */
@@ -83,10 +99,10 @@ export interface LoopToolSpec {
 
 /**
  * Sanitized declarative projection of a caller-owned tool. The compiler never
- * sees executors: callers pass plain pi-ai `Tool` declarations and the executing
- * runtime keeps the matching implementation.
+ * sees executors: callers pass plain declarations and the executing runtime
+ * keeps the matching implementation.
  */
-export type LoopCallerToolDeclaration = Tool;
+export type LoopCallerToolDeclaration = LoopToolDeclaration;
 
 /** Declarative catalog input: a Loop spec or a sanitized caller tool declaration. */
 export type LoopCatalogToolInput = LoopToolSpec | LoopCallerToolDeclaration;
@@ -107,7 +123,7 @@ export interface LoopToolInfo {
 	source?: string;
 	transport: LoopToolTransport;
 	dynamicLoading: LoopToolDynamicLoading;
-	declaration: Tool | Record<string, unknown>;
+	declaration: LoopToolDeclaration | Record<string, unknown>;
 	coordinates?: LoopCoordinateContract;
 }
 
@@ -128,12 +144,12 @@ export interface LoopPayloadTransform {
 	consumesToolIdentities?: readonly string[];
 	writes?: readonly string[];
 	phase: "model-preparation" | "tool-declarations" | "provider-fields";
-	apply(payload: unknown, model: Model<Api>, names: ReadonlyMap<string, string>): unknown | Promise<unknown>;
+	apply(payload: unknown, model: LoopCatalogModel, names: ReadonlyMap<string, string>): unknown | Promise<unknown>;
 }
 
 export interface LoopPayloadPlan {
 	readonly transforms: readonly LoopPayloadTransform[];
-	apply(payload: unknown, model: Model<Api>): Promise<unknown>;
+	apply(payload: unknown, model: LoopCatalogModel): Promise<unknown>;
 }
 
 /** Function-tool fallback for an Anthropic native browser tool unavailable to the active credential. */
@@ -158,22 +174,22 @@ export interface LoopToolCatalogEntry extends LoopToolInfo {
 	readonly fingerprint: string;
 }
 
-export interface LoopToolCatalog {
-	readonly model: Model<Api>;
+export interface LoopToolCatalog<M extends LoopCatalogModel = LoopCatalogModel> {
+	readonly model: M;
 	readonly entries: readonly LoopToolCatalogEntry[];
 	/**
-	 * Provider-facing pi-ai `Tool` declarations in entry order, suitable for
+	 * Provider-facing tool declarations in entry order, suitable for
 	 * `Context.tools`. Native placeholders are swapped by `payload` transforms.
 	 */
-	readonly toolDeclarations: readonly Tool[];
+	readonly toolDeclarations: readonly LoopToolDeclaration[];
 	readonly headers: LoopHeaderPlan;
 	readonly payload: LoopPayloadPlan;
 	readonly incoming: LoopIncomingToolPlan;
 	readonly fingerprint: string;
 }
 
-export interface CompileLoopToolCatalogOptions {
-	model: LoopModelRef | Model<Api>;
+export interface CompileLoopToolCatalogOptions<M extends LoopCatalogModel = LoopCatalogModel> {
+	model: M;
 	requestedTools: readonly LoopCatalogToolInput[];
 }
 
@@ -182,7 +198,7 @@ export interface CompileLoopToolCatalogOptions {
  * requested spec/declaration objects or provider bindings used to compile it.
  */
 interface LoopCatalogEntryDraft extends LoopToolCatalogEntry {
-	readonly placeholder: Tool;
+	readonly placeholder: LoopToolDeclaration;
 	readonly providerBinding?: LoopProviderBinding;
 	readonly stateMutating?: boolean;
 	readonly complexSchema?: boolean;
@@ -203,13 +219,12 @@ const SAFE_TOOL_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
  * no such tool selected keeps its ordinary registry `api`. Selecting tools
  * whose bindings require different transports fails to compile.
  */
-export function compileLoopToolCatalog(options: CompileLoopToolCatalogOptions): LoopToolCatalog {
-	const baseModel = typeof options.model === "string"
-		? getLoopModel(options.model)
-		: resetCatalogDerivedApi(options.model);
+export function compileLoopToolCatalog<M extends LoopCatalogModel>(options: CompileLoopToolCatalogOptions<M>): LoopToolCatalog<M> {
+	const baseModel = resetCatalogDerivedApi(options.model);
 	const normalizedEntries = [...options.requestedTools].map(normalizeTool);
 	const requiresApi = validateCatalog(baseModel, normalizedEntries);
-	const model = requiresApi ? { ...baseModel, api: requiresApi } : baseModel;
+	// Only `api` moves, and every M carries `api: string`, so the swap stays an M.
+	const model = requiresApi ? ({ ...baseModel, api: requiresApi } as M) : baseModel;
 	const drafts = resolveProviderFacingDeclarations(normalizedEntries);
 
 	const names = new Map(drafts.map((entry) => [entry.identity, entry.name]));
@@ -252,7 +267,7 @@ export function isLoopToolSpec(value: unknown): value is LoopToolSpec {
 	return Boolean(value && typeof value === "object" && (value as { kind?: unknown }).kind === LOOP_TOOL_SPEC_KIND);
 }
 
-export function modelSupportsDeferredTools(model: Model<Api>): boolean {
+export function modelSupportsDeferredTools(model: LoopCatalogModel): boolean {
 	const compat = isRecord(model.compat) ? model.compat : undefined;
 	if (model.provider === "openai") return compat?.supportsToolSearch === true;
 	if (model.provider !== "anthropic" || model.id.toLowerCase().includes("haiku")) return false;
@@ -337,7 +352,7 @@ function resolveProviderFacingDeclarations(entries: readonly LoopCatalogEntryDra
 }
 
 /** Validate the requested catalog against the model and return the transport its selected tools require, if any. */
-function validateCatalog(model: Model<Api>, entries: readonly LoopCatalogEntryDraft[]): Api | undefined {
+function validateCatalog(model: LoopCatalogModel, entries: readonly LoopCatalogEntryDraft[]): string | undefined {
 	const identities = new Map<string, LoopCatalogEntryDraft>();
 	const exactNames = new Map<string, LoopCatalogEntryDraft>();
 	const normalizedNames = new Map<string, LoopCatalogEntryDraft>();
@@ -377,7 +392,7 @@ function nameCollision(
 	return new Error(`tool name "${name}" is requested by both "${first.identity}" and "${second.identity}"${suffix}`);
 }
 
-function validateToolCompatibility(model: Model<Api>, entry: LoopCatalogEntryDraft): void {
+function validateToolCompatibility(model: LoopCatalogModel, entry: LoopCatalogEntryDraft): void {
 	const binding = entry.providerBinding;
 	if (entry.origin === "provider-native" && !/^https:\/\//.test(entry.source ?? "")) {
 		throw new Error(`${entry.identity} must cite first-party provider documentation`);
@@ -400,7 +415,7 @@ function validateToolCompatibility(model: Model<Api>, entry: LoopCatalogEntryDra
 	else if (binding) validateNativeSurfaceModel(model, entry.identity, binding.kind === "google-native" ? "browser" : "computer");
 }
 
-function validateAnthropicNativeModel(model: Model<Api>, identity: string): void {
+function validateAnthropicNativeModel(model: LoopCatalogModel, identity: string): void {
 	const computer = identity.includes(".computer.");
 	const supported = computer
 		? supportsAnthropicNativeComputer(model.id)
@@ -415,13 +430,13 @@ function validateAnthropicNativeModel(model: Model<Api>, identity: string): void
 // surface is not enabled for. COMPUTER_USE_NATIVE_SURFACES is what the menu
 // reads, so gate compilation on it too rather than letting the request fail on
 // the wire.
-function validateNativeSurfaceModel(model: Model<Api>, identity: string, surface: ComputerUseNativeSurface): void {
+function validateNativeSurfaceModel(model: LoopCatalogModel, identity: string, surface: ComputerUseNativeSurface): void {
 	if (computerUseNativeSurfaces(model).includes(surface)) return;
 	throw new Error(`${identity} does not support model "${model.id}": ${model.provider} does not offer a native ${surface} surface for it`);
 }
 
 /** Validate the selected native tools agree on a provider and a transport, and return the transport they require, if any. */
-function validateToolsetCompatibility(model: Model<Api>, entries: readonly LoopCatalogEntryDraft[]): Api | undefined {
+function validateToolsetCompatibility(model: LoopCatalogModel, entries: readonly LoopCatalogEntryDraft[]): string | undefined {
 	const nativeProviderKinds = new Set(
 		entries.flatMap((entry) => entry.providerBinding ? [entry.providerBinding.kind.split("-")[0]] : []),
 	);
@@ -456,7 +471,7 @@ function validateToolsetCompatibility(model: Model<Api>, entries: readonly LoopC
 }
 
 /** The transport a provider binding requires, if it declares one. Anthropic never forks transports and declares none. */
-function bindingRequiresApi(binding: LoopProviderBinding | undefined): readonly [Api] | readonly [] {
+function bindingRequiresApi(binding: LoopProviderBinding | undefined): readonly [string] | readonly [] {
 	return binding && binding.kind !== "anthropic-native" && binding.requiresApi ? [binding.requiresApi] : [];
 }
 
@@ -469,14 +484,14 @@ function bindingRequiresApi(binding: LoopProviderBinding | undefined): readonly 
  * with respect to the currently requested tools rather than pinning whatever
  * transport an earlier selection required.
  */
-const CATALOG_DERIVED_API_DEFAULTS: Readonly<Record<string, Api>> = {
+const CATALOG_DERIVED_API_DEFAULTS: Readonly<Record<string, string>> = {
 	[OPENAI_COMPUTER_USE_API]: "openai-responses",
 	[GOOGLE_INTERACTIONS_API]: "google-generative-ai",
 };
 
-function resetCatalogDerivedApi(model: Model<Api>): Model<Api> {
+function resetCatalogDerivedApi<M extends LoopCatalogModel>(model: M): M {
 	const defaultApi = CATALOG_DERIVED_API_DEFAULTS[model.api];
-	return defaultApi ? { ...model, api: defaultApi } : model;
+	return defaultApi ? ({ ...model, api: defaultApi } as M) : model;
 }
 
 function compileHeaderRequirements(entries: readonly LoopCatalogEntryDraft[]): LoopHeaderRequirement[] {
@@ -522,7 +537,7 @@ function commaTokens(value: string | undefined): string[] {
 	return value?.split(",").map((token) => token.trim()).filter(Boolean) ?? [];
 }
 
-function compilePayloadTransforms(model: Model<Api>, entries: readonly LoopCatalogEntryDraft[]): LoopPayloadTransform[] {
+function compilePayloadTransforms(model: LoopCatalogModel, entries: readonly LoopCatalogEntryDraft[]): LoopPayloadTransform[] {
 	const transforms: LoopPayloadTransform[] = [];
 	if (model.provider === "anthropic") {
 		transforms.push({
@@ -669,7 +684,7 @@ function validateTransformClaims(transforms: readonly LoopPayloadTransform[]): v
 }
 
 function createPayloadPlan(
-	model: Model<Api>,
+	model: LoopCatalogModel,
 	transforms: readonly LoopPayloadTransform[],
 	names: ReadonlyMap<string, string>,
 ): LoopPayloadPlan {

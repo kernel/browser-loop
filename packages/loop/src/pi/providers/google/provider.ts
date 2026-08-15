@@ -12,14 +12,14 @@ import {
 	type ThinkingLevel,
 	type ToolCall,
 } from "@earendil-works/pi-ai";
-import type { LoopIncomingToolPlan } from "../../../core/tool-catalog";
+import { GOOGLE_INTERACTIONS_API, type LoopIncomingToolPlan } from "../../../core/tool-catalog";
 import {
 	responseThreadingDelta,
 	responseThreadingEnabled,
 	type ResponseThreadingOptions,
 } from "../common";
 
-export const GOOGLE_INTERACTIONS_API = "google-interactions";
+export { GOOGLE_INTERACTIONS_API };
 
 const GOOGLE_NATIVE_ALIASES: Readonly<Record<string, string>> = Object.freeze({
 	"screenshot:take_screenshot": "take_screenshot",

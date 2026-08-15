@@ -1,11 +1,23 @@
 export * from "./core/actions/index";
 export * from "./core/menu";
+export * from "./core/model-info";
 export * from "./core/tool-catalog";
 export * from "./core/tools";
 export { normalizeGotoUrl } from "./core/url";
 
-export type { LoopAgentTool, LoopHarnessTool } from "./core/tool-manager";
+// pi-flavored entry points: these shadow the star exports above, keeping
+// provider-qualified model refs ("openai:gpt-5.5") working on this surface
+// while src/core stays free of pi model resolution.
+export { compileLoopToolCatalog, loopToolMenu } from "./pi/catalog";
+
+export type { LoopAgentTool, LoopHarnessTool } from "./pi/tool-manager";
 export { LoopExecutionResources } from "./core/resources";
+export type {
+	LoopExecutableTool,
+	LoopExecutionDetails,
+	LoopToolExecutionResult,
+	LoopToolResultContent,
+} from "./core/resources";
 export { formatBrowserActResult } from "./core/browser-result-format";
 export type { KernelBrowser } from "./core/translator/translator";
 export { InternalComputerTranslator } from "./core/translator/translator";

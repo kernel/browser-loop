@@ -1,6 +1,5 @@
-import type { Api, Model } from "@earendil-works/pi-ai";
+import type { LoopCatalogModel } from "./model-info";
 import { loop } from "./tools";
-import { getLoopModel, type LoopModelRef } from "../pi/models";
 import { compileLoopToolCatalog, type LoopToolSpec } from "./tool-catalog";
 
 /** Where a menu entry comes from, for grouping in a picker. */
@@ -40,17 +39,16 @@ export interface LoopToolMenuEntry {
  * per-tool verdict.
  */
 export function loopToolMenu(
-	model: LoopModelRef | Model<Api>,
+	model: LoopCatalogModel,
 	selected: readonly LoopToolSpec[] = [],
 ): LoopToolMenuEntry[] {
-	const resolved = typeof model === "string" ? getLoopModel(model) : model;
 	const selectedIdentities = new Set(selected.map((tool) => tool.identity));
 	return offerableEntries().map((entry) => {
 		const isSelected = entry.tools.every((tool) => selectedIdentities.has(tool.identity));
 		const candidate = isSelected
 			? [...selected]
 			: [...selected.filter((tool) => !entry.tools.some((offered) => offered.identity === tool.identity)), ...entry.tools];
-		const failure = compileFailure(resolved, candidate);
+		const failure = compileFailure(model, candidate);
 		return {
 			key: entry.key,
 			label: entry.label,
@@ -64,7 +62,7 @@ export function loopToolMenu(
 	});
 }
 
-function compileFailure(model: Model<Api>, requestedTools: readonly LoopToolSpec[]): string | undefined {
+function compileFailure(model: LoopCatalogModel, requestedTools: readonly LoopToolSpec[]): string | undefined {
 	try {
 		compileLoopToolCatalog({ model, requestedTools });
 		return undefined;

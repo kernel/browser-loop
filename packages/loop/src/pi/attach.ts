@@ -15,7 +15,7 @@ import type {
 import type Kernel from "@onkernel/sdk";
 import { LoopExecutionResources, type LoopExecutionDetails } from "../core/resources";
 import type { LoopIncomingToolPlan } from "../core/tool-catalog";
-import { LoopToolManager, type LoopHarnessTool } from "../core/tool-manager";
+import { LoopToolManager, type LoopHarnessTool } from "./tool-manager";
 import type { KernelBrowser } from "../core/translator/translator";
 import { getLoopModel, parseLoopModelRef, type LoopModelRef } from "./models";
 import { resolveProviderRetryPolicy, type LoopRetryOptions, withProviderRetryModels } from "./provider-retry";
