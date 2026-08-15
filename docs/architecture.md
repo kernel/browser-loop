@@ -21,13 +21,18 @@ both explicitly and may use pi's orchestration primitives directly.
   nothing from pi — declarations are `LoopToolDeclaration`, executables are
   `LoopExecutableTool` with an `(input, signal)` contract, models are the
   neutral `LoopCatalogModel` view, and schemas come from `typebox` directly.
-  `test/core-boundary.test.ts` fails the unit suite on any `src/core` import of
-  a pi package or of `src/pi`.
+  Per-model availability (capability quirks, native-surface tables) and
+  provider request preparation stay on the pi side: the binding hands the
+  compiler `LoopModelFacts` and `model-preparation` transforms as inputs, and
+  core only orders and validates what it is given.
+  `test/core-boundary.test.ts` fails the unit suite on any `src/core` import
+  that is not core-relative or an allowlisted neutral dependency — including
+  pi packages and this package's own `@onkernel/loop/pi` subpath.
 - `./pi` (`src/pi/`) is the pi binding: `attach()`/`compile()`, the tool
   manager that joins compiled catalogs to executable pi `AgentTool`s, model
-  resolution (`compileLoopToolCatalog`/`loopToolMenu` accept provider-qualified
-  refs here), transport derivation, the provider adapters, provider retry, and
-  header composition.
+  resolution and availability facts (`compileLoopToolCatalog`/`loopToolMenu`
+  accept provider-qualified refs here and supply `LoopModelFacts`), transport
+  derivation, the provider adapters, provider retry, and header composition.
 - `src/pi-extension/` contributes these tools to a pi session that pi itself
   owns. It is the one consumer that uses neither `attach()` nor the harness: pi
   owns the model collection and the agent loop, so the extension takes the two

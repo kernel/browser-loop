@@ -7,7 +7,6 @@ import {
 	type ComputerActionType,
 } from "./actions/index";
 import { mapNativeBrowserInput, mapNativeComputerInput } from "./anthropic-native";
-import { supportsAnthropicNativeBrowser } from "./model-info";
 import {
 	GOOGLE_INTERACTIONS_API,
 	LOOP_TOOL_SPEC_KIND,
@@ -291,6 +290,26 @@ function playwright(options: LoopToolNameOptions = {}): LoopToolSpec {
 		execution: { kind: "playwright" },
 		stateMutating: true,
 	});
+}
+
+const ANTHROPIC_NATIVE_BROWSER_FAMILIES = ["claude-opus-4-8", "claude-opus-5", "claude-sonnet-5"] as const;
+const ANTHROPIC_NATIVE_COMPUTER_FAMILIES = ["claude-fable-5", ...ANTHROPIC_NATIVE_BROWSER_FAMILIES] as const;
+
+/** Return whether an Anthropic model ID supports the July 2026 native browser tool. */
+export function supportsAnthropicNativeBrowser(modelId: string): boolean {
+	return ANTHROPIC_NATIVE_BROWSER_FAMILIES.some((family) => anthropicModelFamily(modelId, family));
+}
+
+/** Return whether an Anthropic model ID supports the July 2026 native computer tool. */
+export function supportsAnthropicNativeComputer(modelId: string): boolean {
+	return ANTHROPIC_NATIVE_COMPUTER_FAMILIES.some((family) => anthropicModelFamily(modelId, family));
+}
+
+function anthropicModelFamily(modelId: string, family: string): boolean {
+	const id = modelId.toLowerCase();
+	if (id === family) return true;
+	if (!id.startsWith(`${family}-`)) return false;
+	return id.slice(family.length + 1).split("-").every((segment) => /^\d+$/.test(segment));
 }
 
 function anthropicNativeComputer(options: { version: "20260701"; enableZoom?: boolean; displayNumber?: number } = { version: "20260701" }): LoopToolSpec {

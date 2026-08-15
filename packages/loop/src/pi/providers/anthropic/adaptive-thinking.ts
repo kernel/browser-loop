@@ -1,4 +1,4 @@
-import type { LoopModelIdentity } from "./model-info";
+import type { LoopModelIdentity } from "../../../core/model-info";
 
 /** Convert manual thinking budgets to Anthropic adaptive-thinking effort. */
 export function anthropicAdaptiveThinkingOnPayload(payload: unknown, model: LoopModelIdentity): unknown {

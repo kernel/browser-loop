@@ -5,8 +5,23 @@ import { describe, expect, it } from "vitest";
 const SRC_DIR = resolve(__dirname, "../src");
 const CORE_DIR = join(SRC_DIR, "core");
 
-/** import/export ... from "x", side-effect import "x", dynamic import("x"), require("x"). */
-const IMPORT_SPECIFIERS = /(?:from\s*|import\s*\(\s*|require\s*\(\s*|^\s*import\s+)["']([^"']+)["']/gm;
+/**
+ * Bare specifiers core may import. Everything else — pi packages, this
+ * package's own entry points (`@onkernel/loop`, `@onkernel/loop/pi`), any
+ * future alias — is rejected by default rather than by enumeration.
+ */
+const ALLOWED_BARE_IMPORTS = [/^node:/, /^typebox(\/|$)/, /^@onkernel\/sdk(\/|$)/, /^sharp(\/|$)/];
+
+/**
+ * Statement-anchored so template-literal contents cannot false-positive:
+ * import/export-from declarations (single- or multi-line), side-effect
+ * imports, dynamic import(), and require().
+ */
+const IMPORT_SPECIFIERS = [
+	/^(?:import|export)\b[^;"'`]*?from\s*["']([^"']+)["']/gm,
+	/^import\s*["']([^"']+)["']/gm,
+	/(?<![\w$.])(?:import|require)\s*\(\s*["']([^"']+)["']\s*\)/g,
+];
 
 function coreFiles(dir: string): string[] {
 	return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -18,13 +33,24 @@ function coreFiles(dir: string): string[] {
 
 function importsOf(file: string): string[] {
 	const source = readFileSync(file, "utf8");
-	return [...source.matchAll(IMPORT_SPECIFIERS)].map((match) => match[1]!);
+	return IMPORT_SPECIFIERS.flatMap((pattern) => [...source.matchAll(pattern)].map((match) => match[1]!));
+}
+
+function isAllowedCoreImport(specifier: string, file: string): boolean {
+	if (specifier.startsWith(".")) return isInsideCore(resolve(dirname(file), specifier));
+	return ALLOWED_BARE_IMPORTS.some((allowed) => allowed.test(specifier));
+}
+
+function isInsideCore(path: string): boolean {
+	const rel = relative(CORE_DIR, path);
+	return rel !== ".." && !rel.startsWith(`..${sep}`);
 }
 
 /**
  * The neutral boundary: src/core must be expressible without pi in the room.
- * Nothing under it may import a pi package — even type-only — or reach into
- * the pi binding (src/pi) or the pi extension.
+ * Nothing under it may import a pi package — even type-only — or reach the pi
+ * binding through any specifier: relative (`../pi`), the package's own public
+ * subpaths (`@onkernel/loop/pi`), or an unlisted bare import.
  */
 describe("core boundary", () => {
 	const files = coreFiles(CORE_DIR);
@@ -37,15 +63,29 @@ describe("core boundary", () => {
 		const violations: string[] = [];
 		for (const file of files) {
 			for (const specifier of importsOf(file)) {
-				const violation = specifier.startsWith("@earendil-works/")
-					|| (specifier.startsWith(".") && !isInsideCore(resolve(dirname(file), specifier)));
-				if (violation) violations.push(`${relative(SRC_DIR, file)} imports "${specifier}"`);
+				if (!isAllowedCoreImport(specifier, file)) {
+					violations.push(`${relative(SRC_DIR, file)} imports "${specifier}"`);
+				}
 			}
 		}
 		expect(violations).toEqual([]);
 	});
-});
 
-function isInsideCore(path: string): boolean {
-	return !relative(CORE_DIR, path).startsWith(`..${sep}`);
-}
+	it("rejects pi packages, self-package aliases, and escapes from src/core", () => {
+		const file = join(CORE_DIR, "tools.ts");
+		for (const forbidden of [
+			"@earendil-works/pi-ai",
+			"@earendil-works/pi-agent-core",
+			"@onkernel/loop",
+			"@onkernel/loop/pi",
+			"../pi/models",
+			"../pi-extension/selection",
+			"..",
+		]) {
+			expect(isAllowedCoreImport(forbidden, file), forbidden).toBe(false);
+		}
+		for (const allowed of ["typebox", "node:fs", "@onkernel/sdk", "@onkernel/sdk/resources/browsers", "./tool-catalog", "./actions/index"]) {
+			expect(isAllowedCoreImport(allowed, file), allowed).toBe(true);
+		}
+	});
+});

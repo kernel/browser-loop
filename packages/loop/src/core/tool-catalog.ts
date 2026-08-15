@@ -1,13 +1,11 @@
 import type { TSchema } from "typebox";
 import type { ComputerUseAction } from "./actions/index";
-import { anthropicAdaptiveThinkingOnPayload } from "./anthropic-adaptive-thinking";
 import {
-	computerUseNativeSurfaces,
-	loopModelCapabilities,
-	supportsAnthropicNativeBrowser,
-	supportsAnthropicNativeComputer,
+	loopModelFactsCapabilities,
+	loopModelFactsNativeSurfaces,
 	type ComputerUseNativeSurface,
 	type LoopCatalogModel,
+	type LoopModelFacts,
 } from "./model-info";
 
 export const LOOP_TOOL_SPEC_KIND = "@onkernel/loop-tool-spec/v1" as const;
@@ -174,8 +172,16 @@ export interface LoopToolCatalogEntry extends LoopToolInfo {
 	readonly fingerprint: string;
 }
 
+/**
+ * The model a compiled catalog carries: the input model with `api` widened to
+ * `string`, because compilation may replace it with a selected tool's derived
+ * transport. Keeping the widening in the type is what lets the input stay
+ * narrowly typed without the output lying about it.
+ */
+export type LoopCompiledModel<M extends LoopCatalogModel> = Omit<M, "api"> & { readonly api: string };
+
 export interface LoopToolCatalog<M extends LoopCatalogModel = LoopCatalogModel> {
-	readonly model: M;
+	readonly model: LoopCompiledModel<M>;
 	readonly entries: readonly LoopToolCatalogEntry[];
 	/**
 	 * Provider-facing tool declarations in entry order, suitable for
@@ -191,6 +197,19 @@ export interface LoopToolCatalog<M extends LoopCatalogModel = LoopCatalogModel> 
 export interface CompileLoopToolCatalogOptions<M extends LoopCatalogModel = LoopCatalogModel> {
 	model: M;
 	requestedTools: readonly LoopCatalogToolInput[];
+	/**
+	 * Binding-supplied availability facts for the model: request-shape
+	 * capabilities and native tool surfaces. Absent facts mean permissive
+	 * capabilities and no native surfaces.
+	 */
+	facts?: LoopModelFacts;
+	/**
+	 * Binding-supplied `model-preparation` payload transforms, e.g. pi's
+	 * Anthropic thinking-budget conversion. Compiled into the payload plan ahead
+	 * of tool-declaration and provider-field transforms and validated against
+	 * the same write claims.
+	 */
+	preparation?: readonly LoopPayloadTransform[];
 }
 
 /**
@@ -222,14 +241,13 @@ const SAFE_TOOL_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 export function compileLoopToolCatalog<M extends LoopCatalogModel>(options: CompileLoopToolCatalogOptions<M>): LoopToolCatalog<M> {
 	const baseModel = resetCatalogDerivedApi(options.model);
 	const normalizedEntries = [...options.requestedTools].map(normalizeTool);
-	const requiresApi = validateCatalog(baseModel, normalizedEntries);
-	// Only `api` moves, and every M carries `api: string`, so the swap stays an M.
-	const model = requiresApi ? ({ ...baseModel, api: requiresApi } as M) : baseModel;
+	const requiresApi = validateCatalog(baseModel, options.facts, normalizedEntries);
+	const model = requiresApi ? withApi(baseModel, requiresApi) : baseModel;
 	const drafts = resolveProviderFacingDeclarations(normalizedEntries);
 
 	const names = new Map(drafts.map((entry) => [entry.identity, entry.name]));
 	const requirements = compileHeaderRequirements(drafts);
-	const transforms = compilePayloadTransforms(model, drafts);
+	const transforms = compilePayloadTransforms(model, options.facts, drafts, validatePreparation(options.preparation));
 	validateTransformClaims(transforms);
 	const incoming = compileIncomingPlan(drafts);
 	const fingerprint = stableStringify({
@@ -352,7 +370,7 @@ function resolveProviderFacingDeclarations(entries: readonly LoopCatalogEntryDra
 }
 
 /** Validate the requested catalog against the model and return the transport its selected tools require, if any. */
-function validateCatalog(model: LoopCatalogModel, entries: readonly LoopCatalogEntryDraft[]): string | undefined {
+function validateCatalog(model: LoopCatalogModel, facts: LoopModelFacts | undefined, entries: readonly LoopCatalogEntryDraft[]): string | undefined {
 	const identities = new Map<string, LoopCatalogEntryDraft>();
 	const exactNames = new Map<string, LoopCatalogEntryDraft>();
 	const normalizedNames = new Map<string, LoopCatalogEntryDraft>();
@@ -376,7 +394,7 @@ function validateCatalog(model: LoopCatalogModel, entries: readonly LoopCatalogE
 		const normalized = normalizedNames.get(key);
 		if (normalized) throw nameCollision(entry.name, normalized, entry, model.provider);
 		normalizedNames.set(key, entry);
-		validateToolCompatibility(model, entry);
+		validateToolCompatibility(model, facts, entry);
 	}
 
 	return validateToolsetCompatibility(model, entries);
@@ -392,7 +410,7 @@ function nameCollision(
 	return new Error(`tool name "${name}" is requested by both "${first.identity}" and "${second.identity}"${suffix}`);
 }
 
-function validateToolCompatibility(model: LoopCatalogModel, entry: LoopCatalogEntryDraft): void {
+function validateToolCompatibility(model: LoopCatalogModel, facts: LoopModelFacts | undefined, entry: LoopCatalogEntryDraft): void {
 	const binding = entry.providerBinding;
 	if (entry.origin === "provider-native" && !/^https:\/\//.test(entry.source ?? "")) {
 		throw new Error(`${entry.identity} must cite first-party provider documentation`);
@@ -404,34 +422,31 @@ function validateToolCompatibility(model: LoopCatalogModel, entry: LoopCatalogEn
 			throw new Error(`${entry.identity} requires a ${required} model; selected ${model.provider}:${model.id}`);
 		}
 	}
-	const capabilities = loopModelCapabilities(model);
+	const capabilities = loopModelFactsCapabilities(facts);
 	if (entry.complexSchema && !capabilities.acceptsComplexSchemas) {
 		throw new Error(`provider ${model.provider} does not accept the schema used by "${entry.name}" (${entry.identity})`);
 	}
 	if (entry.largeSchema && !capabilities.acceptsLargeSchemas) {
 		throw new Error(`provider ${model.provider} does not accept the schema size of "${entry.name}" (${entry.identity})`);
 	}
-	if (binding?.kind === "anthropic-native") validateAnthropicNativeModel(model, entry.identity);
-	else if (binding) validateNativeSurfaceModel(model, entry.identity, binding.kind === "google-native" ? "browser" : "computer");
+	if (binding?.kind === "anthropic-native") validateAnthropicNativeModel(model, facts, entry.identity);
+	else if (binding) validateNativeSurfaceModel(model, facts, entry.identity, binding.kind === "google-native" ? "browser" : "computer");
 }
 
-function validateAnthropicNativeModel(model: LoopCatalogModel, identity: string): void {
-	const computer = identity.includes(".computer.");
-	const supported = computer
-		? supportsAnthropicNativeComputer(model.id)
-		: supportsAnthropicNativeBrowser(model.id);
-	if (!supported) {
+function validateAnthropicNativeModel(model: LoopCatalogModel, facts: LoopModelFacts | undefined, identity: string): void {
+	const surface: ComputerUseNativeSurface = identity.includes(".computer.") ? "computer" : "browser";
+	if (!loopModelFactsNativeSurfaces(facts).includes(surface)) {
 		throw new Error(`${identity} does not support model "${model.id}"`);
 	}
 }
 
 // A provider enables its native surface per model, not per provider: OpenAI's
 // computer tool and Google's `computer_use` both answer 400 on a model the
-// surface is not enabled for. COMPUTER_USE_NATIVE_SURFACES is what the menu
-// reads, so gate compilation on it too rather than letting the request fail on
-// the wire.
-function validateNativeSurfaceModel(model: LoopCatalogModel, identity: string, surface: ComputerUseNativeSurface): void {
-	if (computerUseNativeSurfaces(model).includes(surface)) return;
+// surface is not enabled for. The binding-supplied surface facts are what the
+// menu reads, so gate compilation on them too rather than letting the request
+// fail on the wire.
+function validateNativeSurfaceModel(model: LoopCatalogModel, facts: LoopModelFacts | undefined, identity: string, surface: ComputerUseNativeSurface): void {
+	if (loopModelFactsNativeSurfaces(facts).includes(surface)) return;
 	throw new Error(`${identity} does not support model "${model.id}": ${model.provider} does not offer a native ${surface} surface for it`);
 }
 
@@ -489,9 +504,13 @@ const CATALOG_DERIVED_API_DEFAULTS: Readonly<Record<string, string>> = {
 	[GOOGLE_INTERACTIONS_API]: "google-generative-ai",
 };
 
-function resetCatalogDerivedApi<M extends LoopCatalogModel>(model: M): M {
+function resetCatalogDerivedApi<M extends LoopCatalogModel>(model: M): LoopCompiledModel<M> {
 	const defaultApi = CATALOG_DERIVED_API_DEFAULTS[model.api];
-	return defaultApi ? ({ ...model, api: defaultApi } as M) : model;
+	return defaultApi ? withApi(model, defaultApi) : model;
+}
+
+function withApi<M extends LoopCatalogModel>(model: M | LoopCompiledModel<M>, api: string): LoopCompiledModel<M> {
+	return { ...model, api };
 }
 
 function compileHeaderRequirements(entries: readonly LoopCatalogEntryDraft[]): LoopHeaderRequirement[] {
@@ -537,18 +556,22 @@ function commaTokens(value: string | undefined): string[] {
 	return value?.split(",").map((token) => token.trim()).filter(Boolean) ?? [];
 }
 
-function compilePayloadTransforms(model: LoopCatalogModel, entries: readonly LoopCatalogEntryDraft[]): LoopPayloadTransform[] {
-	const transforms: LoopPayloadTransform[] = [];
-	if (model.provider === "anthropic") {
-		transforms.push({
-			identity: "provider.anthropic.model-preparation",
-			phase: "model-preparation",
-			writes: ["thinking", "output_config.effort"],
-			apply(payload, selectedModel) {
-				return anthropicAdaptiveThinkingOnPayload(payload, selectedModel) ?? payload;
-			},
-		});
+function validatePreparation(preparation: readonly LoopPayloadTransform[] | undefined): readonly LoopPayloadTransform[] {
+	for (const transform of preparation ?? []) {
+		if (transform.phase !== "model-preparation") {
+			throw new Error(`preparation transform "${transform.identity}" must declare the "model-preparation" phase, not "${transform.phase}"`);
+		}
 	}
+	return preparation ?? [];
+}
+
+function compilePayloadTransforms(
+	model: LoopCatalogModel,
+	facts: LoopModelFacts | undefined,
+	entries: readonly LoopCatalogEntryDraft[],
+	preparation: readonly LoopPayloadTransform[],
+): LoopPayloadTransform[] {
+	const transforms: LoopPayloadTransform[] = [...preparation];
 
 	for (const entry of entries) {
 		const binding = entry.providerBinding;
@@ -573,7 +596,7 @@ function compilePayloadTransforms(model: LoopCatalogModel, entries: readonly Loo
 		transforms.push(createGeminiSchemaTransform());
 	}
 
-	if (loopModelCapabilities(model).serializesStateMutations && entries.some((entry) => entry.stateMutating)) {
+	if (loopModelFactsCapabilities(facts).serializesStateMutations && entries.some((entry) => entry.stateMutating)) {
 		transforms.push({
 			identity: `provider.${model.provider}.serial-tool-calls`,
 			writes: ["parallel_tool_calls"],

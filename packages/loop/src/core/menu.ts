@@ -1,4 +1,4 @@
-import type { LoopCatalogModel } from "./model-info";
+import type { LoopCatalogModel, LoopModelFacts } from "./model-info";
 import { loop } from "./tools";
 import { compileLoopToolCatalog, type LoopToolSpec } from "./tool-catalog";
 
@@ -41,6 +41,7 @@ export interface LoopToolMenuEntry {
 export function loopToolMenu(
 	model: LoopCatalogModel,
 	selected: readonly LoopToolSpec[] = [],
+	facts?: LoopModelFacts,
 ): LoopToolMenuEntry[] {
 	const selectedIdentities = new Set(selected.map((tool) => tool.identity));
 	return offerableEntries().map((entry) => {
@@ -48,7 +49,7 @@ export function loopToolMenu(
 		const candidate = isSelected
 			? [...selected]
 			: [...selected.filter((tool) => !entry.tools.some((offered) => offered.identity === tool.identity)), ...entry.tools];
-		const failure = compileFailure(model, candidate);
+		const failure = compileFailure(model, facts, candidate);
 		return {
 			key: entry.key,
 			label: entry.label,
@@ -62,9 +63,9 @@ export function loopToolMenu(
 	});
 }
 
-function compileFailure(model: LoopCatalogModel, requestedTools: readonly LoopToolSpec[]): string | undefined {
+function compileFailure(model: LoopCatalogModel, facts: LoopModelFacts | undefined, requestedTools: readonly LoopToolSpec[]): string | undefined {
 	try {
-		compileLoopToolCatalog({ model, requestedTools });
+		compileLoopToolCatalog({ model, requestedTools, facts });
 		return undefined;
 	} catch (error) {
 		return error instanceof Error ? error.message : String(error);

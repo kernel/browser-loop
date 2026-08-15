@@ -161,11 +161,13 @@ export default function loopPiExtension(pi: ExtensionAPI): void {
 				...base,
 				stream: (model, context, options) => {
 					const catalog = streamCatalog(model);
-					return base.stream(catalog?.model ?? model, context, withPlan(options, catalog));
+					const compiled: Model<Api> = catalog?.model ?? model;
+					return base.stream(compiled, context, withPlan(options, catalog));
 				},
 				streamSimple: (model, context, options) => {
 					const catalog = streamCatalog(model);
-					return base.streamSimple(catalog?.model ?? model, context, withPlan(options, catalog));
+					const compiled: Model<Api> = catalog?.model ?? model;
+					return base.streamSimple(compiled, context, withPlan(options, catalog));
 				},
 			});
 		}

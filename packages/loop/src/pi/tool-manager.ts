@@ -1,6 +1,7 @@
 import type { AgentHarnessTool, AgentTool } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { getLoopModel, type LoopModelRef } from "./models";
+import { loopModelPreparationTransforms } from "./catalog";
+import { getLoopModel, loopModelFacts, type LoopModelRef } from "./models";
 import {
 	callerToolIdentity,
 	compileLoopToolCatalog,
@@ -60,9 +61,12 @@ export class LoopToolManager<TRequested extends LoopHarnessTool<any> = LoopAgent
 				executables.set(callerToolIdentity(tool.name), tool);
 			}
 		}
+		const resolved = typeof model === "string" ? resolveModel(model) : model;
 		this.catalog = compileLoopToolCatalog({
-			model: typeof model === "string" ? resolveModel(model) : model,
+			model: resolved,
 			requestedTools: inputs,
+			facts: loopModelFacts(resolved),
+			preparation: loopModelPreparationTransforms(resolved),
 		});
 
 		// Joined strictly by compiled identity, never by position.
