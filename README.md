@@ -1,9 +1,13 @@
 # loop
 
-Browser tools for your agent, built on [pi](https://github.com/earendil-works/pi).
+Browser tools for your agent. The agent can be a [pi](https://github.com/earendil-works/pi)
+`Agent` or `AgentHarness` — or your coding harness through a plugin — with Eve and
+AI SDK bindings anticipated next. Kernel Loop supplies the tools, the
+[Kernel cloud browser](https://kernel.sh/) they run against, and the per-model
+compatibility knowledge.
 
-Point any model at a [Kernel cloud browser](https://kernel.sh/): pick the tools,
-get plain agent objects back, and run whatever loop you already have.
+Point any model at a Kernel browser: pick the tools, get plain agent objects
+back, and run whatever loop you already have.
 
 ```ts
 import { loop } from "@onkernel/loop";
@@ -16,8 +20,10 @@ const { model, agentTools, models } = kb.compile({
 });
 ```
 
-Already in pi? Install the extension instead and keep pi's session, UI, and
-model selection:
+The extension is the other half of the workflow: a harness is where you find
+out which tools and which model actually work for a use case, and the SDK is
+what you deploy into your production agent. Same catalog, same tool identities,
+same model knowledge on both sides, so the hand-off is lossless:
 
 ```bash
 pi install npm:@onkernel/loop
@@ -44,7 +50,9 @@ This repo does all of that and stops there. `@onkernel/loop` represents the
 provider differences as an explicit, identity-keyed tool catalog; you choose the
 exact tools, and provider transforms compose only the declarations and request
 fields those identities require. It does not supply an agent class, a session
-format, or a front-end — your framework already has those.
+format, or a front-end — your framework already has those. Tool identities
+(`kloop.*.v1`) and model-facing names are byte-identical across bindings, so
+transcripts and evals stay comparable wherever the same catalog runs.
 
 ---
 
@@ -52,14 +60,14 @@ format, or a front-end — your framework already has those.
 
 ```
 packages/
-├── loop/       # @onkernel/loop      - tools, catalog compilation, pi bindings, pi extension
+├── loop/       # @onkernel/loop      - framework-neutral core, pi binding, pi extension
 └── ptywright/  # @onkernel/ptywright - development-only PTY/TUI test infrastructure
 ```
 
 | Entry point | What it ships |
 | --- | --- |
-| `@onkernel/loop` | Canonical actions, tool factories/toolsets, catalog compilation, the tool menu, and Kernel-browser execution. |
-| `@onkernel/loop/pi` | `attach()`: binds a Kernel browser and compiles a (model, tools) pair into plain pi objects, plus model resolution and provider adapters. |
+| `@onkernel/loop` | The framework-neutral core: canonical actions, tool factories/toolsets, catalog compilation, the tool menu, and Kernel-browser execution. Imports nothing from pi — a unit test enforces the boundary. |
+| `@onkernel/loop/pi` | The pi binding — the first of the framework bindings (`./eve` and `./ai-sdk` are the anticipated next). `attach()` binds a Kernel browser and compiles a (model, tools) pair into plain pi objects, plus model resolution and provider adapters. |
 | `pi.extensions` | A pi extension contributing those tools to pi's own agent session. |
 | [`@onkernel/ptywright`](packages/ptywright) | Development-only PTY/TUI test infrastructure. |
 
@@ -143,12 +151,12 @@ per-tool verdict.
 
 ## How it works
 
-1. **Model layer** — `@onkernel/loop/pi` opens pi-ai's whole model catalog and
-   composes provider declarations, headers, and payload transforms around it.
-   Catalog compilation is declaration-only: it never sees an executor.
-2. **Execution layer** — `@onkernel/loop` materializes the caller's exact
+1. **Execution layer** — `@onkernel/loop` materializes the caller's exact
    catalog over one shared resource pool and executes canonical actions through
    Kernel's computer API or a raw-CDP browser executor.
+2. **Model layer** — `@onkernel/loop/pi` opens pi-ai's whole model catalog and
+   composes provider declarations, headers, and payload transforms around that
+   core. Catalog compilation is declaration-only: it never sees an executor.
 3. **Transport** — the compiled catalog derives `model.api` from the selected
    tools, so a provider-native surface reaches the wire with the transport,
    headers, and payload shape it requires.

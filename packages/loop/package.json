@@ -1,7 +1,7 @@
 {
   "name": "@onkernel/loop",
   "version": "0.11.0",
-  "description": "Kernel browser computer-use tools, catalog compilation, and pi bindings",
+  "description": "Browser tools for your agent: framework-neutral tool catalog, per-model compilation, Kernel-browser execution, and a pi binding + extension",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
