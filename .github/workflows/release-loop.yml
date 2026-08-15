@@ -74,15 +74,19 @@ jobs:
           npm install "$RUNNER_TEMP"/onkernel-loop-*.tgz
           cat > smoke.mjs <<'NODE'
           import { compileLoopToolCatalog, formatBrowserActResult, loop } from "@onkernel/loop";
-          import { attach, getLoopModel, NodeExecutionEnv } from "@onkernel/loop/pi";
+          import * as loopPi from "@onkernel/loop/pi";
 
-          for (const [name, value] of Object.entries({ compileLoopToolCatalog, formatBrowserActResult, attach, getLoopModel, NodeExecutionEnv })) {
+          const { attach, createLoopModels, getLoopModel } = loopPi;
+          for (const [name, value] of Object.entries({ compileLoopToolCatalog, formatBrowserActResult, attach, createLoopModels, getLoopModel })) {
             if (typeof value !== "function") {
               throw new Error(`expected ${name} to be a function, got ${typeof value}`);
             }
           }
           if (typeof loop !== "object" || loop === null) {
             throw new Error(`expected loop to be an object, got ${typeof loop}`);
+          }
+          if ("Agent" in loopPi || "NodeExecutionEnv" in loopPi) {
+            throw new Error("expected @onkernel/loop/pi not to re-export pi-agent-core");
           }
           console.log("ESM import smoke OK");
           NODE
