@@ -101,7 +101,7 @@ export function expandSelection(selection: LoopSelection): LoopToolSpec[] {
  * what lets the extension validate a selection and generate headers before any
  * browser exists.
  */
-export function compileSpecs(model: Model<Api>, specs: readonly LoopToolSpec[]): LoopToolCatalog {
+export function compileSpecs(model: Model<Api>, specs: readonly LoopToolSpec[]): LoopToolCatalog<Model<Api>> {
 	return compileLoopToolCatalog({ model, requestedTools: specs });
 }
 

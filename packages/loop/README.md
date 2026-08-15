@@ -8,7 +8,7 @@ Two entry points:
 
 | import | what it is |
 | --- | --- |
-| `@onkernel/loop` | The framework-neutral core: canonical actions, the tool namespace, catalog compilation, the tool menu, and Kernel-browser execution. |
+| `@onkernel/loop` | The framework-neutral core: canonical actions, the tool namespace, catalog compilation, the tool menu, and Kernel-browser execution. Core declarations (`LoopToolDeclaration`) and executables (`LoopExecutableTool`) import nothing from pi — schemas come from `typebox` directly — and a unit test enforces the boundary. |
 | `@onkernel/loop/pi` | The pi binding: `attach()`, model resolution, transport derivation, provider adapters, and provider retry. |
 
 Installing the package into pi (`pi install npm:@onkernel/loop`) registers the
@@ -373,11 +373,11 @@ themselves:
 ```ts
 const catalog = compileLoopToolCatalog({
   model: "anthropic:claude-opus-5",
-  requestedTools: tools, // Loop specs and plain pi-ai Tool declarations
+  requestedTools: tools, // Loop specs and plain declarations ({ name, description, parameters })
 });
 
 catalog.entries;          // identities, fingerprints, declarations, coordinates
-catalog.toolDeclarations; // pi-ai Tool declarations for Context.tools
+catalog.toolDeclarations; // LoopToolDeclarations, structurally pi-ai Tools, for Context.tools
 catalog.headers.merge(callerHeaders);
 await catalog.payload.apply(payload, catalog.model);
 catalog.incoming;

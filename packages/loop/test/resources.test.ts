@@ -81,7 +81,7 @@ describe("LoopExecutionResources results and batch boundaries", () => {
 		const { resources, batches } = setup();
 		const spec = loop.tools.computer.batch({ actions: ["click", "screenshot", "keypress"] });
 		const tool = resources.materialize(spec);
-		const result = await tool.execute("batch", { actions: [
+		const result = await tool.execute({ actions: [
 			{ action: "click", x: 10, y: 20 },
 			{ action: "screenshot" },
 			{ action: "keypress", keys: ["Enter"] },
@@ -98,7 +98,7 @@ describe("LoopExecutionResources results and batch boundaries", () => {
 		const { resources } = setup({ failBatch: true });
 		const spec = loop.tools.computer.batch({ actions: ["screenshot", "click", "url", "cursor_position"] });
 		const tool = resources.materialize(spec);
-		const result = await tool.execute("batch", { actions: [
+		const result = await tool.execute({ actions: [
 			{ action: "screenshot" },
 			{ action: "click", x: 10, y: 20 },
 			{ action: "url" },
@@ -115,7 +115,7 @@ describe("LoopExecutionResources results and batch boundaries", () => {
 		const { resources, executed } = setup();
 		const spec = loop.tools.browser.batch({ actions: ["snapshot", "click", "text"] });
 		const tool = resources.materialize(spec);
-		const result = await tool.execute("browser-batch", { actions: [
+		const result = await tool.execute({ actions: [
 			{ action: "snapshot" },
 			{ action: "click", ref: "e1" },
 			{ action: "text" },
@@ -130,7 +130,7 @@ describe("LoopExecutionResources results and batch boundaries", () => {
 	it("replaces prior screenshots when a semantic browser batch condition fails", async () => {
 		const { resources } = setup();
 		const spec = loop.tools.browser.batch({ actions: ["screenshot", "wait_for"] });
-		const result = await resources.materialize(spec).execute("browser-batch", { actions: [
+		const result = await resources.materialize(spec).execute({ actions: [
 			{ action: "screenshot" },
 			{ action: "wait_for", expect: { type: "text", text: "Ready" } },
 		] });
@@ -147,7 +147,7 @@ describe("LoopExecutionResources results and batch boundaries", () => {
 		["browser_act", loop.tools.browser.act(), { steps: [{ type: "wait" }] }],
 	] as const)("marks a failed standalone %s result as an error", async (_name, spec, input) => {
 		const { resources } = setup();
-		const result = await resources.materialize(spec).execute("standalone", input);
+		const result = await resources.materialize(spec).execute(input);
 		expect(result.details).toMatchObject({
 			statusText: "Actions stopped before completion.",
 			isError: true,
@@ -161,7 +161,7 @@ describe("LoopExecutionResources results and batch boundaries", () => {
 
 	it("keeps a worked browser_act navigation boundary successful", async () => {
 		const { resources } = setup({ successfulAct: true });
-		const result = await resources.materialize(loop.tools.browser.act()).execute("act", {
+		const result = await resources.materialize(loop.tools.browser.act()).execute({
 			steps: [{ type: "click", x: 10, y: 20 }],
 		});
 		expect(result.details).toMatchObject({ statusText: "Actions executed successfully." });
@@ -171,17 +171,17 @@ describe("LoopExecutionResources results and batch boundaries", () => {
 
 	it("shares one lazy browser executor across independently materialized tools", async () => {
 		const { resources, createBrowserExecutor } = setup();
-		await resources.materialize(loop.tools.browser.snapshot()).execute("snapshot", {});
-		await resources.materialize(loop.tools.browser.click()).execute("click", { ref: "e1" });
+		await resources.materialize(loop.tools.browser.snapshot()).execute({});
+		await resources.materialize(loop.tools.browser.click()).execute({ ref: "e1" });
 		expect(createBrowserExecutor).toHaveBeenCalledTimes(1);
 	});
 
 	it("returns status text for writes without capturing screenshots", async () => {
 		const { resources, captureScreenshot, browserScreenshot } = setup();
-		const click = await resources.materialize(loop.tools.browser.click()).execute("click", { ref: "e1" });
+		const click = await resources.materialize(loop.tools.browser.click()).execute({ ref: "e1" });
 		expect(click.content).toEqual([{ type: "text", text: "Actions executed successfully." }]);
 
-		const navigate = await resources.materialize(loop.tools.browser.navigate()).execute("navigate", { url: "https://example.test" });
+		const navigate = await resources.materialize(loop.tools.browser.navigate()).execute({ url: "https://example.test" });
 		expect(navigate.content).toEqual([{ type: "text", text: "Navigated" }]);
 		expect(captureScreenshot).not.toHaveBeenCalled();
 		expect(browserScreenshot).not.toHaveBeenCalled();
@@ -189,7 +189,7 @@ describe("LoopExecutionResources results and batch boundaries", () => {
 
 	it("keeps Playwright execution failures as model-readable content", async () => {
 		const { resources } = setup({ failPlaywright: true });
-		const result = await resources.materialize(loop.tools.playwright()).execute("playwright", { code: "throw new Error('boom')" });
+		const result = await resources.materialize(loop.tools.playwright()).execute({ code: "throw new Error('boom')" });
 		expect(result.content).toEqual([
 			{ type: "text", text: "stderr:\ntrace" },
 			{ type: "text", text: "error: page evaluation failed" },
@@ -205,7 +205,7 @@ describe("LoopExecutionResources results and batch boundaries", () => {
 	it("returns status text for provider-native writes without capturing a screenshot", async () => {
 		const { resources, captureScreenshot } = setup();
 		const spec = loop.providers.google.toolsets.browser().find((tool) => tool.name === "click")!;
-		const result = await resources.materialize(spec).execute("click", { x: 100, y: 200 });
+		const result = await resources.materialize(spec).execute({ x: 100, y: 200 });
 		expect(result.content).toEqual([{ type: "text", text: "Actions executed successfully." }]);
 		expect(captureScreenshot).not.toHaveBeenCalled();
 	});
@@ -213,7 +213,7 @@ describe("LoopExecutionResources results and batch boundaries", () => {
 	it("returns a screenshot for every OpenAI native computer action", async () => {
 		const { resources, captureScreenshot } = setup();
 		const result = await resources.materialize(loop.providers.openai.tools.computer())
-			.execute("computer", { action: { type: "click", x: 10, y: 20 } });
+			.execute({ action: { type: "click", x: 10, y: 20 } });
 		// OpenAI's computer-use loop expects one screenshot back per computer_call;
 		// without it the model is blind after each action.
 		expect(result.content.some((block) => block.type === "image")).toBe(true);

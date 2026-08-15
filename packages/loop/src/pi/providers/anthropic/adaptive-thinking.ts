@@ -1,17 +1,16 @@
-import type { Api, Model } from "@earendil-works/pi-ai";
-import type { LoopPayloadHook } from "../common";
+import type { LoopModelIdentity } from "../../../core/model-info";
 
 /** Convert manual thinking budgets to Anthropic adaptive-thinking effort. */
-export const anthropicAdaptiveThinkingOnPayload: LoopPayloadHook = (payload, model) => {
+export function anthropicAdaptiveThinkingOnPayload(payload: unknown, model: LoopModelIdentity): unknown {
 	if (!isAdaptiveThinkingModel(model) || !isRecord(payload)) return undefined;
 	const thinking = payload.thinking;
 	if (!isRecord(thinking) || thinking.type !== "enabled") return undefined;
 	const outputConfig = isRecord(payload.output_config) ? { ...payload.output_config } : {};
 	outputConfig.effort = effortFromBudgetTokens(thinking.budget_tokens);
 	return { ...payload, thinking: { type: "adaptive" }, output_config: outputConfig };
-};
+}
 
-function isAdaptiveThinkingModel(model: Model<Api>): boolean {
+function isAdaptiveThinkingModel(model: LoopModelIdentity): boolean {
 	if (model.provider !== "anthropic") return false;
 	const id = model.id.toLowerCase();
 	return [

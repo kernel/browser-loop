@@ -8,7 +8,7 @@ import {
 	LoopExecutionResources,
 } from "../src/index";
 import type Kernel from "@onkernel/sdk";
-import { LoopToolManager } from "../src/core/tool-manager";
+import { LoopToolManager } from "../src/pi/tool-manager";
 
 const browser = { session_id: "browser_123", viewport: { width: 1440, height: 900 } } as KernelBrowser;
 const client = {} as Kernel;
@@ -111,5 +111,22 @@ describe("LoopToolManager materialization", () => {
 		// stable implementation across every recompile.
 		expect(spy.mock.calls.length).toBeGreaterThan(1);
 		expect(new Set(spy.mock.results.map((result) => result.value)).size).toBe(1);
+	});
+
+	it("adapts a materialized spec to one stable pi AgentTool across recompiles", () => {
+		const resources = setup();
+		const spec = loop.tools.browser.snapshot();
+
+		const [first] = new LoopToolManager<LoopAgentTool>(resources, "openai:gpt-5.5", [spec]).agentTools();
+		const [second] = new LoopToolManager<LoopAgentTool>(resources, "openai:gpt-5.6-sol", [spec]).agentTools();
+
+		expect(first).toBe(second);
+		expect(first).toMatchObject({
+			name: spec.name,
+			label: spec.name,
+			description: spec.declaration.description,
+			parameters: spec.declaration.parameters,
+			executionMode: "sequential",
+		});
 	});
 });

@@ -1,4 +1,4 @@
-import type { ComputerUseAction, MouseButton } from "../../../core/actions/index";
+import type { ComputerUseAction, MouseButton } from "./actions/index";
 
 interface NativeInput {
 	action: string;

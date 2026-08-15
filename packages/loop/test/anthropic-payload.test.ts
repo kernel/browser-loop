@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getLoopModel } from "../src/pi/models";
 import { anthropicAdaptiveThinkingOnPayload } from "../src/pi/providers/anthropic/adaptive-thinking";
+import { compileLoopToolCatalog, loop } from "../src/index";
 
 describe("anthropicAdaptiveThinkingOnPayload", () => {
 	it("converts Sonnet 5 manual thinking to adaptive thinking with effort", () => {
@@ -52,5 +53,23 @@ describe("anthropicAdaptiveThinkingOnPayload", () => {
 		expect(effortFor(8_192)).toBe("medium");
 		expect(effortFor(16_384)).toBe("high");
 		expect(effortFor(32_768)).toBe("xhigh");
+	});
+});
+
+describe("model preparation through the compiled catalog", () => {
+	it("compiles pi's Anthropic preparation transform into the payload plan", async () => {
+		const catalog = compileLoopToolCatalog({ model: "anthropic:claude-sonnet-5", requestedTools: [loop.tools.browser.snapshot()] });
+
+		expect(catalog.payload.transforms.map((transform) => transform.identity))
+			.toContain("provider.anthropic.model-preparation");
+		await expect(catalog.payload.apply({ thinking: { type: "enabled", budget_tokens: 8_192 } }, catalog.model))
+			.resolves.toMatchObject({ thinking: { type: "adaptive" }, output_config: { effort: "medium" } });
+	});
+
+	it("compiles no preparation transform for other providers", () => {
+		const catalog = compileLoopToolCatalog({ model: "openai:gpt-5.5", requestedTools: [loop.tools.browser.snapshot()] });
+
+		expect(catalog.payload.transforms.map((transform) => transform.identity))
+			.not.toContain("provider.anthropic.model-preparation");
 	});
 });

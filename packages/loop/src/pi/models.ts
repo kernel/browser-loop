@@ -1,15 +1,15 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { getBuiltinModel, getBuiltinModels, getBuiltinProviders } from "@earendil-works/pi-ai/providers/all";
+import type { ComputerUseNativeSurface, LoopModelCapabilities, LoopModelFacts } from "../core/model-info";
 import { supportsAnthropicNativeBrowser, supportsAnthropicNativeComputer } from "./providers/anthropic/capabilities";
+
+export type { ComputerUseNativeSurface, LoopModelCapabilities } from "../core/model-info";
 
 /** A pi-ai provider id. Any provider pi-ai carries can be selected. */
 export type LoopProvider = string;
 
 /** Provider-qualified model reference, e.g. `"openai:gpt-5.6-sol"` or `"google:gemini-3.6-flash"`. */
 export type LoopModelRef = `${string}:${string}`;
-
-/** A provider-native tool surface Loop can offer for a model. */
-export type ComputerUseNativeSurface = "computer" | "browser";
 
 /** One entry returned by {@link listLoopModels}. */
 export interface LoopModelInfo {
@@ -39,13 +39,6 @@ export type LoopModelMatch =
 	| { readonly kind: "exact"; readonly id: string }
 	| { readonly kind: "family"; readonly family: string };
 
-/** Loop tool-catalog capabilities for a concrete model. */
-export interface LoopModelCapabilities {
-	readonly acceptsComplexSchemas: boolean;
-	readonly acceptsLargeSchemas: boolean;
-	readonly serializesStateMutations: boolean;
-}
-
 /**
  * A model or provider whose request handling differs from the permissive
  * default, with the evidence for it. Entries exist to prevent a request the
@@ -66,8 +59,9 @@ export interface LoopModelQuirk {
  * this model", not "may this model run" — every model pi-ai carries runs, with
  * Loop's own CDP browser tools.
  *
- * Anthropic is absent deliberately: its native surfaces are version-gated in
- * `providers/anthropic/capabilities.ts`, which {@link computerUseNativeSurfaces} reads.
+ * Anthropic is absent deliberately: its native surfaces are version-gated by
+ * the tool declarations themselves (`supportsAnthropicNative*` in core/tools),
+ * which {@link computerUseNativeSurfaces} reads.
  */
 export const COMPUTER_USE_NATIVE_SURFACES: readonly {
 	readonly provider: LoopProvider;
@@ -242,6 +236,19 @@ export function providerForModel(model: Model<Api>): LoopProvider {
 	return model.provider;
 }
 
+/** Whether pi can defer loading this model's ordinary function tools. */
+export function modelSupportsDeferredTools(model: Model<Api>): boolean {
+	const compat = isRecord(model.compat) ? model.compat : undefined;
+	if (model.provider === "openai") return compat?.supportsToolSearch === true;
+	if (model.provider !== "anthropic" || model.id.toLowerCase().includes("haiku")) return false;
+	if (typeof compat?.supportsToolReferences === "boolean") return compat.supportsToolReferences;
+	const version = model.id.toLowerCase().match(/^claude-(?:opus|sonnet|fable)-(\d+)(?:-(\d+))?(?:-|$)/);
+	if (!version) return false;
+	const major = Number(version[1]);
+	const minor = version[2] && version[2].length < 8 ? Number(version[2]) : 0;
+	return major > 4 || (major === 4 && minor >= 5);
+}
+
 /** Provider-native tool surfaces available for a model, if any. */
 export function computerUseNativeSurfaces(model: Model<Api>): readonly ComputerUseNativeSurface[] {
 	if (model.provider === "anthropic") {
@@ -277,6 +284,19 @@ export function loopModelQuirks(model: Model<Api>): readonly LoopModelQuirk[] {
 	);
 }
 
+/**
+ * The availability facts core's compiler and menu consult for a model:
+ * request-shape capabilities and native tool surfaces. This is the seam that
+ * keeps provider capability lookup on the pi side of the boundary — core
+ * reads the supplied facts and never performs the lookup itself.
+ */
+export function loopModelFacts(model: Model<Api>): LoopModelFacts {
+	return {
+		capabilities: loopModelCapabilities(model),
+		nativeSurfaces: computerUseNativeSurfaces(model),
+	};
+}
+
 function matchesModelId(modelId: string, match: LoopModelMatch): boolean {
 	const id = modelId.toLowerCase();
 	return match.kind === "exact" ? id === match.id.toLowerCase() : isFamilyMatch(id, match.family.toLowerCase());
@@ -298,4 +318,8 @@ function isFamilyMatch(id: string, family: string): boolean {
 function compareLoopModels(a: LoopModelInfo, b: LoopModelInfo): number {
 	if (a.provider !== b.provider) return a.provider.localeCompare(b.provider);
 	return a.model.localeCompare(b.model);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }

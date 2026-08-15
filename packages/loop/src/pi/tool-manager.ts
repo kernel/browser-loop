@@ -1,6 +1,7 @@
 import type { AgentHarnessTool, AgentTool } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { getLoopModel, type LoopModelRef } from "../pi/models";
+import { loopModelPreparationTransforms } from "./catalog";
+import { getLoopModel, loopModelFacts, type LoopModelRef } from "./models";
 import {
 	callerToolIdentity,
 	compileLoopToolCatalog,
@@ -8,8 +9,8 @@ import {
 	type LoopCatalogToolInput,
 	type LoopToolCatalog,
 	type LoopToolSpec,
-} from "./tool-catalog";
-import { LoopExecutionResources } from "./resources";
+} from "../core/tool-catalog";
+import { LoopExecutionResources, type LoopExecutableTool } from "../core/resources";
 
 /**
  * Caller-owned tool: a declarative Loop spec materialized by this package, or an
@@ -35,7 +36,7 @@ export type LoopHarnessTool<TContext extends object | undefined = never> = LoopT
  * live catalog underneath it.
  */
 export class LoopToolManager<TRequested extends LoopHarnessTool<any> = LoopAgentTool> {
-	readonly catalog: LoopToolCatalog;
+	readonly catalog: LoopToolCatalog<Model<Api>>;
 	private readonly executables: readonly (AgentTool | AgentHarnessTool<any>)[];
 	private readonly specs: ReadonlyMap<string, LoopToolSpec>;
 
@@ -60,9 +61,12 @@ export class LoopToolManager<TRequested extends LoopHarnessTool<any> = LoopAgent
 				executables.set(callerToolIdentity(tool.name), tool);
 			}
 		}
+		const resolved = typeof model === "string" ? resolveModel(model) : model;
 		this.catalog = compileLoopToolCatalog({
-			model: typeof model === "string" ? resolveModel(model) : model,
+			model: resolved,
 			requestedTools: inputs,
+			facts: loopModelFacts(resolved),
+			preparation: loopModelPreparationTransforms(resolved),
 		});
 
 		// Joined strictly by compiled identity, never by position.
@@ -70,7 +74,7 @@ export class LoopToolManager<TRequested extends LoopHarnessTool<any> = LoopAgent
 			const executable = executables.get(entry.identity);
 			if (!executable) throw new Error(`compiled catalog entry "${entry.identity}" has no matching requested tool`);
 			executables.delete(entry.identity);
-			return isLoopToolSpec(executable) ? resources.materialize(executable) : (executable as AgentHarnessTool<any>);
+			return isLoopToolSpec(executable) ? asAgentTool(resources.materialize(executable)) : (executable as AgentHarnessTool<any>);
 		});
 		if (executables.size > 0) {
 			throw new Error(`requested tool(s) ${[...executables.keys()].join(", ")} missing from the compiled catalog`);
@@ -92,4 +96,27 @@ export class LoopToolManager<TRequested extends LoopHarnessTool<any> = LoopAgent
 	specFor(identity: string): LoopToolSpec | undefined {
 		return this.specs.get(identity);
 	}
+}
+
+/**
+ * Cached per executable, and executables are cached per (pool, spec), so pi
+ * sees one stable `AgentTool` identity across every recompile of a pair.
+ */
+const agentToolAdapters = new WeakMap<LoopExecutableTool, AgentTool>();
+
+/** Adapt a neutral Loop executable to pi's `AgentTool` calling convention. */
+function asAgentTool(executable: LoopExecutableTool): AgentTool {
+	const cached = agentToolAdapters.get(executable);
+	if (cached) return cached;
+	const { declaration } = executable.spec;
+	const tool: AgentTool = {
+		name: executable.spec.name,
+		label: executable.spec.name,
+		description: declaration.description,
+		parameters: declaration.parameters,
+		executionMode: "sequential",
+		execute: (_toolCallId, input, signal) => executable.execute(input, signal),
+	};
+	agentToolAdapters.set(executable, tool);
+	return tool;
 }

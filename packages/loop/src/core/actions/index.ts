@@ -1,4 +1,4 @@
-import type { TSchema } from "@earendil-works/pi-ai";
+import type { TSchema } from "typebox";
 import { BROWSER_ACTION_TYPES, createBrowserActionSchemaByType, type BrowserAction, type BrowserActionType, type BrowserActionSchemaOptions } from "./browser";
 import { COMPUTER_ACTION_SCHEMA_BY_TYPE, COMPUTER_ACTION_TYPES, type ComputerAction, type ComputerActionType } from "./computer";
 
