@@ -1,10 +1,11 @@
 # `@onkernel/loop`
 
-Kernel browser computer-use for pi: tool declarations, per-model catalog
-compilation, Kernel-browser execution, the `attach()` binding for
-`@earendil-works/pi-agent-core`, and a pi extension.
+Browser tools for your agent: a framework-neutral core (tool declarations,
+per-model catalog compilation, Kernel-browser execution) plus a pi binding
+(`attach()` for `@earendil-works/pi-agent-core`) and a pi extension.
 
-Two entry points:
+One package, two entry points: the neutral core and the pi binding — the first
+binding; Eve and AI SDK are anticipated next.
 
 | import | what it is |
 | --- | --- |
@@ -465,6 +466,11 @@ owns the agent loop, session, and UI; the extension contributes the tools, the
 browser they run against, and the provider wiring provider-native surfaces need.
 It does not start a second model loop, and it adds no implicit screenshots or
 prompt instructions.
+
+The extension is not a lesser version of the SDK; it is the other half of the
+workflow. Experiment in the harness to find which tools and model fit a use
+case, then deploy the same catalog — same identities, same names — through
+`attach()` in your production agent.
 
 ```sh
 pi install npm:@onkernel/loop

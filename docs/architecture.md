@@ -35,7 +35,9 @@ both explicitly and may use pi's orchestration primitives directly.
   `modelSupportsDeferredTools` interprets pi compat flags, and the published
   `loop` namespace composes `loop.providers.anthropic.supports` over core's
   declarations), transport derivation, the provider adapters, provider retry,
-  and header composition.
+  and header composition. `./pi` is the first binding; `./eve` and `./ai-sdk`
+  are the anticipated next, sharing the same identities and tool names so
+  transcripts stay comparable across frameworks.
 - `src/pi-extension/` contributes these tools to a pi session that pi itself
   owns. It is the one consumer that uses neither `attach()` nor the harness: pi
   owns the model collection and the agent loop, so the extension takes the two
