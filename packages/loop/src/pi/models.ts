@@ -82,6 +82,7 @@ export const COMPUTER_USE_NATIVE_SURFACES: readonly {
 	{ provider: "google", match: { kind: "exact", id: "gemini-3.6-flash" }, surfaces: ["browser"], source: "https://ai.google.dev/gemini-api/docs/computer-use" },
 	{ provider: "google", match: { kind: "exact", id: "gemini-3.5-flash" }, surfaces: ["browser"], source: "https://ai.google.dev/gemini-api/docs/computer-use" },
 	{ provider: "google", match: { kind: "exact", id: "gemini-3.5-flash-lite" }, surfaces: ["browser"], source: "https://ai.google.dev/gemini-api/docs/computer-use" },
+	{ provider: "google", match: { kind: "exact", id: "gemini-2.5-computer-use-preview-10-2025" }, surfaces: ["browser"], source: "https://ai.google.dev/gemini-api/docs/computer-use" },
 ];
 
 /**
@@ -93,15 +94,20 @@ export const COMPUTER_USE_NATIVE_SURFACES: readonly {
 export const LOOP_MODEL_QUIRKS: readonly LoopModelQuirk[] = [
 	{
 		provider: "moonshotai",
+		capabilities: { acceptsLargeSchemas: false },
+		reason: "Moonshot answers 400 \"schema exceeds maximum allowed size\" once browser_act's schema is attached; observed on kimi-k2.5 and kimi-k3.",
+	},
+	{
+		provider: "moonshotai",
 		match: { kind: "exact", id: "kimi-k3" },
-		capabilities: { acceptsLargeSchemas: false, serializesStateMutations: true },
-		reason: "Kimi K3 rejects the request outright once browser_act's schema is attached.",
+		capabilities: { serializesStateMutations: true },
+		reason: "Kimi K3 serializes state mutations.",
 	},
 	{
 		provider: "openrouter",
 		match: { kind: "exact", id: "moonshotai/kimi-k3" },
 		capabilities: { acceptsLargeSchemas: false, serializesStateMutations: true },
-		reason: "Same Kimi K3 limit, reached through OpenRouter.",
+		reason: "Same Kimi K3 limits, reached through OpenRouter.",
 	},
 	{
 		provider: "openrouter",

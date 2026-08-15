@@ -188,6 +188,16 @@ describe("compileLoopToolCatalog", () => {
 		expect(() => compile("openai:gpt-5.5", [loop.providers.anthropic.tools.computer()])).toThrow(/requires a anthropic model/);
 	});
 
+	it("gates OpenAI and Google native surfaces on the model, not just the provider", () => {
+		expect(() => compile("openai:gpt-5.5", [loop.providers.openai.tools.computer()])).not.toThrow();
+		expect(() => compile("google:gemini-3.6-flash", loop.providers.google.toolsets.browser())).not.toThrow();
+		// Both providers answer 400 for a model the surface is not enabled for.
+		expect(() => compile("openai:gpt-4.1", [loop.providers.openai.tools.computer()]))
+			.toThrow(/does not offer a native computer surface/);
+		expect(() => compile("google:gemini-2.5-flash", loop.providers.google.toolsets.browser()))
+			.toThrow(/does not offer a native browser surface/);
+	});
+
 	it("replaces only the selected OpenAI identity placeholder", async () => {
 		const catalog = compile("openai:gpt-5.5", [
 			loop.providers.openai.tools.computer(),
@@ -399,6 +409,24 @@ describe("Gemini function-declaration schema", () => {
 		expect(sent).not.toContain('"const"');
 		expect(sent).not.toContain('"additionalProperties"');
 		// `const: x` becomes a single-value enum, which means the same thing.
+		expect(sent).toContain('"enum":["text"]');
+	});
+
+	it("narrows the nested config.tools shape the Generative Language SDK builds", async () => {
+		// pi-ai hands `@google/genai` params to onPayload, which carry the function
+		// declarations under `config.tools` rather than at the top level.
+		const catalog = compileLoopToolCatalog({
+			model: getLoopModel("google:gemini-3.6-flash"),
+			requestedTools: [loop.tools.browser.waitFor()],
+		});
+		const params = {
+			model: "gemini-3.6-flash",
+			config: { tools: [{ functionDeclarations: catalog.toolDeclarations.map((tool) => ({ name: tool.name, parameters: tool.parameters })) }] },
+		};
+		const sent = JSON.stringify(await catalog.payload.apply(params, catalog.model));
+		expect(JSON.stringify(params)).toContain('"const"');
+		expect(sent).not.toContain('"const"');
+		expect(sent).not.toContain('"additionalProperties"');
 		expect(sent).toContain('"enum":["text"]');
 	});
 

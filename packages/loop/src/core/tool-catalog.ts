@@ -1,7 +1,7 @@
 import type { Api, Model, Tool } from "@earendil-works/pi-ai";
 import type { ComputerUseAction } from "./actions/index";
-import type { LoopModelRef } from "../pi/models";
-import { loopModelCapabilities, getLoopModel } from "../pi/models";
+import type { ComputerUseNativeSurface, LoopModelRef } from "../pi/models";
+import { computerUseNativeSurfaces, loopModelCapabilities, getLoopModel } from "../pi/models";
 import { anthropicAdaptiveThinkingOnPayload } from "../pi/providers/anthropic/adaptive-thinking";
 import {
 	supportsAnthropicNativeBrowser,
@@ -397,6 +397,7 @@ function validateToolCompatibility(model: Model<Api>, entry: LoopCatalogEntryDra
 		throw new Error(`provider ${model.provider} does not accept the schema size of "${entry.name}" (${entry.identity})`);
 	}
 	if (binding?.kind === "anthropic-native") validateAnthropicNativeModel(model, entry.identity);
+	else if (binding) validateNativeSurfaceModel(model, entry.identity, binding.kind === "google-native" ? "browser" : "computer");
 }
 
 function validateAnthropicNativeModel(model: Model<Api>, identity: string): void {
@@ -407,6 +408,16 @@ function validateAnthropicNativeModel(model: Model<Api>, identity: string): void
 	if (!supported) {
 		throw new Error(`${identity} does not support model "${model.id}"`);
 	}
+}
+
+// A provider enables its native surface per model, not per provider: OpenAI's
+// computer tool and Google's `computer_use` both answer 400 on a model the
+// surface is not enabled for. COMPUTER_USE_NATIVE_SURFACES is what the menu
+// reads, so gate compilation on it too rather than letting the request fail on
+// the wire.
+function validateNativeSurfaceModel(model: Model<Api>, identity: string, surface: ComputerUseNativeSurface): void {
+	if (computerUseNativeSurfaces(model).includes(surface)) return;
+	throw new Error(`${identity} does not support model "${model.id}": ${model.provider} does not offer a native ${surface} surface for it`);
 }
 
 /** Validate the selected native tools agree on a provider and a transport, and return the transport they require, if any. */
@@ -577,24 +588,30 @@ function createGeminiSchemaTransform(): LoopPayloadTransform {
 		writes: ["tools.functionDeclarations"],
 		phase: "tool-declarations",
 		apply(payload) {
-			if (!isRecord(payload) || !Array.isArray(payload.tools)) return payload;
-			// Google serializes function tools two ways: the Generative Language API
-			// nests them under `functionDeclarations`, while the Interactions transport
-			// emits flat `{ type: "function", parameters }` entries. Narrow both, because
-			// selecting a native surface alongside a function tool derives the second
-			// shape and a shape-specific transform would silently skip it.
-			return {
-				...payload,
-				tools: payload.tools.map((tool) => {
-					if (!isRecord(tool)) return tool;
-					if (Array.isArray(tool.functionDeclarations)) {
-						return { ...tool, functionDeclarations: tool.functionDeclarations.map(narrowToGeminiSchema) };
-					}
-					return "parameters" in tool ? { ...tool, parameters: narrowToGeminiSchema(tool.parameters) } : tool;
-				}),
-			};
+			if (!isRecord(payload)) return payload;
+			// Google serializes function tools three ways: the Generative Language API
+			// nests them under `config.tools[].functionDeclarations`, its raw request
+			// shape puts the same list at the top level, and the Interactions transport
+			// emits flat `{ type: "function", parameters }` entries. Narrow all of them,
+			// because selecting a native surface alongside a function tool derives the
+			// last shape and a shape-specific transform would silently skip the others.
+			if (Array.isArray(payload.tools)) return { ...payload, tools: narrowGeminiTools(payload.tools) };
+			if (isRecord(payload.config) && Array.isArray(payload.config.tools)) {
+				return { ...payload, config: { ...payload.config, tools: narrowGeminiTools(payload.config.tools) } };
+			}
+			return payload;
 		},
 	};
+}
+
+function narrowGeminiTools(tools: readonly unknown[]): unknown[] {
+	return tools.map((tool) => {
+		if (!isRecord(tool)) return tool;
+		if (Array.isArray(tool.functionDeclarations)) {
+			return { ...tool, functionDeclarations: tool.functionDeclarations.map(narrowToGeminiSchema) };
+		}
+		return "parameters" in tool ? { ...tool, parameters: narrowToGeminiSchema(tool.parameters) } : tool;
+	});
 }
 
 const GEMINI_UNSUPPORTED_SCHEMA_KEYWORDS = new Set(["additionalProperties", "$schema", "$defs", "definitions"]);
