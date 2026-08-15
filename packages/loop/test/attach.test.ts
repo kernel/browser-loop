@@ -5,16 +5,13 @@ import {
 	createAssistantMessageEventStream,
 	type Model,
 } from "@earendil-works/pi-ai";
+import { Agent, AgentHarness, InMemorySessionRepo, type StreamFn } from "@earendil-works/pi-agent-core";
 import {
-	Agent,
-	AgentHarness,
 	attach,
 	createLoopModels,
 	GOOGLE_INTERACTIONS_API,
-	InMemorySessionRepo,
 	type LoopSimpleStreamOptions,
 	OPENAI_COMPUTER_USE_API,
-	type StreamFn,
 } from "../src/pi/index";
 import { type KernelBrowser, loop } from "../src/index";
 import type Kernel from "@onkernel/sdk";

@@ -11,14 +11,16 @@ import {
 	AgentHarness,
 	type AgentMessage,
 	type AgentTool,
+	InMemorySessionRepo,
+	type Session,
+	type StreamFn,
+} from "@earendil-works/pi-agent-core";
+import {
 	attach,
 	createLoopModels,
 	getLoopModel,
 	GOOGLE_INTERACTIONS_API,
-	InMemorySessionRepo,
 	type LoopModelInput,
-	type Session,
-	type StreamFn,
 } from "../src/pi/index";
 import { type KernelBrowser, loop, type LoopHarnessTool } from "../src/index";
 import type Kernel from "@onkernel/sdk";

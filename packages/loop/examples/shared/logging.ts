@@ -1,4 +1,4 @@
-import type { AgentEvent, AgentHarnessEvent } from "../../src/pi/index";
+import type { AgentEvent, AgentHarnessEvent } from "@earendil-works/pi-agent-core";
 
 type AssistantLike = {
 	content: Array<{ type: string; text?: string }>;

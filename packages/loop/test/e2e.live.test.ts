@@ -6,9 +6,9 @@ import {
 	AgentHarness,
 	type AgentHarnessEvent,
 	type AgentMessage,
-	attach,
 	InMemorySessionRepo,
-} from "../src/pi/index";
+} from "@earendil-works/pi-agent-core";
+import { attach } from "../src/pi/index";
 import { loop } from "../src/index";
 
 const LIVE = process.env.LOOP_E2E_LIVE === "1";

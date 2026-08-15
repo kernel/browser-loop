@@ -71,6 +71,7 @@
     "typebox": "1.3.7"
   },
   "peerDependencies": {
+    "@earendil-works/pi-agent-core": "0.83.0",
     "@earendil-works/pi-coding-agent": "*"
   },
   "peerDependenciesMeta": {

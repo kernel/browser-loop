@@ -88,8 +88,9 @@ plain pi objects. Nothing here is a Loop type you have to learn:
 
 ```ts
 import Kernel from "@onkernel/sdk";
+import { Agent } from "@earendil-works/pi-agent-core";
 import { loop } from "@onkernel/loop";
-import { Agent, attach } from "@onkernel/loop/pi";
+import { attach } from "@onkernel/loop/pi";
 
 const client = new Kernel({ apiKey: process.env.KERNEL_API_KEY! });
 const browser = await client.browsers.create({ stealth: true });

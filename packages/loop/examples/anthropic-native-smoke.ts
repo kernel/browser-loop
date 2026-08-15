@@ -5,7 +5,8 @@
 // CONFIG selects the requested catalog; nothing is inferred or appended.
 import Kernel from "@onkernel/sdk";
 import { loop, type LoopAgentTool } from "../src/index";
-import { Agent, attach, type LoopModelRef, requireLoopEnvApiKeyForModel } from "../src/pi/index";
+import { Agent } from "@earendil-works/pi-agent-core";
+import { attach, type LoopModelRef, requireLoopEnvApiKeyForModel } from "../src/pi/index";
 import { logAgentEvent, logAssistant } from "./shared/logging";
 
 const modelRef = (process.env.MODEL_REF as LoopModelRef | undefined) ?? "anthropic:claude-opus-5";
