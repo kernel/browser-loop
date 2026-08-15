@@ -1,0 +1,92 @@
+name: Release Loop
+
+on:
+  push:
+    tags:
+      - "loop/v*"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: release-loop-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Verify tag is on main
+        run: |
+          git fetch origin main:refs/remotes/origin/main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Ensure npm supports trusted publishing
+        run: npm install -g npm@^11.5.1
+
+      - run: npm ci
+
+      - name: Verify package version matches tag
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+
+          const tag = process.env.GITHUB_REF_NAME;
+          const prefix = "loop/v";
+          if (!tag?.startsWith(prefix)) {
+            throw new Error(`Expected tag to start with ${prefix}, got ${tag}`);
+          }
+
+          const tagVersion = tag.slice(prefix.length);
+          const pkg = JSON.parse(readFileSync("packages/loop/package.json", "utf8"));
+          if (pkg.version !== tagVersion) {
+            throw new Error(`Tag version ${tagVersion} does not match ${pkg.name} package.json version ${pkg.version}`);
+          }
+
+          console.log(`${pkg.name}@${pkg.version}`);
+          NODE
+
+      - run: npm run build --workspace @onkernel/loop
+      - run: npm run typecheck --workspace @onkernel/loop
+
+      - name: Unit tests
+        run: npm test --workspace @onkernel/loop
+
+      - name: Pack tarball
+        run: npm pack --workspace @onkernel/loop --pack-destination "$RUNNER_TEMP"
+
+      - name: ESM import smoke test
+        run: |
+          SMOKE_DIR=$(mktemp -d)
+          cd "$SMOKE_DIR"
+          npm init -y > /dev/null
+          npm install "$RUNNER_TEMP"/onkernel-loop-*.tgz
+          cat > smoke.mjs <<'NODE'
+          import { compileLoopToolCatalog, formatBrowserActResult, loop } from "@onkernel/loop";
+          import { attach, getLoopModel, NodeExecutionEnv } from "@onkernel/loop/pi";
+
+          for (const [name, value] of Object.entries({ compileLoopToolCatalog, formatBrowserActResult, attach, getLoopModel, NodeExecutionEnv })) {
+            if (typeof value !== "function") {
+              throw new Error(`expected ${name} to be a function, got ${typeof value}`);
+            }
+          }
+          if (typeof loop !== "object" || loop === null) {
+            throw new Error(`expected loop to be an object, got ${typeof loop}`);
+          }
+          console.log("ESM import smoke OK");
+          NODE
+          node smoke.mjs
+
+      - name: Publish to npm
+        run: npm publish --workspace @onkernel/loop --access public

@@ -8,6 +8,7 @@ dist/
 *.tsbuildinfo
 packages/*/dist/
 packages/*/dist-tsc/
+packages/*/dist-published/
 packages/*/*.tsbuildinfo
 packages/*/native/build/
 packages/ptywright/.cache/

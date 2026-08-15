@@ -1,17 +1,15 @@
 ---
 name: release
-description: Prepare and publish @onkernel/cua-ai, @onkernel/cua-agent, and @onkernel/cua-pi-extension npm releases from kernel/cua. Use when checking release readiness, choosing package versions, writing package changelogs, committing release metadata to main, pushing package-prefixed tags, or monitoring release workflows.
+description: Prepare and publish the @onkernel/loop npm release from kernel/cua. Use when checking release readiness, choosing a package version, writing the package changelog, committing release metadata to main, pushing package-prefixed tags, or monitoring the release workflow.
 ---
 
 # Release
 
-Use this workflow to release `@onkernel/cua-ai`, `@onkernel/cua-agent`, and
-`@onkernel/cua-pi-extension`. The packages do not need to release in lockstep.
+Use this workflow to release `@onkernel/loop`.
 
-`@onkernel/cua-pi-extension` has no release workflow yet, and that is
-deliberate: it merges into the renamed single package, and a first publish under
-a new name is manual regardless, because npm binds a trusted publisher to a
-(repository, workflow filename) pair and a brand-new package name has none.
+The first publish under the `@onkernel/loop` name is manual, because npm binds a
+trusted publisher to a (repository, workflow filename) pair and a brand-new
+package name has none. See `docs/npm-releases.md`.
 
 If a release run hits an unexpected bump, unclear decision, missing command, or
 avoidable manual step, update this skill as part of the release cleanup. Keep
@@ -22,11 +20,8 @@ error-prone.
 
 | package | directory | tag prefix | workflow |
 | --- | --- | --- | --- |
-| `@onkernel/cua-ai` | `packages/ai` | `cua-ai/v` | `release-cua-ai.yml` |
-| `@onkernel/cua-agent` | `packages/agent` | `cua-agent/v` | `release-cua-agent.yml` |
-| `@onkernel/cua-pi-extension` | `packages/pi-extension` | — | none yet (manual) |
-
-When both change, release in dependency order: `cua-ai`, then `cua-agent`.
+| `@onkernel/loop` | `packages/loop` | `loop/v` | `release-loop.yml` |
+| `@onkernel/ptywright` | `packages/ptywright` | — | not published |
 
 ## Quick Start
 
@@ -42,60 +37,46 @@ git fetch --tags origin
 
 ```bash
 git status --short
-npm view @onkernel/cua-ai versions --json
-npm view @onkernel/cua-agent versions --json
-test -f .github/workflows/release-cua-ai.yml
-test -f .github/workflows/release-cua-agent.yml
+npm view @onkernel/loop versions --json
+test -f .github/workflows/release-loop.yml
 ```
 
-3. For each package, find the previous release tag:
+3. Find the previous release tag:
 
 ```bash
-git tag --list "cua-ai/v*" --sort=-v:refname | head -1
-git tag --list "cua-agent/v*" --sort=-v:refname | head -1
+git tag --list "loop/v*" --sort=-v:refname | head -1
 ```
 
-If no tag exists, treat the next release as the package's current
-`package.json` version unless npm already has that version.
+If no tag exists, treat the next release as the current `package.json` version
+unless npm already has that version.
 
-4. Inspect package-specific changes since the last tag:
+4. Inspect changes since the last tag:
 
 ```bash
-git log --oneline <last-tag>..HEAD -- packages/ai package.json package-lock.json tsconfig.base.json
-git diff --name-status <last-tag>..HEAD -- packages/ai package.json package-lock.json tsconfig.base.json
-
-git log --oneline <last-tag>..HEAD -- packages/agent packages/ai package.json package-lock.json tsconfig.base.json
-git diff --name-status <last-tag>..HEAD -- packages/agent packages/ai package.json package-lock.json tsconfig.base.json
+git log --oneline <last-tag>..HEAD -- packages/loop package.json package-lock.json tsconfig.base.json
+git diff --name-status <last-tag>..HEAD -- packages/loop package.json package-lock.json tsconfig.base.json
 ```
-
-For a dependent package, include upstream package changes only when they affect
-its published dependency version or runtime behavior.
 
 ## Version Choice
 
-Choose a version per package from source changes, existing npm versions, and the
-previous tag:
+Choose a version from source changes, existing npm versions, and the previous
+tag:
 
-- No package-relevant changes: do not release that package.
-- Bug fixes, docs that affect package consumers, dependency metadata, or small
-  behavior fixes: patch.
+- No consumer-relevant changes: do not release.
+- Bug fixes, docs that affect consumers, dependency metadata, or small behavior
+  fixes: patch.
 - New exported APIs, new model/provider support, new examples intended for
   consumers, or materially expanded behavior: minor.
-- Breaking API or behavior changes: major. While packages are `0.x`, use a
-  minor bump for breaking changes unless the package is intentionally moving to
-  `1.0.0`.
+- Breaking API or behavior changes: major. While the package is `0.x`, use a
+  minor bump for breaking changes unless it is intentionally moving to `1.0.0`.
 
-The candidate version must be greater than both the last tag for that package
-and every version returned by `npm view <package> versions --json`.
+The candidate version must be greater than both the last tag and every version
+returned by `npm view @onkernel/loop versions --json`.
 
 ## Changelog
 
-Changes land under a `## Unreleased` heading as they merge, so every changelog
-has at most one unreleased section:
-
-- `packages/ai/CHANGELOG.md`
-- `packages/agent/CHANGELOG.md`
-- `packages/pi-extension/CHANGELOG.md`
+Changes land under a `## Unreleased` heading in `packages/loop/CHANGELOG.md` as
+they merge, so the changelog has at most one unreleased section.
 
 Releasing renames that heading in place — do not add a second top entry:
 
@@ -108,32 +89,24 @@ merges, so it can carry entries that contradict each other or describe a state
 that never shipped: an API added and then removed, or a note that a provider
 "keeps" a behavior when a later entry deletes that provider. Consumers upgrade
 from the previous release, not through the intermediate steps, so collapse
-those into the net change and drop what nobody can observe. Cross-package
-"update `@onkernel/cua-ai` to X" notes belong here too — the version is not
-known until this step.
+those into the net change and drop what nobody can observe.
 
 Write customer-facing changes. Do not dump commit subjects, internal issue
-names, Slack context, or vague entries like "misc improvements." Group details
-only when it improves readability. If the release is only metadata or docs,
-say that plainly.
+names, or vague entries like "misc improvements." Group details only when it
+improves readability. If the release is only metadata or docs, say that plainly.
 
 Merges between releases add to `## Unreleased`, creating it directly under
 `# Changelog` when it is absent. Never invent a version heading for a merge:
-package versions are chosen at release time from the accumulated changes, and a
+the version is chosen at release time from the accumulated changes, and a
 per-merge heading claims a release that never happened.
 
 ## Edit Release Metadata
 
-Set versions explicitly:
+Set the version explicitly:
 
 ```bash
-npm pkg set version=<version> --workspace @onkernel/cua-ai
-npm pkg set version=<version> --workspace @onkernel/cua-agent
+npm pkg set version=<version> --workspace @onkernel/loop
 ```
-
-Ensure exact internal dependencies point at the versions that will be published
-first: agent to AI. Edit the package manifests directly if `npm pkg set` is
-awkward for scoped dependency keys.
 
 Refresh the lockfile:
 
@@ -143,84 +116,60 @@ npm install --package-lock-only
 
 ## Validate
 
-Run the checks for each package being released:
-
 ```bash
 npm ci
-npm run build --workspace @onkernel/cua-ai
-npm test --workspace @onkernel/cua-ai
-npm pack --workspace @onkernel/cua-ai --dry-run
+npm run build --workspace @onkernel/loop
+npm run typecheck
+npm test --workspace @onkernel/loop
+npm pack --workspace @onkernel/loop --dry-run
 ```
 
-For `@onkernel/cua-agent`:
+Build before testing: the pi print/RPC test loads the extension the way pi does,
+through the package's own entry points. Run the full unit suite — do not pass
+individual test files. Integration tests run separately (`npm run
+test:integration --workspace @onkernel/loop`), and live e2e tests skip unless
+`LOOP_E2E_LIVE=1` is set.
 
-```bash
-npm run build --workspace @onkernel/cua-ai
-npm run build --workspace @onkernel/cua-agent
-npm test --workspace @onkernel/cua-agent
-npm pack --workspace @onkernel/cua-agent --dry-run
-```
+Confirm the packed tarball ships `dist` and the extension source pi loads
+through jiti, since `pi.extensions` points at `./src/pi-extension/index.ts`.
 
-Run the full unit suites — do not pass individual test files. `cua-ai`
-excludes integration/live tests by default (`npm run test:integration
---workspace @onkernel/cua-ai` runs them separately), and the `cua-agent` live
-e2e tests skip unless `CUA_E2E_LIVE=1` is set.
-
-Do not push release tags if build, tests, or pack dry-runs fail.
+Do not push a release tag if build, tests, or the pack dry-run fail.
 
 ## Commit To Main
 
 Direct commits to `main` are acceptable for release metadata. Keep the commit
-limited to package versions, changelogs, and `package-lock.json`.
+limited to the package version, changelog, and `package-lock.json`.
 
 ```bash
 git status --short
-git add package-lock.json packages/ai/package.json packages/ai/CHANGELOG.md packages/agent/package.json packages/agent/CHANGELOG.md
-git commit -m "Release CUA packages"
+git add package-lock.json packages/loop/package.json packages/loop/CHANGELOG.md
+git commit -m "Release @onkernel/loop v<version>"
 git push origin main
 ```
 
-Use a package-specific commit message if releasing only one package, for
-example `Release CUA AI v0.2.0`.
-
 ## Tag And Push
 
-After the release commit is on `main`, create annotated package tags at that
-commit:
+After the release commit is on `main`, create an annotated tag at that commit:
 
 ```bash
-git tag -a cua-ai/v<version> -m "@onkernel/cua-ai v<version>"
-git push origin cua-ai/v<version>
+git tag -a loop/v<version> -m "@onkernel/loop v<version>"
+git push origin loop/v<version>
 ```
-
-For the agent package:
-
-```bash
-git tag -a cua-agent/v<version> -m "@onkernel/cua-agent v<version>"
-git push origin cua-agent/v<version>
-```
-
-Push and verify the AI tag before the agent tag.
 
 ## Monitor
 
-Find and watch the workflow run triggered by each tag:
+Find and watch the workflow run triggered by the tag:
 
 ```bash
-gh run list --workflow release-cua-ai.yml --json databaseId,status,conclusion,headBranch,displayTitle,url --limit 10
-gh run watch <run-id> --exit-status
-
-gh run list --workflow release-cua-agent.yml --json databaseId,status,conclusion,headBranch,displayTitle,url --limit 10
+gh run list --workflow release-loop.yml --json databaseId,status,conclusion,headBranch,displayTitle,url --limit 10
 gh run watch <run-id> --exit-status
 ```
 
-After a workflow succeeds, verify npm:
+After the workflow succeeds, verify npm:
 
 ```bash
-npm view @onkernel/cua-ai@<version> version
-npm dist-tag ls @onkernel/cua-ai
-npm view @onkernel/cua-agent@<version> version
-npm dist-tag ls @onkernel/cua-agent
+npm view @onkernel/loop@<version> version
+npm dist-tag ls @onkernel/loop
 ```
 
 Then verify the published artifact actually imports — `npm view` only proves
@@ -229,13 +178,11 @@ the version exists, not that the tarball is loadable:
 ```bash
 cd "$(mktemp -d)"
 npm init -y
-npm install @onkernel/cua-ai@<version>
-node --input-type=module -e "import('@onkernel/cua-ai').then((m) => { if (typeof m.getCuaModel !== 'function') process.exit(1); })"
+npm install @onkernel/loop@<version>
+node --input-type=module -e "import('@onkernel/loop').then((m) => { if (typeof m.compileLoopToolCatalog !== 'function') process.exit(1); })"
+node --input-type=module -e "import('@onkernel/loop/pi').then((m) => { if (typeof m.attach !== 'function') process.exit(1); })"
 ```
 
-For `@onkernel/cua-agent`, install `@onkernel/cua-agent@<version>` the same
-way and check `typeof m.attach === "function"`.
-
-If a workflow fails after a tag is pushed, do not reuse the same package
-version unless npm did not publish it. Fix forward with a new commit and a new
-patch version when a package version has reached npm.
+If the workflow fails after a tag is pushed, do not reuse the same version
+unless npm did not publish it. Fix forward with a new commit and a new patch
+version when a version has reached npm.

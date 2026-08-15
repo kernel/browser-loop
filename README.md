@@ -1,4 +1,4 @@
-# cua
+# loop
 
 Browser tools for your agent, built on [pi](https://github.com/earendil-works/pi).
 
@@ -6,13 +6,13 @@ Point any model at a [Kernel cloud browser](https://kernel.sh/): pick the tools,
 get plain agent objects back, and run whatever loop you already have.
 
 ```ts
-import { attach } from "@onkernel/cua-agent";
-import { cua } from "@onkernel/cua-ai";
+import { loop } from "@onkernel/loop";
+import { attach } from "@onkernel/loop/pi";
 
 const kb = attach({ client, browser });
 const { model, agentTools, models } = kb.compile({
   model: "anthropic:claude-opus-5",
-  tools: cua.toolsets.browser(),
+  tools: loop.toolsets.browser(),
 });
 ```
 
@@ -20,8 +20,8 @@ Already in pi? Install the extension instead and keep pi's session, UI, and
 model selection:
 
 ```bash
-pi install npm:@onkernel/cua-pi-extension
-pi -p --cua-tools browser,browser-act "open example.com and report the heading"
+pi install npm:@onkernel/loop
+pi -p --browser-tools browser,browser-act "open example.com and report the heading"
 ```
 
 ---
@@ -40,7 +40,7 @@ All of them expect you to:
    it had the intended effect.
 4. Know which of those protocols the model you picked actually accepts.
 
-This repo does all of that and stops there. `@onkernel/cua-ai` represents the
+This repo does all of that and stops there. `@onkernel/loop` represents the
 provider differences as an explicit, identity-keyed tool catalog; you choose the
 exact tools, and provider transforms compose only the declarations and request
 fields those identities require. It does not supply an agent class, a session
@@ -52,32 +52,30 @@ format, or a front-end — your framework already has those.
 
 ```
 packages/
-├── ai/            # @onkernel/cua-ai           - model catalog, tool schemas, provider adapters
-├── agent/         # @onkernel/cua-agent        - Kernel-browser tool execution
-├── pi-extension/  # @onkernel/cua-pi-extension - the same tools inside pi's own session
-└── ptywright/     # @onkernel/ptywright        - development-only PTY/TUI test infrastructure
+├── loop/       # @onkernel/loop      - tools, catalog compilation, pi bindings, pi extension
+└── ptywright/  # @onkernel/ptywright - development-only PTY/TUI test infrastructure
 ```
 
-| Package | What it ships |
+| Entry point | What it ships |
 | --- | --- |
-| [`@onkernel/cua-ai`](packages/ai) | Model catalog, tool factories/toolsets, per-model compatibility checks, provider adapters. |
-| [`@onkernel/cua-agent`](packages/agent) | `attach()`: binds a Kernel browser and compiles a (model, tools) pair into plain pi objects. |
-| [`@onkernel/cua-pi-extension`](packages/pi-extension) | A pi extension contributing those tools to pi's own agent session. |
+| `@onkernel/loop` | Canonical actions, tool factories/toolsets, catalog compilation, the tool menu, and Kernel-browser execution. |
+| `@onkernel/loop/pi` | `attach()`: binds a Kernel browser and compiles a (model, tools) pair into plain pi objects, plus model resolution and provider adapters. |
+| `pi.extensions` | A pi extension contributing those tools to pi's own agent session. |
 | [`@onkernel/ptywright`](packages/ptywright) | Development-only PTY/TUI test infrastructure. |
 
 ```mermaid
 flowchart LR
-  ai[("@onkernel/cua-ai")]
-  agent[("@onkernel/cua-agent")]
-  ext[("@onkernel/cua-pi-extension")]
-  pi[("pi-agent-core / pi-ai / pi-coding-agent")]
-  sdk[("@onkernel/sdk")]
-  ai --> agent
-  agent --> ext
-  ai --> ext
-  pi --> agent
+  core["@onkernel/loop"]
+  pibind["@onkernel/loop/pi"]
+  ext["pi extension"]
+  pi["pi-agent-core / pi-ai / pi-coding-agent"]
+  sdk["@onkernel/sdk"]
+  core --> pibind
+  core --> ext
+  pibind --> ext
+  pi --> pibind
   pi --> ext
-  sdk --> agent
+  sdk --> core
   sdk --> ext
 ```
 
@@ -86,12 +84,12 @@ flowchart LR
 ## Building an agent
 
 `attach()` binds the browser once; `compile()` turns a (model, tools) pair into
-plain pi objects. Nothing here is a CUA type you have to learn:
+plain pi objects. Nothing here is a Loop type you have to learn:
 
 ```ts
 import Kernel from "@onkernel/sdk";
-import { cua } from "@onkernel/cua-ai";
-import { Agent, attach } from "@onkernel/cua-agent";
+import { loop } from "@onkernel/loop";
+import { Agent, attach } from "@onkernel/loop/pi";
 
 const client = new Kernel({ apiKey: process.env.KERNEL_API_KEY! });
 const browser = await client.browsers.create({ stealth: true });
@@ -99,7 +97,7 @@ const kb = attach({ client, browser });
 
 const { model, agentTools, models } = kb.compile({
   model: "anthropic:claude-opus-5",
-  tools: [...cua.toolsets.browser(), cua.tools.browser.act()],
+  tools: [...loop.toolsets.browser(), loop.tools.browser.act()],
 });
 
 const agent = new Agent({
@@ -118,7 +116,7 @@ try {
 The compiled `model` carries the transport its tools derive: selecting a
 provider-native browser or computer surface can change `model.api`, so the pair
 has to reach the agent together. See
-[`packages/agent/README.md`](packages/agent/README.md) for the harness variant,
+[`packages/loop/README.md`](packages/loop/README.md) for the harness variant,
 swapping tools on a running session, and tool contexts.
 
 ## Choosing tools for a model
@@ -126,9 +124,10 @@ swapping tools on a running session, and tool contexts.
 Not every model accepts every tool. Ask, rather than guess:
 
 ```ts
-import { cuaToolMenu, getCuaModel } from "@onkernel/cua-ai";
+import { loopToolMenu } from "@onkernel/loop";
+import { getLoopModel } from "@onkernel/loop/pi";
 
-for (const entry of cuaToolMenu(getCuaModel("openai:gpt-5.6-sol"))) {
+for (const entry of loopToolMenu(getLoopModel("openai:gpt-5.6-sol"))) {
   console.log(entry.label, entry.available ? "ok" : `unavailable: ${entry.unavailableReason}`);
 }
 ```
@@ -143,11 +142,10 @@ per-tool verdict.
 
 ## How it works
 
-1. **Model layer** — `@onkernel/cua-ai` opens pi-ai's whole model catalog, with
-   stable tool identities, explicit tool factories/toolsets, per-model
-   compatibility checks, and provider declarations/headers/payload transforms.
-   Compilation is declaration-only: it never sees an executor.
-2. **Execution layer** — `@onkernel/cua-agent` materializes the caller's exact
+1. **Model layer** — `@onkernel/loop/pi` opens pi-ai's whole model catalog and
+   composes provider declarations, headers, and payload transforms around it.
+   Catalog compilation is declaration-only: it never sees an executor.
+2. **Execution layer** — `@onkernel/loop` materializes the caller's exact
    catalog over one shared resource pool and executes canonical actions through
    Kernel's computer API or a raw-CDP browser executor.
 3. **Transport** — the compiled catalog derives `model.api` from the selected
@@ -165,13 +163,14 @@ See [`docs/architecture.md`](docs/architecture.md) for the full end-to-end flow.
 ```bash
 npm ci
 npm run typecheck
-npm test --workspace @onkernel/cua-ai
-npm test --workspace @onkernel/cua-agent
-npm test --workspace @onkernel/cua-pi-extension
+npm run build --workspace @onkernel/loop
+npm test --workspace @onkernel/loop
 ```
 
-`cua-agent`'s live end-to-end tests skip unless `CUA_E2E_LIVE=1` is set, and
-`cua-ai` runs integration tests separately via `npm run test:integration`.
+Build before testing: the pi print/RPC test loads the extension the way pi does,
+through the package's own entry points. Live end-to-end tests skip unless
+`LOOP_E2E_LIVE=1` is set, and integration tests run separately via
+`npm run test:integration`.
 
 ---
 
