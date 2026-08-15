@@ -149,6 +149,36 @@ describe("attach", () => {
 		expect(seen[0]!.model.api).toBe(OPENAI_COMPUTER_USE_API);
 	});
 
+	it("runs the handle's onPayload even when the request carries its own", async () => {
+		const seen: { model: Model<string>; context: Context; options?: LoopSimpleStreamOptions }[] = [];
+		const applied: string[] = [];
+		const handle = attach({
+			browser,
+			client,
+			models: modelsFromStream(recordingStream(seen)),
+			onPayload: (payload) => {
+				applied.push("handle");
+				return payload as Record<string, unknown>;
+			},
+		});
+		const compiled = handle.compile({ model: "openai:gpt-5.5", tools: [loop.tools.browser.snapshot()] });
+		const session = await new InMemorySessionRepo().create();
+		const harness = new AgentHarness({
+			session,
+			model: compiled.model,
+			models: compiled.models,
+			tools: [...compiled.tools],
+			activeToolNames: compiled.tools.map((tool) => tool.name),
+		});
+		compiled.activate(harness);
+		await harness.prompt("go");
+
+		// pi's harness always sets its own onPayload, so the handle's hook only
+		// survives if both run.
+		await seen[0]!.options?.onPayload?.({}, compiled.model);
+		expect(applied).toEqual(["handle"]);
+	});
+
 	it("spends an empty-response retry only when the follow-up is queued", async () => {
 		const attempted: string[] = [];
 		let reject = true;

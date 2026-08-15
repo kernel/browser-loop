@@ -279,15 +279,20 @@ export function withCatalogModels(
 	);
 	const optionsFor = <T extends SimpleStreamOptions | undefined>(options: T): T => {
 		const catalog = liveManager().catalog;
-		const callerOnPayload = options?.onPayload ?? handleOnPayload;
+		// The handle's hook and a per-request hook both run: pi's harness always
+		// sets its own `onPayload` in stream options, so preferring one would drop
+		// the handle's hook on every harness request.
+		const requestOnPayload = options?.onPayload;
 		return {
 			...options,
 			headers: catalog.headers.merge(options?.headers),
 			disableResponseThreading: responseThreading ? undefined : true,
 			loopIncomingToolPlan: catalog.incoming,
 			onPayload: async (payload: unknown, model: Model<Api>) => {
-				const generated = await catalog.payload.apply(payload, model);
-				return callerOnPayload ? (await callerOnPayload(generated, model)) ?? generated : generated;
+				let next = await catalog.payload.apply(payload, model);
+				if (handleOnPayload) next = (await handleOnPayload(next, model)) ?? next;
+				if (requestOnPayload) next = (await requestOnPayload(next, model)) ?? next;
+				return next;
 			},
 		} as T;
 	};
