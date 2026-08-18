@@ -12,7 +12,6 @@ const ENV_KEYS = [
 	"ANTHROPIC_API_KEY",
 	"GOOGLE_API_KEY",
 	"GEMINI_API_KEY",
-	"META_API_KEY",
 	"XAI_API_KEY",
 	"MOONSHOT_API_KEY",
 	"OPENROUTER_API_KEY",
@@ -57,9 +56,5 @@ describe("loop api key helpers", () => {
 		expect(getLoopEnvApiKeyForModel("moonshotai:kimi-k3")).toBe("moonshot");
 		process.env.OPENROUTER_API_KEY = "openrouter";
 		expect(getLoopEnvApiKeyForModel("openrouter:moonshotai/kimi-k3")).toBe("openrouter");
-	});
-
-	it("throws readable errors when missing", () => {
-		delete process.env.META_API_KEY;
 	});
 });

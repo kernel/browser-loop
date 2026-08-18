@@ -138,9 +138,9 @@ catalog and model changes. It owns:
 - browser element-ref and frame state;
 - screenshot and Playwright execution capabilities.
 
-This prevents `setTools()` from resetting refs, tabs, browser state, or caches.
-Tools are materialized as small adapters over that shared pool, exactly once
-per spec object.
+Recompiling and applying a catalog preserves refs, tabs, browser state, and
+caches. Tools are materialized as small adapters over that shared pool,
+exactly once per spec object.
 
 ## Action planes and result feedback
 

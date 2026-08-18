@@ -37,10 +37,6 @@ import { OPENAI_COMPUTER_USE_API, requiresOpenAINamespaceAdapter, streamOpenAICo
  *   Responses transport, and the catalog supplies its serial-tool-call field.
  * - `moonshotai` is pi's builtin provider untouched: Kimi streams through the
  *   plain OpenAI-compatible chat completions transport with `MOONSHOT_API_KEY`.
- * - `meta` is a Loop-only provider pi does not ship. It speaks the OpenAI
- *   Responses wire protocol, so it registers pi's builtin transport against
- *   Meta's base URL and credentials.
- *
  * Each call returns an independent collection; register additional providers
  * or credentials on it freely. Use {@link loopModels} for the shared default.
  */

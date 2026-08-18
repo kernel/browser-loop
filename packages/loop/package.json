@@ -57,8 +57,8 @@
     "typecheck": "tsc -b",
     "clean": "tsc -b --clean && rm -rf dist dist-published dist-tsc",
     "example:quickstart": "NODE_OPTIONS=--conditions=source tsx examples/quickstart.ts",
-    "example:agent": "NODE_OPTIONS=--conditions=source tsx examples/agent-openai-smoke.ts",
-    "example:harness": "NODE_OPTIONS=--conditions=source tsx examples/harness-openai-smoke.ts",
+    "example:agent": "NODE_OPTIONS=--conditions=source tsx examples/agent.ts",
+    "example:harness": "NODE_OPTIONS=--conditions=source tsx examples/harness.ts",
     "test": "vitest --run",
     "test:integration": "vitest --run --config vitest.integration.config.ts"
   },
@@ -80,7 +80,9 @@
     }
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^0.117.1",
     "@earendil-works/pi-coding-agent": "0.83.0",
+    "@google/genai": "^2.17.1",
     "tsdown": "^0.22.2",
     "vitest": "^3.2.4"
   }

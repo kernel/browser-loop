@@ -1,13 +1,12 @@
 import Kernel from "@onkernel/sdk";
-import { loop } from "../src/index";
 import { Agent } from "@earendil-works/pi-agent-core";
-import { attach, type LoopModelRef, requireLoopEnvApiKeyForModel } from "../src/pi/index";
+import { attach, requireLoopEnvApiKeyForModel } from "../src/pi/index";
 import { logAgentEvent, logAssistant } from "./shared/logging";
-import { SCENARIOS } from "./shared/scenarios";
-
-const modelRef = (process.env.MODEL_REF as LoopModelRef | undefined) ?? "openai:gpt-5.6-sol";
+import { parseExampleOptions } from "./shared/options";
+import { toolsForModel } from "./shared/tools";
 
 async function main(): Promise<void> {
+	const { modelRef, scenario } = parseExampleOptions();
 	const kernelApiKey = process.env.KERNEL_API_KEY;
 	if (!kernelApiKey) throw new Error("KERNEL_API_KEY is required");
 	requireLoopEnvApiKeyForModel(modelRef);
@@ -16,12 +15,7 @@ async function main(): Promise<void> {
 	const kb = attach({ browser, client });
 
 	try {
-		// Prefer structured browser refs and semantic reads for the OpenAI smoke,
-		// and opt into verified dependent plans without changing the base toolset.
-		const compiled = kb.compile({
-			model: modelRef,
-			tools: [...loop.toolsets.browser(), loop.tools.browser.act()],
-		});
+		const compiled = kb.compile({ model: modelRef, tools: toolsForModel(modelRef) });
 		const agent = new Agent({
 			streamFn: (selected, context, options) => compiled.models.streamSimple(selected, context, options),
 			initialState: {
@@ -30,11 +24,9 @@ async function main(): Promise<void> {
 				systemPrompt: "Use the provided computer and browser tools to interact with the page.",
 			},
 		});
-
 		agent.subscribe(logAgentEvent);
 
-		const scenario = SCENARIOS[0]!;
-		console.log(`running scenario: ${scenario.name} model=${modelRef}`);
+		console.log(`model=${modelRef} scenario=${scenario.name}`);
 		await agent.prompt(scenario.prompt);
 		const assistant = [...agent.state.messages].reverse().find((message) => message.role === "assistant");
 		logAssistant(assistant?.role === "assistant" ? assistant : undefined);

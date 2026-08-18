@@ -31,15 +31,6 @@ export const COMPUTER_ACTION_TYPES = [
 export type ComputerActionType = (typeof COMPUTER_ACTION_TYPES)[number];
 
 /**
- * The default computer-mode toolset. This is the pre-modes canonical action list:
- * every computer action except `zoom`, which is only exposed by default in hybrid
- * mode and by Anthropic's native computer tool (`enable_zoom`).
- */
-export const DEFAULT_COMPUTER_ACTION_TYPES = COMPUTER_ACTION_TYPES.filter(
-	(action): action is Exclude<ComputerActionType, "zoom"> => action !== "zoom",
-);
-
-/**
  * Mouse buttons accepted by click, mouse_down, and mouse_up actions. The
  * executor coerces anything outside this set to "left".
  */
@@ -297,5 +288,3 @@ export const COMPUTER_ACTION_SCHEMA_BY_TYPE = {
 	url: Type.Object({ type: Type.Literal("url") }, { additionalProperties: false }),
 	cursor_position: Type.Object({ type: Type.Literal("cursor_position") }, { additionalProperties: false }),
 } satisfies Record<ComputerActionType, TSchema>;
-
-export type ZoomRegion = ComputerActionZoom["region"];

@@ -13,12 +13,10 @@ export {
 export type {
 	LoopSimpleStreamOptions,
 	ResponseThreadingOptions,
-	ResponsesThreadingOptions,
 } from "./providers/common";
 export {
 	responseThreadingDelta,
 	responseThreadingEnabled,
-	threadResponsesRequest,
 } from "./providers/common";
 export { attach } from "./attach";
 export type {
