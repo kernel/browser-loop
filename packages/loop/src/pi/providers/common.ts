@@ -1,11 +1,9 @@
 import type {
 	Api,
 	AssistantMessage,
-	Context,
 	Message,
 	Model,
 	SimpleStreamOptions,
-	StreamOptions,
 } from "@earendil-works/pi-ai";
 import type { LoopIncomingToolPlan } from "../../core/tool-catalog";
 
@@ -18,32 +16,6 @@ export interface LoopSimpleStreamOptions extends SimpleStreamOptions, ResponseTh
 /** Per-request control for Responses API continuation. */
 export interface ResponseThreadingOptions {
 	disableResponseThreading?: boolean;
-}
-
-type ResponsesOnPayload = NonNullable<StreamOptions["onPayload"]>;
-
-export interface ResponsesThreadingOptions extends ResponseThreadingOptions {
-	onPayload?: ResponsesOnPayload;
-}
-
-/** Prepare a Responses request using the latest valid stored response id. */
-export function threadResponsesRequest(
-	context: Context,
-	api: Api,
-	options: ResponsesThreadingOptions | undefined,
-): { context: Context; onPayload: ResponsesOnPayload; previousResponseId?: string } {
-	const delta = responseThreadingEnabled(options) ? responseThreadingDelta(context.messages, api) : undefined;
-	const previousResponseId = delta?.previousResponseId;
-	const messages = previousResponseId && delta ? delta.deltaMessages : context.messages;
-	const onPayload: ResponsesOnPayload = async (payload, model) => {
-		const threaded = {
-			...(payload as Record<string, unknown>),
-			store: true,
-			...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
-		};
-		return options?.onPayload ? ((await options.onPayload(threaded, model)) ?? threaded) : threaded;
-	};
-	return { context: messages === context.messages ? context : { ...context, messages }, onPayload, previousResponseId };
 }
 
 export function responseThreadingEnabled(options?: ResponseThreadingOptions): boolean {

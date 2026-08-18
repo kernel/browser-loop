@@ -549,8 +549,17 @@ npm test --workspace @onkernel/loop
 Build before testing: the pi print/RPC test loads the extension the way pi does,
 through this package's own entry points.
 
-See [`examples/`](examples) for direct catalog/model usage, direct-agent and
-harness smoke tests, provider matrices, and the Anthropic-native compositions.
+The npm-wired agent and harness examples accept `--model` and `--scenario`:
+
+```bash
+npm run example:agent --workspace @onkernel/loop -- \
+  --model anthropic:claude-opus-5 --scenario wikipedia-search
+npm run example:harness --workspace @onkernel/loop -- \
+  --model google:gemini-3.6-flash --scenario hn-url-and-screenshot
+```
+
+See [`examples/`](examples) for direct catalog/model usage, these parameterized
+agent and harness examples, and the Anthropic-native composition.
 
 ## License
 

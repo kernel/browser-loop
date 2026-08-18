@@ -1,15 +1,14 @@
 import type { LoopModelRef } from "../src/pi/index";
 import { compileLoopToolCatalog } from "../src/index";
 import { describe, expect, it } from "vitest";
+import { parseExampleOptions } from "../examples/shared/options";
 import { toolsForModel } from "../examples/shared/tools";
 
 /**
- * The example matrices are plain scripts: they are excluded from `tsc -b` and are
- * never executed in CI, so a provider policy that no longer compiles used to be
- * invisible until someone ran the script against a live key.
- *
- * Limited to models the registry can resolve, so Anthropic's older non-native
- * fallback branch is covered by the tool menu's availability tests instead.
+ * The parameterized agent and harness examples share this tool policy. Keep it
+ * compilable for every advertised model without requiring live provider keys.
+ * Anthropic's older non-native fallback branch is covered by the tool menu's
+ * availability tests instead.
  */
 const models: readonly LoopModelRef[] = [
 	"openai:gpt-5.6-sol",
@@ -22,8 +21,21 @@ const models: readonly LoopModelRef[] = [
 	"openrouter:moonshotai/kimi-k3",
 ];
 
-describe("example provider matrix tool policy", () => {
-	it("compiles a valid catalog for every model the matrices advertise", () => {
+describe("parameterized examples", () => {
+	it("accepts model and scenario flags", () => {
+		const options = parseExampleOptions([
+			"--model", "anthropic:claude-opus-5",
+			"--scenario", "wikipedia-search",
+		]);
+		expect(options.modelRef).toBe("anthropic:claude-opus-5");
+		expect(options.scenario.name).toBe("wikipedia-search");
+	});
+
+	it("rejects unknown scenarios before provisioning a browser", () => {
+		expect(() => parseExampleOptions(["--scenario", "missing"])).toThrow("Unknown scenario");
+	});
+
+	it("compiles a valid catalog for every advertised model", () => {
 		for (const model of models) {
 			expect(
 				() => compileLoopToolCatalog({ model, requestedTools: toolsForModel(model) }),
