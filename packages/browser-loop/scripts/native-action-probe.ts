@@ -246,7 +246,7 @@ async function probeXai(model: string, prompt: ProbePrompt): Promise<ProbeResult
 async function readFixtureScreenshot(): Promise<Buffer> {
 	const path = [
 		join(process.cwd(), "examples", "screenshot.png"),
-		join(process.cwd(), "packages", "loop", "examples", "screenshot.png"),
+		join(process.cwd(), "packages", "browser-loop", "examples", "screenshot.png"),
 	].find(existsSync);
 	if (!path) throw new Error("could not find packages/browser-loop/examples/screenshot.png");
 	return readFile(path);
