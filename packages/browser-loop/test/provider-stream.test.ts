@@ -7,8 +7,8 @@ import { describe, expect, it, vi } from "vitest";
 // extension forwarded, so the test observes the model and options that would go
 // on the wire without a network call. Everything else in the package stays real, and
 // this mock is scoped to this file so it cannot weaken assertions elsewhere.
-vi.mock("@onkernel/loop/pi", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("@onkernel/loop/pi")>();
+vi.mock("@onkernel/browser-loop/pi", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@onkernel/browser-loop/pi")>();
 	const echo = (id: string) => ({
 		id,
 		name: `echo-${id}`,

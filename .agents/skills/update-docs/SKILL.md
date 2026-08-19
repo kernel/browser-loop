@@ -40,11 +40,11 @@ For every doc update:
 
 Start with these source-of-truth checks:
 
-- Package topology: `package.json`, `tsconfig.json`, and `packages/*/package.json`. `@onkernel/loop` is one package with two entry points (`.` and `./pi`) and a `pi.extensions` field.
-- Design invariants: `packages/loop/src/core` is the framework-neutral core (canonical actions, tool declarations, catalog compilation, tool menu, tool manager, Kernel-browser execution); `packages/loop/src/pi` owns provider-specific policy (model resolution, transport derivation, adapters, payload transforms, headers, retry); provider differences reach execution as compiled `LoopToolCatalog` data rather than provider conditionals in the translator.
-- Neutral core: `packages/loop/src/index.ts`, `core/tools.ts`, `core/actions/`, `core/tool-catalog.ts`, `core/menu.ts`, `core/tool-manager.ts`, `core/resources.ts`, and `core/translator/`.
-- pi binding: `packages/loop/src/pi/index.ts`, `pi/attach.ts`, `pi/models.ts` (`getLoopModel`/`listLoopModels`/`parseLoopModelRef`), `pi/providers/`, `pi/provider-retry.ts`, and `pi/api-keys.ts`.
-- Extension runtime flow: `packages/loop/src/pi-extension/index.ts`, `selection.ts`, `browser-runtime.ts`, `state.ts`, and `render.ts`.
+- Package topology: `package.json`, `tsconfig.json`, and `packages/*/package.json`. `@onkernel/browser-loop` is one package with two entry points (`.` and `./pi`) and a `pi.extensions` field.
+- Design invariants: `packages/browser-loop/src/core` is the framework-neutral core (canonical actions, tool declarations, catalog compilation, tool menu, tool manager, Kernel-browser execution); `packages/browser-loop/src/pi` owns provider-specific policy (model resolution, transport derivation, adapters, payload transforms, headers, retry); provider differences reach execution as compiled `LoopToolCatalog` data rather than provider conditionals in the translator.
+- Neutral core: `packages/browser-loop/src/index.ts`, `core/tools.ts`, `core/actions/`, `core/tool-catalog.ts`, `core/menu.ts`, `core/tool-manager.ts`, `core/resources.ts`, and `core/translator/`.
+- pi binding: `packages/browser-loop/src/pi/index.ts`, `pi/attach.ts`, `pi/models.ts` (`getLoopModel`/`listLoopModels`/`parseLoopModelRef`), `pi/providers/`, `pi/provider-retry.ts`, and `pi/api-keys.ts`.
+- Extension runtime flow: `packages/browser-loop/src/pi-extension/index.ts`, `selection.ts`, `browser-runtime.ts`, `state.ts`, and `render.ts`.
 - TUI test infrastructure: `packages/ptywright/package.json`, `src/index.ts`, `src/session.ts`, `src/terminal.ts`, and `README.md`.
 - External drift: provider computer-use docs, `@earendil-works/pi-*` versions, and `@onkernel/sdk` versions in package manifests.
 

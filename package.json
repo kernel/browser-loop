@@ -1,15 +1,15 @@
 {
-  "name": "cua",
+  "name": "browser-loop",
   "version": "0.1.0",
   "description": "Browser tools for your agent: framework-neutral tool catalog, per-model compilation, Kernel-browser execution, and a pi binding",
   "type": "module",
   "private": true,
   "workspaces": [
-    "packages/loop",
+    "packages/browser-loop",
     "packages/ptywright"
   ],
   "scripts": {
-    "build": "npm run build --workspace @onkernel/loop && tsc -b && npm run build:native --workspace @onkernel/ptywright --if-present",
+    "build": "npm run build --workspace @onkernel/browser-loop && tsc -b && npm run build:native --workspace @onkernel/ptywright --if-present",
     "dev": "tsc -b --watch",
     "typecheck": "tsc -b",
     "clean": "tsc -b --clean && npm run clean:native --workspace @onkernel/ptywright --if-present"

@@ -1,4 +1,4 @@
-# `@onkernel/loop`
+# `@onkernel/browser-loop`
 
 Browser tools for your agent: a framework-neutral core (tool declarations,
 per-model catalog compilation, Kernel-browser execution) plus a pi binding
@@ -9,16 +9,16 @@ binding; Eve and AI SDK are anticipated next.
 
 | import | what it is |
 | --- | --- |
-| `@onkernel/loop` | The framework-neutral core: canonical actions, the tool namespace, catalog compilation, the tool menu, and Kernel-browser execution. Core declarations (`LoopToolDeclaration`) and executables (`LoopExecutableTool`) import nothing from pi — schemas come from `typebox` directly — and a unit test enforces the boundary. |
-| `@onkernel/loop/pi` | The pi binding: `attach()`, model resolution, transport derivation, provider adapters, and provider retry. |
+| `@onkernel/browser-loop` | The framework-neutral core: canonical actions, the tool namespace, catalog compilation, the tool menu, and Kernel-browser execution. Core declarations (`LoopToolDeclaration`) and executables (`LoopExecutableTool`) import nothing from pi — schemas come from `typebox` directly — and a unit test enforces the boundary. |
+| `@onkernel/browser-loop/pi` | The pi binding: `attach()`, model resolution, transport derivation, provider adapters, and provider retry. |
 
-Installing the package into pi (`pi install npm:@onkernel/loop`) registers the
+Installing the package into pi (`pi install npm:@onkernel/browser-loop`) registers the
 extension described under [pi extension](#pi-extension).
 
 ## Install
 
 ```bash
-npm install @onkernel/loop @onkernel/sdk @earendil-works/pi-agent-core
+npm install @onkernel/browser-loop @onkernel/sdk @earendil-works/pi-agent-core
 ```
 
 Requires Node 22.19 or newer, `KERNEL_API_KEY` for browser execution, and the
@@ -33,8 +33,8 @@ you construct whatever pi agent you want with them. There is no agent class here
 ```ts
 import Kernel from "@onkernel/sdk";
 import { Agent } from "@earendil-works/pi-agent-core";
-import { loop } from "@onkernel/loop";
-import { attach } from "@onkernel/loop/pi";
+import { loop } from "@onkernel/browser-loop";
+import { attach } from "@onkernel/browser-loop/pi";
 
 const client = new Kernel({ apiKey: process.env.KERNEL_API_KEY! });
 const browser = await client.browsers.create({ stealth: true });
@@ -75,8 +75,8 @@ points the handle's `models` at this catalog:
 
 ```ts
 import { AgentHarness, InMemorySessionRepo } from "@earendil-works/pi-agent-core";
-import { loop } from "@onkernel/loop";
-import { attach } from "@onkernel/loop/pi";
+import { loop } from "@onkernel/browser-loop";
+import { attach } from "@onkernel/browser-loop/pi";
 
 const session = await new InMemorySessionRepo().create();
 const kb = attach({ client, browser });
@@ -108,7 +108,7 @@ the new one. Changing the model or the tool list compiles a new pair; nothing
 mutates in place, and one shared execution-resource pool survives every change,
 so browser refs, tabs, connections, and translator state are not reset.
 
-`@onkernel/loop/pi` does not re-export pi: install `@earendil-works/pi-agent-core`
+`@onkernel/browser-loop/pi` does not re-export pi: install `@earendil-works/pi-agent-core`
 and import its session, skill, prompt-template, compaction, and
 execution-environment primitives directly, as these examples do.
 
@@ -122,8 +122,8 @@ to every tool call:
 ```ts
 import { AgentHarness, createBashTool, createReadTool, type ExecutionToolContext } from "@earendil-works/pi-agent-core";
 import { NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
-import { loop } from "@onkernel/loop";
-import { attach } from "@onkernel/loop/pi";
+import { loop } from "@onkernel/browser-loop";
+import { attach } from "@onkernel/browser-loop/pi";
 
 const compiled = kb.compile<ExecutionToolContext>({
   model: "openai:gpt-5.6-sol",
@@ -142,7 +142,7 @@ compiled.activate(harness);
 ```
 
 Compile for the same context the harness delivers, so a later swap stays
-type-compatible. Loop specs and plain pi `AgentTool`s are accepted too — they
+type-compatible. Browser Loop specs and plain pi `AgentTool`s are accepted too — they
 simply ignore the context. `compiled.agentTools` is the context-free view for
 the low-level `Agent`.
 
@@ -203,7 +203,7 @@ import {
   getLoopModel,
   listLoopModels,
   parseLoopModelRef,
-} from "@onkernel/loop/pi";
+} from "@onkernel/browser-loop/pi";
 
 const model = getLoopModel("openai:gpt-5.6-sol");
 console.log(parseLoopModelRef("anthropic:claude-opus-5"));
@@ -216,10 +216,10 @@ for which models have provider-native tools and which have known request limits.
 
 ## Explicit tools
 
-All Loop-owned tools are available from one frozen namespace:
+All Browser Loop-owned tools are available from one frozen namespace:
 
 ```ts
-import { loop } from "@onkernel/loop";
+import { loop } from "@onkernel/browser-loop";
 
 const tools = [
   loop.tools.browser.snapshot(),
@@ -337,7 +337,7 @@ loop.providers.anthropic.tools.browser({ version: "20260701" });
 loop.providers.google.source;
 loop.providers.google.toolsets.browser({ exclude: ["right_click"] });
 
-// Meta, xAI, and Moonshot use the ordinary Loop browser tools.
+// Meta, xAI, and Moonshot use the ordinary Browser Loop tools.
 loop.toolsets.browser();
 ```
 
@@ -358,7 +358,7 @@ which models carry which surface.
 
 Provider-native caller-visible names are fixed by protocol. Version/tool/model
 mismatches fail during catalog compilation. If an Anthropic credential cannot
-access `browser_20260701`, Loop retries with an equivalent `browser` function
+access `browser_20260701`, Browser Loop retries with an equivalent `browser` function
 tool and remembers that choice for the credential and process. Every
 `loop.providers.*` tool surface exposes its first-party `source` (or versioned
 `sources`), and every returned provider spec carries the applicable URL.
@@ -372,7 +372,7 @@ themselves:
 ```ts
 const catalog = compileLoopToolCatalog({
   model: "anthropic:claude-opus-5",
-  requestedTools: tools, // Loop specs and plain declarations ({ name, description, parameters })
+  requestedTools: tools, // Browser Loop specs and plain declarations ({ name, description, parameters })
 });
 
 catalog.entries;          // identities, fingerprints, declarations, coordinates
@@ -388,7 +388,7 @@ executable tools or retains the requested input objects. Execution is
 a separate concern: `attach()` materializes specs against a Kernel browser and
 owns implementation identity.
 
-A Loop-owned identity remains stable when its name is customized. Caller tools
+A Browser Loop-owned identity remains stable when its name is customized. Caller tools
 receive `caller.<name>` identities through the canonical `callerToolIdentity()`
 helper shared with every consumer. Compilation rejects:
 
@@ -428,10 +428,10 @@ tool's provider binding may declare `requiresApi`, and `compileLoopToolCatalog`
 returns a `catalog.model` carrying that api. Selecting tools whose bindings
 require different transports fails to compile.
 
-- **OpenAI**: a model selected with only ordinary/Loop browser tools streams
+- **OpenAI**: a model selected with only ordinary Browser Loop tools streams
   through pi's builtin Responses transport and its automatic prompt caching.
-  Selecting `loop.providers.openai.tools.computer()` derives the Loop-owned
-  `openai-computer-use` api instead, which a Loop adapter handles; that same
+  Selecting `loop.providers.openai.tools.computer()` derives the Browser Loop-owned
+  `openai-computer-use` api instead, which a Browser Loop adapter handles; that same
   adapter also covers tool-search namespace round-trips regardless of api,
   since pi's builtin transport does not replay them.
 - **Anthropic**: exact native declarations, beta-header composition, and
@@ -439,7 +439,7 @@ require different transports fails to compile.
   through pi's builtin transport.
 - **Google**: a model selected without Google's native browser toolset streams
   through pi's builtin transport. Selecting
-  `loop.providers.google.toolsets.browser()` derives the Loop-owned
+  `loop.providers.google.toolsets.browser()` derives the Browser Loop-owned
   `google-interactions` api, which serializes one `computer_use`
   declaration plus explicit exclusions through the Interactions API adapter.
 - **Meta/xAI/Moonshot**: ordinary function tools with serial tool calls when the
@@ -452,7 +452,7 @@ import {
   loopApiKeyEnvVarsForProvider,
   getLoopEnvApiKeyForModel,
   requireLoopEnvApiKeyForModel,
-} from "@onkernel/loop/pi";
+} from "@onkernel/browser-loop/pi";
 ```
 
 Conventional variables are `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
@@ -473,7 +473,7 @@ case, then deploy the same catalog — same identities, same names — through
 `attach()` in your production agent.
 
 ```sh
-pi install npm:@onkernel/loop
+pi install npm:@onkernel/browser-loop
 
 pi -p --provider openai --model gpt-5.6-sol \
   --browser-tools browser,browser-act "Open example.com and report its heading"
@@ -541,9 +541,9 @@ provision one. An owned browser is deleted on session shutdown.
 ## Development
 
 ```bash
-npm run typecheck --workspace @onkernel/loop
-npm run build --workspace @onkernel/loop
-npm test --workspace @onkernel/loop
+npm run typecheck --workspace @onkernel/browser-loop
+npm run build --workspace @onkernel/browser-loop
+npm test --workspace @onkernel/browser-loop
 ```
 
 Build before testing: the pi print/RPC test loads the extension the way pi does,
@@ -552,9 +552,9 @@ through this package's own entry points.
 The npm-wired agent and harness examples accept `--model` and `--scenario`:
 
 ```bash
-npm run example:agent --workspace @onkernel/loop -- \
+npm run example:agent --workspace @onkernel/browser-loop -- \
   --model anthropic:claude-opus-5 --scenario wikipedia-search
-npm run example:harness --workspace @onkernel/loop -- \
+npm run example:harness --workspace @onkernel/browser-loop -- \
   --model google:gemini-3.6-flash --scenario hn-url-and-screenshot
 ```
 

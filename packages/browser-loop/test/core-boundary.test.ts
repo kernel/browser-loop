@@ -7,7 +7,7 @@ const CORE_DIR = join(SRC_DIR, "core");
 
 /**
  * Bare specifiers core may import. Everything else — pi packages, this
- * package's own entry points (`@onkernel/loop`, `@onkernel/loop/pi`), any
+ * package's own entry points (`@onkernel/browser-loop`, `@onkernel/browser-loop/pi`), any
  * future alias — is rejected by default rather than by enumeration.
  */
 const ALLOWED_BARE_IMPORTS = [/^node:/, /^typebox(\/|$)/, /^@onkernel\/sdk(\/|$)/, /^sharp(\/|$)/];
@@ -50,7 +50,7 @@ function isInsideCore(path: string): boolean {
  * The neutral boundary: src/core must be expressible without pi in the room.
  * Nothing under it may import a pi package — even type-only — or reach the pi
  * binding through any specifier: relative (`../pi`), the package's own public
- * subpaths (`@onkernel/loop/pi`), or an unlisted bare import.
+ * subpaths (`@onkernel/browser-loop/pi`), or an unlisted bare import.
  */
 describe("core boundary", () => {
 	const files = coreFiles(CORE_DIR);
@@ -76,8 +76,8 @@ describe("core boundary", () => {
 		for (const forbidden of [
 			"@earendil-works/pi-ai",
 			"@earendil-works/pi-agent-core",
-			"@onkernel/loop",
-			"@onkernel/loop/pi",
+			"@onkernel/browser-loop",
+			"@onkernel/browser-loop/pi",
 			"../pi/models",
 			"../pi-extension/selection",
 			"..",

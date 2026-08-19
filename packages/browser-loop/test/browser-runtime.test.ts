@@ -6,7 +6,7 @@ vi.mock("@onkernel/sdk", () => ({
 		browsers = { create: state.create, retrieve: state.retrieve, deleteByID: state.deleteByID };
 	},
 }));
-vi.mock("@onkernel/loop", () => ({
+vi.mock("@onkernel/browser-loop", () => ({
 	LoopExecutionResources: class {
 		dispose = state.dispose;
 		constructor(_options: unknown) {}

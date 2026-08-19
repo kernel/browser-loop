@@ -1,5 +1,5 @@
 import Kernel from "@onkernel/sdk";
-import { LoopExecutionResources } from "@onkernel/loop";
+import { LoopExecutionResources } from "@onkernel/browser-loop";
 
 /**
  * Browser configuration, passed as one JSON object rather than a flag per field.

@@ -1,5 +1,5 @@
 {
-  "name": "@onkernel/loop",
+  "name": "@onkernel/browser-loop",
   "version": "0.11.0",
   "description": "Browser tools for your agent: framework-neutral tool catalog, per-model compilation, Kernel-browser execution, and a pi binding + extension",
   "license": "MIT",
@@ -8,13 +8,13 @@
   "types": "./dist/index.d.ts",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kernel/cua.git",
-    "directory": "packages/loop"
+    "url": "git+https://github.com/kernel/browser-loop.git",
+    "directory": "packages/browser-loop"
   },
   "bugs": {
-    "url": "https://github.com/kernel/cua/issues"
+    "url": "https://github.com/kernel/browser-loop/issues"
   },
-  "homepage": "https://github.com/kernel/cua/tree/main/packages/loop#readme",
+  "homepage": "https://github.com/kernel/browser-loop/tree/main/packages/browser-loop#readme",
   "keywords": [
     "pi-package",
     "pi-extension",
