@@ -1,13 +1,13 @@
 ---
 name: release
-description: Prepare and publish the @onkernel/loop npm release from kernel/cua. Use when checking release readiness, choosing a package version, writing the package changelog, committing release metadata to main, pushing package-prefixed tags, or monitoring the release workflow.
+description: Prepare and publish the @onkernel/browser-loop npm release from kernel/browser-loop. Use when checking release readiness, choosing a package version, writing the package changelog, committing release metadata to main, pushing package-prefixed tags, or monitoring the release workflow.
 ---
 
 # Release
 
-Use this workflow to release `@onkernel/loop`.
+Use this workflow to release `@onkernel/browser-loop`.
 
-The first publish under the `@onkernel/loop` name is manual, because npm binds a
+The first publish under the `@onkernel/browser-loop` name is manual, because npm binds a
 trusted publisher to a (repository, workflow filename) pair and a brand-new
 package name has none. See `docs/npm-releases.md`.
 
@@ -20,7 +20,7 @@ error-prone.
 
 | package | directory | tag prefix | workflow |
 | --- | --- | --- | --- |
-| `@onkernel/loop` | `packages/loop` | `loop/v` | `release-loop.yml` |
+| `@onkernel/browser-loop` | `packages/browser-loop` | `browser-loop/v` | `release-browser-loop.yml` |
 | `@onkernel/ptywright` | `packages/ptywright` | — | not published |
 
 ## Quick Start
@@ -37,14 +37,14 @@ git fetch --tags origin
 
 ```bash
 git status --short
-npm view @onkernel/loop versions --json
-test -f .github/workflows/release-loop.yml
+npm view @onkernel/browser-loop versions --json
+test -f .github/workflows/release-browser-loop.yml
 ```
 
 3. Find the previous release tag:
 
 ```bash
-git tag --list "loop/v*" --sort=-v:refname | head -1
+git tag --list "browser-loop/v*" --sort=-v:refname | head -1
 ```
 
 If no tag exists, treat the next release as the current `package.json` version
@@ -53,8 +53,8 @@ unless npm already has that version.
 4. Inspect changes since the last tag:
 
 ```bash
-git log --oneline <last-tag>..HEAD -- packages/loop package.json package-lock.json tsconfig.base.json
-git diff --name-status <last-tag>..HEAD -- packages/loop package.json package-lock.json tsconfig.base.json
+git log --oneline <last-tag>..HEAD -- packages/browser-loop package.json package-lock.json tsconfig.base.json
+git diff --name-status <last-tag>..HEAD -- packages/browser-loop package.json package-lock.json tsconfig.base.json
 ```
 
 ## Version Choice
@@ -71,11 +71,11 @@ tag:
   minor bump for breaking changes unless it is intentionally moving to `1.0.0`.
 
 The candidate version must be greater than both the last tag and every version
-returned by `npm view @onkernel/loop versions --json`.
+returned by `npm view @onkernel/browser-loop versions --json`.
 
 ## Changelog
 
-Changes land under a `## Unreleased` heading in `packages/loop/CHANGELOG.md` as
+Changes land under a `## Unreleased` heading in `packages/browser-loop/CHANGELOG.md` as
 they merge, so the changelog has at most one unreleased section.
 
 Releasing renames that heading in place — do not add a second top entry:
@@ -105,7 +105,7 @@ per-merge heading claims a release that never happened.
 Set the version explicitly:
 
 ```bash
-npm pkg set version=<version> --workspace @onkernel/loop
+npm pkg set version=<version> --workspace @onkernel/browser-loop
 ```
 
 Refresh the lockfile:
@@ -118,16 +118,16 @@ npm install --package-lock-only
 
 ```bash
 npm ci
-npm run build --workspace @onkernel/loop
+npm run build --workspace @onkernel/browser-loop
 npm run typecheck
-npm test --workspace @onkernel/loop
-npm pack --workspace @onkernel/loop --dry-run
+npm test --workspace @onkernel/browser-loop
+npm pack --workspace @onkernel/browser-loop --dry-run
 ```
 
 Build before testing: the pi print/RPC test loads the extension the way pi does,
 through the package's own entry points. Run the full unit suite — do not pass
 individual test files. Integration tests run separately (`npm run
-test:integration --workspace @onkernel/loop`), and live e2e tests skip unless
+test:integration --workspace @onkernel/browser-loop`), and live e2e tests skip unless
 `LOOP_E2E_LIVE=1` is set.
 
 Confirm the packed tarball ships `dist` and the extension source pi loads
@@ -142,8 +142,8 @@ limited to the package version, changelog, and `package-lock.json`.
 
 ```bash
 git status --short
-git add package-lock.json packages/loop/package.json packages/loop/CHANGELOG.md
-git commit -m "Release @onkernel/loop v<version>"
+git add package-lock.json packages/browser-loop/package.json packages/browser-loop/CHANGELOG.md
+git commit -m "Release @onkernel/browser-loop v<version>"
 git push origin main
 ```
 
@@ -152,8 +152,8 @@ git push origin main
 After the release commit is on `main`, create an annotated tag at that commit:
 
 ```bash
-git tag -a loop/v<version> -m "@onkernel/loop v<version>"
-git push origin loop/v<version>
+git tag -a browser-loop/v<version> -m "@onkernel/browser-loop v<version>"
+git push origin browser-loop/v<version>
 ```
 
 ## Monitor
@@ -161,15 +161,15 @@ git push origin loop/v<version>
 Find and watch the workflow run triggered by the tag:
 
 ```bash
-gh run list --workflow release-loop.yml --json databaseId,status,conclusion,headBranch,displayTitle,url --limit 10
+gh run list --workflow release-browser-loop.yml --json databaseId,status,conclusion,headBranch,displayTitle,url --limit 10
 gh run watch <run-id> --exit-status
 ```
 
 After the workflow succeeds, verify npm:
 
 ```bash
-npm view @onkernel/loop@<version> version
-npm dist-tag ls @onkernel/loop
+npm view @onkernel/browser-loop@<version> version
+npm dist-tag ls @onkernel/browser-loop
 ```
 
 Then verify the published artifact actually imports — `npm view` only proves
@@ -178,9 +178,9 @@ the version exists, not that the tarball is loadable:
 ```bash
 cd "$(mktemp -d)"
 npm init -y
-npm install @onkernel/loop@<version>
-node --input-type=module -e "import('@onkernel/loop').then((m) => { if (typeof m.compileLoopToolCatalog !== 'function') process.exit(1); })"
-node --input-type=module -e "import('@onkernel/loop/pi').then((m) => { if (typeof m.attach !== 'function') process.exit(1); })"
+npm install @onkernel/browser-loop@<version>
+node --input-type=module -e "import('@onkernel/browser-loop').then((m) => { if (typeof m.compileLoopToolCatalog !== 'function') process.exit(1); })"
+node --input-type=module -e "import('@onkernel/browser-loop/pi').then((m) => { if (typeof m.attach !== 'function') process.exit(1); })"
 ```
 
 If the workflow fails after a tag is pushed, do not reuse the same version

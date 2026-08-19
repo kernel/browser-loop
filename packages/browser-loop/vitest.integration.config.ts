@@ -8,8 +8,8 @@ export default defineConfig({
 	resolve: {
 		// Same source alias the unit config sets; see the note there.
 		alias: {
-			"@onkernel/loop/pi": fileURLToPath(new URL("./src/pi/index.ts", import.meta.url)),
-			"@onkernel/loop": fileURLToPath(new URL("./src/index.ts", import.meta.url)),
+			"@onkernel/browser-loop/pi": fileURLToPath(new URL("./src/pi/index.ts", import.meta.url)),
+			"@onkernel/browser-loop": fileURLToPath(new URL("./src/index.ts", import.meta.url)),
 		},
 	},
 	test: {

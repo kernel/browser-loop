@@ -2,7 +2,11 @@
 
 ## Unreleased
 
-- The three packages are one: `@onkernel/loop` replaces `@onkernel/cua-ai`,
+- Rename the product and unpublished package to Browser Loop: the repository is
+  prepared for `kernel/browser-loop`, the package is `@onkernel/browser-loop`,
+  and release tags use `browser-loop/v*`. The public `loop` namespace, `Loop*`
+  TypeScript names, and `kloop.*.v1` tool identities are unchanged.
+- The three packages are one: `@onkernel/browser-loop` replaces `@onkernel/cua-ai`,
   `@onkernel/cua-agent`, and `@onkernel/cua-pi-extension`. `.` exports the
   framework-neutral core (canonical actions, tool declarations, catalog
   compiler, tool menu, tool manager, browser execution), `./pi` exports the pi

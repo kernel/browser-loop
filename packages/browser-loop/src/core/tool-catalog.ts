@@ -8,7 +8,7 @@ import {
 	type LoopModelFacts,
 } from "./model-info";
 
-export const LOOP_TOOL_SPEC_KIND = "@onkernel/loop-tool-spec/v1" as const;
+export const LOOP_TOOL_SPEC_KIND = "@onkernel/browser-loop-tool-spec/v1" as const;
 
 /** Loop-owned api id for OpenAI's native computer tool, derived onto the model by {@link compileLoopToolCatalog} when that tool is selected. */
 export const OPENAI_COMPUTER_USE_API = "openai-computer-use";

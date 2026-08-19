@@ -1,16 +1,16 @@
-name: Release Loop
+name: Release Browser Loop
 
 on:
   push:
     tags:
-      - "loop/v*"
+      - "browser-loop/v*"
 
 permissions:
   contents: read
   id-token: write
 
 concurrency:
-  group: release-loop-${{ github.ref_name }}
+  group: release-browser-loop-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -43,13 +43,13 @@ jobs:
           import { readFileSync } from "node:fs";
 
           const tag = process.env.GITHUB_REF_NAME;
-          const prefix = "loop/v";
+          const prefix = "browser-loop/v";
           if (!tag?.startsWith(prefix)) {
             throw new Error(`Expected tag to start with ${prefix}, got ${tag}`);
           }
 
           const tagVersion = tag.slice(prefix.length);
-          const pkg = JSON.parse(readFileSync("packages/loop/package.json", "utf8"));
+          const pkg = JSON.parse(readFileSync("packages/browser-loop/package.json", "utf8"));
           if (pkg.version !== tagVersion) {
             throw new Error(`Tag version ${tagVersion} does not match ${pkg.name} package.json version ${pkg.version}`);
           }
@@ -57,24 +57,24 @@ jobs:
           console.log(`${pkg.name}@${pkg.version}`);
           NODE
 
-      - run: npm run build --workspace @onkernel/loop
-      - run: npm run typecheck --workspace @onkernel/loop
+      - run: npm run build --workspace @onkernel/browser-loop
+      - run: npm run typecheck --workspace @onkernel/browser-loop
 
       - name: Unit tests
-        run: npm test --workspace @onkernel/loop
+        run: npm test --workspace @onkernel/browser-loop
 
       - name: Pack tarball
-        run: npm pack --workspace @onkernel/loop --pack-destination "$RUNNER_TEMP"
+        run: npm pack --workspace @onkernel/browser-loop --pack-destination "$RUNNER_TEMP"
 
       - name: ESM import smoke test
         run: |
           SMOKE_DIR=$(mktemp -d)
           cd "$SMOKE_DIR"
           npm init -y > /dev/null
-          npm install "$RUNNER_TEMP"/onkernel-loop-*.tgz
+          npm install "$RUNNER_TEMP"/onkernel-browser-loop-*.tgz
           cat > smoke.mjs <<'NODE'
-          import { compileLoopToolCatalog, formatBrowserActResult, loop } from "@onkernel/loop";
-          import * as loopPi from "@onkernel/loop/pi";
+          import { compileLoopToolCatalog, formatBrowserActResult, loop } from "@onkernel/browser-loop";
+          import * as loopPi from "@onkernel/browser-loop/pi";
 
           const { attach, createLoopModels, getLoopModel } = loopPi;
           for (const [name, value] of Object.entries({ compileLoopToolCatalog, formatBrowserActResult, attach, createLoopModels, getLoopModel })) {
@@ -86,11 +86,11 @@ jobs:
             throw new Error(`expected loop to be an object, got ${typeof loop}`);
           }
           if ("Agent" in loopPi || "NodeExecutionEnv" in loopPi) {
-            throw new Error("expected @onkernel/loop/pi not to re-export pi-agent-core");
+            throw new Error("expected @onkernel/browser-loop/pi not to re-export pi-agent-core");
           }
           console.log("ESM import smoke OK");
           NODE
           node smoke.mjs
 
       - name: Publish to npm
-        run: npm publish --workspace @onkernel/loop --access public
+        run: npm publish --workspace @onkernel/browser-loop --access public

@@ -1,5 +1,5 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { compileLoopToolCatalog, loop, loopToolMenu, type LoopToolCatalog, type LoopToolSpec } from "@onkernel/loop";
+import { compileLoopToolCatalog, loop, loopToolMenu, type LoopToolCatalog, type LoopToolSpec } from "@onkernel/browser-loop";
 
 type Coordinates = "pixels" | "normalized-1000";
 type CoordinateSystem = ReturnType<typeof loop.coordinates.pixels> | ReturnType<typeof loop.coordinates.normalized>;

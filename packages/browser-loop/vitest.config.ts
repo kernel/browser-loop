@@ -11,8 +11,8 @@ export default defineConfig({
 		// `@earendil-works/pi-ai/api/*` imports the provider adapters make. Unit
 		// tests point that name back at source so they do not need a build.
 		alias: {
-			"@onkernel/loop/pi": fileURLToPath(new URL("./src/pi/index.ts", import.meta.url)),
-			"@onkernel/loop": fileURLToPath(new URL("./src/index.ts", import.meta.url)),
+			"@onkernel/browser-loop/pi": fileURLToPath(new URL("./src/pi/index.ts", import.meta.url)),
+			"@onkernel/browser-loop": fileURLToPath(new URL("./src/index.ts", import.meta.url)),
 		},
 	},
 	test: {

@@ -71,9 +71,9 @@ function parseArgs(argv: string[]): Args {
 
 function usage(): never {
 	console.log(`Usage:
-  npx tsx packages/loop/scripts/native-action-probe.ts --provider openai --model gpt-5.5 --out /tmp/actions.json
-  npx tsx packages/loop/scripts/native-action-probe.ts --provider anthropic --model claude-opus-4-7 --limit 3
-  npx tsx packages/loop/scripts/native-action-probe.ts --provider xai --model grok-4.5 --limit 3
+  npx tsx packages/browser-loop/scripts/native-action-probe.ts --provider openai --model gpt-5.5 --out /tmp/actions.json
+  npx tsx packages/browser-loop/scripts/native-action-probe.ts --provider anthropic --model claude-opus-4-7 --limit 3
+  npx tsx packages/browser-loop/scripts/native-action-probe.ts --provider xai --model grok-4.5 --limit 3
 `);
 	process.exit(0);
 }
@@ -248,7 +248,7 @@ async function readFixtureScreenshot(): Promise<Buffer> {
 		join(process.cwd(), "examples", "screenshot.png"),
 		join(process.cwd(), "packages", "loop", "examples", "screenshot.png"),
 	].find(existsSync);
-	if (!path) throw new Error("could not find packages/loop/examples/screenshot.png");
+	if (!path) throw new Error("could not find packages/browser-loop/examples/screenshot.png");
 	return readFile(path);
 }
 

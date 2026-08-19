@@ -1,11 +1,11 @@
 # Models and native surfaces
 
-`@onkernel/loop` accepts **any model pi-ai carries**, and any model id its
+`@onkernel/browser-loop` accepts **any model pi-ai carries**, and any model id its
 registry has not caught up with yet. There is no allowlist: a model id you pass
 resolves, and the provider decides whether it exists. Run
 `listLoopModels(provider?)` for the live catalog.
 
-Two small tables in [`src/pi/models.ts`](https://github.com/kernel/cua/blob/main/packages/loop/src/pi/models.ts)
+Two small tables in [`src/pi/models.ts`](https://github.com/kernel/browser-loop/blob/main/packages/browser-loop/src/pi/models.ts)
 describe what is *different* about particular models. Neither decides whether a
 model may run.
 
@@ -31,7 +31,7 @@ Anthropic's entries live in `src/pi/providers/anthropic/capabilities.ts`, which 
 version-gated separately; `computerUseNativeSurfaces(model)` reads both sources.
 
 A model with no native surface is not restricted — it drives a Kernel browser
-with Loop's own CDP tools, which is the default for every provider.
+with Browser Loop's own CDP tools, which is the default for every provider.
 
 ## Quirks
 
@@ -88,7 +88,7 @@ four such providers rather than carry them unused.
 a table edit. Probe what the model actually emits:
 
 ```bash
-npx tsx packages/loop/scripts/native-action-probe.ts --provider openai --model gpt-5.5 --limit 3
+npx tsx packages/browser-loop/scripts/native-action-probe.ts --provider openai --model gpt-5.5 --limit 3
 ```
 
 Update that provider's adapter under `src/pi/providers/` to execute the actions the
@@ -97,7 +97,7 @@ provider's documentation. Anthropic's computer tool version and its
 `computer-use-*` beta header are chosen by pi-ai per model, so a new dated
 version there usually means bumping pi-ai rather than editing this package.
 
-**A model rejects a tool Loop sends.** Add a `LOOP_MODEL_QUIRKS` entry with the
+**A model rejects a tool Browser Loop sends.** Add a `LOOP_MODEL_QUIRKS` entry with the
 observed error as its `reason`, scoped as narrowly as the evidence supports: a
 single model id over a family, a family over a whole provider. Remove a quirk
 when the provider lifts the limit — a stale quirk silently denies a model a tool

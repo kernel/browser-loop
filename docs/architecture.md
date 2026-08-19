@@ -12,7 +12,7 @@ both explicitly and may use pi's orchestration primitives directly.
 
 ## Module boundaries
 
-`@onkernel/loop` is one package with two entry points and three source trees:
+`@onkernel/browser-loop` is one package with two entry points and three source trees:
 
 - `.` (`src/core/`) is the framework-neutral core: canonical actions, the tool
   declarations namespace, the catalog compiler, the tool menu, and
@@ -27,7 +27,7 @@ both explicitly and may use pi's orchestration primitives directly.
   core only orders and validates what it is given.
   `test/core-boundary.test.ts` fails the unit suite on any `src/core` import
   that is not core-relative or an allowlisted neutral dependency — including
-  pi packages and this package's own `@onkernel/loop/pi` subpath.
+  pi packages and this package's own `@onkernel/browser-loop/pi` subpath.
 - `./pi` (`src/pi/`) is the pi binding: `attach()`/`compile()`, the tool
   manager that joins compiled catalogs to executable pi `AgentTool`s, model
   resolution and availability facts (`compileLoopToolCatalog`/`loopToolMenu`
@@ -44,8 +44,8 @@ both explicitly and may use pi's orchestration primitives directly.
   pieces that are not pi-shaped — the catalog compiler and
   `LoopExecutionResources` — and applies headers and payload transforms through
   pi's own `before_provider_headers` and `before_provider_request` hooks. It
-  imports the rest of the package by name (`@onkernel/loop`,
-  `@onkernel/loop/pi`) rather than by relative path, because pi loads the
+  imports the rest of the package by name (`@onkernel/browser-loop`,
+  `@onkernel/browser-loop/pi`) rather than by relative path, because pi loads the
   extension as TypeScript through jiti and jiti's pi-ai alias cannot follow the
   deep `@earendil-works/pi-ai/api/*` imports the provider adapters make.
 - `@onkernel/ptywright` is development-only PTY/TUI test infrastructure. It has
@@ -58,8 +58,8 @@ not a conditional in the translator.
 
 ```mermaid
 flowchart LR
-  core["@onkernel/loop (src/core)"]
-  pibind["@onkernel/loop/pi (src/pi)"]
+  core["@onkernel/browser-loop (src/core)"]
+  pibind["@onkernel/browser-loop/pi (src/pi)"]
   ext["src/pi-extension"]
   pi["pi-agent-core / pi-ai / pi-coding-agent"]
   sdk["@onkernel/sdk"]
@@ -77,7 +77,7 @@ flowchart LR
 The core exposes one frozen namespace:
 
 ```ts
-import { loop } from "@onkernel/loop";
+import { loop } from "@onkernel/browser-loop";
 
 const tools = [
   loop.tools.browser.snapshot(),
@@ -93,12 +93,12 @@ The main groups are:
   default.
 - `loop.tools.playwright()`: a Playwright code execution tool.
 - `loop.toolsets.browser()`, `computer()`, and `mixed()`: ordinary convenience
-  arrays of Loop-authored tools.
+  arrays of Browser Loop-authored tools.
 - `loop.providers.*`: only provider-native tools and predefined toolsets backed
   by linked first-party documentation. Each provider namespace exposes its
   `source` (or versioned `sources`), and every returned spec carries that URL.
 
-Each Loop-owned tool has a stable identity independent of its caller-visible
+Each Browser Loop-owned tool has a stable identity independent of its caller-visible
 name. Compilation preserves requested order and derives provider-safe names,
 schema fingerprints, coordinate contracts, loading eligibility,
 headers, payload transforms, and native input mappings. Duplicate identities,
@@ -144,11 +144,11 @@ exactly once per spec object.
 
 ## Action planes and result feedback
 
-Canonical actions live under `packages/loop/src/core/actions/`:
+Canonical actions live under `packages/browser-loop/src/core/actions/`:
 
 - **Computer actions** use Kernel's `browsers.computer` API and OS screenshot
   coordinates.
-- **Browser actions** use `packages/loop/src/core/translator/browser.ts` over the
+- **Browser actions** use `packages/browser-loop/src/core/translator/browser.ts` over the
   browser's raw CDP websocket. Element refs are snapshot-scoped and stale refs
   fail with a request to snapshot again.
 
@@ -181,13 +181,13 @@ catalog:
 - Anthropic native browser/computer declarations replace only their own
   placeholders and merge required beta headers with caller headers.
 - OpenAI streams through pi's builtin Responses transport and its automatic
-  prompt caching by default; a Loop-owned adapter handles OpenAI's native
+  prompt caching by default; a Browser Loop-owned adapter handles OpenAI's native
   computer tool and tool-search namespace round-trips.
 - Anthropic's native browser tool falls back to an equivalent function-tool
   declaration when the active credential cannot access `browser_20260701`;
   the selected tool identity, name, schema, and executor remain unchanged.
 - Google's current predefined browser toolset serializes one `computer_use`
-  declaration plus exact exclusions through the Loop-owned Interactions API
+  declaration plus exact exclusions through the Browser Loop-owned Interactions API
   adapter. Excluded calls fail with a named catalog error instead of reaching
   generic tool dispatch.
 - Meta, xAI, and Moonshot disable parallel tool calls when the selected catalog
@@ -205,17 +205,17 @@ bindings require different transports fails to compile with a named catalog
 error. A model resolved with no such tool selected keeps its ordinary registry
 api.
 
-This is why an OpenAI model selected with only Loop browser tools streams
+This is why an OpenAI model selected with only Browser Loop tools streams
 through pi's builtin `openai-responses` transport, but the same model selected
-with `loop.providers.openai.tools.computer()` compiles to the Loop-owned
+with `loop.providers.openai.tools.computer()` compiles to the Browser Loop-owned
 `openai-computer-use` api — and symmetrically for Google's
 `google-interactions` Interactions API versus pi's builtin Google
 transport.
 
 ### The tool menu
 
-`loopToolMenu(model, selected)` in `packages/loop/src/core/menu.ts` returns every tool
-Loop can offer for a model, each marked available or not. It decides availability
+`loopToolMenu(model, selected)` in `packages/browser-loop/src/core/menu.ts` returns every tool
+Browser Loop can offer for a model, each marked available or not. It decides availability
 by compiling the candidate catalog rather than by restating the compiler's
 rules, so the menu cannot drift from what `compileLoopToolCatalog` accepts: an
 entry is available exactly when selecting it compiles. Compilation is pure and
@@ -241,7 +241,7 @@ serialization, provider fields, then the caller's `onPayload` hook.
 
 ## Extension composition
 
-`packages/loop/src/pi-extension/index.ts` is the composition root for pi sessions. pi
+`packages/browser-loop/src/pi-extension/index.ts` is the composition root for pi sessions. pi
 owns the agent loop, session, UI, and model selection; the extension contributes
 only what Kernel owns:
 
@@ -286,14 +286,14 @@ user prompt
 
 ## Validation and test ownership
 
-- `packages/loop/test/tool-catalog.test.ts`: identities, collisions, provider
+- `packages/browser-loop/test/tool-catalog.test.ts`: identities, collisions, provider
   composition, compatibility, declarations, and coordinate contracts.
-- `packages/loop/test/resources.test.ts`: action feedback and batch boundaries.
-- `packages/loop/test/attach.test.ts` and `attach-session.test.ts`: compiled
+- `packages/browser-loop/test/resources.test.ts`: action feedback and batch boundaries.
+- `packages/browser-loop/test/attach.test.ts` and `attach-session.test.ts`: compiled
   pairs, applying one to a running harness, and the behaviors `activate()`
   installs.
-- `packages/loop/test/translator-browser.test.ts`: browser behavior and ref
+- `packages/browser-loop/test/translator-browser.test.ts`: browser behavior and ref
   lifecycle.
-- `packages/loop/test/`: selection and availability, provider stream
+- `packages/browser-loop/test/`: selection and availability, provider stream
   ownership, browser lifecycle, and an end-to-end run against real `pi` in print
   and RPC modes.

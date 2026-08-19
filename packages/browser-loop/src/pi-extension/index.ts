@@ -6,8 +6,8 @@ import type { Api, Model, SimpleStreamOptions, StreamOptions } from "@earendil-w
 // package root and cannot follow the deep `@earendil-works/pi-ai/api/*` imports
 // the provider adapters make. By name, those adapters are loaded from the built
 // package instead, the way any other consumer loads them.
-import type { LoopIncomingToolPlan, LoopToolCatalog, LoopToolSpec } from "@onkernel/loop";
-import { createLoopModels } from "@onkernel/loop/pi";
+import type { LoopIncomingToolPlan, LoopToolCatalog, LoopToolSpec } from "@onkernel/browser-loop";
+import { createLoopModels } from "@onkernel/browser-loop/pi";
 import {
 	allSelectableSpecs,
 	compileSpecs,

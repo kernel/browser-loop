@@ -11,8 +11,8 @@
     // path; see the note in src/pi-extension/index.ts. Point those specifiers
     // at source so a typecheck does not require a build first.
     "paths": {
-      "@onkernel/loop": ["./src/index.ts"],
-      "@onkernel/loop/pi": ["./src/pi/index.ts"]
+      "@onkernel/browser-loop": ["./src/index.ts"],
+      "@onkernel/browser-loop/pi": ["./src/pi/index.ts"]
     }
   },
   "include": ["src/**/*.ts"],
