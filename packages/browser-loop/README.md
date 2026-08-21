@@ -341,6 +341,16 @@ loop.providers.google.toolsets.browser({ exclude: ["right_click"] });
 loop.toolsets.browser();
 ```
 
+Anthropic's browser toolset leaves `javascript_exec` disabled unless it is
+enabled explicitly:
+
+```ts
+loop.providers.anthropic.tools.browser({
+  version: "20260801",
+  javascript: true,
+});
+```
+
 The Google browser set exposes the current predefined action names and uses
 normalized coordinates in `[0, 999]`. Its native `computer_use` declaration
 excludes every unselected browser action. If Google emits an excluded name
