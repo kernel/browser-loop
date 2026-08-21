@@ -114,6 +114,11 @@ Refresh the lockfile:
 npm install --package-lock-only
 ```
 
+If a version-only bump causes npm to reorder or rewrite unrelated platform
+packages, restore the lockfile and update only the workspace's `version` entry.
+Do not commit thousands of lines of lockfile churn; `npm ci` and
+`npm run check:lockfile` must still pass.
+
 ## Validate
 
 ```bash
