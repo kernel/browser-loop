@@ -13,7 +13,7 @@
     "dev": "tsc -b --watch",
     "typecheck": "tsc -b",
     "clean": "tsc -b --clean && npm run clean:native --workspace @onkernel/ptywright --if-present",
-    "check:lockfile": "node scripts/check-optional-lockfile.mjs"
+    "check:lockfile": "node scripts/check-lockfile.mjs"
   },
   "engines": {
     "node": ">=22.19.0"

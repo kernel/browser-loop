@@ -18,15 +18,17 @@ function resolutionPaths(packagePath, dependency) {
 }
 
 for (const [packagePath, metadata] of Object.entries(packages)) {
-	for (const dependency of Object.keys(metadata.optionalDependencies ?? {})) {
-		if (!resolutionPaths(packagePath, dependency).some((candidate) => packages[candidate])) {
-			missing.push(`${packagePath || "."} -> ${dependency}`);
+	for (const section of ["dependencies", "optionalDependencies"]) {
+		for (const dependency of Object.keys(metadata[section] ?? {})) {
+			if (!resolutionPaths(packagePath, dependency).some((candidate) => packages[candidate])) {
+				missing.push(`${packagePath || "."} -> ${dependency}`);
+			}
 		}
 	}
 }
 
 if (missing.length > 0) {
-	throw new Error(`package-lock.json omits optional dependencies:\n${missing.join("\n")}`);
+	throw new Error(`package-lock.json omits dependencies:\n${missing.join("\n")}`);
 }
 
-console.log("package-lock.json includes all optional dependencies");
+console.log("package-lock.json includes all dependency entries");
