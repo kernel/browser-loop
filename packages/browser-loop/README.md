@@ -357,10 +357,10 @@ than on the wire. [Models and native surfaces](docs/supported-models.md) lists
 which models carry which surface.
 
 Provider-native caller-visible names are fixed by protocol. Version/tool/model
-mismatches fail during catalog compilation. Anthropic's GA
-`computer_toolset_20260801` and `browser_toolset_20260801` declarations need no
-beta header and may be selected together; Browser Loop preserves member
-`toolset_name` fields and sequential batch semantics across pi's transcript.
+mismatches fail during catalog compilation. Anthropic's
+`computer_toolset_20260801` and `browser_toolset_20260801` declarations may be
+selected together; Browser Loop preserves member `toolset_name` fields and
+sequential batch semantics across pi's transcript.
 Every `loop.providers.*` tool surface exposes its first-party `source` or
 `sources`, and every returned provider spec carries the applicable URL.
 
@@ -435,9 +435,9 @@ require different transports fails to compile.
   `openai-computer-use` api instead, which a Browser Loop adapter handles; that same
   adapter also covers tool-search namespace round-trips regardless of api,
   since pi's builtin transport does not replay them.
-- **Anthropic**: GA client-toolset declarations, member/result transcript
-  adaptation, and adaptive model preparation. No beta header or api fork —
-  every Anthropic model streams through pi's builtin transport.
+- **Anthropic**: client-toolset declarations, member/result transcript
+  adaptation, and adaptive model preparation. Every Anthropic model streams
+  through pi's builtin transport.
 - **Google**: a model selected without Google's native browser toolset streams
   through pi's builtin transport. Selecting
   `loop.providers.google.toolsets.browser()` derives the Browser Loop-owned

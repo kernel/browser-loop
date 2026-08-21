@@ -20,7 +20,7 @@ const cases = [
 	},
 ] as const;
 
-describe("Anthropic GA client toolsets", () => {
+describe("Anthropic client toolsets", () => {
 	for (const current of cases) {
 		liveIt(`${current.name} survives catalog and pi-ai serialization`, async () => {
 			const catalog = compileLoopToolCatalog({

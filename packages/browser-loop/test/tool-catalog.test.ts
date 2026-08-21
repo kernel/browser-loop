@@ -218,7 +218,7 @@ describe("compileLoopToolCatalog", () => {
 		expect(catalog.incoming.openaiComputerName).toBe("computer");
 	});
 
-	it("composes Anthropic GA toolset declarations and ordinary functions", async () => {
+	it("composes Anthropic toolset declarations and ordinary functions", async () => {
 		const catalog = compile("anthropic:claude-opus-5", [
 			loop.providers.anthropic.tools.browser(),
 			loop.tools.browser.snapshot(),
@@ -234,7 +234,7 @@ describe("compileLoopToolCatalog", () => {
 		expect(catalog.entries[0]?.dynamicLoading).toBe("eager-only");
 	});
 
-	it("allows Anthropic's GA computer and browser toolsets together", async () => {
+	it("allows Anthropic's computer and browser toolsets together", async () => {
 		const catalog = compile("anthropic:claude-opus-5", [
 			loop.providers.anthropic.tools.computer(),
 			loop.providers.anthropic.tools.browser(),

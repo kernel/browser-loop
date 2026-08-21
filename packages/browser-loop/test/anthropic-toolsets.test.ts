@@ -7,8 +7,8 @@ import {
 
 const both = new Set(["computer", "browser"] as const);
 
-describe("Anthropic GA client toolsets", () => {
-	it("declares the released toolsets without preview fields or beta requirements", () => {
+describe("Anthropic client toolsets", () => {
+	it("declares the client toolsets with their documented fields", () => {
 		expect(loop.providers.anthropic.tools.computer({ version: "20260801", zoom: false }).providerBinding).toEqual({
 			kind: "anthropic-native",
 			toolsetName: "computer",
@@ -27,7 +27,7 @@ describe("Anthropic GA client toolsets", () => {
 		});
 	});
 
-	it("maps the GA browser members added after the preview", () => {
+	it("maps the browser toolset members", () => {
 		const tool = loop.providers.anthropic.tools.browser();
 		if (tool.execution.kind !== "actions") throw new Error("expected action tool");
 		expect(tool.execution.toActions({ action: "middle_click", target: { type: "coordinate", x: 1, y: 2 } })).toEqual([
@@ -108,14 +108,21 @@ describe("Anthropic GA client toolsets", () => {
 		});
 	});
 
-	it("rejects a successful tab result without structured browser state", () => {
+	it("keeps transcripts usable when an earlier tab result lacks structured browser state", () => {
 		const payload = {
 			messages: [
 				{ role: "assistant", content: [{ type: "tool_use", id: "tab-1", name: "browser", input: { action: "list_tabs" } }] },
 				{ role: "user", content: [{ type: "tool_result", tool_use_id: "tab-1", content: "Available tabs", is_error: false }] },
 			],
 		};
-		expect(() => rewriteAnthropicToolsetPayload(payload, both)).toThrow(/missing browser_state execution details/);
+		const rewritten = rewriteAnthropicToolsetPayload(payload, both) as typeof payload;
+		expect(rewritten.messages[1]!.content[0]).toEqual({
+			type: "tool_result",
+			tool_use_id: "tab-1",
+			toolset_name: "browser",
+			is_error: true,
+			content: [{ type: "text", text: "Browser state is unavailable for this earlier list_tabs result. Call list_tabs to refresh it." }],
+		});
 	});
 
 	it("marks streamed member calls without touching ordinary tools", () => {

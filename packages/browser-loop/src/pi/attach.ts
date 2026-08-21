@@ -223,8 +223,11 @@ export function installLoopBehaviors(
 	const offs: Array<() => void> = [];
 
 	offs.push(harness.on("tool_result", (event: { details?: unknown }) => (hasExecutionError(event.details) ? { isError: true } : undefined)));
-	offs.push(harness.on("tool_call", () =>
-		turnFailed && turnFailureStopMessage(manager) ? { block: true, reason: turnFailureStopMessage(manager) } : undefined));
+	offs.push(harness.on("tool_call", (event: { toolName: string }) => {
+		if (!turnFailed) return undefined;
+		const reason = turnFailureStopMessage(manager, event.toolName);
+		return reason ? { block: true, reason } : undefined;
+	}));
 	offs.push(harness.on("before_agent_start", () => {
 		turnFailed = false;
 		recoveryAttempts = 0;
@@ -399,7 +402,12 @@ export function hasExecutionError(details: unknown): boolean {
 }
 
 /** @internal */
-export function turnFailureStopMessage(manager: LoopToolManager<any>): string | undefined {
+export function turnFailureStopMessage(manager: LoopToolManager<any>, toolName?: string): string | undefined {
+	if (toolName) {
+		const entry = manager.catalog.entries.find((candidate) => candidate.name === toolName);
+		const execution = entry && manager.specFor(entry.identity)?.execution;
+		if (execution?.kind === "actions" && execution.stopTurnOnFailureMessage) return execution.stopTurnOnFailureMessage;
+	}
 	for (const entry of manager.catalog.entries) {
 		const execution = manager.specFor(entry.identity)?.execution;
 		if (execution?.kind === "actions" && execution.stopTurnOnFailureMessage) return execution.stopTurnOnFailureMessage;

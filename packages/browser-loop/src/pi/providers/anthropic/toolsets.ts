@@ -22,7 +22,7 @@ type AnthropicToolsetName = "computer" | "browser";
 const ENCODED_MEMBER_PREFIX = "loop_anthropic_toolset_";
 const TAB_MEMBERS = new Set(["new_tab", "list_tabs", "switch_tab", "close_tab"]);
 
-/** Adapt pi-ai's function-tool transcript to Anthropic's GA client-toolset protocol. */
+/** Adapt pi-ai's function-tool transcript to Anthropic's client-toolset protocol. */
 export function withAnthropicToolsets(base: Provider): Provider {
 	return {
 		...base,
@@ -175,7 +175,15 @@ export function rewriteAnthropicToolsetPayload(
 					const needsState = call.toolset === "browser" && TAB_MEMBERS.has(call.member) && block.is_error !== true;
 					const state = needsState ? states.get(block.tool_use_id) : undefined;
 					if (needsState && !state) {
-						throw new Error(`successful Anthropic browser member "${call.member}" is missing browser_state execution details`);
+						return {
+							...block,
+							toolset_name: call.toolset,
+							is_error: true,
+							content: [{
+								type: "text",
+								text: `Browser state is unavailable for this earlier ${call.member} result. Call list_tabs to refresh it.`,
+							}],
+						};
 					}
 					return {
 						...block,

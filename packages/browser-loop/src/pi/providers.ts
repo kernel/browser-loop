@@ -20,7 +20,7 @@ import { OPENAI_COMPUTER_USE_API, requiresOpenAINamespaceAdapter, streamOpenAICo
  * Build the pi `Models` collection Loop streams through: pi's builtin
  * providers, adjusted for Loop:
  *
- * - `anthropic` adapts pi's function-tool transcript to the GA computer and
+ * - `anthropic` adapts pi's function-tool transcript to the computer and
  *   browser client-toolset protocol, including member names and toolset results.
  * - `openai` streams through pi's builtin `openai-responses` transport and its
  *   automatic prompt caching by default; a model compiled with OpenAI's native

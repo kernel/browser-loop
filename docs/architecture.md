@@ -178,9 +178,9 @@ Catalog compilation composes provider behavior rather than replacing the whole
 catalog:
 
 - Ordinary function tools stay ordinary.
-- Anthropic's GA browser/computer client-toolset declarations replace only
-  their own placeholders; their member calls and results retain `toolset_name`
-  through pi's function-tool transcript without beta headers.
+- Anthropic's browser/computer client-toolset declarations replace only their
+  own placeholders; their member calls and results retain `toolset_name`
+  through pi's function-tool transcript.
 - OpenAI streams through pi's builtin Responses transport and its automatic
   prompt caching by default; a Browser Loop-owned adapter handles OpenAI's native
   computer tool and tool-search namespace round-trips.

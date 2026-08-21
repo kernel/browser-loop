@@ -14,7 +14,7 @@ function asNativeInput(args: unknown): NativeInput {
 
 const MAX_KEY_REPEAT = 100;
 
-/** Map one GA computer toolset member onto canonical computer-plane actions. */
+/** Map one Anthropic computer toolset member onto canonical computer-plane actions. */
 export function mapNativeComputerInput(input: NativeInput): ComputerUseAction[] {
 	switch (input.action) {
 		case "screenshot":
@@ -64,7 +64,7 @@ export function mapNativeComputerInput(input: NativeInput): ComputerUseAction[] 
 	}
 }
 
-/** Map one GA browser toolset member onto canonical browser-plane actions. */
+/** Map one Anthropic browser toolset member onto canonical browser-plane actions. */
 export function mapNativeBrowserInput(input: NativeInput): ComputerUseAction[] {
 	const tab = tabId(input);
 	switch (input.action) {

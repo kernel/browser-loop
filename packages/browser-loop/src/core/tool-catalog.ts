@@ -152,7 +152,7 @@ export interface LoopPayloadPlan {
 
 /** Identity-addressed native call dispatch passed to Loop custom provider streams. */
 export interface LoopIncomingToolPlan {
-	/** GA Anthropic client toolsets selected for this request. */
+	/** Anthropic client toolsets selected for this request. */
 	readonly anthropicToolsets: readonly ("computer" | "browser")[];
 	readonly openaiComputerName?: string;
 	readonly googleNames: Readonly<Record<string, string>>;

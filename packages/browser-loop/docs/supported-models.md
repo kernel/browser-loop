@@ -92,7 +92,7 @@ npx tsx packages/browser-loop/scripts/native-action-probe.ts --provider openai -
 
 Update that provider's adapter under `src/pi/providers/` to execute the actions the
 probe returns, then add or adjust the `COMPUTER_USE_NATIVE_SURFACES` entry, citing the
-provider's documentation. Anthropic's GA client toolsets are adapted in
+provider's documentation. Anthropic's client toolsets are adapted in
 `src/pi/providers/anthropic/toolsets.ts`; a new dated toolset version requires
 updating its declarations and member transcript adapter together.
 

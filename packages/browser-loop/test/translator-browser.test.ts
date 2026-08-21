@@ -1136,6 +1136,50 @@ describe("BrowserExecutor navigation stabilization", () => {
 		expect(fake.sent.filter((command) => command.method === "Target.activateTarget")).toEqual([]);
 	});
 
+	it("does not report a targeted background action as a tab switch", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		fake.setTargetProvider(() => [
+			{ targetId: "TARGET-1", type: "page", title: "First", url: "https://a.test/" },
+			{ targetId: "TARGET-2", type: "page", title: "Second", url: "https://b.test/" },
+		]);
+		const executor = new BrowserExecutor(fake.cdp);
+		await executor.execute({ type: "browser_list_tabs" });
+		await executor.execute({ type: "browser_text", tab_id: "TARGET-2" } as BrowserAction);
+
+		await expect(executor.execute({ type: "browser_list_tabs" })).resolves.toEqual([
+			expect.objectContaining({
+				type: "browser_state",
+				state: { tabs: [
+					{ tab_id: "TARGET-1", title: "First", url: "https://a.test/", active: true },
+					{ tab_id: "TARGET-2", title: "Second", url: "https://b.test/" },
+				] },
+			}),
+		]);
+	});
+
+	it("sanitizes and caps browser state while retaining the active tab", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		const targets = Array.from({ length: 101 }, (_, index) => ({
+			targetId: `TARGET-${String(index + 1).padStart(4, "0")}`,
+			type: "page",
+			title: index === 100 ? `Bad\n\u2028${"x".repeat(4100)}` : `Tab ${index + 1}`,
+			url: index === 100 ? `https://example.test/${"y".repeat(4100)}\u0000` : `https://example.test/${index + 1}`,
+		}));
+		fake.setTargetProvider(() => targets);
+		const executor = new BrowserExecutor(fake.cdp);
+
+		const [result] = await executor.execute({ type: "browser_switch_tab", tab_id: "TARGET-0101" });
+		expect(result.type).toBe("browser_state");
+		if (result.type !== "browser_state") throw new Error("expected browser_state");
+		expect(result.state.tabs).toHaveLength(100);
+		const active = result.state.tabs.find((tab) => tab.active);
+		expect(active?.tab_id).toBe("TARGET-010");
+		expect(active?.title).toHaveLength(4096);
+		expect(active?.title).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u);
+		expect(active?.url).toHaveLength(4096);
+		expect(active?.url).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u);
+	});
+
 	it("completes a non-bfcache history navigation after its fresh loader emits load", async () => {
 		const fake = createFakeCdp(BUTTON_TREE);
 		fake.setHistoryNavigationMode("load");

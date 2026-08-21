@@ -2,12 +2,10 @@
 
 ## Unreleased
 
-- Replace Anthropic's early-access `computer_20260701` and `browser_20260701`
-  integrations with the generally available `computer_toolset_20260801` and
-  `browser_toolset_20260801` client toolsets. Requests no longer send beta
-  headers or use the browser access fallback; member calls/results preserve
-  `toolset_name`, sequential batches stop at the first failure, and both
-  toolsets may be selected together.
+- Update Anthropic's computer and browser integrations to use the
+  `computer_toolset_20260801` and `browser_toolset_20260801` client toolsets.
+  Member calls/results preserve `toolset_name`, sequential batches stop at the
+  first failure, and both toolsets may be selected together.
 - Rename the product and unpublished package to Browser Loop: the repository is
   prepared for `kernel/browser-loop`, the package is `@onkernel/browser-loop`,
   and release tags use `browser-loop/v*`. The public `loop` namespace, `Loop*`

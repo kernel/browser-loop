@@ -123,13 +123,13 @@ describe("Loop pi selectors", () => {
 		expect(() => parseSelection("browser", "screen")).toThrow("coordinates");
 	});
 
-	it("combines Anthropic's GA computer and browser toolsets", () => {
+	it("combines Anthropic's computer and browser toolsets", () => {
 		const both = expandSelection(parseSelection("anthropic-computer,anthropic-browser", "pixels"));
 		const catalog = compileSpecs(getLoopModel("anthropic:claude-opus-5"), both);
 		expect(catalog.incoming.anthropicToolsets).toEqual(["computer", "browser"]);
 	});
 
-	it("reports no conflict between Anthropic's GA toolsets", () => {
+	it("reports no conflict between Anthropic's toolsets", () => {
 		const byName = new Map(
 			selectorAvailability(getLoopModel("anthropic:claude-opus-5"), parseSelection(undefined, "pixels")).map((e) => [e.selector, e]),
 		);

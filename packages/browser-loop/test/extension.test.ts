@@ -115,7 +115,7 @@ describe("pi extension activation", () => {
 		expect(() => getHandler(pi, "session_start")({}, ctx)).toThrow('unknown browser tool selector "nope"');
 	});
 
-	it("registers the Loop Anthropic provider and serializes the GA computer toolset", async () => {
+	it("registers the Loop Anthropic provider and serializes the computer toolset", async () => {
 		const pi = makePi({
 			"browser-tools": "anthropic-computer",
 			"browser-coordinates": "pixels",

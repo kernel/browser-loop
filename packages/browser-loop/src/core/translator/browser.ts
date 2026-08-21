@@ -1172,15 +1172,14 @@ export class BrowserExecutor {
 	}
 
 	private async closeTab(tabId: string): Promise<BrowserState> {
-		const previousActiveTargetId = this.activeTargetId;
 		const targetId = await this.resolveTarget(tabId);
 		await this.cdp.send("Target.closeTarget", { targetId });
 		this.dropTarget(targetId);
 		const targets = (await this.cdp.pageTargets()).filter((target) => target.targetId !== targetId);
-		const previousActiveStillOpen = targets.some((target) => target.targetId === previousActiveTargetId);
-		this.activeTargetId = previousActiveStillOpen ? previousActiveTargetId : targets[0]?.targetId;
-		if (!previousActiveStillOpen && this.activeTargetId) {
-			await this.cdp.send("Target.activateTarget", { targetId: this.activeTargetId });
+		const activeStillOpen = targets.some((target) => target.targetId === this.activeTargetId);
+		if (!activeStillOpen) {
+			this.activeTargetId = targets[0]?.targetId;
+			if (this.activeTargetId) await this.cdp.send("Target.activateTarget", { targetId: this.activeTargetId });
 		}
 		return this.browserState(undefined, targetId);
 	}
@@ -1193,14 +1192,19 @@ export class BrowserExecutor {
 		if (targets.length > 0 && !targets.some((target) => target.targetId === this.activeTargetId)) {
 			this.activeTargetId = targets[0]!.targetId;
 		}
+		const visibleTargets = targets.slice(0, MAX_BROWSER_STATE_TABS);
+		const activeTarget = targets.find((target) => target.targetId === this.activeTargetId);
+		if (activeTarget && !visibleTargets.includes(activeTarget)) visibleTargets[visibleTargets.length - 1] = activeTarget;
 		return {
-			tabs: targets.map((target) => ({
-				tab_id: shortTabId(target.targetId),
-				title: target.title,
-				url: target.url,
+			tabs: visibleTargets.map((target) => ({
+				tab_id: sanitizeBrowserStateValue(shortTabId(target.targetId)),
+				title: sanitizeBrowserStateValue(target.title),
+				url: sanitizeBrowserStateValue(target.url),
 				...(target.targetId === this.activeTargetId ? { active: true as const } : {}),
 			})),
-			...(stateChanges?.length ? { state_changes: stateChanges } : {}),
+			...(stateChanges?.length ? {
+				state_changes: stateChanges.map((change) => ({ ...change, tab_id: sanitizeBrowserStateValue(change.tab_id) })),
+			} : {}),
 		};
 	}
 
@@ -1423,7 +1427,6 @@ export class BrowserExecutor {
 		if (tabId) {
 			const match = targets.find((target) => shortTabId(target.targetId) === tabId || target.targetId === tabId);
 			if (!match) throw new Error(`unknown tab_id "${tabId}". Call list_tabs for current tabs.`);
-			this.activeTargetId = match.targetId;
 			return match.targetId;
 		}
 		if (this.activeTargetId && targets.some((target) => target.targetId === this.activeTargetId)) {
@@ -1487,6 +1490,14 @@ function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
 function normalizeState(value: unknown): boolean | "mixed" {
 	if (value === "mixed") return "mixed";
 	return value === true || value === "true";
+}
+
+const MAX_BROWSER_STATE_TABS = 100;
+const MAX_BROWSER_STATE_STRING_LENGTH = 4096;
+const BROWSER_STATE_CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/gu;
+
+function sanitizeBrowserStateValue(value: string): string {
+	return [...value.replace(BROWSER_STATE_CONTROL_CHARACTERS, "")].slice(0, MAX_BROWSER_STATE_STRING_LENGTH).join("");
 }
 
 function shortTabId(targetId: string): string {
