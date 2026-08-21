@@ -1114,6 +1114,28 @@ describe("BrowserExecutor navigation stabilization", () => {
 		expect(fake.sent).toContainEqual(expect.objectContaining({ method: "Page.reload" }));
 	});
 
+	it("keeps the active tab when closing a background tab", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		let closed = false;
+		fake.setTargetProvider(() => closed
+			? [{ targetId: "TARGET-1", type: "page", title: "First", url: "https://a.test/" }]
+			: [
+				{ targetId: "TARGET-1", type: "page", title: "First", url: "https://a.test/" },
+				{ targetId: "TARGET-2", type: "page", title: "Second", url: "https://b.test/" },
+			]);
+		fake.setSendHook((method) => { if (method === "Target.closeTarget") closed = true; });
+		const executor = new BrowserExecutor(fake.cdp);
+		await executor.execute({ type: "browser_list_tabs" });
+
+		await expect(executor.execute({ type: "browser_close_tab", tab_id: "TARGET-2" })).resolves.toEqual([
+			{
+				type: "browser_state",
+				state: { tabs: [{ tab_id: "TARGET-1", title: "First", url: "https://a.test/", active: true }] },
+			},
+		]);
+		expect(fake.sent.filter((command) => command.method === "Target.activateTarget")).toEqual([]);
+	});
+
 	it("completes a non-bfcache history navigation after its fresh loader emits load", async () => {
 		const fake = createFakeCdp(BUTTON_TREE);
 		fake.setHistoryNavigationMode("load");

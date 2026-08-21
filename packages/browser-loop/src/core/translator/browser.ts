@@ -1172,12 +1172,16 @@ export class BrowserExecutor {
 	}
 
 	private async closeTab(tabId: string): Promise<BrowserState> {
+		const previousActiveTargetId = this.activeTargetId;
 		const targetId = await this.resolveTarget(tabId);
 		await this.cdp.send("Target.closeTarget", { targetId });
 		this.dropTarget(targetId);
-		const targets = await this.cdp.pageTargets();
-		this.activeTargetId = targets.find((target) => target.targetId !== targetId)?.targetId;
-		if (this.activeTargetId) await this.cdp.send("Target.activateTarget", { targetId: this.activeTargetId });
+		const targets = (await this.cdp.pageTargets()).filter((target) => target.targetId !== targetId);
+		const previousActiveStillOpen = targets.some((target) => target.targetId === previousActiveTargetId);
+		this.activeTargetId = previousActiveStillOpen ? previousActiveTargetId : targets[0]?.targetId;
+		if (!previousActiveStillOpen && this.activeTargetId) {
+			await this.cdp.send("Target.activateTarget", { targetId: this.activeTargetId });
+		}
 		return this.browserState(undefined, targetId);
 	}
 
