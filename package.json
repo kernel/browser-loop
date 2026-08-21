@@ -12,7 +12,8 @@
     "build": "npm run build --workspace @onkernel/browser-loop && tsc -b && npm run build:native --workspace @onkernel/ptywright --if-present",
     "dev": "tsc -b --watch",
     "typecheck": "tsc -b",
-    "clean": "tsc -b --clean && npm run clean:native --workspace @onkernel/ptywright --if-present"
+    "clean": "tsc -b --clean && npm run clean:native --workspace @onkernel/ptywright --if-present",
+    "check:lockfile": "node scripts/check-optional-lockfile.mjs"
   },
   "engines": {
     "node": ">=22.19.0"

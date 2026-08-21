@@ -19,6 +19,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - run: npm run check:lockfile
       - run: npm ci
       # The pi print/RPC test loads the extension the way pi does, through the
       # package's own entry points, so dist has to exist before the unit run.
