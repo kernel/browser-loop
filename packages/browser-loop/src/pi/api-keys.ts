@@ -12,7 +12,7 @@ import { parseLoopModelRef, providerForModel, type LoopModelRef } from "./models
  */
 const LOOP_PROVIDER_API_KEY_ENV_VARS: Readonly<Record<string, readonly string[]>> = {
 	openai: ["OPENAI_API_KEY"],
-	anthropic: ["ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY"],
+	anthropic: ["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY"],
 	google: ["GOOGLE_API_KEY", "GEMINI_API_KEY"],
 	xai: ["XAI_API_KEY"],
 	moonshotai: ["MOONSHOT_API_KEY"],

@@ -8,6 +8,7 @@ import {
 
 const ENV_KEYS = [
 	"OPENAI_API_KEY",
+	"ANTHROPIC_AUTH_TOKEN",
 	"ANTHROPIC_OAUTH_TOKEN",
 	"ANTHROPIC_API_KEY",
 	"GOOGLE_API_KEY",
@@ -30,6 +31,7 @@ afterEach(() => {
 describe("loop api key helpers", () => {
 	it("maps provider names to expected environment variables", () => {
 		expect(loopApiKeyEnvVarsForProvider("openai")).toEqual(["OPENAI_API_KEY"]);
+		expect(loopApiKeyEnvVarsForProvider("anthropic")).toEqual(["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY"]);
 		expect(loopApiKeyEnvVarsForProvider("google")).toEqual(["GOOGLE_API_KEY", "GEMINI_API_KEY"]);
 		expect(loopApiKeyEnvVarsForProvider("gemini")).toEqual(["GOOGLE_API_KEY", "GEMINI_API_KEY"]);
 		expect(loopApiKeyEnvVarsForProvider("xai")).toEqual(["XAI_API_KEY"]);
@@ -40,6 +42,11 @@ describe("loop api key helpers", () => {
 	});
 
 	it("resolves provider api keys with fallback order", () => {
+		delete process.env.ANTHROPIC_OAUTH_TOKEN;
+		delete process.env.ANTHROPIC_API_KEY;
+		process.env.ANTHROPIC_AUTH_TOKEN = "anthropic-auth";
+		expect(getLoopEnvApiKey("anthropic")).toBe("anthropic-auth");
+
 		delete process.env.GOOGLE_API_KEY;
 		process.env.GEMINI_API_KEY = "gemini";
 		expect(getLoopEnvApiKey("google")).toBe("gemini");
