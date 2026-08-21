@@ -12,7 +12,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { loopApiKeyEnvVarsForProvider } from "./api-keys";
-import { withAnthropicBrowserFallback } from "./providers/anthropic/browser-fallback";
+import { withAnthropicToolsets } from "./providers/anthropic/toolsets";
 import { GOOGLE_INTERACTIONS_API, streamGoogleInteractions, streamSimpleGoogleInteractions } from "./providers/google/provider";
 import { OPENAI_COMPUTER_USE_API, requiresOpenAINamespaceAdapter, streamOpenAIComputerUse, streamOpenAIResponses, streamSimpleOpenAIResponses } from "./providers/openai/provider";
 
@@ -20,8 +20,8 @@ import { OPENAI_COMPUTER_USE_API, requiresOpenAINamespaceAdapter, streamOpenAICo
  * Build the pi `Models` collection Loop streams through: pi's builtin
  * providers, adjusted for Loop:
  *
- * - `anthropic` retries an inaccessible native browser beta through the
- *   selected tool's equivalent function declaration.
+ * - `anthropic` adapts pi's function-tool transcript to the computer and
+ *   browser client-toolset protocol, including member names and toolset results.
  * - `openai` streams through pi's builtin `openai-responses` transport and its
  *   automatic prompt caching by default; a model compiled with OpenAI's native
  *   computer tool carries `openai-computer-use` instead, which this wrapper
@@ -43,7 +43,7 @@ import { OPENAI_COMPUTER_USE_API, requiresOpenAINamespaceAdapter, streamOpenAICo
 export function createLoopModels(options?: CreateModelsOptions): MutableModels {
 	const models = builtinModels(options);
 	const anthropic = models.getProvider("anthropic");
-	if (anthropic) models.setProvider(withAnthropicBrowserFallback(anthropic));
+	if (anthropic) models.setProvider(withAnthropicToolsets(anthropic));
 	const openai = models.getProvider("openai");
 	if (openai) models.setProvider(withOpenAIComputerUseAdapter(openai));
 	const google = models.getProvider("google");

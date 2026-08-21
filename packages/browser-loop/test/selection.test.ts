@@ -78,7 +78,8 @@ describe("Loop pi selectors", () => {
 		const catalog = compileSpecs(getLoopModel("anthropic:claude-fable-5"), specs);
 		expect(specs.map((tool) => tool.name)).toEqual(["computer"]);
 		expect(catalog.entries.map((entry) => entry.transport)).toEqual(["native"]);
-		expect(catalog.headers.requirements).toContainEqual(expect.objectContaining({ value: "computer-use-2026-07-01" }));
+		expect(catalog.headers.requirements).toEqual([]);
+		expect(catalog.incoming.anthropicToolsets).toEqual(["computer"]);
 		expect(() => compileSpecs(getLoopModel("openai:gpt-5.6-sol"), specs)).toThrow("requires a anthropic model");
 	});
 
@@ -101,7 +102,7 @@ describe("Loop pi selectors", () => {
 		// And the incoming plan is what normalizes the calls that come back.
 		expect(compileSpecs(getLoopModel("openai:gpt-5.6-sol"), openai).incoming.openaiComputerName).toBe("computer");
 		expect(compileSpecs(getLoopModel("anthropic:claude-opus-5"), expandSelection(parseSelection("anthropic-browser", "pixels"))).incoming
-			.anthropicBrowserFallback).toBeDefined();
+			.anthropicToolsets).toEqual(["browser"]);
 	});
 
 	it("reports selector availability per model with the compiler's own reason", () => {
@@ -122,28 +123,25 @@ describe("Loop pi selectors", () => {
 		expect(() => parseSelection("browser", "screen")).toThrow("coordinates");
 	});
 
-	it("rejects Anthropic's two native surfaces together, before the API does", () => {
-		// Anthropic answers 400: the browser tool's viewport coordinate frame is
-		// incompatible with the computer tool's display frame.
+	it("combines Anthropic's computer and browser toolsets", () => {
 		const both = expandSelection(parseSelection("anthropic-computer,anthropic-browser", "pixels"));
-		expect(() => compileSpecs(getLoopModel("anthropic:claude-opus-5"), both)).toThrow(/cannot be selected alongside/);
+		const catalog = compileSpecs(getLoopModel("anthropic:claude-opus-5"), both);
+		expect(catalog.incoming.anthropicToolsets).toEqual(["computer", "browser"]);
 	});
 
-	it("reports that pairwise conflict as a conflict, not as unavailability", () => {
+	it("reports no conflict between Anthropic's toolsets", () => {
 		const byName = new Map(
 			selectorAvailability(getLoopModel("anthropic:claude-opus-5"), parseSelection(undefined, "pixels")).map((e) => [e.selector, e]),
 		);
 		expect(byName.get("anthropic-computer")?.available).toBe(true);
-		expect(byName.get("anthropic-computer")?.conflictsWith).toContain("anthropic-browser");
-		expect(byName.get("anthropic-browser")?.conflictsWith).toContain("anthropic-computer");
+		expect(byName.get("anthropic-computer")?.conflictsWith).not.toContain("anthropic-browser");
+		expect(byName.get("anthropic-browser")?.conflictsWith).not.toContain("anthropic-computer");
 		expect(byName.get("playwright")?.conflictsWith).toEqual([]);
 	});
 
-	it("no longer marks every row unavailable when the current selection fails to compile", () => {
-		// The regression this replaces: a failing selection's error became the reason
-		// on every row, including rows that then activated fine.
+	it("does not mark every row unavailable when the current selection fails to compile", () => {
 		const model = getLoopModel("anthropic:claude-opus-5");
-		const failing = parseSelection("anthropic-computer,anthropic-browser", "pixels");
+		const failing = parseSelection("anthropic-computer,openai-computer", "pixels");
 		expect(() => compileSpecs(model, expandSelection(failing))).toThrow();
 
 		const byName = new Map(selectorAvailability(model, failing).map((e) => [e.selector, e]));

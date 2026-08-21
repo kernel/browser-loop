@@ -8,6 +8,7 @@ import {
 
 const ENV_KEYS = [
 	"OPENAI_API_KEY",
+	"ANTHROPIC_AUTH_TOKEN",
 	"ANTHROPIC_OAUTH_TOKEN",
 	"ANTHROPIC_API_KEY",
 	"GOOGLE_API_KEY",
@@ -37,6 +38,13 @@ describe("loop api key helpers", () => {
 		expect(loopApiKeyEnvVarsForProvider("moonshot")).toEqual(["MOONSHOT_API_KEY"]);
 		expect(loopApiKeyEnvVarsForProvider("openrouter")).toEqual(["OPENROUTER_API_KEY"]);
 		expect(loopApiKeyEnvVarsForProvider("unknown")).toEqual([]);
+	});
+
+	it("does not return Anthropic bearer tokens as API keys", () => {
+		process.env.ANTHROPIC_AUTH_TOKEN = "bearer";
+		delete process.env.ANTHROPIC_OAUTH_TOKEN;
+		delete process.env.ANTHROPIC_API_KEY;
+		expect(getLoopEnvApiKey("anthropic")).toBeUndefined();
 	});
 
 	it("resolves provider api keys with fallback order", () => {

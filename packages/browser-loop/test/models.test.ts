@@ -161,6 +161,8 @@ describe("native surfaces", () => {
 		expect(computerUseNativeSurfaces(getLoopModel("openai:gpt-5.4-mini"))).toEqual(["computer"]);
 		expect(computerUseNativeSurfaces(getLoopModel("anthropic:claude-opus-5"))).toEqual(["computer", "browser"]);
 		expect(computerUseNativeSurfaces(getLoopModel("anthropic:claude-opus-5-20260724"))).toEqual(["computer", "browser"]);
+		expect(computerUseNativeSurfaces(getLoopModel("anthropic:claude-fable-5"))).toEqual(["computer", "browser"]);
+		expect(computerUseNativeSurfaces(getLoopModel("anthropic:claude-mythos-5"))).toEqual(["computer", "browser"]);
 	});
 
 	it("does not match adjacent families or named sibling variants", () => {

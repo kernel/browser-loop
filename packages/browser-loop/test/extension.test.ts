@@ -115,7 +115,7 @@ describe("pi extension activation", () => {
 		expect(() => getHandler(pi, "session_start")({}, ctx)).toThrow('unknown browser tool selector "nope"');
 	});
 
-	it("registers the Loop Anthropic provider and serializes native computer use", async () => {
+	it("registers the Loop Anthropic provider and serializes the computer toolset", async () => {
 		const pi = makePi({
 			"browser-tools": "anthropic-computer",
 			"browser-coordinates": "pixels",
@@ -127,11 +127,11 @@ describe("pi extension activation", () => {
 
 		const headers: Record<string, string> = {};
 		await getHandler(pi, "before_provider_headers")({ headers }, anthropicCtx);
-		expect(headers["anthropic-beta"]).toContain("computer-use-2026-07-01");
+		expect(headers).toEqual({});
 
 		const payload = { tools: [{ name: "computer", input_schema: { type: "object" } }] };
 		const transformed = await getHandler(pi, "before_provider_request")({ payload }, anthropicCtx);
-		expect(transformed).toEqual({ tools: [expect.objectContaining({ name: "computer", type: "computer_20260701" })] });
+		expect(transformed).toEqual({ tools: [{ type: "computer_toolset_20260801", configs: { zoom: { enabled: true } } }] });
 	});
 
 	it("keeps the browser out of the request path, and blocks execution after shutdown", async () => {

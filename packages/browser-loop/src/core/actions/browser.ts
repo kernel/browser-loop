@@ -23,15 +23,20 @@ export const BROWSER_ACTION_TYPES = [
 	"browser_find",
 	"browser_click",
 	"browser_hover",
+	"browser_mouse_down",
+	"browser_mouse_up",
 	"browser_drag",
 	"browser_fill",
 	"browser_scroll_to",
 	"browser_scroll",
 	"browser_type",
 	"browser_key",
+	"browser_hold_key",
 	"browser_navigate",
 	"browser_list_tabs",
 	"browser_new_tab",
+	"browser_switch_tab",
+	"browser_close_tab",
 	"browser_screenshot",
 	"browser_evaluate",
 ] as const;
@@ -138,6 +143,20 @@ export interface BrowserActionHover {
 	tab_id?: string;
 }
 
+export interface BrowserActionMouseDown {
+	type: "browser_mouse_down";
+	x: number;
+	y: number;
+	tab_id?: string;
+}
+
+export interface BrowserActionMouseUp {
+	type: "browser_mouse_up";
+	x: number;
+	y: number;
+	tab_id?: string;
+}
+
 export interface BrowserActionDrag {
 	type: "browser_drag";
 	from: { x: number; y: number };
@@ -180,9 +199,16 @@ export interface BrowserActionKey {
 	tab_id?: string;
 }
 
+export interface BrowserActionHoldKey {
+	type: "browser_hold_key";
+	text: string;
+	duration: number;
+	tab_id?: string;
+}
+
 export interface BrowserActionNavigate {
 	type: "browser_navigate";
-	/** A URL, or the sentinels "back" / "forward" for history navigation. */
+	/** A URL, or the sentinels "back", "forward", or "reload". */
 	url: string;
 	tab_id?: string;
 }
@@ -193,6 +219,16 @@ export interface BrowserActionListTabs {
 
 export interface BrowserActionNewTab {
 	type: "browser_new_tab";
+}
+
+export interface BrowserActionSwitchTab {
+	type: "browser_switch_tab";
+	tab_id: string;
+}
+
+export interface BrowserActionCloseTab {
+	type: "browser_close_tab";
+	tab_id: string;
 }
 
 export interface BrowserActionScreenshot {
@@ -216,15 +252,20 @@ export type BrowserAction =
 	| BrowserActionFind
 	| BrowserActionClick
 	| BrowserActionHover
+	| BrowserActionMouseDown
+	| BrowserActionMouseUp
 	| BrowserActionDrag
 	| BrowserActionFill
 	| BrowserActionScrollTo
 	| BrowserActionScroll
 	| BrowserActionTypeText
 	| BrowserActionKey
+	| BrowserActionHoldKey
 	| BrowserActionNavigate
 	| BrowserActionListTabs
 	| BrowserActionNewTab
+	| BrowserActionSwitchTab
+	| BrowserActionCloseTab
 	| BrowserActionScreenshot
 	| BrowserActionEvaluate;
 
@@ -403,6 +444,14 @@ export function createBrowserActionSchemaByType(options: BrowserActionSchemaOpti
 			},
 			{ additionalProperties: false },
 		),
+		browser_mouse_down: Type.Object(
+			{ type: Type.Literal("browser_mouse_down"), x: Type.Number(), y: Type.Number(), tab_id: TabId() },
+			{ additionalProperties: false },
+		),
+		browser_mouse_up: Type.Object(
+			{ type: Type.Literal("browser_mouse_up"), x: Type.Number(), y: Type.Number(), tab_id: TabId() },
+			{ additionalProperties: false },
+		),
 		browser_drag: Type.Object(
 			{
 				type: Type.Literal("browser_drag"),
@@ -459,16 +508,33 @@ export function createBrowserActionSchemaByType(options: BrowserActionSchemaOpti
 			},
 			{ additionalProperties: false },
 		),
+		browser_hold_key: Type.Object(
+			{
+				type: Type.Literal("browser_hold_key"),
+				text: Type.String({ description: "Key or chord to hold." }),
+				duration: Type.Number({ minimum: 0, maximum: 30 }),
+				tab_id: TabId(),
+			},
+			{ additionalProperties: false },
+		),
 		browser_navigate: Type.Object(
 			{
 				type: Type.Literal("browser_navigate"),
-				url: Type.String({ description: "URL to navigate to, or \"back\" / \"forward\" for history navigation." }),
+				url: Type.String({ description: "URL to navigate to, or \"back\", \"forward\", or \"reload\"." }),
 				tab_id: TabId(),
 			},
 			{ additionalProperties: false },
 		),
 		browser_list_tabs: Type.Object({ type: Type.Literal("browser_list_tabs") }, { additionalProperties: false }),
 		browser_new_tab: Type.Object({ type: Type.Literal("browser_new_tab") }, { additionalProperties: false }),
+		browser_switch_tab: Type.Object(
+			{ type: Type.Literal("browser_switch_tab"), tab_id: Type.String() },
+			{ additionalProperties: false },
+		),
+		browser_close_tab: Type.Object(
+			{ type: Type.Literal("browser_close_tab"), tab_id: Type.String() },
+			{ additionalProperties: false },
+		),
 		browser_screenshot: Type.Object(
 			{
 				type: Type.Literal("browser_screenshot"),

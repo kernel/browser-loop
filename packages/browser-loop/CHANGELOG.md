@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Update Anthropic's computer and browser integrations to use the
+  `computer_toolset_20260801` and `browser_toolset_20260801` client toolsets.
+  Member calls/results preserve `toolset_name`, sequential batches stop at the
+  first failure, and both toolsets may be selected together.
 - Rename the product and unpublished package to Browser Loop: the repository is
   prepared for `kernel/browser-loop`, the package is `@onkernel/browser-loop`,
   and release tags use `browser-loop/v*`. The public `loop` namespace, `Loop*`

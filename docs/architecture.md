@@ -178,14 +178,15 @@ Catalog compilation composes provider behavior rather than replacing the whole
 catalog:
 
 - Ordinary function tools stay ordinary.
-- Anthropic native browser/computer declarations replace only their own
-  placeholders and merge required beta headers with caller headers.
+- Anthropic's browser/computer client-toolset declarations replace only their
+  own placeholders; their member calls and results retain `toolset_name`
+  through pi's function-tool transcript.
 - OpenAI streams through pi's builtin Responses transport and its automatic
   prompt caching by default; a Browser Loop-owned adapter handles OpenAI's native
   computer tool and tool-search namespace round-trips.
-- Anthropic's native browser tool falls back to an equivalent function-tool
-  declaration when the active credential cannot access `browser_20260701`;
-  the selected tool identity, name, schema, and executor remain unchanged.
+- Anthropic's `computer_toolset_20260801` and `browser_toolset_20260801` may be
+  selected together; calls remain separated by their computer and viewport
+  coordinate frames.
 - Google's current predefined browser toolset serializes one `computer_use`
   declaration plus exact exclusions through the Browser Loop-owned Interactions API
   adapter. Excluded calls fail with a named catalog error instead of reaching

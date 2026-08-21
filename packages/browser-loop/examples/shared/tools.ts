@@ -24,7 +24,7 @@ export function toolsForModel(model: LoopModelRef): LoopAgentTool[] {
 			// Claude 5 can use Anthropic's native browser tool; older models use portable
 			// Loop tools plus the explicit semantic action-plan surface.
 			return loop.providers.anthropic.supports.browser(modelId)
-				? [loop.providers.anthropic.tools.browser({ version: "20260701", javascript: true })]
+				? [loop.providers.anthropic.tools.browser({ version: "20260801", javascript: true })]
 				: structuredBrowserTools();
 		case "google":
 			// Current Gemini computer-use models expect Google's predefined browser actions.

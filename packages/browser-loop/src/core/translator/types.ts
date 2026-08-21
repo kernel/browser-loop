@@ -150,6 +150,18 @@ export interface BrowserActResult {
 	successor: BrowserActSuccessor;
 }
 
+export interface BrowserTabState {
+	tab_id: string;
+	title: string;
+	url: string;
+	active?: true;
+}
+
+export interface BrowserState {
+	tabs: BrowserTabState[];
+	state_changes?: Array<{ type: "tab_opened"; tab_id: string }>;
+}
+
 /** Structured result returned by the standalone `browser_wait_for` action. */
 export interface BrowserWaitForResult {
 	status: "satisfied" | "timed_out" | "unverifiable" | "interrupted";
@@ -166,6 +178,7 @@ export type BatchReadResult =
 	| { type: "url"; url: string }
 	| { type: "cursor_position"; x: number; y: number }
 	| { type: "browser_text"; label: string; text: string }
+	| { type: "browser_state"; state: BrowserState }
 	| { type: "browser_wait_for"; result: BrowserWaitForResult }
 	| { type: "browser_act"; result: BrowserActResult };
 

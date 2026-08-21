@@ -151,7 +151,7 @@ function toolsForCase(c: ProviderCase) {
 			// Moonshot's API rejects `browser_act`'s schema; Kimi runs primitives only.
 			return loop.toolsets.browser();
 		case "anthropic":
-			return [loop.providers.anthropic.tools.browser({ version: "20260701", javascript: true })];
+			return [loop.providers.anthropic.tools.browser({ version: "20260801", javascript: true })];
 		case "gemini":
 			return loop.providers.google.toolsets.browser();
 	}

@@ -71,7 +71,8 @@ const pixels = Object.freeze({ type: "pixel" as const });
 
 const providerSources = Object.freeze({
 	openai: "https://developers.openai.com/api/docs/guides/tools-computer-use",
-	anthropic: "https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool",
+	anthropicComputer: "https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool",
+	anthropicBrowser: "https://platform.claude.com/docs/en/agents-and-tools/tool-use/browser-use-tool",
 	google: "https://ai.google.dev/gemini-api/docs/computer-use",
 });
 
@@ -142,15 +143,20 @@ const browserDescriptions: Record<BrowserActionType, string> = {
 	browser_find: "Find matching elements and return snapshot-scoped refs.",
 	browser_click: "Click an element, preferably by a ref from a current snapshot.",
 	browser_hover: "Hover an element.",
+	browser_mouse_down: "Press the left mouse button at viewport coordinates.",
+	browser_mouse_up: "Release the left mouse button at viewport coordinates.",
 	browser_drag: "Drag between viewport coordinates.",
 	browser_fill: "Set a form element value by ref.",
 	browser_scroll_to: "Scroll an element ref into view.",
 	browser_scroll: "Scroll the page at a viewport position.",
 	browser_type: "Type literal text at the current focus.",
 	browser_key: "Press a key or chord.",
+	browser_hold_key: "Hold a key or chord for a bounded duration.",
 	browser_navigate: "Navigate to a URL or move back/forward in history.",
 	browser_list_tabs: "List open tabs.",
 	browser_new_tab: "Open a new tab.",
+	browser_switch_tab: "Switch the active tab.",
+	browser_close_tab: "Close a tab.",
 	browser_screenshot: "Capture the current viewport.",
 	browser_evaluate: "Execute JavaScript in the page context.",
 	browser_wait_for: "Wait for page text, element, URL, title, value, or state evidence without delivering input.",
@@ -292,132 +298,40 @@ function playwright(options: LoopToolNameOptions = {}): LoopToolSpec {
 	});
 }
 
-function anthropicNativeComputer(options: { version: "20260701"; enableZoom?: boolean; displayNumber?: number } = { version: "20260701" }): LoopToolSpec {
-	if (options.version !== "20260701") throw new Error(`unsupported Anthropic native computer version "${String(options.version)}"`);
+function anthropicNativeComputer(options: { version: "20260801"; zoom?: boolean } = { version: "20260801" }): LoopToolSpec {
+	if (options.version !== "20260801") throw new Error(`unsupported Anthropic native computer version "${String(options.version)}"`);
 	const declaration = {
-		type: "computer_20260701",
-		name: "computer",
-		...(options.enableZoom !== undefined ? { enable_zoom: options.enableZoom } : {}),
-		...(options.displayNumber !== undefined ? { display_number: options.displayNumber } : {}),
+		type: "computer_toolset_20260801",
+		...(options.zoom !== undefined ? { configs: { zoom: { enabled: options.zoom } } } : {}),
 	};
 	return providerNativeSpec({
-		identity: "provider.anthropic.native.computer.20260701",
+		identity: "provider.anthropic.native.computer.20260801",
 		name: "computer",
-		source: providerSources.anthropic,
+		source: providerSources.anthropicComputer,
 		declaration,
-		binding: { kind: "anthropic-native", declaration, beta: "computer-use-2026-07-01" },
+		binding: { kind: "anthropic-native", declaration, toolsetName: "computer" },
 		toActions: (input) => mapNativeComputerInput(asNativeInput(input)),
 		coordinates: pixels,
 		stopTurnOnFailureMessage: "Not executed: an earlier computer action in this turn failed.",
 	});
 }
 
-function anthropicNativeBrowser(options: { version: "20260701"; javascript?: boolean } = { version: "20260701" }): LoopToolSpec {
-	if (options.version !== "20260701") throw new Error(`unsupported Anthropic native browser version "${String(options.version)}"`);
+function anthropicNativeBrowser(options: { version: "20260801"; javascript?: boolean } = { version: "20260801" }): LoopToolSpec {
+	if (options.version !== "20260801") throw new Error(`unsupported Anthropic native browser version "${String(options.version)}"`);
 	const declaration = {
-		type: "browser_20260701",
-		name: "browser",
-		...(options.javascript !== undefined ? { enable_javascript_exec: options.javascript } : {}),
+		type: "browser_toolset_20260801",
+		...(options.javascript !== undefined ? { configs: { javascript_exec: { enabled: options.javascript } } } : {}),
 	};
 	return providerNativeSpec({
-		identity: "provider.anthropic.native.browser.20260701",
+		identity: "provider.anthropic.native.browser.20260801",
 		name: "browser",
-		source: providerSources.anthropic,
+		source: providerSources.anthropicBrowser,
 		declaration,
-		binding: {
-			kind: "anthropic-native",
-			declaration,
-			beta: "browser-use-2026-07-01",
-			accessFallback: {
-				beta: "browser-use-2026-07-01",
-				nativeType: "browser_20260701",
-				declaration: anthropicBrowserFunctionFallback(options.javascript !== false),
-			},
-		},
+		binding: { kind: "anthropic-native", declaration, toolsetName: "browser" },
 		toActions: (input) => mapNativeBrowserInput(asNativeInput(input)),
 		coordinates: pixels,
 		stopTurnOnFailureMessage: "Not executed: an earlier action in this turn failed.",
 	});
-}
-
-const anthropicNativeBrowserActions = [
-	"navigate", "list_tabs", "new_tab", "read_page", "get_page_text", "find", "form_input", "scroll_to", "screenshot", "zoom",
-	"left_click", "right_click", "double_click", "triple_click", "hover", "left_click_drag", "scroll", "type", "key", "wait", "javascript_exec",
-] as const;
-
-type AnthropicNativeBrowserAction = (typeof anthropicNativeBrowserActions)[number];
-
-function anthropicBrowserFunctionFallback(javascript: boolean): Record<string, unknown> {
-	const actions = javascript
-		? anthropicNativeBrowserActions
-		: anthropicNativeBrowserActions.filter((action) => action !== "javascript_exec");
-	const union = Type.Union(actions.map(anthropicNativeBrowserActionSchema));
-	return {
-		name: "browser",
-		description: "Use a browser through structured navigation, observation, and interaction actions.",
-		input_schema: { ...union, type: "object" },
-	};
-}
-
-function anthropicNativeBrowserActionSchema(action: AnthropicNativeBrowserAction): TSchema {
-	const tab = () => Type.Optional(Type.String());
-	const region = () => Type.Array(Type.Integer(), { minItems: 4, maxItems: 4 });
-	const refTarget = () => Type.Object({ type: Type.Literal("ref"), ref: Type.String() }, { additionalProperties: false });
-	const coordinateTarget = () => Type.Object({ type: Type.Literal("coordinate"), x: Type.Integer(), y: Type.Integer() }, { additionalProperties: false });
-	const pageTarget = () => Type.Union([refTarget(), coordinateTarget()]);
-	const clickable = () => Type.Object({
-		action: Type.Literal(action),
-		target: pageTarget(),
-		modifiers: Type.Optional(Type.String()),
-		tab_id: tab(),
-	}, { additionalProperties: false });
-	switch (action) {
-		case "navigate":
-			return Type.Object({ action: Type.Literal(action), url: Type.String(), tab_id: tab() }, { additionalProperties: false });
-		case "list_tabs": case "new_tab":
-			return Type.Object({ action: Type.Literal(action) }, { additionalProperties: false });
-		case "read_page":
-			return Type.Object({
-				action: Type.Literal(action),
-				filter: Type.Optional(Type.Union([Type.Literal("interactive"), Type.Literal("all")])),
-				depth: Type.Optional(Type.Integer({ minimum: 0 })),
-				ref: Type.Optional(Type.String()),
-				tab_id: tab(),
-			}, { additionalProperties: false });
-		case "get_page_text": case "screenshot":
-			return Type.Object({ action: Type.Literal(action), tab_id: tab() }, { additionalProperties: false });
-		case "find":
-			return Type.Object({ action: Type.Literal(action), query: Type.String(), tab_id: tab() }, { additionalProperties: false });
-		case "form_input":
-			return Type.Object({
-				action: Type.Literal(action),
-				target: refTarget(),
-				value: Type.Union([Type.String(), Type.Number(), Type.Boolean()]),
-				tab_id: tab(),
-			}, { additionalProperties: false });
-		case "scroll_to":
-			return Type.Object({ action: Type.Literal(action), target: refTarget(), tab_id: tab() }, { additionalProperties: false });
-		case "zoom":
-			return Type.Object({ action: Type.Literal(action), region: region(), tab_id: tab() }, { additionalProperties: false });
-		case "left_click": case "right_click": case "double_click": case "triple_click": case "hover":
-			return clickable();
-		case "left_click_drag":
-			return Type.Object({ action: Type.Literal(action), from: coordinateTarget(), target: coordinateTarget(), tab_id: tab() }, { additionalProperties: false });
-		case "scroll":
-			return Type.Object({
-				action: Type.Literal(action),
-				target: coordinateTarget(),
-				scroll_direction: Type.Union([Type.Literal("up"), Type.Literal("down"), Type.Literal("left"), Type.Literal("right")]),
-				scroll_amount: Type.Optional(Type.Integer({ minimum: 1 })),
-				tab_id: tab(),
-			}, { additionalProperties: false });
-		case "type": case "javascript_exec":
-			return Type.Object({ action: Type.Literal(action), text: Type.String(), tab_id: tab() }, { additionalProperties: false });
-		case "key":
-			return Type.Object({ action: Type.Literal(action), text: Type.String(), repeat: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })), tab_id: tab() }, { additionalProperties: false });
-		case "wait":
-			return Type.Object({ action: Type.Literal(action), duration: Type.Number({ minimum: 0, maximum: 100 }) }, { additionalProperties: false });
-	}
 }
 
 function openaiNativeComputer(): LoopToolSpec {
@@ -842,7 +756,8 @@ function computerToolset(options: LoopComputerToolsetOptions = {}): LoopToolSpec
 const providers = Object.freeze({
 	openai: Object.freeze({ source: providerSources.openai, tools: Object.freeze({ computer: openaiNativeComputer }) }),
 	anthropic: Object.freeze({
-		source: providerSources.anthropic,
+		source: providerSources.anthropicComputer,
+		sources: Object.freeze({ computer: providerSources.anthropicComputer, browser: providerSources.anthropicBrowser }),
 		tools: Object.freeze({ computer: anthropicNativeComputer, browser: anthropicNativeBrowser }),
 	}),
 	google: Object.freeze({

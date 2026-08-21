@@ -15,7 +15,7 @@ import {
 } from "../src/pi/index";
 import { type KernelBrowser, loop } from "../src/index";
 import type Kernel from "@onkernel/sdk";
-import { installLoopBehaviors } from "../src/pi/attach";
+import { installLoopBehaviors, turnFailureStopMessage } from "../src/pi/attach";
 
 const browser = { session_id: "browser_123", viewport: { width: 1440, height: 900 } } as KernelBrowser;
 const client = {} as Kernel;
@@ -203,6 +203,26 @@ describe("attach", () => {
 		await emit(emptyTurn);
 
 		expect(attempted).toEqual(["continue", "continue"]);
+	});
+
+	it("uses the blocked tool's own failure-stop message", () => {
+		const entries = [
+			{ identity: "computer", name: "computer" },
+			{ identity: "browser", name: "browser" },
+		];
+		const messages = new Map([
+			["computer", "computer stopped"],
+			["browser", "browser stopped"],
+		]);
+		const manager = {
+			catalog: { entries },
+			specFor: (identity: string) => ({
+				execution: { kind: "actions", stopTurnOnFailureMessage: messages.get(identity) },
+			}),
+		};
+
+		expect(turnFailureStopMessage(manager as never, "browser")).toBe("browser stopped");
+		expect(turnFailureStopMessage(manager as never, "computer")).toBe("computer stopped");
 	});
 
 	it("disposes the shared execution pool once, not per compile", async () => {
