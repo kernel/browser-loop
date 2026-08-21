@@ -43,6 +43,8 @@ export type {
 	BrowserExpectationState,
 	BrowserObservationDiff,
 	BrowserObservationDiffEntry,
+	BrowserState,
+	BrowserTabState,
 	BrowserWaitForResult,
 	BrowserWaitReason,
 } from "./core/translator/types";

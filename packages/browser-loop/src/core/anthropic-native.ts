@@ -14,7 +14,7 @@ function asNativeInput(args: unknown): NativeInput {
 
 const MAX_KEY_REPEAT = 100;
 
-/** Map one `computer_20260701` tool input onto canonical computer-plane actions. */
+/** Map one GA computer toolset member onto canonical computer-plane actions. */
 export function mapNativeComputerInput(input: NativeInput): ComputerUseAction[] {
 	switch (input.action) {
 		case "screenshot":
@@ -52,19 +52,19 @@ export function mapNativeComputerInput(input: NativeInput): ComputerUseAction[] 
 		}
 		case "hold_key":
 			// Canonical keypress duration is milliseconds; the native tool speaks seconds.
-			return [{ type: "keypress", keys: [text(input)], duration: durationSeconds(input) * 1000 }];
+			return [{ type: "keypress", keys: [text(input)], duration: durationSeconds(input, 300) * 1000 }];
 		case "wait":
-			return [{ type: "wait", ms: durationSeconds(input) * 1000 }];
+			return [{ type: "wait", ms: durationSeconds(input, 300) * 1000 }];
 		case "cursor_position":
 			return [{ type: "cursor_position" }];
 		case "zoom":
 			return [{ type: "zoom", region: region(input.region) }];
 		default:
-			throw new Error(`unsupported computer_20260701 action "${input.action}"`);
+			throw new Error(`unsupported computer toolset member "${input.action}"`);
 	}
 }
 
-/** Map one `browser_20260701` tool input onto canonical browser-plane actions. */
+/** Map one GA browser toolset member onto canonical browser-plane actions. */
 export function mapNativeBrowserInput(input: NativeInput): ComputerUseAction[] {
 	const tab = tabId(input);
 	switch (input.action) {
@@ -100,12 +100,20 @@ export function mapNativeBrowserInput(input: NativeInput): ComputerUseAction[] {
 			return [{ type: "browser_click", ...pageTarget(input.target), ...modifiers(input.modifiers), ...tab }];
 		case "right_click":
 			return [{ type: "browser_click", ...pageTarget(input.target), button: "right", ...modifiers(input.modifiers), ...tab }];
+		case "middle_click":
+			return [{ type: "browser_click", ...pageTarget(input.target), button: "middle", ...modifiers(input.modifiers), ...tab }];
 		case "double_click":
 			return [{ type: "browser_click", ...pageTarget(input.target), num_clicks: 2, ...modifiers(input.modifiers), ...tab }];
 		case "triple_click":
 			return [{ type: "browser_click", ...pageTarget(input.target), num_clicks: 3, ...modifiers(input.modifiers), ...tab }];
 		case "hover":
 			return [{ type: "browser_hover", ...pageTarget(input.target), ...tab }];
+		case "mouse_move":
+			return [{ type: "browser_hover", ...coordinateTarget(input.target, "target"), ...tab }];
+		case "left_mouse_down":
+			return [{ type: "browser_mouse_down", ...coordinateTarget(input.target, "target"), ...tab }];
+		case "left_mouse_up":
+			return [{ type: "browser_mouse_up", ...coordinateTarget(input.target, "target"), ...tab }];
 		case "left_click_drag":
 			return [{ type: "browser_drag", from: coordinateTarget(input.from, "from"), to: coordinateTarget(input.target, "target"), ...tab }];
 		case "scroll":
@@ -124,12 +132,18 @@ export function mapNativeBrowserInput(input: NativeInput): ComputerUseAction[] {
 			const repeat = clampRepeat(input.repeat);
 			return Array.from({ length: repeat }, () => ({ type: "browser_key" as const, text: text(input), ...tab }));
 		}
+		case "hold_key":
+			return [{ type: "browser_hold_key", text: text(input), duration: durationSeconds(input, 30), ...tab }];
 		case "wait":
-			return [{ type: "wait", ms: durationSeconds(input) * 1000 }];
+			return [{ type: "wait", ms: durationSeconds(input, 30) * 1000 }];
+		case "switch_tab":
+			return [{ type: "browser_switch_tab", tab_id: requireString(input.tab_id, "tab_id") }];
+		case "close_tab":
+			return [{ type: "browser_close_tab", tab_id: requireString(input.tab_id, "tab_id") }];
 		case "javascript_exec":
 			return [{ type: "browser_evaluate", code: text(input), ...tab }];
 		default:
-			throw new Error(`unsupported browser_20260701 action "${input.action}"`);
+			throw new Error(`unsupported browser toolset member "${input.action}"`);
 	}
 }
 
@@ -191,10 +205,10 @@ function requireString(value: unknown, field: string): string {
 	return value;
 }
 
-function durationSeconds(input: NativeInput): number {
+function durationSeconds(input: NativeInput, maximum: number): number {
 	const value = input.duration;
 	if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw new Error("invalid duration: expected a non-negative number");
-	return Math.min(value, 100);
+	return Math.min(value, maximum);
 }
 
 function clampRepeat(value: unknown): number {

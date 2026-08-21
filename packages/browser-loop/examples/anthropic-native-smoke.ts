@@ -16,8 +16,8 @@ const CONFIGS: Record<string, readonly LoopAgentTool[]> = {
 	computer: loop.toolsets.computer(),
 	browser: loop.toolsets.browser(),
 	mixed: loop.toolsets.mixed(),
-	"native-computer": [loop.providers.anthropic.tools.computer({ version: "20260701", enableZoom: true })],
-	"native-browser": [loop.providers.anthropic.tools.browser({ version: "20260701" })],
+	"native-computer": [loop.providers.anthropic.tools.computer({ version: "20260801", zoom: true })],
+	"native-browser": [loop.providers.anthropic.tools.browser({ version: "20260801" })],
 };
 
 const PROMPT = [

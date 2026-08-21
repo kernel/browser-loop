@@ -49,8 +49,8 @@ export type LoopProviderBinding =
 	| {
 			readonly kind: "anthropic-native";
 			readonly declaration: Record<string, unknown>;
-			readonly beta: string;
-			readonly accessFallback?: LoopAnthropicBrowserFallback;
+			/** Client-toolset name echoed on each member tool call and result. */
+			readonly toolsetName: "computer" | "browser";
 	  }
 	| {
 			readonly kind: "openai-native";
@@ -150,16 +150,10 @@ export interface LoopPayloadPlan {
 	apply(payload: unknown, model: LoopCatalogModel): Promise<unknown>;
 }
 
-/** Function-tool fallback for an Anthropic native browser tool unavailable to the active credential. */
-export interface LoopAnthropicBrowserFallback {
-	readonly beta: string;
-	readonly nativeType: string;
-	readonly declaration: Record<string, unknown>;
-}
-
 /** Identity-addressed native call dispatch passed to Loop custom provider streams. */
 export interface LoopIncomingToolPlan {
-	readonly anthropicBrowserFallback?: LoopAnthropicBrowserFallback;
+	/** GA Anthropic client toolsets selected for this request. */
+	readonly anthropicToolsets: readonly ("computer" | "browser")[];
 	readonly openaiComputerName?: string;
 	readonly googleNames: Readonly<Record<string, string>>;
 	/** Google predefined functions disabled by the exact selected native subset. */
@@ -246,7 +240,7 @@ export function compileLoopToolCatalog<M extends LoopCatalogModel>(options: Comp
 	const drafts = resolveProviderFacingDeclarations(normalizedEntries);
 
 	const names = new Map(drafts.map((entry) => [entry.identity, entry.name]));
-	const requirements = compileHeaderRequirements(drafts);
+	const requirements: LoopHeaderRequirement[] = [];
 	const transforms = compilePayloadTransforms(model, options.facts, drafts, validatePreparation(options.preparation));
 	validateTransformClaims(transforms);
 	const incoming = compileIncomingPlan(drafts);
@@ -447,25 +441,6 @@ function validateToolsetCompatibility(model: LoopCatalogModel, entries: readonly
 		throw new Error(`selected tools contribute incompatible native provider transports: ${[...nativeProviderKinds].join(", ")}`);
 	}
 
-	// Anthropic rejects its native browser and native computer tools in one
-	// request, because the browser tool addresses a viewport coordinate frame and
-	// the computer tool a display frame. Verified against the live API, which
-	// answers 400 "browser_20260701 cannot be declared alongside a computer_*
-	// tool". Catch it at compile time rather than on the wire.
-	const anthropicNativeTypes = entries.flatMap((entry) =>
-		entry.providerBinding?.kind === "anthropic-native" && isRecord(entry.providerBinding.declaration)
-			? [String(entry.providerBinding.declaration.type ?? "")]
-			: [],
-	);
-	const anthropicBrowser = anthropicNativeTypes.find((type) => type.startsWith("browser_"));
-	const anthropicComputer = anthropicNativeTypes.find((type) => type.startsWith("computer_"));
-	if (anthropicBrowser && anthropicComputer) {
-		throw new Error(
-			`Anthropic's native browser tool (${anthropicBrowser}) cannot be selected alongside its native computer tool (${anthropicComputer}): ` +
-				"the browser tool's viewport coordinate frame is incompatible with the computer tool's display frame",
-		);
-	}
-
 	const requiresApis = new Set(entries.flatMap((entry) => bindingRequiresApi(entry.providerBinding)));
 	if (requiresApis.size > 1) {
 		throw new Error(`selected tools require incompatible provider transports: ${[...requiresApis].join(", ")}`);
@@ -499,15 +474,6 @@ function resetCatalogDerivedApi<M extends LoopCatalogModel>(model: M): LoopCompi
 
 function withApi<M extends LoopCatalogModel>(model: M | LoopCompiledModel<M>, api: string): LoopCompiledModel<M> {
 	return { ...model, api };
-}
-
-function compileHeaderRequirements(entries: readonly LoopCatalogEntryDraft[]): LoopHeaderRequirement[] {
-	return entries.flatMap((entry) => {
-		const binding = entry.providerBinding;
-		return binding?.kind === "anthropic-native"
-			? [{ identity: entry.identity, name: "anthropic-beta", value: binding.beta, merge: "comma-set" as const }]
-			: [];
-	});
 }
 
 function createHeaderPlan(requirements: readonly LoopHeaderRequirement[]): LoopHeaderPlan {
@@ -716,7 +682,7 @@ function createPayloadPlan(
 }
 
 function compileIncomingPlan(entries: readonly LoopCatalogEntryDraft[]): LoopIncomingToolPlan {
-	let anthropicBrowserFallback: LoopAnthropicBrowserFallback | undefined;
+	const anthropicToolsets: Array<"computer" | "browser"> = [];
 	let openaiComputerName: string | undefined;
 	let googleAllNativeNames: readonly string[] = [];
 	const googleNames: Record<string, string> = {};
@@ -725,7 +691,7 @@ function compileIncomingPlan(entries: readonly LoopCatalogEntryDraft[]): LoopInc
 		const binding = entry.providerBinding;
 		if (!binding) continue;
 		nativeToolNames.push(entry.name);
-		if (binding.kind === "anthropic-native" && binding.accessFallback) anthropicBrowserFallback = binding.accessFallback;
+		if (binding.kind === "anthropic-native") anthropicToolsets.push(binding.toolsetName);
 		else if (binding.kind === "openai-native") openaiComputerName = entry.name;
 		else if (binding.kind === "google-native") {
 			googleNames[binding.nativeName] = entry.name;
@@ -735,7 +701,7 @@ function compileIncomingPlan(entries: readonly LoopCatalogEntryDraft[]): LoopInc
 	const selectedGoogleNames = new Set(Object.keys(googleNames));
 	const googleExcludedNames = googleAllNativeNames.filter((name) => !selectedGoogleNames.has(name));
 	return Object.freeze({
-		...(anthropicBrowserFallback ? { anthropicBrowserFallback: Object.freeze(anthropicBrowserFallback) } : {}),
+		anthropicToolsets: Object.freeze(anthropicToolsets),
 		...(openaiComputerName ? { openaiComputerName } : {}),
 		googleNames: Object.freeze(googleNames),
 		googleExcludedNames: Object.freeze(googleExcludedNames),

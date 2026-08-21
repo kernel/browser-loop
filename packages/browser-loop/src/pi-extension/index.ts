@@ -148,8 +148,8 @@ export default function loopPiExtension(pi: ExtensionAPI): void {
 	 * streams its own registry model, but the transport a native surface needs is
 	 * derived onto the *compiled* model — so the wrapper swaps in `catalog.model`,
 	 * which is the resolved model with only `api` replaced, and adds the incoming
-	 * native-call plan that normalizes `computer_call`-style items and drives
-	 * Anthropic's browser-beta fallback. pi's own resolved credential rides along
+	 * native-call plan that normalizes provider-native items and preserves
+	 * Anthropic client-toolset member calls. pi's own resolved credential rides along
 	 * in `options.apiKey`.
 	 */
 	function registerLoopProviders(): void {

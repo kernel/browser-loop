@@ -6,7 +6,10 @@ import type {
 	BrowserActionFill,
 	BrowserActionFind,
 	BrowserActionHover,
+	BrowserActionHoldKey,
 	BrowserActionKey,
+	BrowserActionMouseDown,
+	BrowserActionMouseUp,
 	BrowserActionNavigate,
 	BrowserActionScroll,
 	BrowserActionScrollTo,
@@ -52,7 +55,7 @@ import {
 	type RefEntry,
 } from "./browser-ref-lifecycle";
 import { evaluateBrowserExpectation, waitForBrowserExpectation, type BrowserExpectationEvaluation } from "./browser-wait";
-import type { BatchReadResult, BrowserActResult, BrowserWaitForResult } from "./types";
+import type { BatchReadResult, BrowserActResult, BrowserState, BrowserWaitForResult } from "./types";
 
 const SNAPSHOT_CHAR_LIMIT = 50_000;
 const DEFAULT_SNAPSHOT_DEPTH = 15;
@@ -409,6 +412,12 @@ export class BrowserExecutor {
 			case "browser_hover":
 				await this.hover(action, signal);
 				return [];
+			case "browser_mouse_down":
+				await this.mouseButton(action, "mousePressed");
+				return [];
+			case "browser_mouse_up":
+				await this.mouseButton(action, "mouseReleased");
+				return [];
 			case "browser_drag":
 				await this.drag(action);
 				return [];
@@ -429,12 +438,19 @@ export class BrowserExecutor {
 			case "browser_key":
 				await this.key(action, signal);
 				return [];
+			case "browser_hold_key":
+				await this.holdKey(action, signal);
+				return [];
 			case "browser_navigate":
 				return [{ type: "browser_text", label: "navigate", text: await this.navigate(action, signal) }];
 			case "browser_list_tabs":
-				return [{ type: "browser_text", label: "tabs", text: await this.listTabs() }];
+				return [{ type: "browser_state", state: await this.listTabs() }];
 			case "browser_new_tab":
-				return [{ type: "browser_text", label: "new_tab", text: await this.newTab() }];
+				return [{ type: "browser_state", state: await this.newTab() }];
+			case "browser_switch_tab":
+				return [{ type: "browser_state", state: await this.switchTab(action.tab_id) }];
+			case "browser_close_tab":
+				return [{ type: "browser_state", state: await this.closeTab(action.tab_id) }];
 			case "browser_screenshot":
 				return [{ type: "screenshot", ...(await this.screenshot(action.region, action.tab_id)) }];
 			case "browser_evaluate":
@@ -921,6 +937,11 @@ export class BrowserExecutor {
 		await this.cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y }, point.session);
 	}
 
+	private async mouseButton(action: BrowserActionMouseDown | BrowserActionMouseUp, type: "mousePressed" | "mouseReleased"): Promise<void> {
+		const session = await this.session(tabOf(action));
+		await this.cdp.send("Input.dispatchMouseEvent", { type, x: action.x, y: action.y, button: "left", clickCount: 1 }, session);
+	}
+
 	private async drag(action: BrowserActionDrag): Promise<void> {
 		const session = await this.session(tabOf(action));
 		await this.cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x: action.from.x, y: action.from.y, button: "left", clickCount: 1 }, session);
@@ -992,6 +1013,22 @@ export class BrowserExecutor {
 		}
 	}
 
+	private async holdKey(action: BrowserActionHoldKey, signal?: AbortSignal): Promise<void> {
+		throwIfAborted(signal);
+		const session = await this.session(tabOf(action));
+		const parts = action.text.split("+").filter(Boolean);
+		const keyPart = parts[parts.length - 1] ?? "";
+		const modifiers = modifierBits(parts.slice(0, -1));
+		const key = resolveKey(keyPart);
+		const base = { key: key.key, code: key.code, windowsVirtualKeyCode: key.keyCode, modifiers };
+		await this.cdp.send("Input.dispatchKeyEvent", { type: key.text ? "keyDown" : "rawKeyDown", ...base, ...(key.text ? { text: key.text } : {}) }, session);
+		try {
+			await abortableDelay(Math.min(Math.max(action.duration, 0), 30) * 1000, signal);
+		} finally {
+			await this.cdp.send("Input.dispatchKeyEvent", { type: "keyUp", ...base }, session);
+		}
+	}
+
 	private async dispatchChord(chord: string, session: string): Promise<void> {
 		const parts = chord.split("+").filter(Boolean);
 		const keyPart = parts[parts.length - 1] ?? "";
@@ -1009,6 +1046,23 @@ export class BrowserExecutor {
 		const session = await this.attach(targetId);
 		throwIfAborted(signal);
 		const direction = action.url.trim().toLowerCase();
+		if (direction === "reload") {
+			const frameId = await this.mainFrameId(targetId, session);
+			const pending = this.beginNavigation(targetId, session);
+			try {
+				await this.selfNavigate(targetId, () => this.cdp.send("Page.reload", {}, session));
+			} catch (error) {
+				this.cancelNavigation(pending);
+				throw error;
+			}
+			this.lifecycle.invalidateTarget(targetId);
+			try {
+				await this.waitForNavigation(pending, { frameId }, signal);
+			} finally {
+				this.selfNavigations.delete(targetId);
+			}
+			return `Reloaded page.\n${await this.tabContext(targetId)}`;
+		}
 		if (direction === "back" || direction === "forward") {
 			const history = await this.cdp.send<{ currentIndex: number; entries: Array<{ id: number; url: string }> }>(
 				"Page.getNavigationHistory",
@@ -1035,7 +1089,7 @@ export class BrowserExecutor {
 			return `Navigated ${direction}.\n${await this.tabContext(targetId)}`;
 		}
 		const url = normalizeGotoUrl(action.url);
-		if (!url) throw new Error("invalid url");
+		if (!url || !/^https?:\/\//i.test(url)) throw new Error("browser navigation requires an http or https URL");
 		const pending = this.beginNavigation(targetId, session);
 		let response: { frameId?: string; loaderId?: string; errorText?: string; isDownload?: boolean };
 		try {
@@ -1099,16 +1153,51 @@ export class BrowserExecutor {
 		return targets.find((target) => target.targetId === targetId)?.url ?? "";
 	}
 
-	private async listTabs(): Promise<string> {
-		const targets = await this.cdp.pageTargets();
-		if (targets.length === 0) return "No open tabs.";
-		return targets.map((target) => `tab_id ${shortTabId(target.targetId)}: ${JSON.stringify(target.title)} (${target.url})`).join("\n");
+	private async listTabs(): Promise<BrowserState> {
+		return this.browserState();
 	}
 
-	private async newTab(): Promise<string> {
+	private async newTab(): Promise<BrowserState> {
 		const targetId = await this.cdp.createTarget("about:blank");
 		this.activeTargetId = targetId;
-		return `Opened tab_id ${shortTabId(targetId)}.\n${await this.tabContext(targetId)}`;
+		await this.cdp.send("Target.activateTarget", { targetId });
+		return this.browserState([{ type: "tab_opened", tab_id: shortTabId(targetId) }]);
+	}
+
+	private async switchTab(tabId: string): Promise<BrowserState> {
+		const targetId = await this.resolveTarget(tabId);
+		await this.cdp.send("Target.activateTarget", { targetId });
+		this.activeTargetId = targetId;
+		return this.browserState();
+	}
+
+	private async closeTab(tabId: string): Promise<BrowserState> {
+		const targetId = await this.resolveTarget(tabId);
+		await this.cdp.send("Target.closeTarget", { targetId });
+		this.dropTarget(targetId);
+		const targets = await this.cdp.pageTargets();
+		this.activeTargetId = targets.find((target) => target.targetId !== targetId)?.targetId;
+		if (this.activeTargetId) await this.cdp.send("Target.activateTarget", { targetId: this.activeTargetId });
+		return this.browserState(undefined, targetId);
+	}
+
+	private async browserState(
+		stateChanges?: BrowserState["state_changes"],
+		excludedTargetId?: string,
+	): Promise<BrowserState> {
+		const targets = (await this.cdp.pageTargets()).filter((target) => target.targetId !== excludedTargetId);
+		if (targets.length > 0 && !targets.some((target) => target.targetId === this.activeTargetId)) {
+			this.activeTargetId = targets[0]!.targetId;
+		}
+		return {
+			tabs: targets.map((target) => ({
+				tab_id: shortTabId(target.targetId),
+				title: target.title,
+				url: target.url,
+				...(target.targetId === this.activeTargetId ? { active: true as const } : {}),
+			})),
+			...(stateChanges?.length ? { state_changes: stateChanges } : {}),
+		};
 	}
 
 	private async evaluate(code: string, tabId?: string): Promise<string> {
@@ -1376,18 +1465,18 @@ function throwIfAborted(signal?: AbortSignal): void {
 	throw signal.reason instanceof Error ? signal.reason : new Error("browser action aborted");
 }
 
-function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
 	throwIfAborted(signal);
 	return new Promise((resolve, reject) => {
 		const onAbort = () => {
 			clearTimeout(timer);
-			reject(signal.reason instanceof Error ? signal.reason : new Error("browser action aborted"));
+			reject(signal?.reason instanceof Error ? signal.reason : new Error("browser action aborted"));
 		};
 		const timer = setTimeout(() => {
-			signal.removeEventListener("abort", onAbort);
+			signal?.removeEventListener("abort", onAbort);
 			resolve();
 		}, ms);
-		signal.addEventListener("abort", onAbort, { once: true });
+		signal?.addEventListener("abort", onAbort, { once: true });
 	});
 }
 

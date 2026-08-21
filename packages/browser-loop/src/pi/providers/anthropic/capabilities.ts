@@ -1,14 +1,13 @@
-const NATIVE_BROWSER_FAMILIES = ["claude-opus-4-8", "claude-opus-5", "claude-sonnet-5"] as const;
-const NATIVE_COMPUTER_FAMILIES = ["claude-fable-5", ...NATIVE_BROWSER_FAMILIES] as const;
+const NATIVE_TOOLSET_FAMILIES = ["claude-fable-5", "claude-mythos-5", "claude-opus-4-8", "claude-opus-5", "claude-sonnet-5"] as const;
 
-/** Return whether an Anthropic model ID supports the July 2026 native browser tool. */
+/** Return whether an Anthropic model ID supports the GA browser toolset. */
 export function supportsAnthropicNativeBrowser(modelId: string): boolean {
-	return NATIVE_BROWSER_FAMILIES.some((family) => modelFamily(modelId, family));
+	return NATIVE_TOOLSET_FAMILIES.some((family) => modelFamily(modelId, family));
 }
 
-/** Return whether an Anthropic model ID supports the July 2026 native computer tool. */
+/** Return whether an Anthropic model ID supports the GA computer toolset. */
 export function supportsAnthropicNativeComputer(modelId: string): boolean {
-	return NATIVE_COMPUTER_FAMILIES.some((family) => modelFamily(modelId, family));
+	return NATIVE_TOOLSET_FAMILIES.some((family) => modelFamily(modelId, family));
 }
 
 function modelFamily(modelId: string, family: string): boolean {

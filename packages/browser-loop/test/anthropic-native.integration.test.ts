@@ -8,19 +8,19 @@ const liveIt = apiKey ? it : it.skip;
 const cases = [
 	{
 		name: "computer",
-		tool: loop.providers.anthropic.tools.computer({ version: "20260701", enableZoom: true }),
+		tool: loop.providers.anthropic.tools.computer({ version: "20260801", zoom: true }),
 		prompt: "Use the computer tool to take one screenshot.",
 		expectedAction: "screenshot",
 	},
 	{
 		name: "browser",
-		tool: loop.providers.anthropic.tools.browser({ version: "20260701", javascript: true }),
+		tool: loop.providers.anthropic.tools.browser({ version: "20260801", javascript: true }),
 		prompt: "Use the browser tool to navigate to example.com.",
 		expectedAction: "navigate",
 	},
 ] as const;
 
-describe("Anthropic early-access native tools", () => {
+describe("Anthropic GA client toolsets", () => {
 	for (const current of cases) {
 		liveIt(`${current.name} survives catalog and pi-ai serialization`, async () => {
 			const catalog = compileLoopToolCatalog({

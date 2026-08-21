@@ -67,10 +67,8 @@ describe("loop tool namespace", () => {
 		expect("legacyBrowser" in loop.providers.google.toolsets).toBe(false);
 		const surfaces: Array<[string, LoopToolSpec[]]> = [
 			[loop.providers.openai.source, [loop.providers.openai.tools.computer()]],
-			[loop.providers.anthropic.source, [
-				loop.providers.anthropic.tools.browser(),
-				loop.providers.anthropic.tools.computer(),
-			]],
+			[loop.providers.anthropic.sources.browser, [loop.providers.anthropic.tools.browser()]],
+			[loop.providers.anthropic.sources.computer, [loop.providers.anthropic.tools.computer()]],
 			[loop.providers.google.source, loop.providers.google.toolsets.browser()],
 		];
 		for (const [source, tools] of surfaces) {
@@ -220,26 +218,35 @@ describe("compileLoopToolCatalog", () => {
 		expect(catalog.incoming.openaiComputerName).toBe("computer");
 	});
 
-	it("composes Anthropic native browser declarations, access fallback, and ordinary functions", async () => {
+	it("composes Anthropic GA toolset declarations and ordinary functions", async () => {
 		const catalog = compile("anthropic:claude-opus-5", [
 			loop.providers.anthropic.tools.browser(),
 			loop.tools.browser.snapshot(),
 		]);
-		expect(catalog.headers.merge({ "anthropic-beta": "other-beta" })).toEqual({
-			"anthropic-beta": "other-beta,browser-use-2026-07-01",
-		});
+		expect(catalog.headers.merge({ "x-custom": "value" })).toEqual({ "x-custom": "value" });
 		const next = await catalog.payload.apply({ tools: [
 			{ name: "browser", input_schema: {} },
 			{ name: "browser_snapshot", input_schema: {} },
 		] }, catalog.model) as { tools: Array<Record<string, unknown>> };
-		expect(next.tools[0]).toMatchObject({ type: "browser_20260701", name: "browser" });
+		expect(next.tools[0]).toEqual({ type: "browser_toolset_20260801" });
 		expect(next.tools[1]).toMatchObject({ name: "browser_snapshot" });
-		expect(catalog.incoming.anthropicBrowserFallback).toMatchObject({
-			beta: "browser-use-2026-07-01",
-			nativeType: "browser_20260701",
-			declaration: { name: "browser", input_schema: { anyOf: expect.any(Array) } },
-		});
+		expect(catalog.incoming.anthropicToolsets).toEqual(["browser"]);
 		expect(catalog.entries[0]?.dynamicLoading).toBe("eager-only");
+	});
+
+	it("allows Anthropic's GA computer and browser toolsets together", async () => {
+		const catalog = compile("anthropic:claude-opus-5", [
+			loop.providers.anthropic.tools.computer(),
+			loop.providers.anthropic.tools.browser(),
+		]);
+		expect(catalog.incoming.anthropicToolsets).toEqual(["computer", "browser"]);
+		expect(await catalog.payload.apply({ tools: [
+			{ name: "computer", input_schema: {} },
+			{ name: "browser", input_schema: {} },
+		] }, catalog.model)).toEqual({ tools: [
+			{ type: "computer_toolset_20260801" },
+			{ type: "browser_toolset_20260801" },
+		] });
 	});
 
 	it("serializes Google's current native declaration and keeps custom functions", async () => {

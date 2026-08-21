@@ -4,7 +4,7 @@ import type { LoopCoordinateContract, LoopToolSpec } from "./tool-catalog";
 import { formatBrowserActResult } from "./browser-result-format";
 import { BatchExecutionError, InternalComputerTranslator, type KernelBrowser, type PlaywrightExecutionResult } from "./translator/translator";
 import type { BrowserExecutor } from "./translator/browser";
-import type { BatchExecutionResult, BatchReadResult, BrowserWaitForResult } from "./translator/types";
+import type { BatchExecutionResult, BatchReadResult, BrowserState, BrowserWaitForResult } from "./translator/types";
 
 /** Structured execution metadata returned by materialized Loop tools. */
 export interface LoopExecutionDetails {
@@ -187,6 +187,12 @@ function formatReadResults(
 				content.push({ type: "text", text: read.text });
 				details.push({ type: "browser_text", label: read.label, bytes: read.text.length });
 				break;
+			case "browser_state": {
+				const text = formatBrowserState(read.state);
+				content.push({ type: "text", text });
+				details.push({ type: "browser_state", state: read.state });
+				break;
+			}
 			case "browser_wait_for":
 				content.push({ type: "text", text: formatBrowserWaitResult(read.result) });
 				details.push({ type: "browser_wait_for", result: read.result });
@@ -203,6 +209,14 @@ function formatReadResults(
 		}
 	}
 	return { content, details };
+}
+
+function formatBrowserState(state: BrowserState): string {
+	if (state.tabs.length === 0) return "No tabs available";
+	return [
+		"Available tabs:",
+		...state.tabs.map((tab) => `  • tab_id ${tab.tab_id}: ${JSON.stringify(tab.title)} (${tab.url})${tab.active ? " (current)" : ""}`),
+	].join("\n");
 }
 
 function hasUnsatisfiedSemanticRead(reads: readonly BatchReadResult[]): boolean {

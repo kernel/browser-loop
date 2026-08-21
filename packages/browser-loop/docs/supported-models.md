@@ -22,8 +22,7 @@ models and need their own entry. Each cites first-party documentation.
 
 | provider | models | surfaces |
 | --- | --- | --- |
-| `anthropic` | `claude-opus-4-8`, `claude-opus-5`, `claude-sonnet-5` families | computer, browser |
-| `anthropic` | `claude-fable-5` family | computer |
+| `anthropic` | `claude-fable-5`, `claude-mythos-5`, `claude-opus-4-8`, `claude-opus-5`, `claude-sonnet-5` families | computer, browser |
 | `openai` | `gpt-5.6-sol`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.5` | computer |
 | `google` | `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-3.5-flash-lite`, `gemini-2.5-computer-use-preview-10-2025` | browser |
 
@@ -93,9 +92,9 @@ npx tsx packages/browser-loop/scripts/native-action-probe.ts --provider openai -
 
 Update that provider's adapter under `src/pi/providers/` to execute the actions the
 probe returns, then add or adjust the `COMPUTER_USE_NATIVE_SURFACES` entry, citing the
-provider's documentation. Anthropic's computer tool version and its
-`computer-use-*` beta header are chosen by pi-ai per model, so a new dated
-version there usually means bumping pi-ai rather than editing this package.
+provider's documentation. Anthropic's GA client toolsets are adapted in
+`src/pi/providers/anthropic/toolsets.ts`; a new dated toolset version requires
+updating its declarations and member transcript adapter together.
 
 **A model rejects a tool Browser Loop sends.** Add a `LOOP_MODEL_QUIRKS` entry with the
 observed error as its `reason`, scoped as narrowly as the evidence supports: a

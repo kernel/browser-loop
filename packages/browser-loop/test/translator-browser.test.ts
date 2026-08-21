@@ -695,7 +695,8 @@ function createFakeCdp(initialNodes: unknown[] = []) {
 				case "Runtime.evaluate":
 					if (params.returnByValue === false) return { result: { objectId: "cursor-scan" } };
 					return { result: { value: runtimeValue } };
-				case "Page.navigate": {
+				case "Page.navigate":
+				case "Page.reload": {
 					const nextLoaderId = `NAV-${++navigationSequence}`;
 					if (autoNavigationLifecycle) {
 						emit({ method: "Page.frameNavigated", params: { frame: { id: mainFrameId, loaderId: nextLoaderId } }, sessionId });
@@ -1092,6 +1093,25 @@ describe("BrowserExecutor navigation stabilization", () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	it("rejects non-http browser navigation schemes", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		const executor = new BrowserExecutor(fake.cdp);
+
+		await expect(executor.execute({ type: "browser_navigate", url: "file:///tmp/secret" } as BrowserAction))
+			.rejects.toThrow(/requires an http or https URL/);
+		expect(fake.sent.some((command) => command.method === "Page.navigate")).toBe(false);
+	});
+
+	it("reloads the active tab and waits for its fresh loader", async () => {
+		const fake = createFakeCdp(BUTTON_TREE);
+		const executor = new BrowserExecutor(fake.cdp);
+
+		await expect(executor.execute({ type: "browser_navigate", url: "reload" } as BrowserAction)).resolves.toEqual([
+			expect.objectContaining({ type: "browser_text", label: "navigate", text: expect.stringContaining("Reloaded page") }),
+		]);
+		expect(fake.sent).toContainEqual(expect.objectContaining({ method: "Page.reload" }));
 	});
 
 	it("completes a non-bfcache history navigation after its fresh loader emits load", async () => {
