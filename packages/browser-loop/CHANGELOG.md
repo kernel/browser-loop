@@ -1,11 +1,25 @@
 # Changelog
 
-## Unreleased
+## 0.12.0 - 2026-08-21
 
 - Update Anthropic's computer and browser integrations to use the
   `computer_toolset_20260801` and `browser_toolset_20260801` client toolsets.
   Member calls/results preserve `toolset_name`, sequential batches stop at the
   first failure, and both toolsets may be selected together.
+- Support the browser toolset's current tab, input, navigation, history, reload,
+  screenshot, zoom, and JavaScript members. `javascript_exec` is disabled unless
+  the browser tool is created with `javascript: true`.
+- Return Anthropic's structured `browser_state` after browser actions. Browser
+  state is bounded and sanitized, background-tab actions preserve the active
+  tab, and closing a background tab no longer changes focus.
+- Restrict browser navigation to HTTP and HTTPS URLs. Replaying an older
+  successful browser result without `browser_state` now returns a recoverable
+  tool error directing the model to call `list_tabs`.
+- Remove the older Anthropic request headers and function-tool browser fallback;
+  requests use the client toolsets directly.
+
+## 0.11.0 - 2026-08-21
+
 - Rename the product and unpublished package to Browser Loop: the repository is
   prepared for `kernel/browser-loop`, the package is `@onkernel/browser-loop`,
   and release tags use `browser-loop/v*`. The public `loop` namespace, `Loop*`
