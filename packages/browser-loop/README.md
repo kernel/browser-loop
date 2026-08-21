@@ -456,9 +456,9 @@ import {
 } from "@onkernel/browser-loop/pi";
 ```
 
-Conventional variables are `OPENAI_API_KEY`, `ANTHROPIC_AUTH_TOKEN`/
-`ANTHROPIC_OAUTH_TOKEN`/`ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`/
-`GEMINI_API_KEY`, `XAI_API_KEY`, and `MOONSHOT_API_KEY`.
+Conventional variables are `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
+`GOOGLE_API_KEY`/`GEMINI_API_KEY`, `XAI_API_KEY`, and
+`MOONSHOT_API_KEY`.
 
 ## pi extension
 
