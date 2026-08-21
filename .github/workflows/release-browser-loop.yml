@@ -35,6 +35,7 @@ jobs:
       - name: Ensure npm supports trusted publishing
         run: npm install -g npm@^11.5.1
 
+      - run: npm run check:lockfile
       - run: npm ci
 
       - name: Verify package version matches tag
