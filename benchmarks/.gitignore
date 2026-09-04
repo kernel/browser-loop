@@ -1,0 +1,12 @@
+node/dist/
+node/node_modules/
+dist/
+__pycache__/
+*.egg-info/
+.venv/
+.cache/
+.pytest_cache/
+.ruff_cache/
+jobs/
+trials/
+dataset/

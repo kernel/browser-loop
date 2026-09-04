@@ -1,0 +1,29 @@
+{
+  "name": "cua-bench-task",
+  "version": "0.1.0",
+  "description": "One-task cua harness entrypoint that attaches to an existing Kernel session and emits answer, screenshots, and a raw event log for Harbor",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "cua-bench-task": "./dist/task.js"
+  },
+  "scripts": {
+    "build": "tsdown && chmod +x dist/task.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest --run"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dependencies": {
+    "@onkernel/cua-agent": "0.3.5",
+    "@onkernel/cua-ai": "0.3.2",
+    "@onkernel/sdk": "0.49.0"
+  },
+  "devDependencies": {
+    "tsdown": "^0.22.2",
+    "typescript": "5.9.3",
+    "vitest": "^3.2.4"
+  }
+}
