@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.1 - 2026-09-04
+
+- Relax the `@onkernel/sdk` dependency from an exact pin to `>=0.49.0 <1.0.0`.
+
 ## 0.12.0 - 2026-08-21
 
 - Update Anthropic's computer and browser integrations to use the
