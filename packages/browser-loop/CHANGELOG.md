@@ -2,9 +2,7 @@
 
 ## 0.12.1 - 2026-09-04
 
-- Relax the `@onkernel/sdk` dependency from an exact pin to `>=0.49.0 <1.0.0`,
-  so installing a newer SDK version alongside `browser-loop` no longer hoists
-  a second, mismatched copy that breaks `attach({ client, browser })`'s types.
+- Relax the `@onkernel/sdk` dependency from an exact pin to `>=0.49.0 <1.0.0`.
 
 ## 0.12.0 - 2026-08-21
 
