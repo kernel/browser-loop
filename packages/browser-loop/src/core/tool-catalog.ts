@@ -43,7 +43,8 @@ export type LoopToolExecution =
 			/** Block later calls in the same assistant turn after this tool fails. */
 			readonly stopTurnOnFailureMessage?: string;
 	  }
-	| { readonly kind: "playwright" };
+	| { readonly kind: "playwright" }
+	| { readonly kind: "repl" };
 
 export type LoopProviderBinding =
 	| {

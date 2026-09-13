@@ -3,7 +3,7 @@ import { loop } from "./tools";
 import { compileLoopToolCatalog, type LoopToolSpec } from "./tool-catalog";
 
 /** Where a menu entry comes from, for grouping in a picker. */
-export type LoopToolMenuGroup = "browser" | "computer" | "playwright" | "native";
+export type LoopToolMenuGroup = "browser" | "computer" | "playwright" | "repl" | "native";
 
 /** One offerable item: a single tool, or a native toolset selected as a unit. */
 export interface LoopToolMenuEntry {
@@ -95,6 +95,7 @@ function offerableEntries(): OfferableEntry[] {
 		entries.push(single(tool, "computer"));
 	}
 	entries.push(single(loop.tools.playwright(), "playwright"));
+	entries.push(single(loop.tools.repl(), "repl"));
 	entries.push(single(loop.providers.openai.tools.computer(), "native"));
 	entries.push(single(loop.providers.anthropic.tools.computer(), "native"));
 	entries.push(single(loop.providers.anthropic.tools.browser(), "native"));
