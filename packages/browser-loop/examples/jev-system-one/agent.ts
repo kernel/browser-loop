@@ -5,6 +5,7 @@ import type {
 	BrowserRuntime,
 	HistoryEntry,
 	JevCandidate,
+	JevCandidateSpace,
 	JevPolicy,
 	Observation,
 	TextResolver,
@@ -30,12 +31,15 @@ export async function runAgent(options: {
 	const history: HistoryEntry[] = [];
 	const steps: AgentResult["steps"] = [];
 	const usage = { calls: 0, inputTokens: 0, outputTokens: 0, latencyMs: 0 };
+	const attemptedTransitions = new Set<string>();
+	const rejectedByState = new Map<string, Set<string>>();
 	let observation = await options.browser.observe();
 	let status: AgentResult["status"] = "blocked";
 	let reason = "Step limit reached";
 
 	for (let step = 0; step < (options.maxSteps ?? MAX_STEPS); step++) {
-		const space = buildCandidateSpace(observation, options.goal, history);
+		const rejected = rejectedByState.get(observation.interactionFingerprint);
+		const space = rejectCandidates(buildCandidateSpace(observation, options.goal, history), rejected);
 		const decision = await options.policy.decide({ goal: options.goal, observation, space, history });
 		usage.calls += 1;
 		usage.inputTokens += decision.inputTokens;
@@ -76,6 +80,15 @@ export async function runAgent(options: {
 			break;
 		}
 
+		const candidateKey = semanticCandidateKey(candidate);
+		const transitionKey = `${observation.interactionFingerprint}\u0000${candidateKey}`;
+		if (attemptedTransitions.has(transitionKey)) {
+			const stateRejected = rejectedByState.get(observation.interactionFingerprint) ?? new Set<string>();
+			stateRejected.add(candidateKey);
+			rejectedByState.set(observation.interactionFingerprint, stateRejected);
+			continue;
+		}
+
 		const actionStarted = performance.now();
 		let lowered: LoweredAction | undefined;
 		let resolveMs = 0;
@@ -103,6 +116,7 @@ export async function runAgent(options: {
 			break;
 		}
 
+		attemptedTransitions.add(transitionKey);
 		const observeStarted = performance.now();
 		const successor = await options.browser.observe();
 		const observeMs = performance.now() - observeStarted;
@@ -193,6 +207,32 @@ function normalizeHttpUrl(value: string): string | undefined {
 	} catch {
 		return undefined;
 	}
+}
+
+function rejectCandidates(space: JevCandidateSpace, rejected: ReadonlySet<string> | undefined): JevCandidateSpace {
+	if (!rejected?.size) return space;
+	const candidates = space.candidates.filter((candidate) => !rejected.has(semanticCandidateKey(candidate)));
+	const byOperation = new Map<JevCandidate["operation"], JevCandidate[]>();
+	const operationsByNode = new Map<number, Set<JevCandidate["operation"]>>();
+	for (const candidate of candidates) {
+		const operationCandidates = byOperation.get(candidate.operation) ?? [];
+		operationCandidates.push(candidate);
+		byOperation.set(candidate.operation, operationCandidates);
+		if (candidate.target) {
+			const operations = operationsByNode.get(candidate.target.node) ?? new Set<JevCandidate["operation"]>();
+			operations.add(candidate.operation);
+			operationsByNode.set(candidate.target.node, operations);
+		}
+	}
+	const elements = space.elements.flatMap((element) => {
+		const operations = element.operations.filter((operation) => operationsByNode.get(element.node)?.has(operation));
+		return operations.length ? [{ ...element, operations }] : [];
+	});
+	return { candidates, byId: new Map(candidates.map((candidate) => [candidate.id, candidate])), byOperation, elements };
+}
+
+function semanticCandidateKey(candidate: JevCandidate): string {
+	return `${candidate.operation}\u0000${candidate.label}`;
 }
 
 function errorMessage(error: unknown): string {

@@ -25,7 +25,12 @@ export function buildCandidateSpace(observation: Observation, goal: string, hist
 
 	for (const element of pageElements) {
 		if (element.disabled) continue;
-		const target: ElementTarget = { documentId: observation.documentId, node: element.node, guard: element.guard };
+		const target: ElementTarget = {
+			documentId: observation.documentId,
+			node: element.node,
+			guard: element.guard,
+			...(element.ref ? { ref: element.ref } : {}),
+		};
 		for (const operation of element.operations) {
 			if (operation === "SELECT") {
 				for (const [optionIndex, option] of element.options.entries()) {

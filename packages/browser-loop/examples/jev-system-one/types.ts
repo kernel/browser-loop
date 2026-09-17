@@ -31,6 +31,7 @@ export interface ElementTarget {
 	documentId: string;
 	node: number;
 	guard: string;
+	ref?: string;
 }
 
 export interface ObservationElement {
@@ -46,6 +47,7 @@ export interface ObservationElement {
 	expanded?: boolean;
 	disabled?: boolean;
 	guard: string;
+	ref?: string;
 	rect: { x: number; y: number; width: number; height: number };
 }
 
@@ -58,6 +60,7 @@ export interface Observation {
 	elements: ObservationElement[];
 	scroll: ScrollState;
 	fingerprint: string;
+	interactionFingerprint: string;
 	marker: string;
 	omittedElements: number;
 }

@@ -119,6 +119,6 @@ The operation question contains only currently available operations. Target ques
 
 ## Current boundaries
 
-This is deliberately a custom example rather than a generalized policy API. Its observation pass includes only controls whose center is inside the current viewport, records each control's executable operations from its underlying DOM element, and assigns a stable identity for the life of the document. Before input, the runtime validates only the selected control's identity and state. A stale target causes a fresh observation and policy decision; snapshot-scoped references are not remapped.
+This is deliberately a custom example rather than a generalized policy API. Its observation pass includes only controls whose center is inside the current viewport, records each control's executable operations from its underlying DOM element, and assigns a stable identity for the life of the document. When a visible cross-origin frame is present, it supplements that state with the frame controls from Browser Loop's stitched accessibility observation. Before input, the runtime validates only the selected control's identity and state. A stale target causes a fresh observation and policy decision; snapshot-scoped references are not remapped.
 
 The example does not generate prose answers, handle CAPTCHA, upload files, or enter passwords. The viewport candidate list is bounded to 250 grounded actions. Page text is treated as untrusted data, and the text resolver returns `null` when required information is absent.

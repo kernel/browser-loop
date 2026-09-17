@@ -164,10 +164,15 @@ export const VIEWPORT_SNAPSHOT = String.raw`(() => {
 		y: scrollElement.scrollTop, height: scrollElement.scrollHeight, viewport: scrollElement.clientHeight,
 		width: innerWidth, x: point.x, pointY: point.y,
 	};
+	const hasVisibleFrame = [...document.querySelectorAll('iframe')].some((frame) => {
+		if (!visible(frame)) return false;
+		const rect = frame.getBoundingClientRect();
+		return rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < innerHeight && rect.right > 0 && rect.left < innerWidth;
+	});
 	const documentId = String(performance.timeOrigin);
 	const semantics = elements.map(({ rect, guard, ...element }) => element);
 	const marker = JSON.stringify([documentId, location.href, document.title, text, semantics, scroll]);
-	return { url: location.href, title: document.title, documentId, text, elements, scroll, marker, omitted };
+	return { url: location.href, title: document.title, documentId, text, elements, scroll, marker, omitted, hasVisibleFrame };
 })()`;
 
 export const SETTLE_AFTER_INPUT = String.raw`(async () => {

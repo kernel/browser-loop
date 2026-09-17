@@ -145,6 +145,48 @@ describe("Jev browser agent", () => {
 		assert.deepEqual(executed, ["click:n9"]);
 	});
 
+	it("suppresses an action repeated from the same interactive state", async () => {
+		const reservation = element("n1", "link", "Make a Reservation", ["CLICK"]);
+		const top = observationFromElements({
+			url: "https://restaurant.example/",
+			text: "Homepage",
+			elements: [reservation],
+			scroll: { y: 0, height: 1_000, viewport: 800, width: 1_200, x: 600, pointY: 650 },
+		});
+		const bottom = observationFromElements({
+			url: top.url,
+			text: "Footer",
+			elements: [reservation],
+			scroll: { y: 200, height: 1_000, viewport: 800, width: 1_200, x: 600, pointY: 650 },
+		});
+		const complete = observationFromElements({ url: `${top.url}reservations`, text: "Reservation form" });
+		let observation = top;
+		const decisions: string[] = [];
+		const browser: BrowserRuntime = {
+			observe: async () => observation,
+			isFresh: async () => true,
+			execute: async (action) => {
+				if (action.type !== "browser_scroll") throw new Error(`Unexpected ${action.type}`);
+				observation = action.direction === "down" ? bottom : top;
+			},
+			executeTarget: async () => { observation = complete; },
+		};
+		const policy: JevPolicy = {
+			decide: async (input) => {
+				const operation = input.space.byOperation.has("SCROLL") ? "SCROLL" : input.space.byOperation.has("CLICK") ? "CLICK" : "DONE";
+				decisions.push(operation);
+				const candidate = input.space.byOperation.get(operation)?.[0];
+				if (!candidate) throw new Error(`Missing ${operation}`);
+				return { operation, candidateId: candidate.id, operationConfidence: 0.99, latencyMs: 1, inputTokens: 1, outputTokens: 1, model: "test-jev" };
+			},
+		};
+
+		const result = await runAgent({ goal: "Open the reservation form", browser, policy });
+		assert.equal(result.status, "completed");
+		assert.deepEqual(result.history.map((entry) => entry.operation), ["SCROLL", "SCROLL", "CLICK"]);
+		assert.deepEqual(decisions, ["SCROLL", "SCROLL", "SCROLL", "CLICK", "DONE"]);
+	});
+
 	it("uses browser_act for navigation-safe waits", async () => {
 		const actions: BrowserAction[] = [];
 		let decision = 0;
