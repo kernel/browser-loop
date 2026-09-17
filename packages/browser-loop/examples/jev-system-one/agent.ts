@@ -1,4 +1,4 @@
-import type { BrowserAction } from "../../src/core/actions/browser";
+import type { BrowserAction, BrowserActStep } from "../../src/core/actions/browser";
 import { buildCandidateSpace } from "./actions";
 import type {
 	AgentResult,
@@ -19,7 +19,8 @@ export async function runAgent(options: {
 	textResolver?: TextResolver;
 	maxSteps?: number;
 	onDecision?: (trace: AgentResult["steps"][number]) => void;
-	onAction?: (trace: HistoryEntry & { latencyMs: number }) => void;
+	onFreshness?: (trace: { step: number; latencyMs: number; changed: boolean }) => void;
+	onAction?: (trace: HistoryEntry & { latencyMs: number; resolveMs: number; executeMs: number; observeMs: number }) => void;
 }): Promise<AgentResult> {
 	const started = performance.now();
 	const history: HistoryEntry[] = [];
@@ -57,8 +58,11 @@ export async function runAgent(options: {
 		steps.push(trace);
 		options.onDecision?.(trace);
 
+		const freshnessStarted = performance.now();
 		const fresh = await options.browser.observe();
-		if (fresh.fingerprint !== observation.fingerprint) {
+		const freshnessChanged = fresh.fingerprint !== observation.fingerprint;
+		options.onFreshness?.({ step: step + 1, latencyMs: performance.now() - freshnessStarted, changed: freshnessChanged });
+		if (freshnessChanged) {
 			const freshCandidate = buildCandidateSpace(fresh, options.goal, history).byId.get(candidate.id);
 			observation = fresh;
 			if (candidate.kind === "terminal" || !freshCandidate || freshCandidate.operation !== candidate.operation || freshCandidate.label !== candidate.label) {
@@ -75,14 +79,20 @@ export async function runAgent(options: {
 
 		const actionStarted = performance.now();
 		let lowered: { action: BrowserAction; value?: string } | undefined;
+		let resolveMs = 0;
+		let executeMs = 0;
 		try {
+			const resolveStarted = performance.now();
 			lowered = await lowerCandidate(candidate, options.goal, observation, history, options.textResolver);
+			resolveMs = performance.now() - resolveStarted;
 			if (!lowered) {
 				status = "blocked";
 				reason = `No text value was available for ${candidate.label}`;
 				break;
 			}
+			const executeStarted = performance.now();
 			await options.browser.execute(lowered.action);
+			executeMs = performance.now() - executeStarted;
 		} catch (error) {
 			if (/stale.*ref|ref.*stale|page changed/i.test(errorMessage(error))) {
 				observation = await options.browser.observe();
@@ -93,7 +103,9 @@ export async function runAgent(options: {
 			break;
 		}
 
+		const observeStarted = performance.now();
 		const successor = await options.browser.observe();
+		const observeMs = performance.now() - observeStarted;
 		const historyEntry: HistoryEntry = {
 			step: history.length + 1,
 			operation: candidate.operation,
@@ -104,7 +116,13 @@ export async function runAgent(options: {
 			url: successor.url,
 		};
 		history.push(historyEntry);
-		options.onAction?.({ ...historyEntry, latencyMs: performance.now() - actionStarted });
+		options.onAction?.({
+			...historyEntry,
+			latencyMs: performance.now() - actionStarted,
+			resolveMs,
+			executeMs,
+			observeMs,
+		});
 		observation = successor;
 
 		const repeated = history.slice(-3);
@@ -151,15 +169,39 @@ async function lowerCandidate(
 		if (candidate.operation === "TYPE_TEXT") {
 			const value = await resolveText(candidate, "field", goal, observation, history, textResolver);
 			if (!value || !candidate.ref) return undefined;
-			return {
-				action: { type: "browser_act", steps: [{ type: "fill", ref: candidate.ref, value }] },
-				value,
-			};
+			return { action: { type: "browser_fill", ref: candidate.ref, value }, value };
 		}
 		if (!candidate.step) throw new Error(`Candidate ${candidate.id} has no executable browser step`);
-		return { action: { type: "browser_act", steps: [candidate.step] }, ...(candidate.value === undefined ? {} : { value: candidate.value }) };
+		return { action: directBrowserAction(candidate.step), ...(candidate.value === undefined ? {} : { value: candidate.value }) };
 	}
 	return undefined;
+}
+
+function directBrowserAction(step: BrowserActStep): BrowserAction {
+	switch (step.type) {
+		case "click":
+			return {
+				type: "browser_click",
+				ref: step.ref,
+				...(step.button === undefined ? {} : { button: step.button }),
+				...(step.num_clicks === undefined ? {} : { num_clicks: step.num_clicks }),
+				...(step.modifiers === undefined ? {} : { modifiers: step.modifiers }),
+			};
+		case "hover":
+			return { type: "browser_hover", ref: step.ref };
+		case "fill":
+			return { type: "browser_fill", ref: step.ref, value: step.value };
+		case "type":
+			return { type: "browser_type", text: step.text };
+		case "key":
+			return { type: "browser_key", text: step.text, ...(step.repeat === undefined ? {} : { repeat: step.repeat }) };
+		case "scroll_to":
+			return { type: "browser_scroll_to", ref: step.ref };
+		case "wait": {
+			const ms = Math.max(0, Math.min(step.ms ?? 100, 30_000));
+			return { type: "browser_evaluate", code: `new Promise(resolve => setTimeout(() => resolve(true), ${ms}))` };
+		}
+	}
 }
 
 async function resolveText(

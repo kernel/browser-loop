@@ -38,13 +38,20 @@ try {
 				`[step ${trace.step + 1}] jev=${Math.round(trace.latencyMs)}ms model=${trace.model} tokens=${trace.inputTokens}/${trace.outputTokens} ${confidence} ${trace.operation} ${JSON.stringify(trace.label)}`,
 			);
 		},
+		onFreshness: (trace) => {
+			console.error(
+				`[step ${trace.step}] freshness=${Math.round(trace.latencyMs)}ms changed=${trace.changed}`,
+			);
+		},
 		onAction: (trace) => {
 			console.error(
-				`[step ${trace.step}] action=${Math.round(trace.latencyMs)}ms ${trace.operation} ${JSON.stringify(trace.label)} changed=${trace.pageChanged} url=${trace.url}`,
+				`[step ${trace.step}] action=${Math.round(trace.latencyMs)}ms resolve=${Math.round(trace.resolveMs)}ms execute=${Math.round(trace.executeMs)}ms observe=${Math.round(trace.observeMs)}ms ${trace.operation} ${JSON.stringify(trace.label)} changed=${trace.pageChanged} url=${trace.url}`,
 			);
 		},
 	});
-	console.log(JSON.stringify({ ...result, finalURL: result.finalObservation.url }, null, 2));
+	console.error(
+		`[result] status=${result.status} elapsed=${Math.round(result.wallMs)}ms steps=${result.steps.length} url=${result.finalObservation.url} reason=${JSON.stringify(result.reason)}`,
+	);
 } finally {
 	await resources.dispose();
 	await client.browsers.deleteByID(browser.session_id);

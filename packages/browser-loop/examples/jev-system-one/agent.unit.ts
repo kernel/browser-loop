@@ -16,7 +16,7 @@ class FakeBrowser implements BrowserRuntime {
 	async execute(action: BrowserAction) {
 		this.actions.push(action);
 		if (action.type === "browser_navigate") this.#observation = form;
-		if (action.type === "browser_act" && action.steps[0]?.type === "fill") this.#observation = filled;
+		if (action.type === "browser_fill") this.#observation = filled;
 	}
 }
 
@@ -134,7 +134,7 @@ describe("Jev browser agent", () => {
 		const result = await runAgent({ goal: "Continue until finished", browser, policy });
 		assert.equal(result.status, "completed");
 		assert.equal(decisionIndex, 2);
-		assert.deepEqual(actions, [{ type: "browser_act", steps: [{ type: "click", ref: "e1" }] }]);
+		assert.deepEqual(actions, [{ type: "browser_click", ref: "e1" }]);
 	});
 
 	it("rejects non-HTTP navigation values before browser execution", async () => {
@@ -166,8 +166,9 @@ describe("Jev browser agent", () => {
 		assert.equal(result.status, "completed");
 		assert.deepEqual(browser.actions[0], { type: "browser_navigate", url: "https://flights.example/" });
 		assert.deepEqual(browser.actions[1], {
-			type: "browser_act",
-			steps: [{ type: "fill", ref: "e1", value: "SFO" }],
+			type: "browser_fill",
+			ref: "e1",
+			value: "SFO",
 		});
 		assert.deepEqual(textResolver.calls.map((call) => call.purpose), ["navigation", "field"]);
 		assert.equal(result.history[0]?.operation, "NAVIGATE");

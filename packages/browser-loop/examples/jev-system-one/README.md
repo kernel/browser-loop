@@ -75,16 +75,18 @@ npm run run -- \
   --task "Open https://news.ycombinator.com, then open the newest submissions page using the new link"
 ```
 
-There is intentionally no `--url` argument. Initial navigation is selected and executed by the agent loop. The command prints the browser's live-view URL and step progress to stderr so stdout remains valid result JSON:
+There is intentionally no `--url` argument. Initial navigation is selected and executed by the agent loop. The command prints the browser's live-view URL, step timings, and a compact final result to stderr:
 
 ```text
 live view: https://...
 [step 1] jev=184ms model=jev-1.13.0 tokens=812/34 operation=99% NAVIGATE "Navigate to https://example.com/"
-[step 1] action=927ms NAVIGATE "Navigate to https://example.com/" changed=true url=https://example.com/
+[step 1] freshness=91ms changed=false
+[step 1] action=927ms resolve=0ms execute=701ms observe=226ms NAVIGATE "Navigate to https://example.com/" changed=true url=https://example.com/
 [step 2] jev=156ms model=jev-1.13.0 tokens=1041/41 operation=96% target=91% CLICK "Click link More information"
+[result] status=completed elapsed=1487ms steps=2 url=https://example.com/more reason="Jev found visible completion evidence"
 ```
 
-The Jev timing covers only the System One decision request. Action timing covers optional text resolution, browser execution, and the successor observation.
+Jev timing covers only the System One request. Freshness timing is the pre-action snapshot. Action timing is split into optional text resolution, browser execution, and the successor observation. Single-step interactions use direct browser primitives because the loop already owns the surrounding freshness and successor observations.
 
 ## Jev request
 
