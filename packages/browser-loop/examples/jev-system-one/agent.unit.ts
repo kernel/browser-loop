@@ -187,7 +187,7 @@ describe("Jev browser agent", () => {
 		assert.deepEqual(decisions, ["SCROLL", "SCROLL", "SCROLL", "CLICK", "DONE"]);
 	});
 
-	it("uses browser_act for navigation-safe waits", async () => {
+	it("allows repeated navigation-safe waits", async () => {
 		const actions: BrowserAction[] = [];
 		let decision = 0;
 		const browser: BrowserRuntime = {
@@ -198,7 +198,7 @@ describe("Jev browser agent", () => {
 		};
 		const policy: JevPolicy = {
 			decide: async (input) => {
-				const operation = decision++ === 0 ? "WAIT" : "DONE";
+				const operation = decision++ < 2 ? "WAIT" : "DONE";
 				const candidate = input.space.byOperation.get(operation)?.[0];
 				if (!candidate) throw new Error(`Missing ${operation}`);
 				return { operation, candidateId: candidate.id, operationConfidence: 0.99, latencyMs: 1, inputTokens: 1, outputTokens: 1, model: "test-jev" };
@@ -206,7 +206,10 @@ describe("Jev browser agent", () => {
 		};
 		const result = await runAgent({ goal: "Wait", browser, policy });
 		assert.equal(result.status, "completed");
-		assert.deepEqual(actions, [{ type: "browser_act", steps: [{ type: "wait", ms: 100 }] }]);
+		assert.deepEqual(actions, [
+			{ type: "browser_act", steps: [{ type: "wait", ms: 100 }] },
+			{ type: "browser_act", steps: [{ type: "wait", ms: 100 }] },
+		]);
 	});
 
 	it("keeps navigation in the loop and resolves text after target selection", async () => {

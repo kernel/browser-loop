@@ -82,7 +82,7 @@ export async function runAgent(options: {
 
 		const candidateKey = semanticCandidateKey(candidate);
 		const transitionKey = `${observation.interactionFingerprint}\u0000${candidateKey}`;
-		if (attemptedTransitions.has(transitionKey)) {
+		if (candidate.operation !== "WAIT" && attemptedTransitions.has(transitionKey)) {
 			const stateRejected = rejectedByState.get(observation.interactionFingerprint) ?? new Set<string>();
 			stateRejected.add(candidateKey);
 			rejectedByState.set(observation.interactionFingerprint, stateRejected);
@@ -116,7 +116,7 @@ export async function runAgent(options: {
 			break;
 		}
 
-		attemptedTransitions.add(transitionKey);
+		if (candidate.operation !== "WAIT") attemptedTransitions.add(transitionKey);
 		const observeStarted = performance.now();
 		const successor = await options.browser.observe();
 		const observeMs = performance.now() - observeStarted;

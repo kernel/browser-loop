@@ -10,9 +10,11 @@ interface ParsedLine {
 	states: ReadonlyMap<string, string | boolean | number>;
 }
 
-export function elementsFromAccessibilitySnapshot(snapshot: string, existingElements: readonly ObservationElement[]): ObservationElement[] {
-	const lines = snapshot.split("\n").map(parseLine).filter((line): line is ParsedLine => line !== undefined);
-	const existing = new Set(existingElements.map((element) => `${element.role}\u0000${element.name}`));
+export function elementsFromAccessibilitySnapshot(snapshot: string, visibleFrameNames: readonly string[]): ObservationElement[] {
+	const lines = frameDescendants(
+		snapshot.split("\n").map(parseLine).filter((line): line is ParsedLine => line !== undefined),
+		new Set(visibleFrameNames),
+	);
 	const consumedOptions = new Set<string>();
 	const additions: ObservationElement[] = [];
 	for (let index = 0; index < lines.length; index++) {
@@ -31,8 +33,7 @@ export function elementsFromAccessibilitySnapshot(snapshot: string, existingElem
 		} else if (["textbox", "searchbox", "spinbutton"].includes(line.role)) {
 			operations = ["TYPE_TEXT", "CLICK"];
 		} else if (CLICKABLE_ROLES.has(line.role)) operations = ["CLICK"];
-		if (!operations.length || existing.has(`${line.role}\u0000${line.name}`)) continue;
-		existing.add(`${line.role}\u0000${line.name}`);
+		if (!operations.length) continue;
 		additions.push({
 			id: `ax:${line.ref}`,
 			node: -Number(line.ref.slice(1)),
@@ -51,6 +52,24 @@ export function elementsFromAccessibilitySnapshot(snapshot: string, existingElem
 		});
 	}
 	return additions;
+}
+
+function frameDescendants(lines: readonly ParsedLine[], visibleFrameNames: ReadonlySet<string>): ParsedLine[] {
+	const descendants: ParsedLine[] = [];
+	let frameDepth: number | undefined;
+	for (const line of lines) {
+		if (line.role === "Iframe" || line.role === "IframePresentational") {
+			frameDepth = visibleFrameNames.has(line.name) ? line.depth : undefined;
+			continue;
+		}
+		if (frameDepth === undefined) continue;
+		if (line.depth <= frameDepth) {
+			frameDepth = undefined;
+			continue;
+		}
+		descendants.push(line);
+	}
+	return descendants;
 }
 
 function parseLine(source: string): ParsedLine | undefined {
