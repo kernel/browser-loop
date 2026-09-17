@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test actions.unit.ts",
+    "test": "tsx --test *.unit.ts",
     "eval": "tsx eval.ts",
     "run": "tsx run.ts"
   },

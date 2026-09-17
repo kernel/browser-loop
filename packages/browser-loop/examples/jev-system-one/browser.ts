@@ -26,6 +26,7 @@ export async function launchBrowser(): Promise<Browser> {
 
 export async function observe(page: Page): Promise<Observation> {
 	return page.evaluate(`(() => {
+		for (const element of document.querySelectorAll("[data-jev-id]")) delete element.dataset.jevId;
 		const nodes = Array.from(document.querySelectorAll("a[href],button,input,select,textarea,[role='button']"))
 			.filter((element) => {
 				const style = getComputedStyle(element);
