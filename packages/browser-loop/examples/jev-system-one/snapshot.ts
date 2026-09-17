@@ -164,18 +164,62 @@ export const VIEWPORT_SNAPSHOT = String.raw`(() => {
 		y: scrollElement.scrollTop, height: scrollElement.scrollHeight, viewport: scrollElement.clientHeight,
 		width: innerWidth, x: point.x, pointY: point.y,
 	};
-	let frameIndex = 0;
-	const visibleFrameIndexes = [...document.querySelectorAll('iframe')].flatMap((frame) => {
-		if (!visible(frame)) return [];
-		const index = frameIndex++;
+	const frames = [];
+	const collectFrames = (root) => {
+		for (const element of root.querySelectorAll('iframe')) frames.push(element);
+		for (const element of root.querySelectorAll('*')) if (element.shadowRoot) collectFrames(element.shadowRoot);
+	};
+	collectFrames(document);
+	const hasVisibleFrame = frames.some((frame) => {
+		if (!visible(frame)) return false;
 		const rect = frame.getBoundingClientRect();
-		if (rect.width <= 0 || rect.height <= 0 || rect.bottom <= 0 || rect.top >= innerHeight || rect.right <= 0 || rect.left >= innerWidth) return [];
-		return [index];
+		return rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < innerHeight && rect.right > 0 && rect.left < innerWidth;
 	});
 	const documentId = String(performance.timeOrigin);
 	const semantics = elements.map(({ rect, guard, ...element }) => element);
 	const marker = JSON.stringify([documentId, location.href, document.title, text, semantics, scroll]);
-	return { url: location.href, title: document.title, documentId, text, elements, scroll, marker, omitted, visibleFrameIndexes };
+	return { url: location.href, title: document.title, documentId, text, elements, scroll, marker, omitted, hasVisibleFrame };
+})()`;
+
+export const MARK_VISIBLE_FRAMES = String.raw`(() => {
+	const state = window.__jevLoopSnapshot;
+	if (!state) return [];
+	const frames = [];
+	const collectFrames = (root) => {
+		for (const element of root.querySelectorAll('iframe')) frames.push(element);
+		for (const element of root.querySelectorAll('*')) if (element.shadowRoot) collectFrames(element.shadowRoot);
+	};
+	collectFrames(document);
+	state.frameLabels = new Map();
+	const labels = [];
+	for (const frame of frames) {
+		if (!state.visible(frame)) continue;
+		const rect = frame.getBoundingClientRect();
+		if (rect.width <= 0 || rect.height <= 0 || rect.bottom <= 0 || rect.top >= innerHeight || rect.right <= 0 || rect.left >= innerWidth) continue;
+		const label = '__jev_visible_frame_' + labels.length + '__';
+		state.frameLabels.set(frame, {
+			label: frame.getAttribute('aria-label'),
+			labelledby: frame.getAttribute('aria-labelledby'),
+		});
+		frame.removeAttribute('aria-labelledby');
+		frame.setAttribute('aria-label', label);
+		labels.push(label);
+	}
+	return labels;
+})()`;
+
+export const RESTORE_FRAME_LABELS = String.raw`(() => {
+	const state = window.__jevLoopSnapshot;
+	if (!state?.frameLabels) return true;
+	for (const [frame, attributes] of state.frameLabels) {
+		if (!frame.isConnected) continue;
+		if (attributes.label === null) frame.removeAttribute('aria-label');
+		else frame.setAttribute('aria-label', attributes.label);
+		if (attributes.labelledby === null) frame.removeAttribute('aria-labelledby');
+		else frame.setAttribute('aria-labelledby', attributes.labelledby);
+	}
+	state.frameLabels = null;
+	return true;
 })()`;
 
 export const SETTLE_AFTER_INPUT = String.raw`(async () => {

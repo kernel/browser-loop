@@ -10,10 +10,10 @@ interface ParsedLine {
 	states: ReadonlyMap<string, string | boolean | number>;
 }
 
-export function elementsFromAccessibilitySnapshot(snapshot: string, visibleFrameIndexes: readonly number[]): ObservationElement[] {
+export function elementsFromAccessibilitySnapshot(snapshot: string, visibleFrameLabels: readonly string[]): ObservationElement[] {
 	const lines = frameDescendants(
 		snapshot.split("\n").map(parseLine).filter((line): line is ParsedLine => line !== undefined),
-		new Set(visibleFrameIndexes),
+		new Set(visibleFrameLabels),
 	);
 	const consumedOptions = new Set<string>();
 	const additions: ObservationElement[] = [];
@@ -54,16 +54,14 @@ export function elementsFromAccessibilitySnapshot(snapshot: string, visibleFrame
 	return additions;
 }
 
-function frameDescendants(lines: readonly ParsedLine[], visibleFrameIndexes: ReadonlySet<number>): ParsedLine[] {
+function frameDescendants(lines: readonly ParsedLine[], visibleFrameLabels: ReadonlySet<string>): ParsedLine[] {
 	const descendants: ParsedLine[] = [];
 	const frames: Array<{ depth: number; included: boolean }> = [];
-	let rootFrameIndex = 0;
 	for (const line of lines) {
 		while (frames.length && line.depth <= frames[frames.length - 1]!.depth) frames.pop();
 		if (line.role === "Iframe" || line.role === "IframePresentational") {
 			const parent = frames[frames.length - 1];
-			const included = parent?.included ?? visibleFrameIndexes.has(rootFrameIndex);
-			if (!parent) rootFrameIndex += 1;
+			const included = parent?.included ?? visibleFrameLabels.has(line.name);
 			frames.push({ depth: line.depth, included });
 			continue;
 		}

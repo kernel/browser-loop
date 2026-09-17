@@ -4,7 +4,7 @@ import type { BrowserExecutor } from "../../src/core/translator/browser";
 import { IncompleteObservationError, ObservationChangedError } from "../../src/core/translator/browser-observation";
 import type { BatchReadResult } from "../../src/core/translator/types";
 import { elementsFromAccessibilitySnapshot } from "./accessibility";
-import { selectOptionCode, SETTLE_AFTER_INPUT, targetFreshnessCode, targetPointCode, VIEWPORT_SNAPSHOT } from "./snapshot";
+import { MARK_VISIBLE_FRAMES, RESTORE_FRAME_LABELS, selectOptionCode, SETTLE_AFTER_INPUT, targetFreshnessCode, targetPointCode, VIEWPORT_SNAPSHOT } from "./snapshot";
 import type { BrowserRuntime, JevCandidate, Observation, ObservationElement, ScrollState } from "./types";
 
 const OBSERVATION_RETRY_DELAYS_MS = [100, 200, 400, 800, 1_600];
@@ -19,7 +19,7 @@ interface SnapshotPayload {
 	scroll: ScrollState;
 	marker: string;
 	omitted: number;
-	visibleFrameIndexes?: number[];
+	hasVisibleFrame?: boolean;
 }
 
 
@@ -102,7 +102,7 @@ export class ExecutorBrowserRuntime implements BrowserRuntime {
 				const value = await this.#evaluate(VIEWPORT_SNAPSHOT);
 				const payload = JSON.parse(value) as SnapshotPayload | null;
 				if (!payload) throw new ObservationChangedError("Browser document was unavailable during observation");
-				if (payload.visibleFrameIndexes?.length) await this.#addAccessibilityElements(payload);
+				if (payload.hasVisibleFrame) await this.#addAccessibilityElements(payload);
 				return payload;
 			} catch (error) {
 				const delayMs = OBSERVATION_RETRY_DELAYS_MS[attempt];
@@ -113,18 +113,23 @@ export class ExecutorBrowserRuntime implements BrowserRuntime {
 	}
 
 	async #addAccessibilityElements(payload: SnapshotPayload): Promise<void> {
-		const reads = await this.#executor.execute({ type: "browser_snapshot", filter: "all", depth: Number.MAX_SAFE_INTEGER });
-		const rendered = readText(reads, "snapshot");
-		let snapshot = rendered;
-		if (rendered === UNCHANGED_SNAPSHOT) {
-			if (!this.#lastAccessibilitySnapshot) throw new ObservationChangedError("Browser returned an unchanged accessibility snapshot without a baseline");
-			snapshot = this.#lastAccessibilitySnapshot;
+		const frameLabels = JSON.parse(await this.#evaluate(MARK_VISIBLE_FRAMES)) as string[];
+		try {
+			const reads = await this.#executor.execute({ type: "browser_snapshot", filter: "all", depth: Number.MAX_SAFE_INTEGER });
+			const rendered = readText(reads, "snapshot");
+			let snapshot = rendered;
+			if (rendered === UNCHANGED_SNAPSHOT) {
+				if (!this.#lastAccessibilitySnapshot) throw new ObservationChangedError("Browser returned an unchanged accessibility snapshot without a baseline");
+				snapshot = this.#lastAccessibilitySnapshot;
+			}
+			this.#lastAccessibilitySnapshot = snapshot;
+			const additions = elementsFromAccessibilitySnapshot(snapshot, frameLabels);
+			payload.elements.push(...additions);
+			const semantics = additions.map(({ id, node, guard, ref, rect, ...element }) => element);
+			payload.marker = JSON.stringify([payload.marker, semantics]);
+		} finally {
+			await this.#evaluate(RESTORE_FRAME_LABELS).catch(() => undefined);
 		}
-		this.#lastAccessibilitySnapshot = snapshot;
-		const additions = elementsFromAccessibilitySnapshot(snapshot, payload.visibleFrameIndexes ?? []);
-		payload.elements.push(...additions);
-		const semantics = additions.map(({ id, node, guard, ref, rect, ...element }) => element);
-		payload.marker = JSON.stringify([payload.marker, semantics]);
 	}
 
 	async #evaluate(code: string): Promise<string> {

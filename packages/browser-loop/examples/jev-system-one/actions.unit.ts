@@ -139,29 +139,35 @@ describe("browser observation", () => {
 			url: "https://restaurant.example/reservations", title: "Reservations", documentId: "1", text: "Reservations",
 			elements: [element({ id: "n1", role: "button", name: "Reservations", operations: ["CLICK"] })],
 			scroll: { y: 0, height: 800, viewport: 800, width: 1200, x: 600, pointY: 647 },
-			marker: "marker", omitted: 0, visibleFrameIndexes: [0],
+			marker: "marker", omitted: 0, hasVisibleFrame: true,
 		};
 		const actions: BrowserAction[] = [];
 		const executor = {
 			execute: async (action: BrowserAction) => {
 				actions.push(action);
-				if (action.type === "browser_evaluate") return [{ type: "browser_text", label: "evaluate", text: JSON.stringify(payload) }];
+				if (action.type === "browser_evaluate") {
+					const text = action.code.includes("state.frameLabels = new Map()") ? '["__jev_visible_frame_0__"]' : action.code.includes("attributes.labelledby") ? "true" : JSON.stringify(payload);
+					return [{ type: "browser_text", label: "evaluate", text }];
+				}
 				if (action.type === "browser_snapshot") return [{
 					type: "browser_text",
 					label: "snapshot",
 					text: [
 						'button "Offscreen main-page action" [e1]',
-						'Iframe "Derived frame document title" [e2]',
+						'Iframe "Unmarked frame" [e2]',
+						'  RootWebArea "Other widget"',
+						'    button "Other frame action" [e3]',
+						'Iframe "__jev_visible_frame_0__" [e4]',
 						'  RootWebArea "Reservation widget"',
-						'    combobox "Reservation Date" [e3] [expanded=false, value="Oct 15, 2026"]',
-						'    combobox "Reservation time" [e4] [expanded=false, value="7:00 PM"]',
-						'      option "7:00 PM" [e5] [selected]',
-						'      option "7:30 PM" [e6]',
-						'    Iframe "Nested challenge" [e7]',
+						'    combobox "Reservation Date" [e5] [expanded=false, value="Oct 15, 2026"]',
+						'    combobox "Reservation time" [e6] [expanded=false, value="7:00 PM"]',
+						'      option "7:00 PM" [e7] [selected]',
+						'      option "7:30 PM" [e8]',
+						'    Iframe "Nested challenge" [e9]',
 						'      RootWebArea "Challenge"',
-						'        button "Verify" [e8]',
-						'    button "Find a Table" [e9]',
-						'button "Another main-page action" [e10]',
+						'        button "Verify" [e10]',
+						'    button "Find a Table" [e11]',
+						'button "Another main-page action" [e12]',
 					].join("\n"),
 				}];
 				if (action.type === "browser_click") return [];
@@ -174,10 +180,11 @@ describe("browser observation", () => {
 		assert.equal(space.byOperation.get("CLICK")?.some((candidate) => candidate.label.includes("Reservation Date")), true);
 		assert.equal(space.byOperation.get("SELECT")?.some((candidate) => candidate.label.includes("7:30 PM")), true);
 		assert.equal(space.candidates.some((candidate) => candidate.label.includes("Offscreen main-page action")), false);
+		assert.equal(space.candidates.some((candidate) => candidate.label.includes("Other frame action")), false);
 		const findTable = space.byOperation.get("CLICK")?.find((candidate) => candidate.label.includes("Find a Table"));
 		if (!findTable) throw new Error("Missing Find a Table candidate");
 		await runtime.executeTarget(findTable);
-		assert.deepEqual(actions.at(-1), { type: "browser_click", ref: "e9" });
+		assert.deepEqual(actions.at(-1), { type: "browser_click", ref: "e11" });
 	});
 
 	it("retries when the page changes during viewport collection", async () => {
