@@ -19,7 +19,7 @@ interface SnapshotPayload {
 	scroll: ScrollState;
 	marker: string;
 	omitted: number;
-	visibleFrameNames?: string[];
+	visibleFrameIndexes?: number[];
 }
 
 
@@ -102,7 +102,7 @@ export class ExecutorBrowserRuntime implements BrowserRuntime {
 				const value = await this.#evaluate(VIEWPORT_SNAPSHOT);
 				const payload = JSON.parse(value) as SnapshotPayload | null;
 				if (!payload) throw new ObservationChangedError("Browser document was unavailable during observation");
-				if (payload.visibleFrameNames?.length) await this.#addAccessibilityElements(payload);
+				if (payload.visibleFrameIndexes?.length) await this.#addAccessibilityElements(payload);
 				return payload;
 			} catch (error) {
 				const delayMs = OBSERVATION_RETRY_DELAYS_MS[attempt];
@@ -121,7 +121,7 @@ export class ExecutorBrowserRuntime implements BrowserRuntime {
 			snapshot = this.#lastAccessibilitySnapshot;
 		}
 		this.#lastAccessibilitySnapshot = snapshot;
-		const additions = elementsFromAccessibilitySnapshot(snapshot, payload.visibleFrameNames ?? []);
+		const additions = elementsFromAccessibilitySnapshot(snapshot, payload.visibleFrameIndexes ?? []);
 		payload.elements.push(...additions);
 		const semantics = additions.map(({ id, node, guard, ref, rect, ...element }) => element);
 		payload.marker = JSON.stringify([payload.marker, semantics]);

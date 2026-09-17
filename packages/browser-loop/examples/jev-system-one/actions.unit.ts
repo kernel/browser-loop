@@ -139,7 +139,7 @@ describe("browser observation", () => {
 			url: "https://restaurant.example/reservations", title: "Reservations", documentId: "1", text: "Reservations",
 			elements: [element({ id: "n1", role: "button", name: "Reservations", operations: ["CLICK"] })],
 			scroll: { y: 0, height: 800, viewport: 800, width: 1200, x: 600, pointY: 647 },
-			marker: "marker", omitted: 0, visibleFrameNames: ["Reservation widget"],
+			marker: "marker", omitted: 0, visibleFrameIndexes: [0],
 		};
 		const actions: BrowserAction[] = [];
 		const executor = {
@@ -151,14 +151,17 @@ describe("browser observation", () => {
 					label: "snapshot",
 					text: [
 						'button "Offscreen main-page action" [e1]',
-						'Iframe "Reservation widget" [e2]',
+						'Iframe "Derived frame document title" [e2]',
 						'  RootWebArea "Reservation widget"',
 						'    combobox "Reservation Date" [e3] [expanded=false, value="Oct 15, 2026"]',
 						'    combobox "Reservation time" [e4] [expanded=false, value="7:00 PM"]',
 						'      option "7:00 PM" [e5] [selected]',
 						'      option "7:30 PM" [e6]',
-						'    button "Find a Table" [e7]',
-						'button "Another main-page action" [e8]',
+						'    Iframe "Nested challenge" [e7]',
+						'      RootWebArea "Challenge"',
+						'        button "Verify" [e8]',
+						'    button "Find a Table" [e9]',
+						'button "Another main-page action" [e10]',
 					].join("\n"),
 				}];
 				if (action.type === "browser_click") return [];
@@ -174,7 +177,7 @@ describe("browser observation", () => {
 		const findTable = space.byOperation.get("CLICK")?.find((candidate) => candidate.label.includes("Find a Table"));
 		if (!findTable) throw new Error("Missing Find a Table candidate");
 		await runtime.executeTarget(findTable);
-		assert.deepEqual(actions.at(-1), { type: "browser_click", ref: "e7" });
+		assert.deepEqual(actions.at(-1), { type: "browser_click", ref: "e9" });
 	});
 
 	it("retries when the page changes during viewport collection", async () => {

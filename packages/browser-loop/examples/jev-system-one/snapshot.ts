@@ -164,16 +164,18 @@ export const VIEWPORT_SNAPSHOT = String.raw`(() => {
 		y: scrollElement.scrollTop, height: scrollElement.scrollHeight, viewport: scrollElement.clientHeight,
 		width: innerWidth, x: point.x, pointY: point.y,
 	};
-	const visibleFrameNames = [...document.querySelectorAll('iframe')].flatMap((frame) => {
+	let frameIndex = 0;
+	const visibleFrameIndexes = [...document.querySelectorAll('iframe')].flatMap((frame) => {
 		if (!visible(frame)) return [];
+		const index = frameIndex++;
 		const rect = frame.getBoundingClientRect();
 		if (rect.width <= 0 || rect.height <= 0 || rect.bottom <= 0 || rect.top >= innerHeight || rect.right <= 0 || rect.left >= innerWidth) return [];
-		return [frame.getAttribute('title') || frame.getAttribute('aria-label') || ''];
+		return [index];
 	});
 	const documentId = String(performance.timeOrigin);
 	const semantics = elements.map(({ rect, guard, ...element }) => element);
 	const marker = JSON.stringify([documentId, location.href, document.title, text, semantics, scroll]);
-	return { url: location.href, title: document.title, documentId, text, elements, scroll, marker, omitted, visibleFrameNames };
+	return { url: location.href, title: document.title, documentId, text, elements, scroll, marker, omitted, visibleFrameIndexes };
 })()`;
 
 export const SETTLE_AFTER_INPUT = String.raw`(async () => {
