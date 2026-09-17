@@ -1,4 +1,4 @@
-import type { BrowserAction, BrowserActStep } from "../../src/core/actions/browser";
+import type { BrowserAction } from "../../src/core/actions/browser";
 import { buildCandidateSpace } from "./actions";
 import type {
 	AgentResult,
@@ -11,6 +11,10 @@ import type {
 } from "./types";
 
 const MAX_STEPS = 60;
+
+type LoweredAction =
+	| { kind: "browser"; action: BrowserAction; value?: string }
+	| { kind: "target"; candidate: JevCandidate; value?: string };
 
 export async function runAgent(options: {
 	goal: string;
@@ -37,7 +41,7 @@ export async function runAgent(options: {
 		usage.inputTokens += decision.inputTokens;
 		usage.outputTokens += decision.outputTokens;
 		usage.latencyMs += decision.latencyMs;
-		let candidate = space.byId.get(decision.candidateId);
+		const candidate = space.byId.get(decision.candidateId);
 		if (!candidate || candidate.operation !== decision.operation) {
 			status = "failed";
 			reason = `Policy selected unavailable candidate ${decision.candidateId}`;
@@ -59,16 +63,11 @@ export async function runAgent(options: {
 		options.onDecision?.(trace);
 
 		const freshnessStarted = performance.now();
-		const fresh = await options.browser.observe();
-		const freshnessChanged = fresh.fingerprint !== observation.fingerprint;
-		options.onFreshness?.({ step: step + 1, latencyMs: performance.now() - freshnessStarted, changed: freshnessChanged });
-		if (freshnessChanged) {
-			const freshCandidate = buildCandidateSpace(fresh, options.goal, history).byId.get(candidate.id);
-			observation = fresh;
-			if (candidate.kind === "terminal" || !freshCandidate || freshCandidate.operation !== candidate.operation || freshCandidate.label !== candidate.label) {
-				continue;
-			}
-			candidate = freshCandidate;
+		const fresh = await options.browser.isFresh(observation, candidate);
+		options.onFreshness?.({ step: step + 1, latencyMs: performance.now() - freshnessStarted, changed: !fresh });
+		if (!fresh) {
+			observation = await options.browser.observe();
+			continue;
 		}
 
 		if (candidate.kind === "terminal") {
@@ -78,7 +77,7 @@ export async function runAgent(options: {
 		}
 
 		const actionStarted = performance.now();
-		let lowered: { action: BrowserAction; value?: string } | undefined;
+		let lowered: LoweredAction | undefined;
 		let resolveMs = 0;
 		let executeMs = 0;
 		try {
@@ -91,10 +90,11 @@ export async function runAgent(options: {
 				break;
 			}
 			const executeStarted = performance.now();
-			await options.browser.execute(lowered.action);
+			if (lowered.kind === "target") await options.browser.executeTarget(lowered.candidate, lowered.value);
+			else await options.browser.execute(lowered.action);
 			executeMs = performance.now() - executeStarted;
 		} catch (error) {
-			if (/stale.*ref|ref.*stale|page changed/i.test(errorMessage(error))) {
+			if (/stale.*ref|ref.*stale|page changed|target changed/i.test(errorMessage(error))) {
 				observation = await options.browser.observe();
 				continue;
 			}
@@ -150,56 +150,27 @@ async function lowerCandidate(
 	observation: Observation,
 	history: HistoryEntry[],
 	textResolver: TextResolver | undefined,
-): Promise<{ action: BrowserAction; value?: string } | undefined> {
+): Promise<LoweredAction | undefined> {
+	if (candidate.kind === "target") {
+		if (candidate.operation !== "TYPE_TEXT") return { kind: "target", candidate, ...(candidate.value === undefined ? {} : { value: candidate.value }) };
+		const value = await resolveText(candidate, "field", goal, observation, history, textResolver);
+		return value ? { kind: "target", candidate, value } : undefined;
+	}
 	if (candidate.kind === "history") {
-		return { action: { type: "browser_navigate", url: candidate.operation.toLowerCase() } };
+		return { kind: "browser", action: { type: "browser_navigate", url: candidate.operation.toLowerCase() } };
 	}
 	if (candidate.kind === "navigate") {
 		const resolved = candidate.value ?? await resolveText(candidate, "navigation", goal, observation, history, textResolver);
 		if (!resolved) return undefined;
 		const url = normalizeHttpUrl(resolved);
 		if (!url) throw new Error(`Navigation resolver returned an unsupported URL: ${JSON.stringify(resolved)}`);
-		return { action: { type: "browser_navigate", url }, value: url };
+		return { kind: "browser", action: { type: "browser_navigate", url }, value: url };
 	}
 	if (candidate.kind === "browser-action") {
 		if (!candidate.action) throw new Error(`Candidate ${candidate.id} has no executable browser action`);
-		return { action: candidate.action, ...(candidate.value === undefined ? {} : { value: candidate.value }) };
-	}
-	if (candidate.kind === "browser-step") {
-		if (candidate.operation === "TYPE_TEXT") {
-			const value = await resolveText(candidate, "field", goal, observation, history, textResolver);
-			if (!value || !candidate.ref) return undefined;
-			return { action: { type: "browser_fill", ref: candidate.ref, value }, value };
-		}
-		if (!candidate.step) throw new Error(`Candidate ${candidate.id} has no executable browser step`);
-		return { action: directBrowserAction(candidate.step), ...(candidate.value === undefined ? {} : { value: candidate.value }) };
+		return { kind: "browser", action: candidate.action, ...(candidate.value === undefined ? {} : { value: candidate.value }) };
 	}
 	return undefined;
-}
-
-function directBrowserAction(step: BrowserActStep): BrowserAction {
-	switch (step.type) {
-		case "click":
-			return {
-				type: "browser_click",
-				ref: step.ref,
-				...(step.button === undefined ? {} : { button: step.button }),
-				...(step.num_clicks === undefined ? {} : { num_clicks: step.num_clicks }),
-				...(step.modifiers === undefined ? {} : { modifiers: step.modifiers }),
-			};
-		case "hover":
-			return { type: "browser_hover", ref: step.ref };
-		case "fill":
-			return { type: "browser_fill", ref: step.ref, value: step.value };
-		case "type":
-			return { type: "browser_type", text: step.text };
-		case "key":
-			return { type: "browser_key", text: step.text, ...(step.repeat === undefined ? {} : { repeat: step.repeat }) };
-		case "scroll_to":
-			return { type: "browser_scroll_to", ref: step.ref };
-		case "wait":
-			return { type: "browser_act", steps: [step] };
-	}
 }
 
 async function resolveText(

@@ -1,13 +1,13 @@
 # Jev browser agent loop
 
-This example runs a custom browser-agent loop with TypeSafe AI's Jev. It does not register Jev as a chat-model provider or expose Browser Loop tools to Jev. Code observes the browser, enumerates a bounded candidate space, asks Jev to choose an operation and target, lowers that candidate to a canonical Browser Loop action, and executes it through `BrowserExecutor`.
+This example runs a custom browser-agent loop with TypeSafe AI's Jev. It does not register Jev as a chat-model provider or expose Browser Loop tools to Jev. Code observes viewport-visible controls, enumerates a bounded candidate space, asks Jev to choose an operation and target, and executes that target through `BrowserExecutor`.
 
 The loop uses:
 
 - page-specific `CLICK`, `TYPE_TEXT`, `SELECT`, `SCROLL`, and `WAIT` candidates;
 - speculative operation and target questions in one System One request;
 - a small text-model escape hatch only after Jev selects a field or navigation operation;
-- code-owned freshness checks, step limits, and repeated-no-change detection;
+- code-owned target guards, step limits, and repeated-no-change detection;
 - `DONE` and `BLOCKED` as explicit Jev choices.
 
 Navigation is part of the loop. A new browser starts on `about:blank` or an internal `chrome://` new-tab page; those startup pages expose only navigation and terminal candidates. Jev sees the goal plus the current URL, title, text, elements, values, and recent actions, then chooses `NAVIGATE`. Literal URLs in the task become bounded candidates. Otherwise the text resolver produces the destination URL.
@@ -37,9 +37,9 @@ Examples:
 
 | Jev candidate | Browser Loop execution |
 | --- | --- |
-| Click Search | `browser_act` with `{ type: "click", ref }` |
-| Type in From | text resolver, then `browser_act` with `{ type: "fill", ref, value }` |
-| Select Business | `browser_act` with `{ type: "fill", ref, value: "Business" }` |
+| Click Search | target guard, then `browser_click` at its current viewport point |
+| Type in From | text resolver, guarded click, `CTRL+A`, then `browser_type` |
+| Select Business | guarded native-select update |
 | Navigate | `browser_navigate` |
 | Done / blocked | no browser action |
 
@@ -86,7 +86,7 @@ live view: https://...
 [result] status=completed elapsed=1487ms steps=2 url=https://example.com/more reason="Jev found visible completion evidence"
 ```
 
-Jev timing covers only the System One request. Freshness timing is the pre-action snapshot. Action timing is split into optional text resolution, browser execution, and the successor observation. Single-step interactions use direct browser primitives because the loop already owns the surrounding freshness and successor observations.
+Jev timing covers only the System One request. Freshness timing is a target-specific identity and state check rather than another complete observation. Action timing is split into optional text resolution, browser execution, and the single successor observation. Single-step interactions use direct browser primitives; `WAIT` retains navigation-safe `browser_act` execution.
 
 ## Jev request
 
@@ -111,13 +111,14 @@ The operation question contains only currently available operations. Target ques
 
 - `agent.ts`: observe/choose/lower/execute loop and safety bounds
 - `actions.ts`: page-specific candidate construction
-- `browser.ts`: `BrowserExecutor` adapter and accessibility snapshot parsing
+- `browser.ts`: `BrowserExecutor` adapter, target validation, and execution
+- `snapshot.ts`: viewport control and text observation
 - `models.ts`: Jev System One operation and target policy
 - `text.ts`: optional OpenAI-compatible string resolver
 - `run.ts`: Kernel browser setup and CLI
 
 ## Current boundaries
 
-This is deliberately a custom example rather than a generalized policy API. The candidate builder consumes Browser Loop's rendered accessibility snapshot and keeps its own role-to-operation rules. Observation retries use bounded exponential backoff when a page or frame changes during snapshot collection. If the rendered representation proves too lossy for real tasks, the next change should be a code-level structured observation API—not another model-facing tool.
+This is deliberately a custom example rather than a generalized policy API. Its observation pass includes only controls whose center is inside the current viewport, records each control's executable operations from its underlying DOM element, and assigns a stable identity for the life of the document. Before input, the runtime validates only the selected control's identity and state. A stale target causes a fresh observation and policy decision; snapshot-scoped references are not remapped.
 
-The example does not generate prose answers, handle CAPTCHA, upload files, or enter passwords. The candidate list is bounded to 250 grounded actions. Page text is treated as untrusted data, and the text resolver returns `null` when required information is absent.
+The example does not generate prose answers, handle CAPTCHA, upload files, or enter passwords. The viewport candidate list is bounded to 250 grounded actions. Page text is treated as untrusted data, and the text resolver returns `null` when required information is absent.

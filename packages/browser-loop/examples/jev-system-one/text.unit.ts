@@ -1,11 +1,22 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { observationFromSnapshot } from "./browser";
+import { observationFromElements } from "./browser";
 import { OpenAICompatibleTextResolver } from "./text";
 
-const observation = observationFromSnapshot({
+const observation = observationFromElements({
 	url: "https://example.com/form",
-	snapshot: 'RootWebArea "Form"\n  combobox "Destination" [e1]',
+	title: "Form",
+	elements: [{
+		id: "n1",
+		node: 1,
+		role: "combobox",
+		name: "Destination",
+		value: "",
+		operations: ["TYPE_TEXT", "CLICK"],
+		options: [],
+		guard: "destination",
+		rect: { x: 10, y: 10, width: 100, height: 30 },
+	}],
 });
 
 describe("text resolver", () => {
@@ -24,11 +35,11 @@ describe("text resolver", () => {
 				purpose: "field",
 				goal: 'Enter "San Francisco" in Destination, then submit',
 				candidate: {
-					id: "type:e1",
-					kind: "browser-step",
+					id: "type:n1",
+					kind: "target",
 					operation: "TYPE_TEXT",
 					label: 'Enter text in "Destination"',
-					ref: "e1",
+					target: { documentId: observation.documentId, node: 1, guard: "destination" },
 					textPurpose: "field",
 				},
 				observation,

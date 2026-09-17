@@ -1,4 +1,4 @@
-import type { BrowserAction, BrowserActStep } from "../../src/core/actions/browser";
+import type { BrowserAction } from "../../src/core/actions/browser";
 
 export const OPERATIONS = [
 	"CLICK",
@@ -15,6 +15,7 @@ export const OPERATIONS = [
 ] as const;
 
 export type Operation = (typeof OPERATIONS)[number];
+export type ElementOperation = Extract<Operation, "CLICK" | "TYPE_TEXT" | "SELECT">;
 export type TextPurpose = "field" | "navigation";
 
 export interface ScrollState {
@@ -22,43 +23,54 @@ export interface ScrollState {
 	height: number;
 	viewport: number;
 	width: number;
+	x: number;
+	pointY: number;
+}
+
+export interface ElementTarget {
+	documentId: string;
+	node: number;
+	guard: string;
 }
 
 export interface ObservationElement {
-	ref: string;
+	id: string;
+	node: number;
 	role: string;
 	name: string;
-	depth: number;
-	value?: string;
+	value: string;
+	operations: ElementOperation[];
+	options: Array<{ label: string; value: string; selected: boolean }>;
 	checked?: boolean | "mixed";
 	selected?: boolean;
 	expanded?: boolean;
 	disabled?: boolean;
+	guard: string;
+	rect: { x: number; y: number; width: number; height: number };
 }
 
 export interface Observation {
 	url: string;
 	title: string;
+	documentId: string;
 	text: string;
 	snapshot: string;
 	elements: ObservationElement[];
 	scroll: ScrollState;
 	fingerprint: string;
+	marker: string;
+	omittedElements: number;
 }
 
-export interface ActionSpaceElement extends ObservationElement {
-	operations: Operation[];
-	options?: Array<{ label: string; value: string; selected: boolean }>;
-}
+export type ActionSpaceElement = ObservationElement;
 
 export interface JevCandidate {
 	id: string;
-	kind: "browser-step" | "browser-action" | "navigate" | "history" | "terminal";
+	kind: "target" | "browser-action" | "navigate" | "history" | "terminal";
 	operation: Operation;
 	label: string;
-	ref?: string;
+	target?: ElementTarget;
 	value?: string;
-	step?: BrowserActStep;
 	action?: BrowserAction;
 	textPurpose?: TextPurpose;
 }
@@ -116,7 +128,9 @@ export interface TextResolver {
 
 export interface BrowserRuntime {
 	observe(): Promise<Observation>;
+	isFresh(observation: Observation, candidate: JevCandidate): Promise<boolean>;
 	execute(action: BrowserAction): Promise<void>;
+	executeTarget(candidate: JevCandidate, value?: string): Promise<void>;
 }
 
 export interface StepTrace {

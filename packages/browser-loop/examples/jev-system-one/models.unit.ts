@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { TypeSafeClient } from "@typesafe-ai/sdk";
 import { buildCandidateSpace } from "./actions";
-import { observationFromSnapshot } from "./browser";
+import { observationFromElements } from "./browser";
 import { SystemOneJevPolicy } from "./models";
 
-const blank = observationFromSnapshot({ url: "about:blank", snapshot: 'RootWebArea ""' });
+const blank = observationFromElements({ url: "about:blank" });
 
 describe("System One policy", () => {
 	it("conditions the operation choice on the goal and observed page state", async () => {
@@ -36,7 +36,7 @@ describe("System One policy", () => {
 		assert.equal(decision.candidateId, "navigate:resolve");
 		assert.deepEqual((request?.state as { goal?: string; page?: { url?: string } }), {
 			goal,
-			page: { url: "about:blank", title: "", text: "", scroll: blank.scroll },
+			page: { url: "about:blank", title: "", text: "", scroll: blank.scroll, omitted_elements: 0 },
 			elements: [],
 			recent_actions: [],
 		});
