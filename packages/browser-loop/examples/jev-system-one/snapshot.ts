@@ -29,7 +29,7 @@ export const VIEWPORT_SNAPSHOT = String.raw`(() => {
 		if (['button', 'submit', 'reset', 'image'].includes(element.type)) return 'button';
 		if (element.type === 'search') return 'searchbox';
 		if (element.type === 'number') return 'spinbutton';
-		if (['text', 'email', 'url', 'tel'].includes(element.type)) return 'textbox';
+		if (['text', 'email', 'url', 'tel', 'date', 'datetime-local', 'month', 'week', 'time'].includes(element.type)) return 'textbox';
 		return null;
 	};
 	const visible = (element) => {
@@ -64,6 +64,11 @@ export const VIEWPORT_SNAPSHOT = String.raw`(() => {
 		return '';
 	};
 	const stableName = (value) => value.replace(/\s*,\s*(?:(?:from\s+)?[$€£]\s*\d|(?:from\s+)?\d[\d,.]*\s+(?:US\s+)?dollars?).*$/i, '').trim();
+	const checkedOf = (element) => {
+		if (element.type === 'checkbox' || element.type === 'radio') return element.checked;
+		const checked = element.getAttribute('aria-checked');
+		return checked === null ? undefined : checked === 'mixed' ? 'mixed' : checked === 'true';
+	};
 	const guardOf = (element) => {
 		if (!element?.isConnected || !visible(element)) return null;
 		const role = roleOf(element);
@@ -121,7 +126,7 @@ export const VIEWPORT_SNAPSHOT = String.raw`(() => {
 		elements.push({
 			id: 'n' + nodeId(element), node: nodeId(element), role, name: nameOf(element) || role,
 			value: valueOf(element, role), operations, options,
-			checked: ['checkbox', 'radio'].includes(element.type) ? element.checked : undefined,
+			checked: checkedOf(element),
 			selected: element.getAttribute('aria-selected') === null ? undefined : element.getAttribute('aria-selected') === 'true',
 			expanded: element.getAttribute('aria-expanded') === null ? undefined : element.getAttribute('aria-expanded') === 'true',
 			disabled: false, guard: guardOf(element), rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },

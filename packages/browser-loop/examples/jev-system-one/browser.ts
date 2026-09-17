@@ -37,14 +37,14 @@ export class ExecutorBrowserRuntime implements BrowserRuntime {
 	}
 
 	async isFresh(observation: Observation, candidate: JevCandidate): Promise<boolean> {
-		if (candidate.target) {
-			return this.#evaluateBoolean(targetFreshnessCode(candidate.target));
+		try {
+			if (candidate.target) return await this.#evaluateBoolean(targetFreshnessCode(candidate.target));
+			if (candidate.kind === "terminal") return (await this.#snapshot()).marker === observation.marker;
+			return await this.#evaluateBoolean(`String(performance.timeOrigin) === ${JSON.stringify(observation.documentId)} && location.href === ${JSON.stringify(observation.url)}`);
+		} catch (error) {
+			if (isRetryableObservationError(error)) return false;
+			throw error;
 		}
-		if (candidate.kind === "terminal") {
-			const payload = await this.#snapshot();
-			return payload.marker === observation.marker;
-		}
-		return this.#evaluateBoolean(`String(performance.timeOrigin) === ${JSON.stringify(observation.documentId)} && location.href === ${JSON.stringify(observation.url)}`);
 	}
 
 	async execute(action: BrowserAction): Promise<void> {

@@ -125,6 +125,15 @@ describe("Jev candidate space", () => {
 });
 
 describe("browser observation", () => {
+	it("treats navigation during a freshness check as stale", async () => {
+		const executor = {
+			execute: async () => { throw new Error("Execution context was destroyed during navigation"); },
+		} as unknown as BrowserExecutor;
+		const candidate = buildCandidateSpace(observation, "Search").byOperation.get("CLICK")?.[0];
+		if (!candidate) throw new Error("Missing click candidate");
+		assert.equal(await new ExecutorBrowserRuntime(executor).isFresh(observation, candidate), false);
+	});
+
 	it("retries when the page changes during viewport collection", async () => {
 		let attempts = 0;
 		const payload = {
