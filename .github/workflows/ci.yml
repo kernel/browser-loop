@@ -21,6 +21,12 @@ jobs:
           cache: npm
       - run: npm run check:lockfile
       - run: npm ci
+      - name: Install Jev example dependencies
+        working-directory: packages/browser-loop/examples/jev-system-one
+        run: npm ci
+      - name: Jev example tests
+        working-directory: packages/browser-loop/examples/jev-system-one
+        run: npm run typecheck && npm test
       # The pi print/RPC test loads the extension the way pi does, through the
       # package's own entry points, so dist has to exist before the unit run.
       - run: npm run build --workspace @onkernel/browser-loop
