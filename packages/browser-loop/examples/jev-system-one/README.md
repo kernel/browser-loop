@@ -75,7 +75,7 @@ npm run run -- \
   --task "Open https://news.ycombinator.com, then open the newest submissions page using the new link"
 ```
 
-There is intentionally no `--url` argument. Initial navigation is selected and executed by the agent loop. The command prints the browser's live-view URL, step timings, and a compact final result to stderr:
+There is intentionally no `--url` argument. Initial navigation is selected and executed by the agent loop. The command prints the browser's live-view URL, step timings, and a compact final result to stderr. On macOS, interactive terminal runs also open the live view in the default browser.
 
 ```text
 live view: https://...

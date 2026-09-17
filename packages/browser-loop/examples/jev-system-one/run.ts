@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import Kernel from "@onkernel/sdk";
 import { LoopExecutionResources } from "../../src/core/resources";
 import { runAgent } from "./agent";
@@ -20,7 +21,10 @@ if (!kernelApiKey) throw new Error("KERNEL_API_KEY is required");
 
 const client = new Kernel({ apiKey: kernelApiKey });
 const browser = await client.browsers.create({ stealth: true });
-if (browser.browser_live_view_url) console.error(`live view: ${browser.browser_live_view_url}`);
+if (browser.browser_live_view_url) {
+	console.error(`live view: ${browser.browser_live_view_url}`);
+	openLiveView(browser.browser_live_view_url);
+}
 const resources = new LoopExecutionResources({ client, browser });
 
 try {
@@ -55,6 +59,11 @@ try {
 } finally {
 	await resources.dispose();
 	await client.browsers.deleteByID(browser.session_id);
+}
+
+function openLiveView(url: string): void {
+	if (process.platform !== "darwin" || !process.stderr.isTTY) return;
+	spawn("open", [url], { detached: true, stdio: "ignore" }).unref();
 }
 
 function percent(value: number): string {
