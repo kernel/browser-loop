@@ -137,6 +137,35 @@ describe("Jev browser agent", () => {
 		assert.deepEqual(actions, [{ type: "browser_click", ref: "e1" }]);
 	});
 
+	it("uses browser_act for waits so navigation cannot destroy an in-page timer", async () => {
+		const actions: BrowserAction[] = [];
+		let decisionIndex = 0;
+		const browser: BrowserRuntime = {
+			observe: async () => form,
+			execute: async (action) => { actions.push(action); },
+		};
+		const policy: JevPolicy = {
+			decide: async (input) => {
+				const operation = decisionIndex++ === 0 ? "WAIT" : "DONE";
+				const candidate = input.space.byOperation.get(operation)?.[0];
+				if (!candidate) throw new Error(`Missing ${operation} candidate`);
+				return {
+					operation,
+					candidateId: candidate.id,
+					operationConfidence: 0.99,
+					latencyMs: 1,
+					inputTokens: 1,
+					outputTokens: 1,
+					model: "test-jev",
+				};
+			},
+		};
+
+		const result = await runAgent({ goal: "Wait for the page", browser, policy });
+		assert.equal(result.status, "completed");
+		assert.deepEqual(actions, [{ type: "browser_act", steps: [{ type: "wait", ms: 100 }] }]);
+	});
+
 	it("rejects non-HTTP navigation values before browser execution", async () => {
 		const browser = new FakeBrowser();
 		const result = await runAgent({

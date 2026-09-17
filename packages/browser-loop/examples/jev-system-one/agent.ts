@@ -197,10 +197,8 @@ function directBrowserAction(step: BrowserActStep): BrowserAction {
 			return { type: "browser_key", text: step.text, ...(step.repeat === undefined ? {} : { repeat: step.repeat }) };
 		case "scroll_to":
 			return { type: "browser_scroll_to", ref: step.ref };
-		case "wait": {
-			const ms = Math.max(0, Math.min(step.ms ?? 100, 30_000));
-			return { type: "browser_evaluate", code: `new Promise(resolve => setTimeout(() => resolve(true), ${ms}))` };
-		}
+		case "wait":
+			return { type: "browser_act", steps: [step] };
 	}
 }
 
