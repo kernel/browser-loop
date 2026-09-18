@@ -83,7 +83,7 @@ describe("credential form observations", () => {
 			assert.equal(identifierFirst.credentialForms.length, 1);
 			assert.deepEqual(identifierFirst.credentialForms[0]?.fields.map((field) => field.name), ["Email"]);
 
-			const mainOnly = `<section><main><h1>Sign in</h1><label>Email <input type="email"></label><button>Next</button><aside><label>Newsletter <input type="email"></label><button>Subscribe</button></aside></main></section>`;
+			const mainOnly = `<section><main><h1>Sign in</h1><label>Email <input type="email"></label><button>Next</button><aside><section><label>Newsletter <input type="email"></label></section><button>Subscribe</button></aside></main></section>`;
 			await executor.execute({ type: "browser_evaluate", code: `document.title = "Sign in to Acme"; document.body.innerHTML = ${JSON.stringify(mainOnly)}; true` });
 			const fallbackAction = await runtime.observe();
 			assert.equal(fallbackAction.credentialForms.length, 1);
