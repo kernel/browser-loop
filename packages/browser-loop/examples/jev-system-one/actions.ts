@@ -12,6 +12,9 @@ export function buildCandidateSpace(
 ): JevCandidateSpace {
 	const candidates: JevCandidate[] = [];
 	const navigationOnly = observation.url === "about:blank" || observation.url.startsWith("chrome://");
+	const credentialNodes = options.credentials
+		? new Set(observation.credentialForms.flatMap((form) => form.fields.map((field) => field.target.node)))
+		: new Set<number>();
 	const pageElements = navigationOnly ? [] : observation.elements.filter((element) => !isExcludedControl(element));
 	const operationsByNode = new Map<number, Set<ElementOperation>>();
 	let grounded = 0;
@@ -29,7 +32,7 @@ export function buildCandidateSpace(
 	};
 
 	for (const element of pageElements) {
-		if (element.disabled) continue;
+		if (element.disabled || credentialNodes.has(element.node)) continue;
 		const target: ElementTarget = {
 			documentId: observation.documentId,
 			node: element.node,
@@ -137,7 +140,9 @@ export function buildCandidateSpace(
 		if (hasForwardHistory(history)) candidates.push({ id: "history:forward", kind: "history", operation: "FORWARD", label: "Go forward one page" });
 		candidates.push({ id: "history:reload", kind: "history", operation: "RELOAD", label: "Reload the current page" });
 	}
-	candidates.push({ id: "done", kind: "terminal", operation: "DONE", label: "Every requirement is visibly satisfied" });
+	if (!(isAuthenticationGoal(goal) && observation.credentialForms.length > 0)) {
+		candidates.push({ id: "done", kind: "terminal", operation: "DONE", label: "Every requirement is visibly satisfied" });
+	}
 	candidates.push({ id: "blocked", kind: "terminal", operation: "BLOCKED", label: "No supported operation can make progress safely" });
 
 	const byOperation = new Map<Operation, JevCandidate[]>();
@@ -152,6 +157,10 @@ export function buildCandidateSpace(
 		options: [...element.options],
 	}));
 	return { candidates, byId: new Map(candidates.map((candidate) => [candidate.id, candidate])), byOperation, elements };
+}
+
+export function isAuthenticationGoal(goal: string): boolean {
+	return /\b(?:sign[ -]?in|log[ -]?in|login|authenticate)\b/i.test(goal);
 }
 
 export function extractLiteralUrls(goal: string): string[] {

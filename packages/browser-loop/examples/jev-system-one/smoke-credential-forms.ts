@@ -1,9 +1,11 @@
 import Kernel from "@onkernel/sdk";
 import { BrowserExecutor } from "../../src/core/translator/browser";
+import { buildCandidateSpace } from "./actions";
 import { ExecutorBrowserRuntime } from "./browser";
 
 const CASES = [
 	["https://github.com/login", true],
+	["https://news.ycombinator.com/login?goto=news", true],
 	["https://accounts.google.com/signin/v2/identifier", true],
 	["https://login.microsoftonline.com/", true],
 	["https://id.atlassian.com/login", true],
@@ -40,9 +42,13 @@ try {
 		}
 		const detected = observation.credentialForms.length > 0;
 		const leaked = observation.elements.some((element) => element.hasValue !== undefined && element.value.length > 0);
-		const passed = detected === expected && !leaked;
+		const space = buildCandidateSpace(observation, "Sign in", [], { credentials: true });
+		const credentialNodes = new Set(observation.credentialForms.flatMap((form) => form.fields.map((field) => field.target.node)));
+		const hasFieldAction = space.candidates.some((candidate) => candidate.target && credentialNodes.has(candidate.target.node));
+		const grouped = space.byOperation.has("USE_CREDENTIALS") && !hasFieldAction;
+		const passed = detected === expected && !leaked && (!expected || grouped);
 		if (!passed) failures += 1;
-		console.error(`${passed ? "pass" : "fail"} ${url} forms=${observation.credentialForms.length} redacted=${!leaked}`);
+		console.error(`${passed ? "pass" : "fail"} ${url} forms=${observation.credentialForms.length} redacted=${!leaked} grouped=${!expected || grouped}`);
 	}
 } finally {
 	executor.close();

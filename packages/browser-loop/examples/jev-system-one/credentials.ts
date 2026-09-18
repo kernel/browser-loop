@@ -43,7 +43,8 @@ export const CREDENTIAL_FORM_SNAPSHOT = String.raw`(() => {
 		if (element.type === 'email' || autocomplete.some((token) => ['username', 'email', 'tel'].includes(token)) || /\b(?:email|e-mail|username|user name|identifier|login|account|phone)\b/.test(haystack)) return 'identifier';
 		return 'text';
 	};
-	const actionLabel = (element) => (text(element) || element.value || element.getAttribute('aria-label') || '').toLowerCase();
+	const actionName = (element) => text(element) || element.value || element.getAttribute('aria-label') || '';
+	const actionLabel = (element) => actionName(element).toLowerCase();
 	const actionsFor = (root, field) => [...root.querySelectorAll('button,[role="button"],input[type="submit"]')]
 		.filter((element) => state.visible(element) && state.actionPoint(element) !== null)
 		.filter((element) => {
@@ -52,13 +53,17 @@ export const CREDENTIAL_FORM_SNAPSHOT = String.raw`(() => {
 		});
 	const primaryAction = (root, field) => actionsFor(root, field)
 		.some((element) => /\b(?:sign in|log in|login|continue|next|verify|submit|send code)\b/.test(actionLabel(element)) && !/\b(?:show|hide|forgot|trouble)\b/.test(actionLabel(element)));
+	const actionRoots = new WeakSet();
 	const groupRoot = (element) => {
 		if (element.form) return element.form;
 		let current = element.parentElement;
 		const fallback = element.closest('[role="dialog"],main');
-		for (let depth = 0; current && current !== document.body && depth < 10; depth++, current = current.parentElement) {
+		for (let depth = 0; current && current !== document.body && current !== fallback && depth < 10; depth++, current = current.parentElement) {
 			const count = controls.filter((candidate) => current.contains(candidate)).length;
-			if (count <= 8 && primaryAction(current, element)) return current;
+			if (count <= 8 && primaryAction(current, element)) {
+				actionRoots.add(current);
+				return current;
+			}
 		}
 		if (fallback && controls.filter((candidate) => fallback.contains(candidate)).length <= 8) return fallback;
 		return null;
@@ -82,8 +87,8 @@ export const CREDENTIAL_FORM_SNAPSHOT = String.raw`(() => {
 		const authAction = actionsFor(root, classified[0].element)
 			.some((element) => /\b(?:sign in|log in|login|verify|send code)\b/.test(actionLabel(element)));
 		const usernameAutocomplete = classified.some(({ element }) => (element.autocomplete || '').toLowerCase().split(/\s+/).includes('username'));
-		const nativeForm = root.tagName === 'FORM';
-		if (!hasPasswordOrOtp && !(semanticCount > 0 && (authAction || usernameAutocomplete || (nativeForm && (authTitle || authUrl))))) continue;
+		const locallyGrouped = root.tagName === 'FORM' || actionRoots.has(root);
+		if (!hasPasswordOrOtp && !(semanticCount > 0 && (authAction || usernameAutocomplete || (locallyGrouped && (authTitle || authUrl))))) continue;
 		const nodes = classified.map(({ element }) => {
 			if (!state.ids.has(element)) state.ids.set(element, state.next++);
 			const node = state.ids.get(element);
@@ -94,7 +99,8 @@ export const CREDENTIAL_FORM_SNAPSHOT = String.raw`(() => {
 		if (seen.has(identity)) continue;
 		seen.add(identity);
 		const heading = [...root.querySelectorAll('h1,h2,h3,[role="heading"]')].find((element) => state.visible(element));
-		const formName = root.getAttribute('aria-label') || text(heading) || document.title || 'credential form';
+		const action = actionsFor(root, classified[0].element).find((element) => actionName(element));
+		const formName = root.getAttribute('aria-label') || text(heading) || document.title || actionName(action) || 'credential form';
 		const fields = classified.map(({ element, semantic }, index) => {
 			state.redacted.add(element);
 			const node = nodes[index];

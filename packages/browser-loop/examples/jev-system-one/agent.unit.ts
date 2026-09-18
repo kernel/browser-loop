@@ -265,7 +265,7 @@ describe("Jev browser agent", () => {
 				return { operation, candidateId: selected.id, operationConfidence: 0.99, latencyMs: 1, inputTokens: 1, outputTokens: 1, model: "test-jev" };
 			},
 		};
-		const result = await runAgent({ goal: "Sign in", browser, policy, credentialBroker, textResolver: { resolve: async () => assert.fail("text resolver not expected") } });
+		const result = await runAgent({ goal: "Fill credentials", browser, policy, credentialBroker, textResolver: { resolve: async () => assert.fail("text resolver not expected") } });
 		assert.equal(result.status, "completed");
 		assert.equal(brokerCalls, 1);
 		assert.deepEqual(result.history.map((entry) => entry.operation), ["USE_CREDENTIALS"]);
@@ -298,7 +298,7 @@ describe("Jev browser agent", () => {
 			},
 		};
 
-		const result = await runAgent({ goal: "Sign in", browser, policy, credentialBroker });
+		const result = await runAgent({ goal: "Fill credentials", browser, policy, credentialBroker });
 		assert.equal(result.status, "completed");
 		assert.equal(brokerCalls, 2);
 	});

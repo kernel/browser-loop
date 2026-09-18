@@ -91,7 +91,7 @@ npm run run -- --task "Open https://example.com/login and sign in"
 
 When a new or incomplete item needs user input, the runner opens the time-limited Kernel collection form and waits for the item to become ready. The collection URL and field values are excluded from Jev history and progress logs. Password, OTP, and vault-mapped browser controls expose only `has_value` to Jev, never their raw DOM values.
 
-Run the opt-in live form detector against 14 public login pages and three negative controls with `npm run smoke:credentials`. It requires `KERNEL_API_KEY`, creates one temporary browser, does not submit any form, and fails on missed forms, false positives, or exposed credential-field values.
+Run the opt-in live form detector against 15 public login pages and three negative controls with `npm run smoke:credentials`. It requires `KERNEL_API_KEY`, creates one temporary browser, does not submit any form, and fails on missed forms, false positives, exposed credential-field values, or per-field actions that bypass the grouped Vault action.
 
 ### Install into a browser REPL
 
@@ -177,6 +177,6 @@ The operation question contains only currently available operations. Target ques
 
 This is deliberately a custom example rather than a generalized policy API. Its observation pass includes only controls whose center is inside the current viewport, records each control's executable operations from its underlying DOM element, and assigns a stable identity for the life of the document. When a visible cross-origin frame is present, it supplements that state with the frame controls from Browser Loop's stitched accessibility observation. Before input, the runtime validates only the selected control's identity and state. A stale target causes a fresh observation and policy decision; snapshot-scoped references are not remapped.
 
-Editable controls expose separate `TYPE_TEXT` and `Open …` click candidates so Jev can distinguish entering a literal from opening an autocomplete or picker. Credential fields are grouped by their native form or nearest primary authentication action. Main-document credential fields can be filled through Kernel Vaults; cross-origin accessibility-only and shadow-DOM fields remain observable but do not receive vault candidates because the fill API requires document CSS selectors.
+Editable controls expose separate `TYPE_TEXT` and `Open …` click candidates so Jev can distinguish entering a literal from opening an autocomplete or picker. When Vault support is enabled, fields in a detected credential form expose only its grouped `USE_CREDENTIALS` action; sign-in goals prioritize that action before ordinary page operations. Credential fields are grouped by their native form or nearest primary authentication action. Main-document credential fields can be filled through Kernel Vaults; cross-origin accessibility-only and shadow-DOM fields remain observable but do not receive vault candidates because the fill API requires document CSS selectors.
 
 The example does not generate prose answers, handle CAPTCHA, or upload files. The viewport candidate list is bounded to 250 grounded actions. Page text is treated as untrusted data, and the text resolver returns `null` when required information is absent. Vault fill failures and unknown outcomes are not automatically retried.

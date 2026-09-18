@@ -60,7 +60,7 @@ describe("credential form observations", () => {
 		assert.doesNotMatch(candidate?.label ?? "", /current value=""/);
 	});
 
-	it("keeps a native login form separate from an unrelated main-page input", { skip: chromiumPath() === undefined, timeout: 15_000 }, async () => {
+	it("groups native and formless login fields without unrelated inputs", { skip: chromiumPath() === undefined, timeout: 30_000 }, async () => {
 		const launched = await launchChromium(chromiumPath()!);
 		const executor = new BrowserExecutor(launched.endpoint);
 		try {
@@ -69,30 +69,30 @@ describe("credential form observations", () => {
 				<aside><label>Your email <input type="email"></label><button>Subscribe</button></aside>
 			</main>`;
 			await executor.execute({ type: "browser_evaluate", code: `document.title = "Sign in to Acme"; document.body.innerHTML = ${JSON.stringify(html)}; true` });
-			const observation = await new ExecutorBrowserRuntime(executor, { credentials: true }).observe();
-			assert.equal(observation.credentialForms.length, 1);
-			assert.deepEqual(observation.credentialForms[0]?.fields.map((field) => field.name), ["Email", "Password"]);
+			const runtime = new ExecutorBrowserRuntime(executor, { credentials: true });
+			const native = await runtime.observe();
+			assert.equal(native.credentialForms.length, 1);
+			assert.deepEqual(native.credentialForms[0]?.fields.map((field) => field.name), ["Email", "Password"]);
+
+			const formless = `<main>
+				<section><label>Email <input type="email"></label><button>Continue</button></section>
+				<aside><label>Newsletter <input type="email"></label><button>Subscribe</button></aside>
+			</main>`;
+			await executor.execute({ type: "browser_evaluate", code: `document.title = "Sign in to Acme"; document.body.innerHTML = ${JSON.stringify(formless)}; true` });
+			const identifierFirst = await runtime.observe();
+			assert.equal(identifierFirst.credentialForms.length, 1);
+			assert.deepEqual(identifierFirst.credentialForms[0]?.fields.map((field) => field.name), ["Email"]);
 		} finally {
 			executor.close();
-			if (launched.process.exitCode === null) {
-				const exited = new Promise((resolve) => launched.process.once("exit", resolve));
-				try {
-					if (process.platform === "win32" || launched.process.pid === undefined) launched.process.kill("SIGKILL");
-					else process.kill(-launched.process.pid, "SIGKILL");
-				} catch (error) {
-					if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-				}
-				await exited;
-			}
-			launched.process.stderr?.destroy();
-			launched.process.unref();
+			await stopChromium(launched.process);
 			rmSync(launched.directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 		}
 	});
 
-	it("offers one grouped credential action only when a broker is available", () => {
+	it("offers only one grouped credential action for a managed form", () => {
 		const observation = observationFromElements({
 			url: "https://example.com/login",
+			elements: [{ ...element(""), name: "Email", sensitive: false, credentialSemantic: "identifier" }],
 			credentialForms: [{
 				id: "form:1",
 				name: "Sign in",
@@ -109,18 +109,29 @@ describe("credential form observations", () => {
 			}],
 		});
 
-		assert.equal(buildCandidateSpace(observation, "sign in").byOperation.has("USE_CREDENTIALS"), false);
-		const candidates = buildCandidateSpace(observation, "sign in", [], { credentials: true }).byOperation.get("USE_CREDENTIALS");
+		const unmanaged = buildCandidateSpace(observation, "sign in");
+		assert.equal(unmanaged.byOperation.has("USE_CREDENTIALS"), false);
+		assert.equal(unmanaged.byOperation.get("TYPE_TEXT")?.length, 1);
+
+		const managed = buildCandidateSpace(observation, "sign in", [], { credentials: true });
+		const candidates = managed.byOperation.get("USE_CREDENTIALS");
 		assert.equal(candidates?.length, 1);
 		assert.equal(candidates?.[0]?.credentialForm?.fields.length, 1);
+		assert.equal(managed.byOperation.has("TYPE_TEXT"), false);
+		assert.equal(managed.byOperation.has("CLICK"), false);
+		assert.equal(managed.byOperation.has("DONE"), false);
+		assert.deepEqual(managed.elements[0]?.operations, []);
+
 		observation.credentialForms[0]!.fields[0]!.hasValue = true;
-		assert.equal(buildCandidateSpace(observation, "sign in", [], { credentials: true }).byOperation.has("USE_CREDENTIALS"), false);
+		const filled = buildCandidateSpace(observation, "sign in", [], { credentials: true });
+		assert.equal(filled.byOperation.has("USE_CREDENTIALS"), false);
+		assert.equal(filled.byOperation.has("TYPE_TEXT"), false);
 	});
 });
 
 function chromiumPath(): string | undefined {
-	return [process.env.CHROMIUM_PATH, "/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome"]
-		.find((candidate): candidate is string => candidate !== undefined && existsSync(candidate));
+	const executable = process.env.CHROMIUM_PATH;
+	return executable && existsSync(executable) ? executable : undefined;
 }
 
 async function launchChromium(executable: string): Promise<{ process: ChildProcess; endpoint: string; directory: string }> {
@@ -129,20 +140,41 @@ async function launchChromium(executable: string): Promise<{ process: ChildProce
 		detached: process.platform !== "win32",
 		stdio: ["ignore", "ignore", "pipe"],
 	});
-	const endpoint = await new Promise<string>((resolve, reject) => {
-		const timer = setTimeout(() => reject(new Error("Timed out starting Chromium")), 10_000);
-		let output = "";
-		child.stderr?.on("data", (chunk) => {
-			output += String(chunk);
-			const match = /DevTools listening on (ws:\/\/\S+)/.exec(output);
-			if (!match) return;
-			clearTimeout(timer);
-			resolve(match[1]!);
+	try {
+		const endpoint = await new Promise<string>((resolve, reject) => {
+			const timer = setTimeout(() => reject(new Error("Timed out starting Chromium")), 20_000);
+			let output = "";
+			child.stderr?.on("data", (chunk) => {
+				output += String(chunk);
+				const match = /DevTools listening on (ws:\/\/\S+)/.exec(output);
+				if (!match) return;
+				clearTimeout(timer);
+				resolve(match[1]!);
+			});
+			child.once("error", (error) => {
+				clearTimeout(timer);
+				reject(error);
+			});
 		});
-		child.once("error", (error) => {
-			clearTimeout(timer);
-			reject(error);
-		});
-	});
-	return { process: child, endpoint, directory };
+		return { process: child, endpoint, directory };
+	} catch (error) {
+		await stopChromium(child);
+		rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+		throw error;
+	}
+}
+
+async function stopChromium(child: ChildProcess): Promise<void> {
+	if (child.exitCode === null && child.signalCode === null) {
+		const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+		try {
+			if (process.platform === "win32" || child.pid === undefined) child.kill("SIGKILL");
+			else process.kill(-child.pid, "SIGKILL");
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+		}
+		await exited;
+	}
+	child.stderr?.destroy();
+	child.unref();
 }

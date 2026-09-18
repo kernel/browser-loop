@@ -1,4 +1,5 @@
 import { choice, TypeSafeClient, type ChoiceResponse, type EntryType } from "@typesafe-ai/sdk";
+import { isAuthenticationGoal } from "./actions";
 import type { JevCandidate, JevPolicy as JevPolicyContract, Operation, PolicyDecision, PolicyInput } from "./types";
 
 const NEXT_ACTION = `Advance the user's entire goal from the current page using one operation.
@@ -41,13 +42,20 @@ export class SystemOneJevPolicy implements JevPolicyContract {
 	}
 
 	async decide(input: PolicyInput): Promise<PolicyDecision> {
+		const shouldPrioritizeCredentials = isAuthenticationGoal(input.goal)
+			&& input.space.byOperation.has("USE_CREDENTIALS")
+			&& input.history.at(-1)?.operation !== "USE_CREDENTIALS";
+		const availableOperations = shouldPrioritizeCredentials
+			? ["USE_CREDENTIALS" as const]
+			: [...input.space.byOperation.keys()];
 		const operations = Object.fromEntries(
-			[...input.space.byOperation.keys()].map((operation) => [operation, OPERATION_DESCRIPTIONS[operation]]),
+			availableOperations.map((operation) => [operation, OPERATION_DESCRIPTIONS[operation]]),
 		);
 		const questions: Record<string, ReturnType<typeof choice>> = {
 			operation: choice({ question: "Which single operation best advances the goal safely?", constraints: [NEXT_ACTION] }, operations),
 		};
-		for (const [operation, candidates] of input.space.byOperation) {
+		for (const operation of availableOperations) {
+			const candidates = input.space.byOperation.get(operation)!;
 			if (candidates.length < 2) continue;
 			questions[targetQuestion(operation)] = choice(
 				{ question: `Which target should be used if ${operation} is selected?`, constraints: [TARGET] },
