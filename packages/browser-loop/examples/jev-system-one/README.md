@@ -77,6 +77,25 @@ npm run run -- \
   --task "Open https://news.ycombinator.com, then open the newest submissions page using the new link"
 ```
 
+### Install into a browser REPL
+
+The browser process API and REPL share a filesystem. Run the installer through process exec to build a single-file agent module at `/tmp/browser-loop/jev-agent.mjs`:
+
+```bash
+kernel browsers process exec "$BROWSER_ID" --timeout 300 -- \
+  bash -lc 'curl -fsSL https://raw.githubusercontent.com/kernel/browser-loop/main/packages/browser-loop/examples/jev-system-one/install-repl.sh | bash'
+```
+
+Then import it once in the persistent REPL. `runJev` remains in scope for later REPL calls:
+
+```js
+process.env.TYPESAFE_API_KEY = "...";
+var { createJevAgent } = await import("/tmp/browser-loop/jev-agent.mjs");
+var runJev = createJevAgent();
+```
+
+Set `BROWSER_LOOP_REF` to install another branch, tag, or commit, and `BROWSER_LOOP_REPL_INSTALL_DIR` to change the output directory. When `TEXT_MODEL_API_KEY` is present in the REPL, `createJevAgent()` also enables the text resolver used for inferred navigation and text entry.
+
 There is intentionally no `--url` argument. The runner opens a blank tab, then initial navigation is selected and executed by the agent loop. The command prints the browser's live-view URL, step timings, and a compact final result to stderr. On macOS, interactive terminal runs also open the live view in the default browser.
 
 ```text
@@ -118,6 +137,8 @@ The operation question contains only currently available operations. Target ques
 - `models.ts`: Jev System One operation and target policy
 - `text.ts`: optional OpenAI-compatible string resolver
 - `run.ts`: Kernel browser setup and CLI
+- `repl.ts`: persistent-REPL agent factory
+- `install-repl.sh`: process-exec installer for the bundled REPL module
 
 ## Current boundaries
 
