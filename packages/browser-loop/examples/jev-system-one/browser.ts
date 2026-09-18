@@ -29,12 +29,14 @@ interface SnapshotPayload {
 export class ExecutorBrowserRuntime implements BrowserRuntime {
 	readonly #executor: BrowserExecutor;
 	readonly #actionTimeoutMs: number;
+	readonly #credentials: boolean;
 	#lastAccessibilitySnapshot?: string;
 	#settlePending = false;
 
-	constructor(executor: BrowserExecutor, options: { actionTimeoutMs?: number } = {}) {
+	constructor(executor: BrowserExecutor, options: { actionTimeoutMs?: number; credentials?: boolean } = {}) {
 		this.#executor = executor;
 		this.#actionTimeoutMs = options.actionTimeoutMs ?? DEFAULT_ACTION_TIMEOUT_MS;
+		this.#credentials = options.credentials ?? false;
 	}
 
 	async observe(): Promise<Observation> {
@@ -128,9 +130,11 @@ export class ExecutorBrowserRuntime implements BrowserRuntime {
 				const value = await this.#evaluate(VIEWPORT_SNAPSHOT);
 				const payload = JSON.parse(value) as SnapshotPayload | null;
 				if (!payload) throw new ObservationChangedError("Browser document was unavailable during observation");
-				const credentialSnapshot = JSON.parse(await this.#evaluate(CREDENTIAL_FORM_SNAPSHOT)) as unknown;
-				const credentialForms = Array.isArray(credentialSnapshot) ? credentialSnapshot as Parameters<typeof mergeCredentialForms>[1] : [];
-				payload.credentialForms = mergeCredentialForms(payload.elements, credentialForms, payload.documentId);
+				if (this.#credentials) {
+					const credentialSnapshot = JSON.parse(await this.#evaluate(CREDENTIAL_FORM_SNAPSHOT)) as unknown;
+					const credentialForms = Array.isArray(credentialSnapshot) ? credentialSnapshot as Parameters<typeof mergeCredentialForms>[1] : [];
+					payload.credentialForms = mergeCredentialForms(payload.elements, credentialForms, payload.documentId);
+				} else payload.credentialForms = [];
 				if (payload.hasVisibleFrame) await this.#addAccessibilityElements(payload);
 				payload.marker = safeMarker(payload);
 				return payload;

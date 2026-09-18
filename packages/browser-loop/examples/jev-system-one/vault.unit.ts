@@ -106,6 +106,30 @@ describe("Kernel vault credential broker", () => {
 		});
 	});
 
+	it("rejects incompatible field mappings before vault fill", async () => {
+		const passwordForm: CredentialForm = {
+			...form,
+			fields: [{ ...form.fields[0]!, name: "Password", semantic: "password", type: "password", sensitive: true }],
+		};
+		const passwordObservation = observationFromElements({ url: observation.url, title: observation.title, documentId: "doc", credentialForms: [passwordForm] });
+		const passwordCandidate: JevCandidate = { ...candidate, credentialForm: passwordForm };
+		let fills = 0;
+		const client = {
+			vaults: { items: {
+				list: async () => [credential()],
+				performOperation: async () => { fills += 1; return { type: "fill", status: "completed", fields: [] }; },
+			} },
+		} as unknown as Kernel;
+		const policy: VaultCredentialPolicy = {
+			choose: async () => ({ choice: "item:0", confidence: 0.99 }),
+			map: async () => [{ formFieldId: "credential:1", itemField: "email" }],
+		};
+		const broker = new KernelVaultCredentialBroker({ client, vault: "accounts", browserId: "browser", policy, onCollection: async () => {} });
+
+		await assert.rejects(broker.use({ goal: "Sign in", candidate: passwordCandidate, observation: passwordObservation, history: [], browser: browser() }), /incompatible/);
+		assert.equal(fills, 0);
+	});
+
 	it("does not retry an unknown fill outcome", async () => {
 		const item = credential();
 		let attempts = 0;
@@ -150,6 +174,8 @@ describe("Kernel vault credential broker", () => {
 			spec: pending.spec,
 		});
 		let upsertRequest: unknown;
+		let retrieveRequest: unknown;
+		let retrieveOptions: unknown;
 		let collected = false;
 		let fillCount = 0;
 		const client = {
@@ -164,7 +190,11 @@ describe("Kernel vault credential broker", () => {
 					fillCount += 1;
 					return { type: "fill", status: "completed", fields: [{ index: 0, status: "filled" }] };
 				},
-				retrieve: async () => ready,
+				retrieve: async (_key: string, request: unknown, options: unknown) => {
+					retrieveRequest = request;
+					retrieveOptions = options;
+					return ready;
+				},
 			} },
 		} as unknown as Kernel;
 		const policy: VaultCredentialPolicy = {
@@ -184,6 +214,8 @@ describe("Kernel vault credential broker", () => {
 
 		assert.equal(collected, true);
 		assert.equal(fillCount, 1);
+		assert.deepEqual(retrieveRequest, { id_or_name: "accounts", wait: 30 });
+		assert.deepEqual(retrieveOptions, { timeout: 45_000 });
 		assert.deepEqual(upsertRequest, {
 			id_or_name: "accounts",
 			type: "credential",

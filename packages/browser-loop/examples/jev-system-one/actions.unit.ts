@@ -147,7 +147,7 @@ describe("browser observation", () => {
 			execute: async (action: BrowserAction) => {
 				actions.push(action);
 				if (action.type === "browser_evaluate") {
-					const text = action.code.includes("const controls =") ? "[]" : action.code.includes("state.frameLabels = new Map()") ? '["__jev_visible_frame_0__"]' : action.code.includes("attributes.labelledby") ? "true" : JSON.stringify(payload);
+					const text = action.code.includes("state.frameLabels = new Map()") ? '["__jev_visible_frame_0__"]' : action.code.includes("attributes.labelledby") ? "true" : JSON.stringify(payload);
 					return [{ type: "browser_text", label: "evaluate", text }];
 				}
 				if (action.type === "browser_snapshot") return [{
@@ -229,7 +229,6 @@ describe("browser observation", () => {
 		const executor = {
 			execute: async (action: BrowserAction) => {
 				if (action.type !== "browser_evaluate") throw new Error(`Unexpected action ${action.type}`);
-				if (action.code.includes("const controls =")) return [{ type: "browser_text", label: "evaluate", text: "[]" }];
 				attempts += 1;
 				if (attempts === 1) throw new ObservationChangedError();
 				return [{ type: "browser_text", label: "evaluate", text: JSON.stringify(payload) }];

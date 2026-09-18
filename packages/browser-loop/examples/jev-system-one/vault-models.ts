@@ -1,7 +1,9 @@
 import { choice, TypeSafeClient, type ChoiceResponse, type EntryType } from "@typesafe-ai/sdk";
 import type { CredentialVaultItem } from "@onkernel/sdk/resources/vaults/items";
+import { CredentialBlockedError } from "./types";
 import type { CredentialForm } from "./types";
 import {
+	compatibleCredentialField,
 	CREATE_NEW_CREDENTIAL,
 	NO_SAFE_CREDENTIAL_MATCH,
 	type CredentialFieldMapping,
@@ -65,13 +67,17 @@ export class SystemOneVaultCredentialPolicy implements VaultCredentialPolicy {
 		form: CredentialForm;
 		item: CredentialVaultItem;
 	}): Promise<CredentialFieldMapping[]> {
-		const criteria = Object.fromEntries(input.item.spec.fields.map((field) => [
-			field.name,
-			`${field.name}: type=${field.type}, required=${field.required}, sensitive=${field.sensitive}, has_value=${input.item.state.fields[field.name]?.has_value === true}`,
-		]));
+		const criteriaByFormField = input.form.fields.map((formField) => Object.fromEntries(
+			input.item.spec.fields.filter((itemField) => compatibleCredentialField(formField, itemField)).map((field) => [
+				field.name,
+				`${field.name}: type=${field.type}, required=${field.required}, sensitive=${field.sensitive}, has_value=${input.item.state.fields[field.name]?.has_value === true}`,
+			]),
+		));
+		const missing = criteriaByFormField.findIndex((criteria) => Object.keys(criteria).length === 0);
+		if (missing !== -1) throw new CredentialBlockedError(`Selected credential has no compatible field for ${input.form.fields[missing]!.name}`);
 		const questions = Object.fromEntries(input.form.fields.map((field, index) => [
 			`field_${index}`,
-			choice({ question: `Which credential field should fill ${JSON.stringify(field.name)}?`, constraints: [MAP_FIELD] }, criteria),
+			choice({ question: `Which credential field should fill ${JSON.stringify(field.name)}?`, constraints: [MAP_FIELD] }, criteriaByFormField[index]!),
 		]));
 		const response = await this.#client.systemOne({
 			model: process.env.TYPESAFE_MODEL ?? "jev-latest",
@@ -85,7 +91,7 @@ export class SystemOneVaultCredentialPolicy implements VaultCredentialPolicy {
 		});
 		return input.form.fields.map((field, index) => ({
 			formFieldId: field.id,
-			itemField: requireAnswer(response.answers[`field_${index}`], criteria, `mapping for ${field.name}`).choice,
+			itemField: requireAnswer(response.answers[`field_${index}`], criteriaByFormField[index]!, `mapping for ${field.name}`).choice,
 		}));
 	}
 }

@@ -60,20 +60,13 @@ export const VIEWPORT_SNAPSHOT = String.raw`(() => {
 			|| element.getAttribute('title') || element.getAttribute('placeholder') || '';
 	};
 	const alwaysSensitive = (element) => element.type === 'password' || (element.autocomplete || '').toLowerCase().split(/\s+/).includes('one-time-code');
-	const alwaysRedacted = (element) => {
-		const autocomplete = (element.autocomplete || '').toLowerCase().split(/\s+/);
-		const name = [nameOf(element), element.name, element.id, element.placeholder].filter(Boolean).join(' ');
-		return alwaysSensitive(element) || element.type === 'email'
-			|| autocomplete.some((token) => ['username', 'email', 'tel'].includes(token))
-			|| /\b(?:email|e-mail|username|user name|identifier|login|account|phone)\b/i.test(name);
-	};
 	const hasValue = (element, role) => {
 		if ('value' in element) return String(element.value ?? '').length > 0;
 		if (element.isContentEditable || role === 'combobox') return element.innerText.trim().length > 0;
 		return false;
 	};
 	const valueOf = (element, role) => {
-		if (alwaysRedacted(element) || state.redacted.has(element)) return '';
+		if (alwaysSensitive(element) || state.redacted.has(element)) return '';
 		if ('value' in element) return String(element.value ?? '');
 		if (element.isContentEditable || role === 'combobox') return element.innerText.trim();
 		return '';
@@ -88,7 +81,7 @@ export const VIEWPORT_SNAPSHOT = String.raw`(() => {
 		if (!element?.isConnected || !visible(element)) return null;
 		const role = roleOf(element);
 		return JSON.stringify([
-			role, stableName(nameOf(element)), alwaysRedacted(element) || state.redacted.has(element) ? hasValue(element, role) : valueOf(element, role), element.checked ?? null, element.selectedIndex ?? null,
+			role, stableName(nameOf(element)), alwaysSensitive(element) || state.redacted.has(element) ? hasValue(element, role) : valueOf(element, role), element.checked ?? null, element.selectedIndex ?? null,
 			element.readOnly ?? null, element.matches(':disabled'), element.getAttribute('aria-disabled'),
 			element.getAttribute('aria-expanded'), element.getAttribute('aria-checked'), element.getAttribute('aria-selected'),
 			element.getAttribute('href'),
@@ -141,7 +134,7 @@ export const VIEWPORT_SNAPSHOT = String.raw`(() => {
 		elements.push({
 			id: 'n' + nodeId(element), node: nodeId(element), role, name: nameOf(element) || role,
 			value: valueOf(element, role),
-			...((alwaysRedacted(element) || state.redacted.has(element)) ? { hasValue: hasValue(element, role), sensitive: alwaysSensitive(element) } : {}),
+			...((alwaysSensitive(element) || state.redacted.has(element)) ? { hasValue: hasValue(element, role), sensitive: alwaysSensitive(element) } : {}),
 			operations: alwaysSensitive(element) ? operations.filter((operation) => operation !== 'TYPE_TEXT') : operations, options,
 			checked: checkedOf(element),
 			selected: element.getAttribute('aria-selected') === null ? undefined : element.getAttribute('aria-selected') === 'true',

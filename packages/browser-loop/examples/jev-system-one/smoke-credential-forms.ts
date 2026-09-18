@@ -27,7 +27,7 @@ if (!apiKey) throw new Error("KERNEL_API_KEY is required");
 const client = new Kernel({ apiKey });
 const browser = await client.browsers.create({ stealth: true, timeout_seconds: 600 });
 const executor = new BrowserExecutor(browser.cdp_ws_url);
-const runtime = new ExecutorBrowserRuntime(executor);
+const runtime = new ExecutorBrowserRuntime(executor, { credentials: true });
 let failures = 0;
 try {
 	for (const [url, expected] of CASES) {

@@ -35,7 +35,7 @@ if (browser.browser_live_view_url) {
 const executor = new BrowserExecutor(browser.cdp_ws_url);
 
 try {
-	const runtime = new ExecutorBrowserRuntime(executor);
+	const runtime = new ExecutorBrowserRuntime(executor, { credentials: vaultName !== undefined });
 	await runtime.execute({ type: "browser_new_tab" });
 	const result = await runAgent({
 		goal,

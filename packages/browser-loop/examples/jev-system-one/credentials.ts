@@ -38,8 +38,8 @@ export const CREDENTIAL_FORM_SNAPSHOT = String.raw`(() => {
 	const semanticOf = (element) => {
 		const autocomplete = (element.autocomplete || '').toLowerCase().split(/\s+/);
 		const haystack = [nameOf(element), element.name, element.id, element.placeholder].filter(Boolean).join(' ').toLowerCase();
+		if (autocomplete.includes('one-time-code') || /\b(?:otp|one[ -]?time|verification|authenticator)\s*(?:code|passcode)?\b/.test(haystack)) return 'otp';
 		if (element.type === 'password' || autocomplete.includes('current-password') || autocomplete.includes('new-password') || /password|passphrase|passcode/.test(haystack)) return 'password';
-		if (autocomplete.includes('one-time-code') || /\b(?:otp|one[ -]?time|verification|authenticator)\s*(?:code)?\b/.test(haystack)) return 'otp';
 		if (element.type === 'email' || autocomplete.some((token) => ['username', 'email', 'tel'].includes(token)) || /\b(?:email|e-mail|username|user name|identifier|login|account|phone)\b/.test(haystack)) return 'identifier';
 		return 'text';
 	};
@@ -50,19 +50,20 @@ export const CREDENTIAL_FORM_SNAPSHOT = String.raw`(() => {
 	const groupRoot = (element) => {
 		if (element.form) return element.form;
 		let current = element.parentElement;
-		const fallback = element.closest('[role="dialog"],main') || document.body;
+		const fallback = element.closest('[role="dialog"],main');
 		for (let depth = 0; current && current !== document.body && depth < 10; depth++, current = current.parentElement) {
 			const count = controls.filter((candidate) => current.contains(candidate)).length;
 			if (count <= 8 && primaryAction(current)) return current;
 		}
-		return fallback;
+		if (fallback && controls.filter((candidate) => fallback.contains(candidate)).length <= 8) return fallback;
+		return null;
 	};
 	const candidates = [];
 	for (const control of controls) {
 		const semantic = semanticOf(control);
 		if (semantic === 'text') continue;
 		const root = groupRoot(control);
-		if (!candidates.includes(root)) candidates.push(root);
+		if (root && !candidates.includes(root)) candidates.push(root);
 	}
 	const seen = new Set();
 	const forms = [];
@@ -107,7 +108,10 @@ export const CREDENTIAL_FORM_SNAPSHOT = String.raw`(() => {
 		});
 		forms.push({ id: 'form:' + identity, name: formName, fields });
 	}
-	return forms;
+	return forms.filter((form, index) => !forms.some((other, otherIndex) =>
+		index !== otherIndex && form.fields.length < other.fields.length
+		&& form.fields.every((field) => other.fields.some((otherField) => otherField.node === field.node))
+	));
 })()`;
 
 export function prepareCredentialFormCode(documentId: string, form: CredentialForm, attribute: string): string {

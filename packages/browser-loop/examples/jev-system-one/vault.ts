@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type Kernel from "@onkernel/sdk";
 import type {
 	CredentialCollectionAction,
+	CredentialVaultFieldDefinition,
 	CredentialVaultFieldInput,
 	CredentialVaultItem,
 	VaultItem,
@@ -153,7 +154,7 @@ export class KernelVaultCredentialBroker implements CredentialBroker {
 	async #collectIfNeeded(item: CredentialVaultItem, mappings: CredentialFieldMapping[]): Promise<CredentialVaultItem> {
 		const missing = mappings.some((mapping) => item.state.fields[mapping.itemField]?.has_value !== true);
 		if (item.state.status === "ready" && !missing) return item;
-		const beforeVersion = item.version;
+		let observedVersion = item.version;
 		const collected = await this.#client.vaults.items.performOperation(item.key, {
 			id_or_name: this.#vault,
 			type: "collect",
@@ -163,17 +164,19 @@ export class KernelVaultCredentialBroker implements CredentialBroker {
 		}
 		await this.#onCollection(collected.action);
 		const expiresAt = Date.parse(collected.action.expires_at);
+		if (!Number.isFinite(expiresAt)) throw new Error("Vault returned an invalid credential collection expiry");
 		for (;;) {
 			if (this.#now() >= expiresAt) throw new CredentialBlockedError("Credential collection expired");
 			const current = await this.#client.vaults.items.retrieve(item.key, {
 				id_or_name: this.#vault,
-				...(collected.state.status === "pending_collection" ? { wait: 60 } : {}),
-			});
+				...(collected.state.status === "pending_collection" ? { wait: 30 } : {}),
+			}, { timeout: 45_000 });
 			if (!isCredentialItem(current)) throw new Error("Vault returned a non-credential item");
 			const fieldsReady = mappings.every((mapping) => current.state.fields[mapping.itemField]?.has_value === true);
-			if (current.version > beforeVersion) {
+			if (current.version > observedVersion) {
+				observedVersion = current.version;
 				if (current.state.status === "ready" && fieldsReady) return current;
-				throw new CredentialBlockedError("Credential collection completed without every mapped field");
+				if (current.state.status === "ready") throw new CredentialBlockedError("Credential collection completed without every mapped field");
 			}
 			await delay(1_000);
 		}
@@ -212,14 +215,25 @@ function credentialFieldName(field: CredentialField): string {
 	return /^[a-z][a-z0-9_]{0,63}$/.test(slug) ? slug : "text";
 }
 
+export function compatibleCredentialField(formField: CredentialField, itemField: CredentialVaultFieldDefinition): boolean {
+	if (formField.sensitive !== itemField.sensitive) return false;
+	if (formField.semantic === "password") return itemField.type === "password";
+	if (formField.semantic === "otp") return itemField.type === "totp";
+	if (formField.semantic === "identifier") return itemField.type === "text" || itemField.type === "email";
+	return itemField.type === "text" || itemField.type === "email";
+}
+
 function validateMappings(form: CredentialForm, item: CredentialVaultItem, mappings: CredentialFieldMapping[]): void {
 	if (!mappings.length) throw new Error("Credential policy did not map any fields");
 	const formFields = new Set(form.fields.map((field) => field.id));
-	const itemFields = new Set(item.spec.fields.map((field) => field.name));
+	const itemFields = new Map(item.spec.fields.map((field) => [field.name, field]));
 	const seenForm = new Set<string>();
 	const seenItem = new Set<string>();
 	for (const mapping of mappings) {
-		if (!formFields.has(mapping.formFieldId) || !itemFields.has(mapping.itemField)) throw new Error("Credential policy returned an unavailable field mapping");
+		const formField = form.fields.find((field) => field.id === mapping.formFieldId);
+		const itemField = itemFields.get(mapping.itemField);
+		if (!formFields.has(mapping.formFieldId) || !formField || !itemField) throw new Error("Credential policy returned an unavailable field mapping");
+		if (!compatibleCredentialField(formField, itemField)) throw new Error("Credential policy returned an incompatible field mapping");
 		if (seenForm.has(mapping.formFieldId) || seenItem.has(mapping.itemField)) throw new Error("Credential policy returned duplicate field mappings");
 		seenForm.add(mapping.formFieldId);
 		seenItem.add(mapping.itemField);
