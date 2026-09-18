@@ -26,7 +26,7 @@ jobs:
         run: npm ci
       - name: Jev example tests
         working-directory: packages/browser-loop/examples/jev-system-one
-        run: npm run typecheck && npm test
+        run: npm run check:repl && npm run typecheck && npm test
       # The pi print/RPC test loads the extension the way pi does, through the
       # package's own entry points, so dist has to exist before the unit run.
       - run: npm run build --workspace @onkernel/browser-loop

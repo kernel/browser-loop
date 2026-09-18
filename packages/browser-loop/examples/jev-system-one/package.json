@@ -3,6 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build:repl": "node build-repl.mjs",
+    "check:repl": "node build-repl.mjs --check",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test *.unit.ts",
     "run": "tsx run.ts"

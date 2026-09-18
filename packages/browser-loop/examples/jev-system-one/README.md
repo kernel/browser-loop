@@ -79,7 +79,7 @@ npm run run -- \
 
 ### Install into a browser REPL
 
-The browser process API and REPL share a filesystem. This CLI flow installs a single-file agent module at `/tmp/browser-loop/jev-agent.mjs`, defines `runJev` once, and reuses it in a later REPL call:
+The browser process API and REPL share a filesystem. This CLI flow downloads the prebuilt agent module to `/tmp/browser-loop/jev-agent.mjs`, defines `runJev` once, and reuses it in a later REPL call:
 
 ```bash
 BROWSER_ID=$(kernel browsers create --timeout 600 -o json | jq -r .session_id)
@@ -149,7 +149,9 @@ The operation question contains only currently available operations. Target ques
 - `text.ts`: optional OpenAI-compatible string resolver
 - `run.ts`: Kernel browser setup and CLI
 - `repl.ts`: persistent-REPL agent factory
-- `install-repl.sh`: process-exec installer for the bundled REPL module
+- `build-repl.mjs`: deterministic bundle and checksum generator
+- `jev-agent.mjs`: generated single-file REPL module
+- `install-repl.sh`: checksum-verifying process-exec installer
 
 ## Current boundaries
 
