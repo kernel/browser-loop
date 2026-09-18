@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
+import { spawn, type ChildProcess } from "node:child_process";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it } from "node:test";
+import { BrowserExecutor } from "../../src/core/translator/browser";
 import { buildCandidateSpace } from "./actions";
-import { observationFromElements } from "./browser";
+import { ExecutorBrowserRuntime, observationFromElements } from "./browser";
 import { mergeCredentialForms } from "./credentials";
 import type { ObservationElement } from "./types";
 
@@ -45,6 +50,40 @@ describe("credential form observations", () => {
 		assert.doesNotMatch(JSON.stringify(observation), /not-for-models/);
 	});
 
+	it("describes redacted editable fields with filled state instead of an empty value", () => {
+		const observation = observationFromElements({
+			url: "https://example.com/login",
+			elements: [{ ...element(""), name: "Email", sensitive: false, hasValue: true, operations: ["TYPE_TEXT", "CLICK"] }],
+		});
+		const candidate = buildCandidateSpace(observation, "sign in").byOperation.get("TYPE_TEXT")?.[0];
+		assert.match(candidate?.label ?? "", /has_value=true/);
+		assert.doesNotMatch(candidate?.label ?? "", /current value=""/);
+	});
+
+	it("keeps a native login form separate from an unrelated main-page input", { skip: chromiumPath() === undefined }, async () => {
+		const launched = await launchChromium(chromiumPath()!);
+		const executor = new BrowserExecutor(launched.endpoint);
+		try {
+			const html = `<main>
+				<form><label>Email <input type="email" autocomplete="username"></label><label>Password <input type="password" autocomplete="current-password"></label><button>Sign in</button></form>
+				<label>Your email <input type="email"></label>
+			</main>`;
+			await executor.execute({ type: "browser_evaluate", code: `document.body.innerHTML = ${JSON.stringify(html)}; true` });
+			const observation = await new ExecutorBrowserRuntime(executor, { credentials: true }).observe();
+			assert.equal(observation.credentialForms.length, 1);
+			assert.deepEqual(observation.credentialForms[0]?.fields.map((field) => field.name), ["Email", "Password"]);
+		} finally {
+			executor.close();
+			if (launched.process.exitCode === null) {
+				launched.process.kill("SIGKILL");
+				await new Promise((resolve) => launched.process.once("exit", resolve));
+			}
+			launched.process.stderr?.destroy();
+			launched.process.unref();
+			rmSync(launched.directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+		}
+	});
+
 	it("offers one grouped credential action only when a broker is available", () => {
 		const observation = observationFromElements({
 			url: "https://example.com/login",
@@ -72,3 +111,31 @@ describe("credential form observations", () => {
 		assert.equal(buildCandidateSpace(observation, "sign in", [], { credentials: true }).byOperation.has("USE_CREDENTIALS"), false);
 	});
 });
+
+function chromiumPath(): string | undefined {
+	return [process.env.CHROMIUM_PATH, "/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome"]
+		.find((candidate): candidate is string => candidate !== undefined && existsSync(candidate));
+}
+
+async function launchChromium(executable: string): Promise<{ process: ChildProcess; endpoint: string; directory: string }> {
+	const directory = mkdtempSync(join(tmpdir(), "jev-credential-test-"));
+	const child = spawn(executable, ["--headless=new", "--no-sandbox", "--disable-gpu", "--no-zygote", "--single-process", "--remote-debugging-port=0", `--user-data-dir=${directory}`, "about:blank"], {
+		stdio: ["ignore", "ignore", "pipe"],
+	});
+	const endpoint = await new Promise<string>((resolve, reject) => {
+		const timer = setTimeout(() => reject(new Error("Timed out starting Chromium")), 10_000);
+		let output = "";
+		child.stderr?.on("data", (chunk) => {
+			output += String(chunk);
+			const match = /DevTools listening on (ws:\/\/\S+)/.exec(output);
+			if (!match) return;
+			clearTimeout(timer);
+			resolve(match[1]!);
+		});
+		child.once("error", (error) => {
+			clearTimeout(timer);
+			reject(error);
+		});
+	});
+	return { process: child, endpoint, directory };
+}

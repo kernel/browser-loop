@@ -98,6 +98,7 @@ export interface JevCandidate {
 	target?: ElementTarget;
 	credentialForm?: CredentialForm;
 	value?: string;
+	hasValue?: boolean;
 	action?: BrowserAction;
 	textPurpose?: TextPurpose;
 }

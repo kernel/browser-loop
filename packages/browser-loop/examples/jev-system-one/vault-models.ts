@@ -75,6 +75,7 @@ export class SystemOneVaultCredentialPolicy implements VaultCredentialPolicy {
 		));
 		const missing = criteriaByFormField.findIndex((criteria) => Object.keys(criteria).length === 0);
 		if (missing !== -1) throw new CredentialBlockedError(`Selected credential has no compatible field for ${input.form.fields[missing]!.name}`);
+		if (!hasDistinctAssignment(criteriaByFormField)) throw new CredentialBlockedError("Selected credential cannot map distinct fields to the visible form");
 		const questions = Object.fromEntries(input.form.fields.map((field, index) => [
 			`field_${index}`,
 			choice({ question: `Which credential field should fill ${JSON.stringify(field.name)}?`, constraints: [MAP_FIELD] }, criteriaByFormField[index]!),
@@ -94,6 +95,23 @@ export class SystemOneVaultCredentialPolicy implements VaultCredentialPolicy {
 			itemField: requireAnswer(response.answers[`field_${index}`], criteriaByFormField[index]!, `mapping for ${field.name}`).choice,
 		}));
 	}
+}
+
+function hasDistinctAssignment(criteriaByFormField: Array<Record<string, string>>): boolean {
+	const ownerByItemField = new Map<string, number>();
+	const assign = (formIndex: number, seen: Set<string>): boolean => {
+		for (const itemField of Object.keys(criteriaByFormField[formIndex]!)) {
+			if (seen.has(itemField)) continue;
+			seen.add(itemField);
+			const owner = ownerByItemField.get(itemField);
+			if (owner === undefined || assign(owner, seen)) {
+				ownerByItemField.set(itemField, formIndex);
+				return true;
+			}
+		}
+		return false;
+	};
+	return criteriaByFormField.every((_criteria, formIndex) => assign(formIndex, new Set()));
 }
 
 function safeForm(form: CredentialForm): unknown {

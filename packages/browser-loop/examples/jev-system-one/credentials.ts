@@ -44,8 +44,13 @@ export const CREDENTIAL_FORM_SNAPSHOT = String.raw`(() => {
 		return 'text';
 	};
 	const actionLabel = (element) => (text(element) || element.value || element.getAttribute('aria-label') || '').toLowerCase();
-	const primaryAction = (root) => [...root.querySelectorAll('button,[role="button"],input[type="submit"]')]
+	const actionsFor = (root, field) => [...root.querySelectorAll('button,[role="button"],input[type="submit"]')]
 		.filter((element) => state.visible(element) && state.actionPoint(element) !== null)
+		.filter((element) => {
+			const actionForm = element.form || element.closest('form');
+			return !actionForm || actionForm === field.form;
+		});
+	const primaryAction = (root, field) => actionsFor(root, field)
 		.some((element) => /\b(?:sign in|log in|login|continue|next|verify|submit|send code)\b/.test(actionLabel(element)) && !/\b(?:show|hide|forgot|trouble)\b/.test(actionLabel(element)));
 	const groupRoot = (element) => {
 		if (element.form) return element.form;
@@ -53,7 +58,7 @@ export const CREDENTIAL_FORM_SNAPSHOT = String.raw`(() => {
 		const fallback = element.closest('[role="dialog"],main');
 		for (let depth = 0; current && current !== document.body && depth < 10; depth++, current = current.parentElement) {
 			const count = controls.filter((candidate) => current.contains(candidate)).length;
-			if (count <= 8 && primaryAction(current)) return current;
+			if (count <= 8 && primaryAction(current, element)) return current;
 		}
 		if (fallback && controls.filter((candidate) => fallback.contains(candidate)).length <= 8) return fallback;
 		return null;
@@ -68,14 +73,13 @@ export const CREDENTIAL_FORM_SNAPSHOT = String.raw`(() => {
 	const seen = new Set();
 	const forms = [];
 	for (const root of candidates) {
-		const members = controls.filter((element) => root.contains(element));
+		const members = controls.filter((element) => groupRoot(element) === root);
 		const classified = members.map((element) => ({ element, semantic: semanticOf(element) }));
 		const semanticCount = classified.filter(({ semantic }) => semantic !== 'text').length;
 		const hasPasswordOrOtp = classified.some(({ semantic }) => semantic === 'password' || semantic === 'otp');
 		const authTitle = /\b(?:sign in|log in|login|authenticate|verify)\b/i.test(document.title);
 		const authUrl = /(?:^|[\/#?._-])(?:login|signin|sign-in|auth)(?:[\/#?._=&-]|$)/i.test(location.href);
-		const authAction = [...root.querySelectorAll('button,[role="button"],input[type="submit"]')]
-			.filter((element) => state.visible(element) && state.actionPoint(element) !== null)
+		const authAction = actionsFor(root, classified[0].element)
 			.some((element) => /\b(?:sign in|log in|login|verify|send code)\b/.test(actionLabel(element)));
 		const usernameAutocomplete = classified.some(({ element }) => (element.autocomplete || '').toLowerCase().split(/\s+/).includes('username'));
 		if (!hasPasswordOrOtp && !(semanticCount > 0 && (authTitle || authUrl || authAction || usernameAutocomplete))) continue;

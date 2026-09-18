@@ -34,6 +34,24 @@ const item: CredentialVaultItem = {
 };
 
 describe("System One vault credential policy", () => {
+	it("blocks forms that cannot receive a distinct item field mapping", async () => {
+		const client = new TypeSafeClient({
+			apiKey: "test",
+			fetch: async () => assert.fail("System One should not run without a distinct mapping"),
+		});
+		const secondField = { ...form.fields[0]!, id: "credential:2", name: "Username", type: "text" };
+		await assert.rejects(
+			new SystemOneVaultCredentialPolicy(client).map({
+				goal: "Sign in",
+				url: "https://example.com/login",
+				title: "Sign in",
+				form: { ...form, fields: [...form.fields, secondField] },
+				item,
+			}),
+			/cannot map distinct fields/,
+		);
+	});
+
 	it("passes credential items through exactly as returned by the API", async () => {
 		let request: { state?: { credential_items?: CredentialVaultItem[] } } | undefined;
 		const client = new TypeSafeClient({

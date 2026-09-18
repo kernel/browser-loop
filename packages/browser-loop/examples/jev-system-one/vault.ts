@@ -224,7 +224,7 @@ export function compatibleCredentialField(formField: CredentialField, itemField:
 }
 
 function validateMappings(form: CredentialForm, item: CredentialVaultItem, mappings: CredentialFieldMapping[]): void {
-	if (!mappings.length) throw new Error("Credential policy did not map any fields");
+	if (!mappings.length) throw new CredentialBlockedError("Credential policy did not map any fields");
 	const formFields = new Set(form.fields.map((field) => field.id));
 	const itemFields = new Map(item.spec.fields.map((field) => [field.name, field]));
 	const seenForm = new Set<string>();
@@ -232,13 +232,13 @@ function validateMappings(form: CredentialForm, item: CredentialVaultItem, mappi
 	for (const mapping of mappings) {
 		const formField = form.fields.find((field) => field.id === mapping.formFieldId);
 		const itemField = itemFields.get(mapping.itemField);
-		if (!formFields.has(mapping.formFieldId) || !formField || !itemField) throw new Error("Credential policy returned an unavailable field mapping");
-		if (!compatibleCredentialField(formField, itemField)) throw new Error("Credential policy returned an incompatible field mapping");
-		if (seenForm.has(mapping.formFieldId) || seenItem.has(mapping.itemField)) throw new Error("Credential policy returned duplicate field mappings");
+		if (!formFields.has(mapping.formFieldId) || !formField || !itemField) throw new CredentialBlockedError("Credential policy returned an unavailable field mapping");
+		if (!compatibleCredentialField(formField, itemField)) throw new CredentialBlockedError("Credential policy returned an incompatible field mapping");
+		if (seenForm.has(mapping.formFieldId) || seenItem.has(mapping.itemField)) throw new CredentialBlockedError("Credential policy returned duplicate field mappings");
 		seenForm.add(mapping.formFieldId);
 		seenItem.add(mapping.itemField);
 	}
-	if (seenForm.size !== form.fields.length) throw new Error("Credential policy did not map every visible form field");
+	if (seenForm.size !== form.fields.length) throw new CredentialBlockedError("Credential policy did not map every visible form field");
 }
 
 function parseItemChoice(choice: string): number {

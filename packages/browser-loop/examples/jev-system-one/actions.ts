@@ -44,9 +44,10 @@ export function buildCandidateSpace(
 						id: `select:${element.id}:${optionIndex + 1}`,
 						kind: "target",
 						operation,
-						label: `Select ${JSON.stringify(option.label)} in ${JSON.stringify(element.name)}; current value=${JSON.stringify(element.value)}`,
+						label: `Select ${JSON.stringify(option.label)} in ${JSON.stringify(element.name)}${stateDescription(element)}`,
 						target,
 						value: option.value,
+						hasValue: element.hasValue,
 					})) break;
 				}
 				continue;
@@ -56,9 +57,10 @@ export function buildCandidateSpace(
 					id: `type:${element.id}`,
 					kind: "target",
 					operation,
-					label: `Enter text in ${JSON.stringify(element.name)}; current value=${JSON.stringify(element.value)}`,
+					label: `Enter text in ${JSON.stringify(element.name)}${stateDescription(element)}`,
 					target,
 					value: element.value,
+					hasValue: element.hasValue,
 					textPurpose: "field",
 				});
 				continue;
