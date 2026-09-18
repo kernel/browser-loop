@@ -66,6 +66,7 @@ describe("Jev candidate space", () => {
 		assert.equal(space.byOperation.get("TYPE_TEXT")?.some((candidate) => candidate.id === "type:n2"), false);
 		assert.equal(space.byOperation.get("CLICK")?.some((candidate) => candidate.id === "click:n2"), true);
 		assert.equal(space.byOperation.get("CLICK")?.some((candidate) => candidate.id === "click:n6"), true);
+		assert.equal(space.byId.get("click:n1")?.label, 'Open "From"');
 		assert.equal(space.candidates.some((candidate) => candidate.id.includes("n7")), false);
 		assert.equal(space.byOperation.get("CLICK")?.some((candidate) => candidate.id === "click:n8"), true);
 		assert.deepEqual(space.byOperation.get("SCROLL")?.find((candidate) => candidate.id === "scroll:down")?.action, {
@@ -185,6 +186,36 @@ describe("browser observation", () => {
 		if (!findTable) throw new Error("Missing Find a Table candidate");
 		await runtime.executeTarget(findTable);
 		assert.deepEqual(actions.at(-1), { type: "browser_click", ref: "e11" });
+	});
+
+	it("stops a hung direct action with an unknown outcome", async () => {
+		let signal: AbortSignal | undefined;
+		let closed = false;
+		const executor = {
+			execute: async (_action: BrowserAction, actionSignal?: AbortSignal) => {
+				signal = actionSignal;
+				return new Promise<never>(() => undefined);
+			},
+			close: () => { closed = true; },
+		} as unknown as BrowserExecutor;
+		const runtime = new ExecutorBrowserRuntime(executor, { actionTimeoutMs: 10 });
+		await assert.rejects(
+			runtime.execute({ type: "browser_click", x: 10, y: 10 }),
+			/execution outcome is unknown/,
+		);
+		assert.equal(signal?.aborted, true);
+		assert.equal(closed, true);
+	});
+
+	it("stops a hung observation", async () => {
+		let closed = false;
+		const executor = {
+			execute: async () => new Promise<never>(() => undefined),
+			close: () => { closed = true; },
+		} as unknown as BrowserExecutor;
+		const runtime = new ExecutorBrowserRuntime(executor, { actionTimeoutMs: 10 });
+		await assert.rejects(runtime.observe(), /browser_evaluate timed out/);
+		assert.equal(closed, true);
 	});
 
 	it("retries when the page changes during viewport collection", async () => {

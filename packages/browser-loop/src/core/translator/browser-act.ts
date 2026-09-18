@@ -16,8 +16,9 @@ class BrowserActDeadlineError extends Error {
 /**
  * Narrow adapter between plan policy and browser mechanics. Implementations own live
  * target/ref/CDP state; the orchestrator owns sequencing, deadlines, attribution, and
- * stop decisions. `observe` is intentionally a full fenced AX observation: one baseline
- * plus pre/post observations around steps make causal claims safer, but are not cheap.
+ * stop decisions. `observe` is intentionally a full fenced AX observation: mutating steps
+ * use pre/post observations, while a single passive wait reuses its baseline and post-wait
+ * observation because there is no input to fence.
  */
 export interface BrowserActRuntime {
 	observe(tabId?: string): Promise<BrowserObservation>;
@@ -41,6 +42,7 @@ export interface BrowserActRuntime {
 export async function runBrowserAct(action: BrowserActionAct, runtime: BrowserActRuntime): Promise<BrowserActResult> {
 	const finalStepIndex = action.steps.length - 1;
 	const globalDeadline: ActDeadline = { at: Date.now() + (action.timeout_ms ?? DEFAULT_ACT_TIMEOUT_MS), reason: "global_timeout" };
+	const passiveWait = action.steps.length === 1 && action.steps[0]?.type === "wait" && action.expect === undefined;
 	let baseline: BrowserObservation;
 	let current: BrowserObservation;
 	let targets: string[];
@@ -56,6 +58,7 @@ export async function runBrowserAct(action: BrowserActionAct, runtime: BrowserAc
 	let stoppedAt: number | undefined;
 	let stopReason: BrowserActResult["stop_reason"];
 	let timedOut = false;
+	let reusableSuccessor: { observation: BrowserObservation; targets: string[] } | undefined;
 
 	for (let index = 0; index < action.steps.length; index += 1) {
 		const step = action.steps[index]!;
@@ -63,8 +66,13 @@ export async function runBrowserAct(action: BrowserActionAct, runtime: BrowserAc
 		let before: BrowserObservation;
 		let nextTargets: string[];
 		try {
-			before = await beforeDeadline(() => runtime.observe(action.tab_id), deadline);
-			nextTargets = await beforeDeadline(() => runtime.targetIds(), deadline);
+			if (passiveWait) {
+				before = current;
+				nextTargets = targets;
+			} else {
+				before = await beforeDeadline(() => runtime.observe(action.tab_id), deadline);
+				nextTargets = await beforeDeadline(() => runtime.targetIds(), deadline);
+			}
 		} catch (error) {
 			const timeout = timeoutReason(error);
 			steps.push(stepResult(index, step, "unknown", [timeout ? message(error) : `pre-action observation failed: ${message(error)}`]));
@@ -137,7 +145,10 @@ export async function runBrowserAct(action: BrowserActionAct, runtime: BrowserAc
 		steps.push(stepResult(index, step, outcome, diagnostics, expectation));
 
 		const postBoundary = after && afterTargets ? boundary(before, after, targets, afterTargets, dialogs, runtime) : undefined;
-		if (after && afterTargets) { current = after; targets = afterTargets; dialogs = runtime.dialogCount(); }
+		if (after && afterTargets) {
+			current = after; targets = afterTargets; dialogs = runtime.dialogCount();
+			if (passiveWait) reusableSuccessor = { observation: after, targets: afterTargets };
+		}
 		stopReason = timeout
 			?? (stale
 				? "stale_ref"
@@ -180,8 +191,9 @@ export async function runBrowserAct(action: BrowserActionAct, runtime: BrowserAc
 	}
 	for (let attempt = 0; attempt < 3 && !successor; attempt += 1) {
 		try {
-			const observed = await beforeDeadline(() => runtime.observe(action.tab_id), globalDeadline);
-			const successorTargets = await beforeDeadline(() => runtime.targetIds(), globalDeadline);
+			const reusable = attempt === 0 ? reusableSuccessor : undefined;
+			const observed = reusable?.observation ?? await beforeDeadline(() => runtime.observe(action.tab_id), globalDeadline);
+			const successorTargets = reusable?.targets ?? await beforeDeadline(() => runtime.targetIds(), globalDeadline);
 			const lateBoundary = boundary(current, observed, targets, successorTargets, dialogs, runtime);
 			current = observed; targets = successorTargets; dialogs = runtime.dialogCount();
 			if (lateBoundary) {

@@ -52,7 +52,7 @@ Requirements:
 - `TYPESAFE_API_KEY`
 - `TEXT_MODEL_API_KEY` for tasks that require navigation inference or text entry
 
-The text helper uses an OpenAI-compatible `/chat/completions` endpoint:
+The text helper uses an OpenAI-compatible `/chat/completions` endpoint. It limits responses to 1,024 tokens and retries once when a provider returns malformed JSON, before any browser mutation:
 
 ```bash
 export TEXT_MODEL_API_KEY="$OPENAI_API_KEY"
@@ -88,7 +88,7 @@ live view: https://...
 [result] status=completed elapsed=1487ms steps=2 url=https://example.com/more reason="Jev found visible completion evidence"
 ```
 
-Jev timing covers only the System One request. Freshness timing is a target-specific identity and state check rather than another complete observation. Action timing is split into optional text resolution, browser execution, and the single successor observation. Single-step interactions use direct browser primitives; `WAIT` retains navigation-safe `browser_act` execution.
+Jev timing covers only the System One request. Freshness timing is a target-specific identity and state check rather than another complete observation. Action timing is split into optional text resolution, browser execution, and the single successor observation. Single-step interactions use direct browser primitives with a 10-second deadline; a timeout stops the loop with an unknown execution outcome. `WAIT` retains navigation-safe `browser_act` execution, whose passive-wait path uses one baseline and one successor observation.
 
 ## Jev request
 
@@ -123,4 +123,4 @@ The operation question contains only currently available operations. Target ques
 
 This is deliberately a custom example rather than a generalized policy API. Its observation pass includes only controls whose center is inside the current viewport, records each control's executable operations from its underlying DOM element, and assigns a stable identity for the life of the document. When a visible cross-origin frame is present, it supplements that state with the frame controls from Browser Loop's stitched accessibility observation. Before input, the runtime validates only the selected control's identity and state. A stale target causes a fresh observation and policy decision; snapshot-scoped references are not remapped.
 
-The example does not generate prose answers, handle CAPTCHA, upload files, or enter passwords. The viewport candidate list is bounded to 250 grounded actions. Page text is treated as untrusted data, and the text resolver returns `null` when required information is absent.
+Editable controls expose separate `TYPE_TEXT` and `Open …` click candidates so Jev can distinguish entering a literal from opening an autocomplete or picker. The example does not generate prose answers, handle CAPTCHA, upload files, or enter passwords. The viewport candidate list is bounded to 250 grounded actions. Page text is treated as untrusted data, and the text resolver returns `null` when required information is absent.

@@ -24,7 +24,7 @@ describe("text resolver", () => {
 		const originalFetch = globalThis.fetch;
 		const originalReasoning = process.env.TEXT_MODEL_REASONING;
 		delete process.env.TEXT_MODEL_REASONING;
-		let request: { reasoning_effort?: string; messages?: Array<{ role?: string; content?: string }> } | undefined;
+		let request: { max_tokens?: number; reasoning_effort?: string; messages?: Array<{ role?: string; content?: string }> } | undefined;
 		globalThis.fetch = async (_input, init) => {
 			request = JSON.parse(String(init?.body)) as typeof request;
 			return new Response(JSON.stringify({ choices: [{ message: { content: '{"text":"San Francisco"}' } }] }), {
@@ -48,6 +48,7 @@ describe("text resolver", () => {
 				history: [],
 			});
 			assert.equal(value, "San Francisco");
+			assert.equal(request?.max_tokens, 1_024);
 			assert.equal(request?.reasoning_effort, "none");
 			assert.match(request?.messages?.[0]?.content ?? "", /Do not return code/);
 			assert.match(request?.messages?.[1]?.content ?? "", /Only the literal value for the selected field/);
@@ -55,6 +56,39 @@ describe("text resolver", () => {
 			globalThis.fetch = originalFetch;
 			if (originalReasoning === undefined) delete process.env.TEXT_MODEL_REASONING;
 			else process.env.TEXT_MODEL_REASONING = originalReasoning;
+		}
+	});
+
+	it("retries one malformed response before returning text", async () => {
+		const originalFetch = globalThis.fetch;
+		let calls = 0;
+		globalThis.fetch = async () => {
+			calls += 1;
+			const content = calls === 1 ? '{"text":"London"}\n{"text":"London"}' : '{"text":"London"}';
+			return new Response(JSON.stringify({ choices: [{ message: { content } }] }), {
+				status: 200,
+				headers: { "Content-Type": "application/json" },
+			});
+		};
+		try {
+			const value = await new OpenAICompatibleTextResolver({ apiKey: "test-key", reasoning: "none" }).resolve({
+				purpose: "field",
+				goal: "Enter London in Destination",
+				candidate: {
+					id: "type:n1",
+					kind: "target",
+					operation: "TYPE_TEXT",
+					label: 'Enter text in "Destination"',
+					target: { documentId: observation.documentId, node: 1, guard: "destination" },
+					textPurpose: "field",
+				},
+				observation,
+				history: [],
+			});
+			assert.equal(value, "London");
+			assert.equal(calls, 2);
+		} finally {
+			globalThis.fetch = originalFetch;
 		}
 	});
 

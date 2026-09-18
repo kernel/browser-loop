@@ -24,56 +24,71 @@ export class OpenAICompatibleTextResolver implements TextResolver {
 
 	async resolve(input: TextResolutionInput): Promise<string | null> {
 		if (!this.#apiKey) throw new Error("TEXT_MODEL_API_KEY is required for navigation or text entry");
-		const response = await fetch(`${this.#baseUrl}/chat/completions`, {
-			method: "POST",
-			headers: {
-				Authorization: `Bearer ${this.#apiKey}`,
-				"Content-Type": "application/json",
-			},
-			body: JSON.stringify({
-				model: this.#model,
-				...reasoningOptions(this.#baseUrl, this.#reasoning),
-				response_format: { type: "json_object" },
-				messages: [
-					{ role: "system", content: TEXT_INSTRUCTIONS },
-					{
-						role: "user",
-						content: JSON.stringify({
-							purpose: input.purpose,
-							required_output: input.purpose === "field"
-								? "Only the literal value for the selected field"
-								: "Only one absolute http:// or https:// URL",
-							goal: input.goal,
-							selected_target: {
-								operation: input.candidate.operation,
-								label: input.candidate.label,
-								current_value: input.candidate.value ?? "",
-							},
-							page: {
-								url: input.observation.url,
-								title: input.observation.title,
-								text: input.observation.text.slice(0, 6_000),
-							},
-							recent_actions: input.history.slice(-6).map((entry) => ({
-								operation: entry.operation,
-								label: entry.label,
-								value: entry.value,
-							})),
-						}),
-					},
-				],
-			}),
+		const body = JSON.stringify({
+			model: this.#model,
+			max_tokens: 1_024,
+			...reasoningOptions(this.#baseUrl, this.#reasoning),
+			response_format: { type: "json_object" },
+			messages: [
+				{ role: "system", content: TEXT_INSTRUCTIONS },
+				{
+					role: "user",
+					content: JSON.stringify({
+						purpose: input.purpose,
+						required_output: input.purpose === "field"
+							? "Only the literal value for the selected field"
+							: "Only one absolute http:// or https:// URL",
+						goal: input.goal,
+						selected_target: {
+							operation: input.candidate.operation,
+							label: input.candidate.label,
+							current_value: input.candidate.value ?? "",
+						},
+						page: {
+							url: input.observation.url,
+							title: input.observation.title,
+							text: input.observation.text.slice(0, 6_000),
+						},
+						recent_actions: input.history.slice(-6).map((entry) => ({
+							operation: entry.operation,
+							label: entry.label,
+							value: entry.value,
+						})),
+					}),
+				},
+			],
 		});
-		if (!response.ok) throw new Error(`Text model request failed with HTTP ${response.status}`);
-		const result = await response.json() as {
-			choices?: Array<{ message?: { content?: string } }>;
-		};
-		const content = result.choices?.[0]?.message?.content;
-		if (!content) throw new Error("Text model returned no content");
+		for (let attempt = 0; attempt < 2; attempt += 1) {
+			const response = await fetch(`${this.#baseUrl}/chat/completions`, {
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${this.#apiKey}`,
+					"Content-Type": "application/json",
+				},
+				body,
+			});
+			if (!response.ok) throw new Error(`Text model request failed with HTTP ${response.status}`);
+			const result = await response.json() as {
+				choices?: Array<{ message?: { content?: string } }>;
+			};
+			const value = parsedText(result.choices?.[0]?.message?.content);
+			if (value.valid) return value.text;
+			if (attempt === 1) throw new Error("Text model returned invalid JSON twice");
+		}
+		throw new Error("Text model returned invalid JSON twice");
+	}
+}
+
+function parsedText(content: string | undefined): { valid: true; text: string | null } | { valid: false } {
+	if (!content) return { valid: false };
+	try {
 		const parsed = JSON.parse(content) as { text?: unknown };
-		if (parsed.text === null) return null;
-		if (typeof parsed.text !== "string" || !parsed.text.trim()) throw new Error("Text model returned an invalid text value");
-		return parsed.text.trim();
+		if (Object.keys(parsed).length !== 1 || !("text" in parsed)) return { valid: false };
+		if (parsed.text === null) return { valid: true, text: null };
+		if (typeof parsed.text !== "string" || !parsed.text.trim() || parsed.text.length > 2_000) return { valid: false };
+		return { valid: true, text: parsed.text.trim() };
+	} catch {
+		return { valid: false };
 	}
 }
 

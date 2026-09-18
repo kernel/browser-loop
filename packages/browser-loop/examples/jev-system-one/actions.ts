@@ -62,7 +62,9 @@ export function buildCandidateSpace(observation: Observation, goal: string, hist
 				id: `click:${element.id}`,
 				kind: "target",
 				operation,
-				label: `Click ${element.role} ${JSON.stringify(element.name)}${stateDescription(element)}`,
+				label: element.operations.includes("TYPE_TEXT")
+					? `Open ${JSON.stringify(element.name)}${stateDescription(element)}`
+					: `Click ${element.role} ${JSON.stringify(element.name)}${stateDescription(element)}`,
 				target,
 			});
 		}

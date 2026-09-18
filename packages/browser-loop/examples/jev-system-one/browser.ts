@@ -8,6 +8,7 @@ import { MARK_VISIBLE_FRAMES, RESTORE_FRAME_LABELS, selectOptionCode, SETTLE_AFT
 import type { BrowserRuntime, JevCandidate, Observation, ObservationElement, ScrollState } from "./types";
 
 const OBSERVATION_RETRY_DELAYS_MS = [100, 200, 400, 800, 1_600];
+const DEFAULT_ACTION_TIMEOUT_MS = 10_000;
 const UNCHANGED_SNAPSHOT = "Page unchanged since the last snapshot; previous element refs are still valid.";
 
 interface SnapshotPayload {
@@ -25,11 +26,13 @@ interface SnapshotPayload {
 
 export class ExecutorBrowserRuntime implements BrowserRuntime {
 	readonly #executor: BrowserExecutor;
+	readonly #actionTimeoutMs: number;
 	#lastAccessibilitySnapshot?: string;
 	#settlePending = false;
 
-	constructor(executor: BrowserExecutor) {
+	constructor(executor: BrowserExecutor, options: { actionTimeoutMs?: number } = {}) {
 		this.#executor = executor;
+		this.#actionTimeoutMs = options.actionTimeoutMs ?? DEFAULT_ACTION_TIMEOUT_MS;
 	}
 
 	async observe(): Promise<Observation> {
@@ -56,7 +59,9 @@ export class ExecutorBrowserRuntime implements BrowserRuntime {
 	}
 
 	async execute(action: BrowserAction): Promise<void> {
-		const reads = await this.#executor.execute(action);
+		const reads = action.type === "browser_act" || action.type === "browser_navigate"
+			? await this.#executor.execute(action)
+			: await executeWithDeadline(this.#executor, action, this.#actionTimeoutMs);
 		if (action.type === "browser_navigate") this.#lastAccessibilitySnapshot = undefined;
 		if (action.type === "browser_scroll") this.#settlePending = true;
 		const act = reads.find((read): read is Extract<BatchReadResult, { type: "browser_act" }> => read.type === "browser_act");
@@ -115,7 +120,11 @@ export class ExecutorBrowserRuntime implements BrowserRuntime {
 	async #addAccessibilityElements(payload: SnapshotPayload): Promise<void> {
 		const frameLabels = JSON.parse(await this.#evaluate(MARK_VISIBLE_FRAMES)) as string[];
 		try {
-			const reads = await this.#executor.execute({ type: "browser_snapshot", filter: "all", depth: Number.MAX_SAFE_INTEGER });
+			const reads = await executeWithDeadline(
+				this.#executor,
+				{ type: "browser_snapshot", filter: "all", depth: Number.MAX_SAFE_INTEGER },
+				this.#actionTimeoutMs,
+			);
 			const rendered = readText(reads, "snapshot");
 			let snapshot = rendered;
 			if (rendered === UNCHANGED_SNAPSHOT) {
@@ -133,7 +142,10 @@ export class ExecutorBrowserRuntime implements BrowserRuntime {
 	}
 
 	async #evaluate(code: string): Promise<string> {
-		return readText(await this.#executor.execute({ type: "browser_evaluate", code }), "evaluate");
+		return readText(
+			await executeWithDeadline(this.#executor, { type: "browser_evaluate", code }, this.#actionTimeoutMs),
+			"evaluate",
+		);
 	}
 
 	async #evaluateBoolean(code: string): Promise<boolean> {
@@ -240,6 +252,24 @@ function finite(value: unknown): number {
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
+}
+
+async function executeWithDeadline(executor: BrowserExecutor, action: BrowserAction, timeoutMs: number): Promise<BatchReadResult[]> {
+	const controller = new AbortController();
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeout = new Promise<never>((_resolve, reject) => {
+		timer = setTimeout(() => {
+			const error = new Error(`Browser action ${action.type} timed out after ${timeoutMs}ms; execution outcome is unknown`);
+			controller.abort(error);
+			reject(error);
+			executor.close();
+		}, timeoutMs);
+	});
+	try {
+		return await Promise.race([executor.execute(action, controller.signal), timeout]);
+	} finally {
+		if (timer) clearTimeout(timer);
+	}
 }
 
 function delay(ms: number): Promise<void> {

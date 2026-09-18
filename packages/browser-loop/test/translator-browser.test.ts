@@ -412,9 +412,22 @@ describe("browser_act orchestration", () => {
 		expect(result).toMatchObject({ stopped_at: 0, stop_reason: "navigation" });
 	});
 
+	it("uses only baseline and post-wait observations for a passive wait", async () => {
+		const rt = runtime([observation("before"), observation("after")]);
+		let observations = 0;
+		const observe = rt.observe;
+		rt.observe = async (tabId) => {
+			observations += 1;
+			return observe(tabId);
+		};
+		const result = await runBrowserAct({ type: "browser_act", steps: [{ type: "wait" }] }, rt);
+		expect(observations).toBe(2);
+		expect(result.successor).toMatchObject({ status: "observed", title: "after" });
+	});
+
 	it("returns a complete normalized successor diff", async () => {
 		const result = await runBrowserAct({ type: "browser_act", steps: [{ type: "wait", expect: { type: "text", text: "Done" } }] }, runtime([
-			observation("before"), observation("before"), observation("after"), observation("after"),
+			observation("before"), observation("after"),
 		], [waitResult("newly_verified")]));
 		expect(result.successor).toMatchObject({ status: "observed", diff: { changed: true, added: [{ line: "RootWebArea after [ref]", count: 1 }], removed: [{ line: "RootWebArea before [ref]", count: 1 }] } });
 		expect(JSON.stringify(result.successor)).not.toMatch(/\be\d+\b/);
@@ -422,7 +435,7 @@ describe("browser_act orchestration", () => {
 
 	it("applies successor presentation options without narrowing the structured diff", async () => {
 		const rt = runtime([
-			observation("before"), observation("before"), observation("after"), observation("after"),
+			observation("before"), observation("after"),
 		], [waitResult("newly_verified")]);
 		const presentations: BrowserAction[] = [];
 		const originalPresent = rt.present;
