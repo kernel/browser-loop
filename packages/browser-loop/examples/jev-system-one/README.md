@@ -10,7 +10,7 @@ The loop uses:
 - code-owned target guards, step limits, and repeated-no-change detection;
 - `DONE` and `BLOCKED` as explicit Jev choices.
 
-Navigation is part of the loop. A new browser starts on `about:blank` or an internal `chrome://` new-tab page; those startup pages expose only navigation and terminal candidates. Jev sees the goal plus the current URL, title, text, elements, values, and recent actions, then chooses `NAVIGATE`. Literal URLs in the task become bounded candidates. Otherwise the text resolver produces the destination URL.
+Navigation is part of the loop. The runner opens a blank tab before starting; startup pages expose only navigation and terminal candidates. Jev sees the goal plus the current URL, title, text, elements, values, and recent actions, then chooses `NAVIGATE`. Literal URLs in the task become bounded candidates. Otherwise the text resolver produces the destination URL.
 
 ## Data flow
 
@@ -58,6 +58,8 @@ The text helper uses an OpenAI-compatible `/chat/completions` endpoint:
 export TEXT_MODEL_API_KEY="$OPENAI_API_KEY"
 export TEXT_MODEL_BASE_URL="https://api.openai.com/v1"
 export TEXT_MODEL="gpt-5.4-nano"
+# Defaults to none. Use low, medium, or high; provider omits the setting.
+export TEXT_MODEL_REASONING="none"
 ```
 
 Install the repository dependencies, then the example's isolated Jev dependency:
@@ -75,7 +77,7 @@ npm run run -- \
   --task "Open https://news.ycombinator.com, then open the newest submissions page using the new link"
 ```
 
-There is intentionally no `--url` argument. Initial navigation is selected and executed by the agent loop. The command prints the browser's live-view URL, step timings, and a compact final result to stderr. On macOS, interactive terminal runs also open the live view in the default browser.
+There is intentionally no `--url` argument. The runner opens a blank tab, then initial navigation is selected and executed by the agent loop. The command prints the browser's live-view URL, step timings, and a compact final result to stderr. On macOS, interactive terminal runs also open the live view in the default browser.
 
 ```text
 live view: https://...

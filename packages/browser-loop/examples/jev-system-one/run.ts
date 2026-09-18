@@ -28,9 +28,11 @@ if (browser.browser_live_view_url) {
 const resources = new LoopExecutionResources({ client, browser });
 
 try {
+	const runtime = new ExecutorBrowserRuntime(resources.browserExecutor());
+	await runtime.execute({ type: "browser_new_tab" });
 	const result = await runAgent({
 		goal,
-		browser: new ExecutorBrowserRuntime(resources.browserExecutor()),
+		browser: runtime,
 		policy: new SystemOneJevPolicy(),
 		textResolver: new OpenAICompatibleTextResolver(),
 		onDecision: (trace) => {
