@@ -97,7 +97,11 @@ cat <<'JS' | kernel browsers repl "$BROWSER_ID" --timeout-sec 300
 var task = await runJev(
   "Open https://news.ycombinator.com, click the new link, and finish once the newest submissions page is visible"
 );
-repl.write(JSON.stringify(task));
+repl.write(JSON.stringify({
+  status: task.status,
+  reason: task.reason,
+  steps: task.steps.length,
+}));
 JS
 ```
 
