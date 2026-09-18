@@ -271,6 +271,38 @@ describe("Jev browser agent", () => {
 		assert.deepEqual(result.history.map((entry) => entry.operation), ["USE_CREDENTIALS"]);
 	});
 
+	it("reobserves and retries when a credential target changes during HITL", async () => {
+		const credentialForm = {
+			id: "form:login",
+			name: "Sign in",
+			fields: [{ id: "credential:1", name: "Email", semantic: "identifier" as const, type: "email", autocomplete: "username", sensitive: false, hasValue: false, target: { documentId: "doc", node: 1, guard: "guard" } }],
+		};
+		const before = observationFromElements({ url: "https://example.com/login", documentId: "doc", credentialForms: [credentialForm] });
+		const after = observationFromElements({ url: before.url, documentId: "doc", credentialForms: [{ ...credentialForm, fields: [{ ...credentialForm.fields[0]!, hasValue: true }] }] });
+		let current = before;
+		let brokerCalls = 0;
+		const browser: BrowserRuntime = { observe: async () => current, isFresh: async () => true, execute: async () => {}, executeTarget: async () => {} };
+		const credentialBroker: CredentialBroker = {
+			use: async () => {
+				brokerCalls += 1;
+				if (brokerCalls === 1) throw new Error("Credential target changed before fill");
+				current = after;
+			},
+		};
+		const policy: JevPolicy = {
+			decide: async (input) => {
+				const operation = input.space.byOperation.has("USE_CREDENTIALS") ? "USE_CREDENTIALS" : "DONE";
+				const selected = input.space.byOperation.get(operation)?.[0];
+				if (!selected) throw new Error(`Missing ${operation}`);
+				return { operation, candidateId: selected.id, operationConfidence: 0.99, latencyMs: 1, inputTokens: 1, outputTokens: 1, model: "test-jev" };
+			},
+		};
+
+		const result = await runAgent({ goal: "Sign in", browser, policy, credentialBroker });
+		assert.equal(result.status, "completed");
+		assert.equal(brokerCalls, 2);
+	});
+
 	it("reports a credential no-match as blocked", async () => {
 		const credentialForm = {
 			id: "form:login",

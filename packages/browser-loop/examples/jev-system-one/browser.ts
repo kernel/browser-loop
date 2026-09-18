@@ -79,7 +79,7 @@ export class ExecutorBrowserRuntime implements BrowserRuntime {
 			selectors: string[];
 		} | null;
 		if (!prepared || prepared.pageUrl !== observation.url || prepared.selectors.length !== form.fields.length) {
-			throw new Error("Credential form changed before fill");
+			throw new Error("Credential target changed before fill");
 		}
 		return {
 			pageUrl: prepared.pageUrl,
