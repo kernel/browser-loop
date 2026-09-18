@@ -7,10 +7,11 @@
     "check:repl": "node build-repl.mjs --check",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test *.unit.ts",
-    "run": "tsx run.ts"
+    "run": "tsx run.ts",
+    "smoke:credentials": "tsx smoke-credential-forms.ts"
   },
   "dependencies": {
-    "@onkernel/sdk": ">=0.49.0 <1.0.0",
+    "@onkernel/sdk": "^0.109.0",
     "@typesafe-ai/sdk": "0.6.0"
   },
   "devDependencies": {

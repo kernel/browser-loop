@@ -1,11 +1,12 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { BrowserAction } from "../../src/core/actions/browser";
 import type { BrowserExecutor } from "../../src/core/translator/browser";
 import { IncompleteObservationError, ObservationChangedError } from "../../src/core/translator/browser-observation";
 import type { BatchReadResult } from "../../src/core/translator/types";
 import { elementsFromAccessibilitySnapshot } from "./accessibility";
+import { cleanupCredentialFormCode, CREDENTIAL_FORM_SNAPSHOT, mergeCredentialForms, prepareCredentialFormCode } from "./credentials";
 import { MARK_VISIBLE_FRAMES, RESTORE_FRAME_LABELS, selectOptionCode, SETTLE_AFTER_INPUT, targetFreshnessCode, targetPointCode, VIEWPORT_SNAPSHOT } from "./snapshot";
-import type { BrowserRuntime, JevCandidate, Observation, ObservationElement, ScrollState } from "./types";
+import type { BrowserRuntime, CredentialForm, JevCandidate, Observation, ObservationElement, PreparedCredentialForm, ScrollState } from "./types";
 
 const OBSERVATION_RETRY_DELAYS_MS = [100, 200, 400, 800, 1_600];
 const DEFAULT_ACTION_TIMEOUT_MS = 10_000;
@@ -20,6 +21,7 @@ interface SnapshotPayload {
 	scroll: ScrollState;
 	marker: string;
 	omitted: number;
+	credentialForms: CredentialForm[];
 	hasVisibleFrame?: boolean;
 }
 
@@ -70,6 +72,25 @@ export class ExecutorBrowserRuntime implements BrowserRuntime {
 		}
 	}
 
+	async prepareCredentialForm(observation: Observation, form: CredentialForm): Promise<PreparedCredentialForm> {
+		const attribute = `data-jev-vault-${randomUUID().replaceAll("-", "")}`;
+		const prepared = JSON.parse(await this.#evaluate(prepareCredentialFormCode(observation.documentId, form, attribute))) as {
+			pageUrl: string;
+			selectors: string[];
+		} | null;
+		if (!prepared || prepared.pageUrl !== observation.url || prepared.selectors.length !== form.fields.length) {
+			throw new Error("Credential form changed before fill");
+		}
+		return {
+			pageUrl: prepared.pageUrl,
+			fields: form.fields.map((field, index) => ({ field, selector: prepared.selectors[index]! })),
+			cleanup: async () => {
+				await this.#evaluate(cleanupCredentialFormCode(observation.documentId, attribute)).catch(() => undefined);
+				this.#settlePending = true;
+			},
+		};
+	}
+
 	async executeTarget(candidate: JevCandidate, value?: string): Promise<void> {
 		const target = candidate.target;
 		if (!target) throw new Error(`Candidate ${candidate.id} has no browser target`);
@@ -107,7 +128,11 @@ export class ExecutorBrowserRuntime implements BrowserRuntime {
 				const value = await this.#evaluate(VIEWPORT_SNAPSHOT);
 				const payload = JSON.parse(value) as SnapshotPayload | null;
 				if (!payload) throw new ObservationChangedError("Browser document was unavailable during observation");
+				const credentialSnapshot = JSON.parse(await this.#evaluate(CREDENTIAL_FORM_SNAPSHOT)) as unknown;
+				const credentialForms = Array.isArray(credentialSnapshot) ? credentialSnapshot as Parameters<typeof mergeCredentialForms>[1] : [];
+				payload.credentialForms = mergeCredentialForms(payload.elements, credentialForms, payload.documentId);
 				if (payload.hasVisibleFrame) await this.#addAccessibilityElements(payload);
+				payload.marker = safeMarker(payload);
 				return payload;
 			} catch (error) {
 				const delayMs = OBSERVATION_RETRY_DELAYS_MS[attempt];
@@ -168,7 +193,8 @@ export function observationFromPayload(payload: SnapshotPayload): Observation {
 	const scroll = normalizedScroll(payload.scroll);
 	const snapshot = elements.map((element) => {
 		const state = [
-			element.value ? `value=${JSON.stringify(element.value)}` : undefined,
+			element.credentialSemantic ? `credential=${element.credentialSemantic}` : undefined,
+			element.hasValue === undefined ? (element.value ? `value=${JSON.stringify(element.value)}` : undefined) : `has_value=${element.hasValue}`,
 			element.checked === undefined ? undefined : `checked=${element.checked}`,
 			element.selected === undefined ? undefined : `selected=${element.selected}`,
 			element.expanded === undefined ? undefined : `expanded=${element.expanded}`,
@@ -178,7 +204,9 @@ export function observationFromPayload(payload: SnapshotPayload): Observation {
 	const interactionState = elements.map((element) => ({
 		role: element.role,
 		name: element.name,
-		value: element.value,
+		...(element.hasValue === undefined ? { value: element.value } : { hasValue: element.hasValue }),
+		credentialSemantic: element.credentialSemantic,
+		sensitive: element.sensitive,
 		operations: element.operations,
 		options: element.options,
 		checked: element.checked,
@@ -193,6 +221,7 @@ export function observationFromPayload(payload: SnapshotPayload): Observation {
 		text: payload.text.slice(0, 6_000),
 		snapshot,
 		elements,
+		credentialForms: payload.credentialForms,
 		scroll,
 		marker: payload.marker,
 		fingerprint: createHash("sha256").update(payload.marker).digest("hex"),
@@ -207,6 +236,7 @@ export function observationFromElements(input: {
 	text?: string;
 	documentId?: string;
 	elements?: ObservationElement[];
+	credentialForms?: CredentialForm[];
 	scroll?: Partial<ScrollState>;
 	marker?: string;
 }): Observation {
@@ -216,11 +246,25 @@ export function observationFromElements(input: {
 		documentId: input.documentId ?? "test-document",
 		text: input.text ?? "",
 		elements: input.elements ?? [],
+		credentialForms: input.credentialForms ?? [],
 		scroll: normalizedScroll(input.scroll),
 		marker: input.marker ?? JSON.stringify([input.url, input.title ?? "", input.text ?? "", input.elements ?? [], normalizedScroll(input.scroll)]),
 		omitted: 0,
 	};
 	return observationFromPayload(payload);
+}
+
+function safeMarker(payload: SnapshotPayload): string {
+	const elements = payload.elements.map(({ rect, guard, ref, ...element }) => ({
+		...element,
+		...(element.hasValue === undefined ? {} : { value: "" }),
+	}));
+	const forms = payload.credentialForms.map((form) => ({
+		id: form.id,
+		name: form.name,
+		fields: form.fields.map(({ target, ...field }) => field),
+	}));
+	return JSON.stringify([payload.documentId, payload.url, payload.title, payload.text, elements, forms, payload.scroll]);
 }
 
 function normalizedScroll(scroll: Partial<ScrollState> | undefined): ScrollState {

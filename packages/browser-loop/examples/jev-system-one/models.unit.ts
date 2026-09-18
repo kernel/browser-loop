@@ -38,6 +38,7 @@ describe("System One policy", () => {
 			goal,
 			page: { url: "about:blank", title: "", text: "", scroll: blank.scroll, omitted_elements: 0 },
 			elements: [],
+			credential_forms: [],
 			recent_actions: [],
 		});
 	});

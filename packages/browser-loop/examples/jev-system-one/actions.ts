@@ -4,7 +4,12 @@ const MAX_GROUNDED_CANDIDATES = 250;
 const SECRET_FIELD = /\b(?:password|passphrase)\b/i;
 const FILE_CONTROL = /\b(?:choose file|upload file)\b/i;
 
-export function buildCandidateSpace(observation: Observation, goal: string, history: readonly HistoryEntry[] = []): JevCandidateSpace {
+export function buildCandidateSpace(
+	observation: Observation,
+	goal: string,
+	history: readonly HistoryEntry[] = [],
+	options: { credentials?: boolean } = {},
+): JevCandidateSpace {
 	const candidates: JevCandidate[] = [];
 	const navigationOnly = observation.url === "about:blank" || observation.url.startsWith("chrome://");
 	const pageElements = navigationOnly ? [] : observation.elements.filter((element) => !isExcludedControl(element));
@@ -66,6 +71,20 @@ export function buildCandidateSpace(observation: Observation, goal: string, hist
 					? `Open ${JSON.stringify(element.name)}${stateDescription(element)}`
 					: `Click ${element.role} ${JSON.stringify(element.name)}${stateDescription(element)}`,
 				target,
+			});
+		}
+	}
+
+	if (options.credentials) {
+		for (const form of observation.credentialForms) {
+			const fields = form.fields.filter((field) => !field.hasValue);
+			if (!fields.length) continue;
+			candidates.push({
+				id: `credentials:${form.id}`,
+				kind: "credential",
+				operation: "USE_CREDENTIALS",
+				label: `Use a vault credential for ${JSON.stringify(form.name)} fields: ${fields.map((field) => field.name).join(", ")}`,
+				credentialForm: { ...form, fields },
 			});
 		}
 	}
@@ -152,7 +171,7 @@ function isElementOperation(operation: Operation): operation is ElementOperation
 }
 
 function isExcludedControl(element: Observation["elements"][number]): boolean {
-	return FILE_CONTROL.test(element.name) || (element.operations.includes("TYPE_TEXT") && SECRET_FIELD.test(element.name));
+	return element.sensitive === true || FILE_CONTROL.test(element.name) || (element.operations.includes("TYPE_TEXT") && SECRET_FIELD.test(element.name));
 }
 
 function hasForwardHistory(history: readonly HistoryEntry[]): boolean {
@@ -172,7 +191,7 @@ function hasForwardHistory(history: readonly HistoryEntry[]): boolean {
 
 function stateDescription(element: Observation["elements"][number]): string {
 	const states = [
-		element.value ? `value=${JSON.stringify(element.value)}` : undefined,
+		element.hasValue === undefined ? (element.value ? `value=${JSON.stringify(element.value)}` : undefined) : `has_value=${element.hasValue}`,
 		element.checked === undefined ? undefined : `checked=${element.checked}`,
 		element.selected === undefined ? undefined : `selected=${element.selected}`,
 		element.expanded === undefined ? undefined : `expanded=${element.expanded}`,

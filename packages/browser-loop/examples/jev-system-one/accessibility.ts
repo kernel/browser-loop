@@ -21,6 +21,8 @@ export function elementsFromAccessibilitySnapshot(snapshot: string, visibleFrame
 		const line = lines[index]!;
 		if (!line.ref || consumedOptions.has(line.ref)) continue;
 		const states = elementState(line.states);
+		const credentialSemantic = credentialSemanticOf(line.role, line.name);
+		const sensitive = credentialSemantic === "password" || credentialSemantic === "otp";
 		let operations: ObservationElement["operations"] = [];
 		let options: ObservationElement["options"] = [];
 		if (line.role === "combobox") {
@@ -31,7 +33,7 @@ export function elementsFromAccessibilitySnapshot(snapshot: string, visibleFrame
 				for (const option of descendants) if (option.ref) consumedOptions.add(option.ref);
 			} else operations = ["CLICK"];
 		} else if (["textbox", "searchbox", "spinbutton"].includes(line.role)) {
-			operations = ["TYPE_TEXT", "CLICK"];
+			operations = sensitive ? ["CLICK"] : ["TYPE_TEXT", "CLICK"];
 		} else if (CLICKABLE_ROLES.has(line.role)) operations = ["CLICK"];
 		if (!operations.length) continue;
 		additions.push({
@@ -39,7 +41,8 @@ export function elementsFromAccessibilitySnapshot(snapshot: string, visibleFrame
 			node: -Number(line.ref.slice(1)),
 			role: line.role,
 			name: line.name || line.role,
-			value: states.value ?? "",
+			value: sensitive ? "" : states.value ?? "",
+			...(sensitive ? { hasValue: Boolean(states.value), credentialSemantic, sensitive: true } : {}),
 			operations,
 			options,
 			...(states.checked === undefined ? {} : { checked: states.checked }),
@@ -161,6 +164,13 @@ function elementState(states: ReadonlyMap<string, string | boolean | number>): {
 		...(states.has("expanded") ? { expanded: states.get("expanded") === true } : {}),
 		...(states.get("disabled") === true ? { disabled: true } : {}),
 	};
+}
+
+function credentialSemanticOf(role: string, name: string): "password" | "otp" | undefined {
+	if (!["textbox", "searchbox", "spinbutton"].includes(role)) return undefined;
+	if (/password|passphrase|passcode/i.test(name)) return "password";
+	if (/\b(?:otp|one[ -]?time|verification|authenticator)\s*(?:code)?\b/i.test(name)) return "otp";
+	return undefined;
 }
 
 function quotedStringEnd(value: string): number {
