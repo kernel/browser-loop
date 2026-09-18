@@ -79,19 +79,26 @@ npm run run -- \
 
 ### Install into a browser REPL
 
-The browser process API and REPL share a filesystem. Run the installer through process exec to build a single-file agent module at `/tmp/browser-loop/jev-agent.mjs`:
+The browser process API and REPL share a filesystem. This CLI flow installs a single-file agent module at `/tmp/browser-loop/jev-agent.mjs`, defines `runJev` once, and reuses it in a later REPL call:
 
 ```bash
+BROWSER_ID=$(kernel browsers create --timeout 600 -o json | jq -r .session_id)
+
 kernel browsers process exec "$BROWSER_ID" --timeout 300 -- \
   curl -fsSL https://raw.githubusercontent.com/kernel/browser-loop/main/packages/browser-loop/examples/jev-system-one/install-repl.sh \| bash
-```
 
-Then import it once in the persistent REPL. `runJev` remains in scope for later REPL calls:
-
-```js
-process.env.TYPESAFE_API_KEY = "...";
+cat <<JS | kernel browsers repl "$BROWSER_ID"
+process.env.TYPESAFE_API_KEY = $(node -p 'JSON.stringify(process.env.TYPESAFE_API_KEY)');
 var { createJevAgent } = await import("/tmp/browser-loop/jev-agent.mjs");
 var runJev = createJevAgent();
+JS
+
+cat <<'JS' | kernel browsers repl "$BROWSER_ID" --timeout-sec 300
+var task = await runJev(
+  "Open https://news.ycombinator.com, click the new link, and finish once the newest submissions page is visible"
+);
+repl.write(JSON.stringify(task));
+JS
 ```
 
 Set `BROWSER_LOOP_REF` to install another branch, tag, or commit, and `BROWSER_LOOP_REPL_INSTALL_DIR` to change the output directory. When `TEXT_MODEL_API_KEY` is present in the REPL, `createJevAgent()` also enables the text resolver used for inferred navigation and text entry.
