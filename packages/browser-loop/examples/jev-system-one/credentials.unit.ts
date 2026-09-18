@@ -83,14 +83,20 @@ describe("credential form observations", () => {
 			assert.equal(identifierFirst.credentialForms.length, 1);
 			assert.deepEqual(identifierFirst.credentialForms[0]?.fields.map((field) => field.name), ["Email"]);
 
-			const mainOnly = `<main><h1>Sign in</h1><label>Email <input type="email"></label><button>Next</button></main>`;
+			const mainOnly = `<section><main><h1>Sign in</h1><label>Email <input type="email"></label><button>Next</button><aside><label>Newsletter <input type="email"></label><button>Subscribe</button></aside></main></section>`;
 			await executor.execute({ type: "browser_evaluate", code: `document.title = "Sign in to Acme"; document.body.innerHTML = ${JSON.stringify(mainOnly)}; true` });
 			const fallbackAction = await runtime.observe();
 			assert.equal(fallbackAction.credentialForms.length, 1);
 			assert.deepEqual(fallbackAction.credentialForms[0]?.fields.map((field) => field.name), ["Email"]);
 
+			const dialog = `<section><div role="dialog"><label>Email <input type="email"></label><button>Continue</button></div></section>`;
+			await executor.execute({ type: "browser_evaluate", code: `document.title = "Sign in to Acme"; document.body.innerHTML = ${JSON.stringify(dialog)}; true` });
+			const wrappedDialog = await runtime.observe();
+			assert.equal(wrappedDialog.credentialForms.length, 1);
+			assert.deepEqual(wrappedDialog.credentialForms[0]?.fields.map((field) => field.name), ["Email"]);
+
 			const paired = `<main>
-				<form><input name="acct" autocomplete="username"><input name="pw" type="password"><button>Log in</button></form>
+				<form><input name="acct" autocomplete="username"><input name="pw" type="password"><button type="button" aria-label="Show password">👁</button><button>Log in</button></form>
 				<form><input name="acct" autocomplete="username"><input name="pw" type="password"><button>Create account</button></form>
 			</main>`;
 			await executor.execute({ type: "browser_evaluate", code: `document.title = "Accounts"; document.body.innerHTML = ${JSON.stringify(paired)}; true` });

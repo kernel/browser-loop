@@ -51,8 +51,9 @@ export const CREDENTIAL_FORM_SNAPSHOT = String.raw`(() => {
 			const actionForm = element.form || element.closest('form');
 			return !actionForm || actionForm === field.form;
 		});
-	const primaryAction = (root, field) => actionsFor(root, field)
-		.some((element) => /\b(?:sign in|log in|login|continue|next|verify|submit|send code)\b/.test(actionLabel(element)) && !/\b(?:show|hide|forgot|trouble)\b/.test(actionLabel(element)));
+	const isPrimaryAction = (element) => /\b(?:sign in|log in|login|continue|next|verify|submit|send code)\b/.test(actionLabel(element))
+		&& !/\b(?:show|hide|forgot|trouble)\b/.test(actionLabel(element));
+	const primaryAction = (root, field) => actionsFor(root, field).some(isPrimaryAction);
 	const actionRoots = new WeakSet();
 	const groupRoot = (element) => {
 		if (element.form) return element.form;
@@ -67,7 +68,8 @@ export const CREDENTIAL_FORM_SNAPSHOT = String.raw`(() => {
 		}
 		if (fallback && controls.filter((candidate) => fallback.contains(candidate)).length <= 8) {
 			const region = element.closest('section,aside,article,nav');
-			if ((!region || region === fallback) && primaryAction(fallback, element)) actionRoots.add(fallback);
+			if (region && region !== fallback && fallback.contains(region)) return region;
+			if (primaryAction(fallback, element)) actionRoots.add(fallback);
 			return fallback;
 		}
 		return null;
@@ -103,7 +105,8 @@ export const CREDENTIAL_FORM_SNAPSHOT = String.raw`(() => {
 		if (seen.has(identity)) continue;
 		seen.add(identity);
 		const heading = [...root.querySelectorAll('h1,h2,h3,[role="heading"]')].find((element) => state.visible(element));
-		const action = actionsFor(root, classified[0].element).find((element) => actionName(element));
+		const actions = actionsFor(root, classified[0].element);
+		const action = actions.find(isPrimaryAction) || actions.find((element) => actionName(element));
 		const formName = root.getAttribute('aria-label') || text(heading) || actionName(action) || document.title || 'credential form';
 		const fields = classified.map(({ element, semantic }, index) => {
 			state.redacted.add(element);
