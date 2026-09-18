@@ -160,7 +160,7 @@ export function buildCandidateSpace(
 }
 
 export function isAuthenticationGoal(goal: string): boolean {
-	return /\b(?:sign[ -]?in|log[ -]?in|login|authenticate)\b/i.test(goal);
+	return /\b(?:sign[ -]?in(?:to)?|log[ -]?in(?:to)?|login|authenticate)\b/i.test(goal);
 }
 
 export function extractLiteralUrls(goal: string): string[] {

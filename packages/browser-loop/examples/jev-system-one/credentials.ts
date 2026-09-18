@@ -43,7 +43,7 @@ export const CREDENTIAL_FORM_SNAPSHOT = String.raw`(() => {
 		if (element.type === 'email' || autocomplete.some((token) => ['username', 'email', 'tel'].includes(token)) || /\b(?:email|e-mail|username|user name|identifier|login|account|phone)\b/.test(haystack)) return 'identifier';
 		return 'text';
 	};
-	const actionName = (element) => text(element) || element.value || element.getAttribute('aria-label') || '';
+	const actionName = (element) => element ? text(element) || element.value || element.getAttribute('aria-label') || '' : '';
 	const actionLabel = (element) => actionName(element).toLowerCase();
 	const actionsFor = (root, field) => [...root.querySelectorAll('button,[role="button"],input[type="submit"]')]
 		.filter((element) => state.visible(element) && state.actionPoint(element) !== null)
@@ -65,7 +65,11 @@ export const CREDENTIAL_FORM_SNAPSHOT = String.raw`(() => {
 				return current;
 			}
 		}
-		if (fallback && controls.filter((candidate) => fallback.contains(candidate)).length <= 8) return fallback;
+		if (fallback && controls.filter((candidate) => fallback.contains(candidate)).length <= 8) {
+			const region = element.closest('section,aside,article,nav');
+			if ((!region || region === fallback) && primaryAction(fallback, element)) actionRoots.add(fallback);
+			return fallback;
+		}
 		return null;
 	};
 	const candidates = [];
@@ -100,7 +104,7 @@ export const CREDENTIAL_FORM_SNAPSHOT = String.raw`(() => {
 		seen.add(identity);
 		const heading = [...root.querySelectorAll('h1,h2,h3,[role="heading"]')].find((element) => state.visible(element));
 		const action = actionsFor(root, classified[0].element).find((element) => actionName(element));
-		const formName = root.getAttribute('aria-label') || text(heading) || document.title || actionName(action) || 'credential form';
+		const formName = root.getAttribute('aria-label') || text(heading) || actionName(action) || document.title || 'credential form';
 		const fields = classified.map(({ element, semantic }, index) => {
 			state.redacted.add(element);
 			const node = nodes[index];

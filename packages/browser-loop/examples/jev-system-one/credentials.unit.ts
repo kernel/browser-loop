@@ -82,6 +82,25 @@ describe("credential form observations", () => {
 			const identifierFirst = await runtime.observe();
 			assert.equal(identifierFirst.credentialForms.length, 1);
 			assert.deepEqual(identifierFirst.credentialForms[0]?.fields.map((field) => field.name), ["Email"]);
+
+			const mainOnly = `<main><h1>Sign in</h1><label>Email <input type="email"></label><button>Next</button></main>`;
+			await executor.execute({ type: "browser_evaluate", code: `document.title = "Sign in to Acme"; document.body.innerHTML = ${JSON.stringify(mainOnly)}; true` });
+			const fallbackAction = await runtime.observe();
+			assert.equal(fallbackAction.credentialForms.length, 1);
+			assert.deepEqual(fallbackAction.credentialForms[0]?.fields.map((field) => field.name), ["Email"]);
+
+			const paired = `<main>
+				<form><input name="acct" autocomplete="username"><input name="pw" type="password"><button>Log in</button></form>
+				<form><input name="acct" autocomplete="username"><input name="pw" type="password"><button>Create account</button></form>
+			</main>`;
+			await executor.execute({ type: "browser_evaluate", code: `document.title = "Accounts"; document.body.innerHTML = ${JSON.stringify(paired)}; true` });
+			const distinctActions = await runtime.observe();
+			assert.deepEqual(distinctActions.credentialForms.map((form) => form.name), ["Log in", "Create account"]);
+
+			const unnamedAction = `<form><input type="password"><button><svg aria-hidden="true"></svg></button></form>`;
+			await executor.execute({ type: "browser_evaluate", code: `document.title = ""; document.body.innerHTML = ${JSON.stringify(unnamedAction)}; true` });
+			const unnamed = await runtime.observe();
+			assert.equal(unnamed.credentialForms[0]?.name, "credential form");
 		} finally {
 			executor.close();
 			await stopChromium(launched.process);
