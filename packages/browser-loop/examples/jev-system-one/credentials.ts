@@ -82,7 +82,8 @@ export const CREDENTIAL_FORM_SNAPSHOT = String.raw`(() => {
 		const authAction = actionsFor(root, classified[0].element)
 			.some((element) => /\b(?:sign in|log in|login|verify|send code)\b/.test(actionLabel(element)));
 		const usernameAutocomplete = classified.some(({ element }) => (element.autocomplete || '').toLowerCase().split(/\s+/).includes('username'));
-		if (!hasPasswordOrOtp && !(semanticCount > 0 && (authTitle || authUrl || authAction || usernameAutocomplete))) continue;
+		const nativeForm = root.tagName === 'FORM';
+		if (!hasPasswordOrOtp && !(semanticCount > 0 && (authAction || usernameAutocomplete || (nativeForm && (authTitle || authUrl))))) continue;
 		const nodes = classified.map(({ element }) => {
 			if (!state.ids.has(element)) state.ids.set(element, state.next++);
 			const node = state.ids.get(element);
@@ -112,10 +113,7 @@ export const CREDENTIAL_FORM_SNAPSHOT = String.raw`(() => {
 		});
 		forms.push({ id: 'form:' + identity, name: formName, fields });
 	}
-	return forms.filter((form, index) => !forms.some((other, otherIndex) =>
-		index !== otherIndex && form.fields.length < other.fields.length
-		&& form.fields.every((field) => other.fields.some((otherField) => otherField.node === field.node))
-	));
+	return forms;
 })()`;
 
 export function prepareCredentialFormCode(documentId: string, form: CredentialForm, attribute: string): string {

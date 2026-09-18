@@ -60,23 +60,29 @@ describe("credential form observations", () => {
 		assert.doesNotMatch(candidate?.label ?? "", /current value=""/);
 	});
 
-	it("keeps a native login form separate from an unrelated main-page input", { skip: chromiumPath() === undefined }, async () => {
+	it("keeps a native login form separate from an unrelated main-page input", { skip: chromiumPath() === undefined, timeout: 15_000 }, async () => {
 		const launched = await launchChromium(chromiumPath()!);
 		const executor = new BrowserExecutor(launched.endpoint);
 		try {
 			const html = `<main>
 				<form><label>Email <input type="email" autocomplete="username"></label><label>Password <input type="password" autocomplete="current-password"></label><button>Sign in</button></form>
-				<label>Your email <input type="email"></label>
+				<aside><label>Your email <input type="email"></label><button>Subscribe</button></aside>
 			</main>`;
-			await executor.execute({ type: "browser_evaluate", code: `document.body.innerHTML = ${JSON.stringify(html)}; true` });
+			await executor.execute({ type: "browser_evaluate", code: `document.title = "Sign in to Acme"; document.body.innerHTML = ${JSON.stringify(html)}; true` });
 			const observation = await new ExecutorBrowserRuntime(executor, { credentials: true }).observe();
 			assert.equal(observation.credentialForms.length, 1);
 			assert.deepEqual(observation.credentialForms[0]?.fields.map((field) => field.name), ["Email", "Password"]);
 		} finally {
 			executor.close();
 			if (launched.process.exitCode === null) {
-				launched.process.kill("SIGKILL");
-				await new Promise((resolve) => launched.process.once("exit", resolve));
+				const exited = new Promise((resolve) => launched.process.once("exit", resolve));
+				try {
+					if (process.platform === "win32" || launched.process.pid === undefined) launched.process.kill("SIGKILL");
+					else process.kill(-launched.process.pid, "SIGKILL");
+				} catch (error) {
+					if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+				}
+				await exited;
 			}
 			launched.process.stderr?.destroy();
 			launched.process.unref();
@@ -119,7 +125,8 @@ function chromiumPath(): string | undefined {
 
 async function launchChromium(executable: string): Promise<{ process: ChildProcess; endpoint: string; directory: string }> {
 	const directory = mkdtempSync(join(tmpdir(), "jev-credential-test-"));
-	const child = spawn(executable, ["--headless=new", "--no-sandbox", "--disable-gpu", "--no-zygote", "--single-process", "--remote-debugging-port=0", `--user-data-dir=${directory}`, "about:blank"], {
+	const child = spawn(executable, ["--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--remote-debugging-port=0", `--user-data-dir=${directory}`, "about:blank"], {
+		detached: process.platform !== "win32",
 		stdio: ["ignore", "ignore", "pipe"],
 	});
 	const endpoint = await new Promise<string>((resolve, reject) => {
