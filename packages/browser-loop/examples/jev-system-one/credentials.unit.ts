@@ -89,6 +89,12 @@ describe("credential form observations", () => {
 			assert.equal(fallbackAction.credentialForms.length, 1);
 			assert.deepEqual(fallbackAction.credentialForms[0]?.fields.map((field) => field.name), ["Email"]);
 
+			const splitAction = `<main><h1>Sign in</h1><section><label>Email <input type="email"></label></section><div><button>Sign in</button></div></main>`;
+			await executor.execute({ type: "browser_evaluate", code: `document.title = "Sign in to Acme"; document.body.innerHTML = ${JSON.stringify(splitAction)}; true` });
+			const sharedFallback = await runtime.observe();
+			assert.equal(sharedFallback.credentialForms.length, 1);
+			assert.deepEqual(sharedFallback.credentialForms[0]?.fields.map((field) => field.name), ["Email"]);
+
 			const dialog = `<section><div role="dialog"><label>Email <input type="email"></label><button>Continue</button></div></section>`;
 			await executor.execute({ type: "browser_evaluate", code: `document.title = "Sign in to Acme"; document.body.innerHTML = ${JSON.stringify(dialog)}; true` });
 			const wrappedDialog = await runtime.observe();

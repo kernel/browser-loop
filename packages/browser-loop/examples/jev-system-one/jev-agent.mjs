@@ -123,7 +123,7 @@ ${await this.tabContext(n)}`}async mainFrameId(e,t){let n=this.mainFramesByTarge
 		}
 		if (fallback && controls.filter((candidate) => fallback.contains(candidate)).length <= 8) {
 			const region = element.closest('section,aside,article,nav');
-			if (region && region !== fallback && fallback.contains(region)) return region;
+			if (region && region !== fallback && fallback.contains(region) && actionsFor(region, element).length > 0) return region;
 			if (primaryAction(fallback, element)) actionRoots.add(fallback);
 			return fallback;
 		}
