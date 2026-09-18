@@ -24,7 +24,7 @@ describe("text resolver", () => {
 		const originalFetch = globalThis.fetch;
 		const originalReasoning = process.env.TEXT_MODEL_REASONING;
 		delete process.env.TEXT_MODEL_REASONING;
-		let request: { max_tokens?: number; reasoning_effort?: string; messages?: Array<{ role?: string; content?: string }> } | undefined;
+		let request: { max_completion_tokens?: number; reasoning_effort?: string; messages?: Array<{ role?: string; content?: string }> } | undefined;
 		globalThis.fetch = async (_input, init) => {
 			request = JSON.parse(String(init?.body)) as typeof request;
 			return new Response(JSON.stringify({ choices: [{ message: { content: '{"text":"San Francisco"}' } }] }), {
@@ -48,7 +48,7 @@ describe("text resolver", () => {
 				history: [],
 			});
 			assert.equal(value, "San Francisco");
-			assert.equal(request?.max_tokens, 1_024);
+			assert.equal(request?.max_completion_tokens, 1_024);
 			assert.equal(request?.reasoning_effort, "none");
 			assert.match(request?.messages?.[0]?.content ?? "", /Do not return code/);
 			assert.match(request?.messages?.[1]?.content ?? "", /Only the literal value for the selected field/);
@@ -95,7 +95,7 @@ describe("text resolver", () => {
 	it("honors the reasoning override for OpenRouter", async () => {
 		const originalFetch = globalThis.fetch;
 		const originalReasoning = process.env.TEXT_MODEL_REASONING;
-		let request: { reasoning?: { effort?: string } } | undefined;
+		let request: { max_tokens?: number; reasoning?: { effort?: string } } | undefined;
 		process.env.TEXT_MODEL_REASONING = "low";
 		globalThis.fetch = async (_input, init) => {
 			request = JSON.parse(String(init?.body)) as typeof request;
@@ -119,6 +119,7 @@ describe("text resolver", () => {
 				observation,
 				history: [],
 			});
+			assert.equal(request?.max_tokens, 1_024);
 			assert.deepEqual(request?.reasoning, { effort: "low" });
 		} finally {
 			globalThis.fetch = originalFetch;

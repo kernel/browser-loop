@@ -265,8 +265,10 @@ async function executeWithDeadline(executor: BrowserExecutor, action: BrowserAct
 			executor.close();
 		}, timeoutMs);
 	});
+	const execution = executor.execute(action, controller.signal);
+	void execution.catch(() => undefined);
 	try {
-		return await Promise.race([executor.execute(action, controller.signal), timeout]);
+		return await Promise.race([execution, timeout]);
 	} finally {
 		if (timer) clearTimeout(timer);
 	}

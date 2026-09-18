@@ -26,7 +26,7 @@ export class OpenAICompatibleTextResolver implements TextResolver {
 		if (!this.#apiKey) throw new Error("TEXT_MODEL_API_KEY is required for navigation or text entry");
 		const body = JSON.stringify({
 			model: this.#model,
-			max_tokens: 1_024,
+			...tokenLimitOptions(this.#baseUrl),
 			...reasoningOptions(this.#baseUrl, this.#reasoning),
 			response_format: { type: "json_object" },
 			messages: [
@@ -96,6 +96,12 @@ function reasoningSetting(value: string | undefined): ReasoningSetting {
 	const setting = value ?? "none";
 	if (["none", "low", "medium", "high", "provider"].includes(setting)) return setting as ReasoningSetting;
 	throw new Error(`Unsupported TEXT_MODEL_REASONING value ${JSON.stringify(setting)}`);
+}
+
+function tokenLimitOptions(baseUrl: string): Record<string, number> {
+	return baseUrl.includes("api.openai.com")
+		? { max_completion_tokens: 1_024 }
+		: { max_tokens: 1_024 };
 }
 
 function reasoningOptions(baseUrl: string, setting: ReasoningSetting): Record<string, unknown> {
