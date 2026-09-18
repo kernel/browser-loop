@@ -83,7 +83,7 @@ The browser process API and REPL share a filesystem. Run the installer through p
 
 ```bash
 kernel browsers process exec "$BROWSER_ID" --timeout 300 -- \
-  bash -lc 'curl -fsSL https://raw.githubusercontent.com/kernel/browser-loop/main/packages/browser-loop/examples/jev-system-one/install-repl.sh | bash'
+  curl -fsSL https://raw.githubusercontent.com/kernel/browser-loop/main/packages/browser-loop/examples/jev-system-one/install-repl.sh \| bash
 ```
 
 Then import it once in the persistent REPL. `runJev` remains in scope for later REPL calls:

@@ -15,6 +15,13 @@ for command in curl tar node npm; do
 	fi
 done
 
+npm_ci() {
+	if ! npm ci --ignore-scripts --no-audit --no-fund; then
+		echo "npm ci failed; retrying once" >&2
+		npm ci --ignore-scripts --no-audit --no-fund
+	fi
+}
+
 checkout="$work_dir/repo"
 mkdir -p "$checkout"
 if [[ -n "$source_dir" ]]; then
@@ -26,13 +33,13 @@ fi
 
 (
 	cd "$checkout"
-	npm ci --ignore-scripts --silent
+	npm_ci
 )
 
 example="$checkout/packages/browser-loop/examples/jev-system-one"
 (
 	cd "$example"
-	npm ci --ignore-scripts --silent
+	npm_ci
 )
 
 mkdir -p "$install_dir"
