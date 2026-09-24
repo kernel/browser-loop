@@ -80,8 +80,9 @@ describe("loopToolMenu", () => {
 	it("covers the whole offerable surface, grouped", () => {
 		const menu = loopToolMenu("openai:gpt-5.5");
 		const groups = new Set(menu.map((entry) => entry.group));
-		expect(groups).toEqual(new Set(["browser", "computer", "playwright", "native"]));
+		expect(groups).toEqual(new Set(["browser", "computer", "playwright", "repl", "native"]));
 		expect(menu.some((entry) => entry.label === "playwright_execute")).toBe(true);
+		expect(menu.some((entry) => entry.label === "browser_repl")).toBe(true);
 		expect(menu.some((entry) => entry.label === "browser_act")).toBe(true);
 		expect(menu.every((entry) => entry.tools.length > 0)).toBe(true);
 	});

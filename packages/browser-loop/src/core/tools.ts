@@ -298,6 +298,26 @@ function playwright(options: LoopToolNameOptions = {}): LoopToolSpec {
 	});
 }
 
+function repl(options: LoopToolNameOptions = {}): LoopToolSpec {
+	return createSpec({
+		identity: "kloop.repl.v1",
+		preferredName: "browser_repl",
+		name: options.name,
+		origin: "loop",
+		declaration: {
+			name: "browser_repl",
+			description: "Execute JavaScript in the browser VM's persistent REPL. Top-level bindings survive across calls; browser, CDP, WebMCP, Node, and optional Patchright/Playwright helpers are available. Emit ordered output with repl.write, console methods, or repl.emitImage.",
+			parameters: Type.Object({
+				code: Type.String({ description: "JavaScript to evaluate. May be empty only when reset is true." }),
+				timeout_sec: Type.Optional(Type.Integer({ minimum: 1, maximum: 300, default: 60 })),
+				reset: Type.Optional(Type.Boolean({ description: "Replace the current REPL before evaluating code." })),
+			}, { additionalProperties: false }),
+		},
+		execution: { kind: "repl" },
+		stateMutating: true,
+	});
+}
+
 function anthropicNativeComputer(options: { version: "20260801"; zoom?: boolean } = { version: "20260801" }): LoopToolSpec {
 	if (options.version !== "20260801") throw new Error(`unsupported Anthropic native computer version "${String(options.version)}"`);
 	const declaration = {
@@ -773,7 +793,7 @@ const providers = Object.freeze({
  */
 export const loop = Object.freeze({
 	coordinates: Object.freeze({ pixels: () => pixels, normalized }),
-	tools: Object.freeze({ browser: browserTools, computer: computerTools, playwright }),
+	tools: Object.freeze({ browser: browserTools, computer: computerTools, playwright, repl }),
 	toolsets: Object.freeze({
 		browser: browserToolset,
 		computer: computerToolset,

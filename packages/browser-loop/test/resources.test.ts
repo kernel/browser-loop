@@ -6,7 +6,8 @@ import type { BatchReadResult } from "../src/core/translator/types";
 
 const browser = {
 	session_id: "browser_123",
-	cdp_ws_url: "wss://example.test/cdp",
+	base_url: "https://example.test/browser/kernel",
+	cdp_ws_url: "wss://example.test/cdp?jwt=test-token",
 	viewport: { width: 1440, height: 900 },
 } as KernelBrowser;
 
@@ -185,6 +186,42 @@ describe("LoopExecutionResources results and batch boundaries", () => {
 		expect(navigate.content).toEqual([{ type: "text", text: "Navigated" }]);
 		expect(captureScreenshot).not.toHaveBeenCalled();
 		expect(browserScreenshot).not.toHaveBeenCalled();
+	});
+
+	it("returns ordered Browser REPL text and image output with lifecycle details", async () => {
+		const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify({
+			success: false,
+			repl_id: "repl_1",
+			error: "boom",
+			repl_terminated: true,
+			content_truncated: true,
+			duration_ms: 42,
+			content: [
+				{ type: "text", channel: "stdout", text: "before" },
+				{ type: "image", mime_type: "image/png", data_b64: "aW1hZ2U=" },
+				{ type: "text", channel: "write", text: "after" },
+			],
+		}), { status: 200 }));
+		try {
+			const { resources } = setup();
+			const result = await resources.materialize(loop.tools.repl()).execute({ code: "run()" });
+			expect(result.content).toEqual([
+				{ type: "text", text: "stdout: before" },
+				{ type: "image", data: "aW1hZ2U=", mimeType: "image/png" },
+				{ type: "text", text: "after" },
+				{ type: "text", text: "error: boom" },
+			]);
+			expect(result.details).toMatchObject({
+				isError: true,
+				replId: "repl_1",
+				replTerminated: true,
+				contentTruncated: true,
+				durationMs: 42,
+			});
+			expect(String(fetch.mock.calls[0]![0])).toBe("https://example.test/browser/kernel/repl?jwt=test-token");
+		} finally {
+			fetch.mockRestore();
+		}
 	});
 
 	it("keeps Playwright execution failures as model-readable content", async () => {

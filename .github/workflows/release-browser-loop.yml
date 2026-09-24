@@ -74,11 +74,11 @@ jobs:
           npm init -y > /dev/null
           npm install "$RUNNER_TEMP"/onkernel-browser-loop-*.tgz
           cat > smoke.mjs <<'NODE'
-          import { compileLoopToolCatalog, formatBrowserActResult, loop } from "@onkernel/browser-loop";
+          import { compileLoopToolCatalog, executeBrowserRepl, formatBrowserActResult, loop } from "@onkernel/browser-loop";
           import * as loopPi from "@onkernel/browser-loop/pi";
 
           const { attach, createLoopModels, getLoopModel } = loopPi;
-          for (const [name, value] of Object.entries({ compileLoopToolCatalog, formatBrowserActResult, attach, createLoopModels, getLoopModel })) {
+          for (const [name, value] of Object.entries({ compileLoopToolCatalog, executeBrowserRepl, formatBrowserActResult, attach, createLoopModels, getLoopModel })) {
             if (typeof value !== "function") {
               throw new Error(`expected ${name} to be a function, got ${typeof value}`);
             }

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Add `loop.tools.repl()` (`kloop.repl.v1`) as a wrapper around Kernel browsers' persistent JavaScript API, including ordered text/image output and explicit REPL lifecycle metadata.
+- Add the framework-neutral `executeBrowserRepl()` client and the pi extension's `repl` selector.
+
 ## 0.12.1 - 2026-09-04
 
 - Relax the `@onkernel/sdk` dependency from an exact pin to `>=0.49.0 <1.0.0`.

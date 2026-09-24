@@ -91,7 +91,8 @@ The main groups are:
 - `loop.tools.browser.*`: CDP/page tools, using element refs and viewport pixels.
 - `loop.tools.computer.*`: Kernel OS input/read tools, using pixel coordinates by
   default.
-- `loop.tools.playwright()`: a Playwright code execution tool.
+- `loop.tools.playwright()`: a wrapper around Kernel's Playwright execution API.
+- `loop.tools.repl()`: a wrapper around Kernel's persistent Browser REPL API.
 - `loop.toolsets.browser()`, `computer()`, and `mixed()`: ordinary convenience
   arrays of Browser Loop-authored tools.
 - `loop.providers.*`: only provider-native tools and predefined toolsets backed
@@ -118,8 +119,8 @@ await compiled.apply(harness);
 
 Nothing mutates in place: a change compiles a new pair, and `compile()` throws
 before anything reaches pi. Existing tool
-identity with a changed schema, executor, or coordinates counts as a real
-replacement. Additions made from inside a running tool are recorded in pi's
+identity with a changed model-facing name, schema, or coordinate contract counts
+as a real replacement. Additions made from inside a running tool are recorded in pi's
 Anthropic-compatible `addedToolNames` marker only when that provider/model can
 defer ordinary function tools. Additions outside a tool call are eager.
 Provider-native tools are always eager.
@@ -136,11 +137,40 @@ catalog and model changes. It owns:
 - one canonical computer translator;
 - one lazily created raw-CDP `BrowserExecutor`;
 - browser element-ref and frame state;
-- screenshot and Playwright execution capabilities.
+- screenshot, Playwright, and persistent Browser REPL execution capabilities.
 
 Recompiling and applying a catalog preserves refs, tabs, browser state, and
 caches. Tools are materialized as small adapters over that shared pool,
 exactly once per spec object.
+
+## Browser REPL API wrapper
+
+`loop.tools.repl()` is the ordinary function tool `browser_repl`, with stable
+identity `kloop.repl.v1`. It is framework-neutral: `LoopExecutionResources`
+materializes it like every other Loop spec, the pi binding adapts that executable
+to an `AgentTool`, and future framework bindings can adapt the same executable.
+The root-exported `executeBrowserRepl()` is available when a binding needs the
+HTTP client directly.
+
+Browser Loop does not contain, publish, or start the REPL daemon. The browser VM
+owns persistent JavaScript state and kernel-images owns `POST /repl`, daemon
+packaging, process supervision, reset and destructive-timeout semantics, CDP and
+browser helpers, WebMCP, and optional Patchright/Playwright installation.
+Consequently this tool supports Kernel browser handles whose image implements
+`POST /repl`; it has no local-Chrome execution mode.
+
+The HTTP client requires the browser's `base_url` and `cdp_ws_url`. It copies the
+existing `jwt` query parameter from the CDP URL onto `<base_url>/repl`, forwards
+the execution's abort signal, and sends `{code, timeout_sec?, reset?}`. It
+validates local input constraints before dispatch and rejects non-2xx or malformed
+responses.
+
+The API response keeps its exact `repl_id`, error and stack, duration,
+`content_truncated`, and `repl_terminated` state. `LoopExecutionResources` maps
+response items in order: `write` text remains plain, `stdout` and `stderr` keep a
+channel prefix, and images retain their MIME type and base64 data. A failed REPL
+execution becomes model-readable output with `details.isError`; transport and
+protocol failures throw as tool failures.
 
 ## Action planes and result feedback
 
@@ -158,6 +188,7 @@ Tools return only the result requested by the model:
 - Read actions return their requested text or structured data.
 - Screenshot and zoom actions return images.
 - `browser_act` returns causal outcomes and a bounded successor diff.
+- `browser_repl` preserves ordered text/image output and process-lifecycle metadata.
 - Failed batches replace images captured by earlier explicit screenshot steps
   with textual markers.
 
@@ -215,8 +246,9 @@ transport.
 
 ### The tool menu
 
-`loopToolMenu(model, selected)` in `packages/browser-loop/src/core/menu.ts` returns every tool
-Browser Loop can offer for a model, each marked available or not. It decides availability
+`loopToolMenu(model, selected)` in `packages/browser-loop/src/core/menu.ts`
+returns every tool Browser Loop can offer for a model, each marked available or
+not. It decides availability
 by compiling the candidate catalog rather than by restating the compiler's
 rules, so the menu cannot drift from what `compileLoopToolCatalog` accepts: an
 entry is available exactly when selecting it compiles. Compilation is pure and
@@ -280,7 +312,7 @@ user prompt
      -> provider stream
      -> incoming native/function call normalization
      -> shared LoopExecutionResources
-        -> Kernel computer API or raw-CDP BrowserExecutor
+        -> Kernel computer/Playwright/REPL API or raw-CDP BrowserExecutor
      -> policy-specific action result
      -> transcript + TUI/stdout/JSONL
 ```
@@ -289,7 +321,10 @@ user prompt
 
 - `packages/browser-loop/test/tool-catalog.test.ts`: identities, collisions, provider
   composition, compatibility, declarations, and coordinate contracts.
-- `packages/browser-loop/test/resources.test.ts`: action feedback and batch boundaries.
+- `packages/browser-loop/test/resources.test.ts`: action feedback, Browser REPL
+  result mapping, and batch boundaries.
+- `packages/browser-loop/test/repl-client.test.ts` and `repl-tool.test.ts`:
+  Browser REPL authentication, validation, declaration, and catalog behavior.
 - `packages/browser-loop/test/attach.test.ts` and `attach-session.test.ts`: compiled
   pairs, applying one to a running harness, and the behaviors `activate()`
   installs.

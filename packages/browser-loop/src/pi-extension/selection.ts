@@ -40,6 +40,7 @@ const MENU: Readonly<Record<string, (coordinates: CoordinateSystem) => LoopToolS
 	],
 	"browser-act": () => [loop.tools.browser.act()],
 	playwright: () => [loop.tools.playwright()],
+	repl: () => [loop.tools.repl()],
 	"anthropic-computer": () => [loop.providers.anthropic.tools.computer({ version: "20260801", zoom: true })],
 	"anthropic-browser": () => [loop.providers.anthropic.tools.browser({ version: "20260801", javascript: true })],
 	"openai-computer": () => [loop.providers.openai.tools.computer()],
