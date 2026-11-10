@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { createLoopModels } from "../src/pi/index";
 import { compileLoopToolCatalog, loop } from "../src/index";
+import { anthropicRequestAuth } from "./support/anthropic-auth";
 
-const apiKey = process.env.ANTHROPIC_API_KEY;
-const liveIt = apiKey ? it : it.skip;
+const auth = anthropicRequestAuth();
+const liveIt = auth ? it : it.skip;
 
 const cases = [
 	{
@@ -27,6 +28,7 @@ describe("Anthropic client toolsets", () => {
 				model: "anthropic:claude-opus-5",
 				requestedTools: [current.tool],
 			});
+			const { apiKey, env, headers } = await auth!();
 			const response = await createLoopModels().complete(
 				catalog.model,
 				{
@@ -36,8 +38,9 @@ describe("Anthropic client toolsets", () => {
 				},
 				{
 					apiKey,
+					env,
 					maxTokens: 1_024,
-					headers: catalog.headers.merge(),
+					headers: catalog.headers.merge(headers),
 					loopIncomingToolPlan: catalog.incoming,
 					onPayload: (payload, model) => catalog.payload.apply(payload, model),
 				},

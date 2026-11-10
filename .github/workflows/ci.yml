@@ -93,6 +93,11 @@ jobs:
     # Only run on the main repo (not forks) so secrets are available.
     # Skip draft PRs; still run on every commit to non-draft PRs and on main pushes.
     if: github.event_name == 'push' || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)
+    # id-token: write lets the job exchange its GitHub OIDC token for
+    # short-lived Anthropic credentials instead of a stored API key.
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -100,14 +105,26 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Keeps a fresh GitHub OIDC token in ANTHROPIC_IDENTITY_TOKEN_FILE and
+      # exports the federation settings the Anthropic test auth reads.
+      - name: Anthropic credentials
+        uses: kernel/security-workflows/.github/actions/llm-credentials@4144994f1d6977e07ef5a5832599ee4faaae9550
+        with:
+          model: anthropic/claude-opus-5
+          anthropic-federation-rule-id: ${{ vars.ANTHROPIC_FEDERATION_RULE_ID }}
+          anthropic-organization-id: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
+          anthropic-service-account-id: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
       - name: Integration tests
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
           MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
         run: npm run test:integration --workspace @onkernel/browser-loop
+      - name: Stop Anthropic credentials
+        if: always()
+        uses: kernel/security-workflows/.github/actions/llm-credentials@4144994f1d6977e07ef5a5832599ee4faaae9550
+        with:
+          stop: true
 
   live-e2e:
     runs-on: ubuntu-latest
@@ -126,8 +143,6 @@ jobs:
         env:
           LOOP_E2E_LIVE: "1"
           KERNEL_API_KEY: ${{ secrets.KERNEL_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
           MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
