@@ -115,10 +115,6 @@ jobs:
           anthropic-organization-id: ${{ vars.ANTHROPIC_ORGANIZATION_ID }}
           anthropic-service-account-id: ${{ vars.ANTHROPIC_SERVICE_ACCOUNT_ID }}
       - name: Integration tests
-        env:
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
-          MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
         run: npm run test:integration --workspace @onkernel/browser-loop
       - name: Stop Anthropic credentials
         if: always()
@@ -139,11 +135,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Live smoke tests (all providers)
+      # Each provider case runs only when its API key is set, so providers
+      # without a key in CI (Google, xAI, Moonshot) are skipped.
+      - name: Live smoke tests
         env:
           LOOP_E2E_LIVE: "1"
           KERNEL_API_KEY: ${{ secrets.KERNEL_API_KEY }}
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
-          MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
         run: npm run test:integration --workspace @onkernel/browser-loop -- test/e2e.live.test.ts
