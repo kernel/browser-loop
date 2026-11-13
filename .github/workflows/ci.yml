@@ -14,8 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v5.1.0
+      - uses: actions/setup-node@v5.0.0
         with:
           node-version: 22
           cache: npm
@@ -49,14 +49,14 @@ jobs:
     env:
       PTYWRIGHT_ZIG_VERSION: "0.15.2"
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v5.1.0
+      - uses: actions/setup-node@v5.0.0
         with:
           node-version: 22
           cache: npm
       - run: npm ci
       - name: Cache Zig toolchain
-        uses: actions/cache@v4
+        uses: actions/cache@v4.3.0
         with:
           path: .dev/tools/zig-x86_64-linux-${{ env.PTYWRIGHT_ZIG_VERSION }}
           key: zig-${{ runner.os }}-${{ env.PTYWRIGHT_ZIG_VERSION }}
@@ -72,7 +72,7 @@ jobs:
           "${ZIG_DIR}/zig" version
           echo "${GITHUB_WORKSPACE}/${ZIG_DIR}" >> "${GITHUB_PATH}"
       - name: Cache ptywright native artifacts
-        uses: actions/cache@v4
+        uses: actions/cache@v4.3.0
         with:
           path: |
             packages/ptywright/.cache
@@ -99,8 +99,8 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v5.1.0
+      - uses: actions/setup-node@v5.0.0
         with:
           node-version: 22
           cache: npm
@@ -129,8 +129,8 @@ jobs:
     # Skip draft PRs; still run on every commit to non-draft PRs and on main pushes.
     if: github.event_name == 'push' || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v5.1.0
+      - uses: actions/setup-node@v5.0.0
         with:
           node-version: 22
           cache: npm
