@@ -4,9 +4,17 @@ const MAX_GROUNDED_CANDIDATES = 250;
 const SECRET_FIELD = /\b(?:password|passphrase)\b/i;
 const FILE_CONTROL = /\b(?:choose file|upload file)\b/i;
 
-export function buildCandidateSpace(observation: Observation, goal: string, history: readonly HistoryEntry[] = []): JevCandidateSpace {
+export function buildCandidateSpace(
+	observation: Observation,
+	goal: string,
+	history: readonly HistoryEntry[] = [],
+	options: { credentials?: boolean } = {},
+): JevCandidateSpace {
 	const candidates: JevCandidate[] = [];
 	const navigationOnly = observation.url === "about:blank" || observation.url.startsWith("chrome://");
+	const credentialNodes = options.credentials
+		? new Set(observation.credentialForms.flatMap((form) => form.fields.map((field) => field.target.node)))
+		: new Set<number>();
 	const pageElements = navigationOnly ? [] : observation.elements.filter((element) => !isExcludedControl(element));
 	const operationsByNode = new Map<number, Set<ElementOperation>>();
 	let grounded = 0;
@@ -24,7 +32,7 @@ export function buildCandidateSpace(observation: Observation, goal: string, hist
 	};
 
 	for (const element of pageElements) {
-		if (element.disabled) continue;
+		if (element.disabled || credentialNodes.has(element.node)) continue;
 		const target: ElementTarget = {
 			documentId: observation.documentId,
 			node: element.node,
@@ -39,9 +47,10 @@ export function buildCandidateSpace(observation: Observation, goal: string, hist
 						id: `select:${element.id}:${optionIndex + 1}`,
 						kind: "target",
 						operation,
-						label: `Select ${JSON.stringify(option.label)} in ${JSON.stringify(element.name)}; current value=${JSON.stringify(element.value)}`,
+						label: `Select ${JSON.stringify(option.label)} in ${JSON.stringify(element.name)}${stateDescription(element)}`,
 						target,
 						value: option.value,
+						hasValue: element.hasValue,
 					})) break;
 				}
 				continue;
@@ -51,9 +60,10 @@ export function buildCandidateSpace(observation: Observation, goal: string, hist
 					id: `type:${element.id}`,
 					kind: "target",
 					operation,
-					label: `Enter text in ${JSON.stringify(element.name)}; current value=${JSON.stringify(element.value)}`,
+					label: `Enter text in ${JSON.stringify(element.name)}${stateDescription(element)}`,
 					target,
 					value: element.value,
+					hasValue: element.hasValue,
 					textPurpose: "field",
 				});
 				continue;
@@ -66,6 +76,20 @@ export function buildCandidateSpace(observation: Observation, goal: string, hist
 					? `Open ${JSON.stringify(element.name)}${stateDescription(element)}`
 					: `Click ${element.role} ${JSON.stringify(element.name)}${stateDescription(element)}`,
 				target,
+			});
+		}
+	}
+
+	if (options.credentials) {
+		for (const form of observation.credentialForms) {
+			const fields = form.fields.filter((field) => !field.hasValue);
+			if (!fields.length) continue;
+			candidates.push({
+				id: `credentials:${form.id}`,
+				kind: "credential",
+				operation: "USE_CREDENTIALS",
+				label: `Use a vault credential for ${JSON.stringify(form.name)} fields: ${fields.map((field) => field.name).join(", ")}`,
+				credentialForm: { ...form, fields },
 			});
 		}
 	}
@@ -116,7 +140,9 @@ export function buildCandidateSpace(observation: Observation, goal: string, hist
 		if (hasForwardHistory(history)) candidates.push({ id: "history:forward", kind: "history", operation: "FORWARD", label: "Go forward one page" });
 		candidates.push({ id: "history:reload", kind: "history", operation: "RELOAD", label: "Reload the current page" });
 	}
-	candidates.push({ id: "done", kind: "terminal", operation: "DONE", label: "Every requirement is visibly satisfied" });
+	if (!(isAuthenticationGoal(goal) && observation.credentialForms.length > 0)) {
+		candidates.push({ id: "done", kind: "terminal", operation: "DONE", label: "Every requirement is visibly satisfied" });
+	}
 	candidates.push({ id: "blocked", kind: "terminal", operation: "BLOCKED", label: "No supported operation can make progress safely" });
 
 	const byOperation = new Map<Operation, JevCandidate[]>();
@@ -131,6 +157,10 @@ export function buildCandidateSpace(observation: Observation, goal: string, hist
 		options: [...element.options],
 	}));
 	return { candidates, byId: new Map(candidates.map((candidate) => [candidate.id, candidate])), byOperation, elements };
+}
+
+export function isAuthenticationGoal(goal: string): boolean {
+	return /\b(?:sign[ -]?in(?:to)?|log[ -]?in(?:to)?|login|authenticate)\b/i.test(goal);
 }
 
 export function extractLiteralUrls(goal: string): string[] {
@@ -152,7 +182,7 @@ function isElementOperation(operation: Operation): operation is ElementOperation
 }
 
 function isExcludedControl(element: Observation["elements"][number]): boolean {
-	return FILE_CONTROL.test(element.name) || (element.operations.includes("TYPE_TEXT") && SECRET_FIELD.test(element.name));
+	return element.sensitive === true || FILE_CONTROL.test(element.name) || (element.operations.includes("TYPE_TEXT") && SECRET_FIELD.test(element.name));
 }
 
 function hasForwardHistory(history: readonly HistoryEntry[]): boolean {
@@ -172,7 +202,7 @@ function hasForwardHistory(history: readonly HistoryEntry[]): boolean {
 
 function stateDescription(element: Observation["elements"][number]): string {
 	const states = [
-		element.value ? `value=${JSON.stringify(element.value)}` : undefined,
+		element.hasValue === undefined ? (element.value ? `value=${JSON.stringify(element.value)}` : undefined) : `has_value=${element.hasValue}`,
 		element.checked === undefined ? undefined : `checked=${element.checked}`,
 		element.selected === undefined ? undefined : `selected=${element.selected}`,
 		element.expanded === undefined ? undefined : `expanded=${element.expanded}`,

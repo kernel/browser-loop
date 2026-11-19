@@ -4,6 +4,7 @@ export const OPERATIONS = [
 	"CLICK",
 	"TYPE_TEXT",
 	"SELECT",
+	"USE_CREDENTIALS",
 	"SCROLL",
 	"WAIT",
 	"NAVIGATE",
@@ -16,6 +17,7 @@ export const OPERATIONS = [
 
 export type Operation = (typeof OPERATIONS)[number];
 export type ElementOperation = Extract<Operation, "CLICK" | "TYPE_TEXT" | "SELECT">;
+export type CredentialSemantic = "identifier" | "password" | "otp" | "text";
 export type TextPurpose = "field" | "navigation";
 
 export interface ScrollState {
@@ -34,12 +36,32 @@ export interface ElementTarget {
 	ref?: string;
 }
 
+export interface CredentialField {
+	id: string;
+	name: string;
+	semantic: CredentialSemantic;
+	type: string;
+	autocomplete: string;
+	sensitive: boolean;
+	hasValue: boolean;
+	target: ElementTarget;
+}
+
+export interface CredentialForm {
+	id: string;
+	name: string;
+	fields: CredentialField[];
+}
+
 export interface ObservationElement {
 	id: string;
 	node: number;
 	role: string;
 	name: string;
 	value: string;
+	hasValue?: boolean;
+	credentialSemantic?: CredentialSemantic;
+	sensitive?: boolean;
 	operations: ElementOperation[];
 	options: Array<{ label: string; value: string; selected: boolean }>;
 	checked?: boolean | "mixed";
@@ -58,6 +80,7 @@ export interface Observation {
 	text: string;
 	snapshot: string;
 	elements: ObservationElement[];
+	credentialForms: CredentialForm[];
 	scroll: ScrollState;
 	fingerprint: string;
 	interactionFingerprint: string;
@@ -69,11 +92,13 @@ export type ActionSpaceElement = ObservationElement;
 
 export interface JevCandidate {
 	id: string;
-	kind: "target" | "browser-action" | "navigate" | "history" | "terminal";
+	kind: "target" | "credential" | "browser-action" | "navigate" | "history" | "terminal";
 	operation: Operation;
 	label: string;
 	target?: ElementTarget;
+	credentialForm?: CredentialForm;
 	value?: string;
+	hasValue?: boolean;
 	action?: BrowserAction;
 	textPurpose?: TextPurpose;
 }
@@ -129,12 +154,38 @@ export interface TextResolver {
 	resolve(input: TextResolutionInput): Promise<string | null>;
 }
 
+export interface PreparedCredentialField {
+	field: CredentialField;
+	selector: string;
+}
+
+export interface PreparedCredentialForm {
+	pageUrl: string;
+	fields: PreparedCredentialField[];
+	cleanup(): Promise<void>;
+}
+
 export interface BrowserRuntime {
 	observe(): Promise<Observation>;
 	isFresh(observation: Observation, candidate: JevCandidate): Promise<boolean>;
 	execute(action: BrowserAction): Promise<void>;
 	executeTarget(candidate: JevCandidate, value?: string): Promise<void>;
+	prepareCredentialForm?(observation: Observation, form: CredentialForm): Promise<PreparedCredentialForm>;
 }
+
+export interface CredentialUseInput {
+	goal: string;
+	candidate: JevCandidate;
+	observation: Observation;
+	history: HistoryEntry[];
+	browser: BrowserRuntime;
+}
+
+export interface CredentialBroker {
+	use(input: CredentialUseInput): Promise<void>;
+}
+
+export class CredentialBlockedError extends Error {}
 
 export interface StepTrace {
 	step: number;

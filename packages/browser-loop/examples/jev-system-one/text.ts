@@ -42,7 +42,9 @@ export class OpenAICompatibleTextResolver implements TextResolver {
 						selected_target: {
 							operation: input.candidate.operation,
 							label: input.candidate.label,
-							current_value: input.candidate.value ?? "",
+							...(input.candidate.hasValue === undefined
+								? { current_value: input.candidate.value ?? "" }
+								: { has_value: input.candidate.hasValue }),
 						},
 						page: {
 							url: input.observation.url,

@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import type { BrowserAction } from "../../src/core/actions/browser";
 import type { BrowserExecutor } from "../../src/core/translator/browser";
 import { ObservationChangedError } from "../../src/core/translator/browser-observation";
-import { buildCandidateSpace, extractLiteralUrls } from "./actions";
+import { buildCandidateSpace, extractLiteralUrls, isAuthenticationGoal } from "./actions";
 import { ExecutorBrowserRuntime, observationFromElements } from "./browser";
 import type { ElementOperation, HistoryEntry, ObservationElement } from "./types";
 
@@ -111,6 +111,13 @@ describe("Jev candidate space", () => {
 		assert.deepEqual(extractLiteralUrls("Open https://example.com/path, then continue"), ["https://example.com/path"]);
 		assert.equal(buildCandidateSpace(observation, "Open https://example.com/path").byOperation.get("NAVIGATE")?.[0]?.value, "https://example.com/path");
 		assert.equal(buildCandidateSpace(observation, "Open Google Flights").byOperation.get("NAVIGATE")?.[0]?.textPurpose, "navigation");
+	});
+
+	it("recognizes common authentication goal wording", () => {
+		assert.equal(isAuthenticationGoal("Sign in to GitHub"), true);
+		assert.equal(isAuthenticationGoal("Sign into GitHub"), true);
+		assert.equal(isAuthenticationGoal("Log into my account"), true);
+		assert.equal(isAuthenticationGoal("Open the homepage"), false);
 	});
 
 	it("treats internal startup pages as navigation-only", () => {

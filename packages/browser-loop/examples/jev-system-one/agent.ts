@@ -1,8 +1,10 @@
 import type { BrowserAction } from "../../src/core/actions/browser";
 import { buildCandidateSpace } from "./actions";
+import { CredentialBlockedError } from "./types";
 import type {
 	AgentResult,
 	BrowserRuntime,
+	CredentialBroker,
 	HistoryEntry,
 	JevCandidate,
 	JevCandidateSpace,
@@ -22,6 +24,7 @@ export async function runAgent(options: {
 	browser: BrowserRuntime;
 	policy: JevPolicy;
 	textResolver?: TextResolver;
+	credentialBroker?: CredentialBroker;
 	maxSteps?: number;
 	onDecision?: (trace: AgentResult["steps"][number]) => void;
 	onFreshness?: (trace: { step: number; latencyMs: number; changed: boolean }) => void;
@@ -39,7 +42,7 @@ export async function runAgent(options: {
 
 	for (let step = 0; step < (options.maxSteps ?? MAX_STEPS); step++) {
 		const rejected = rejectedByState.get(observation.interactionFingerprint);
-		const space = rejectCandidates(buildCandidateSpace(observation, options.goal, history), rejected);
+		const space = rejectCandidates(buildCandidateSpace(observation, options.goal, history, { credentials: options.credentialBroker !== undefined }), rejected);
 		const decision = await options.policy.decide({ goal: options.goal, observation, space, history });
 		usage.calls += 1;
 		usage.inputTokens += decision.inputTokens;
@@ -95,18 +98,28 @@ export async function runAgent(options: {
 		let executeMs = 0;
 		try {
 			const resolveStarted = performance.now();
-			lowered = await lowerCandidate(candidate, options.goal, observation, history, options.textResolver);
+			lowered = candidate.kind === "credential"
+				? undefined
+				: await lowerCandidate(candidate, options.goal, observation, history, options.textResolver);
 			resolveMs = performance.now() - resolveStarted;
-			if (!lowered) {
+			if (!lowered && candidate.kind !== "credential") {
 				status = "blocked";
 				reason = `No text value was available for ${candidate.label}`;
 				break;
 			}
 			const executeStarted = performance.now();
-			if (lowered.kind === "target") await options.browser.executeTarget(lowered.candidate, lowered.value);
-			else await options.browser.execute(lowered.action);
+			if (candidate.kind === "credential") {
+				if (!options.credentialBroker) throw new Error("A credential broker is required for credential actions");
+				await options.credentialBroker.use({ goal: options.goal, candidate, observation, history, browser: options.browser });
+			} else if (lowered?.kind === "target") await options.browser.executeTarget(lowered.candidate, lowered.value);
+			else if (lowered) await options.browser.execute(lowered.action);
 			executeMs = performance.now() - executeStarted;
 		} catch (error) {
+			if (error instanceof CredentialBlockedError) {
+				status = "blocked";
+				reason = error.message;
+				break;
+			}
 			if (/stale.*ref|ref.*stale|page changed|target changed/i.test(errorMessage(error))) {
 				observation = await options.browser.observe();
 				continue;
@@ -125,7 +138,7 @@ export async function runAgent(options: {
 			operation: candidate.operation,
 			candidateId: candidate.id,
 			label: candidate.label,
-			...(lowered.value === undefined ? {} : { value: lowered.value }),
+			...(lowered?.value === undefined ? {} : { value: lowered.value }),
 			pageChanged: successor.fingerprint !== observation.fingerprint,
 			url: successor.url,
 		};

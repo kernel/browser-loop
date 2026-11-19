@@ -1,6 +1,7 @@
 export const VIEWPORT_SNAPSHOT = String.raw`(() => {
 	if (!document.body) return null;
-	const state = window.__jevLoopSnapshot ||= { ids: new WeakMap(), nodes: new Map(), next: 1 };
+	const state = window.__jevLoopSnapshot ||= { ids: new WeakMap(), nodes: new Map(), redacted: new WeakSet(), next: 1 };
+	state.redacted ||= new WeakSet();
 	const nodeId = (element) => {
 		if (!state.ids.has(element)) state.ids.set(element, state.next++);
 		const id = state.ids.get(element);
@@ -29,7 +30,7 @@ export const VIEWPORT_SNAPSHOT = String.raw`(() => {
 		if (['button', 'submit', 'reset', 'image'].includes(element.type)) return 'button';
 		if (element.type === 'search') return 'searchbox';
 		if (element.type === 'number') return 'spinbutton';
-		if (['text', 'email', 'url', 'tel', 'date', 'datetime-local', 'month', 'week', 'time'].includes(element.type)) return 'textbox';
+		if (['text', 'email', 'password', 'url', 'tel', 'date', 'datetime-local', 'month', 'week', 'time'].includes(element.type)) return 'textbox';
 		return null;
 	};
 	const visible = (element) => {
@@ -58,7 +59,14 @@ export const VIEWPORT_SNAPSHOT = String.raw`(() => {
 			}).join(' ').replace(/\s+/g, ' ').trim())
 			|| element.getAttribute('title') || element.getAttribute('placeholder') || '';
 	};
+	const alwaysSensitive = (element) => element.type === 'password' || (element.autocomplete || '').toLowerCase().split(/\s+/).includes('one-time-code');
+	const hasValue = (element, role) => {
+		if ('value' in element) return String(element.value ?? '').length > 0;
+		if (element.isContentEditable || role === 'combobox') return element.innerText.trim().length > 0;
+		return false;
+	};
 	const valueOf = (element, role) => {
+		if (alwaysSensitive(element) || state.redacted.has(element)) return '';
 		if ('value' in element) return String(element.value ?? '');
 		if (element.isContentEditable || role === 'combobox') return element.innerText.trim();
 		return '';
@@ -73,7 +81,7 @@ export const VIEWPORT_SNAPSHOT = String.raw`(() => {
 		if (!element?.isConnected || !visible(element)) return null;
 		const role = roleOf(element);
 		return JSON.stringify([
-			role, stableName(nameOf(element)), valueOf(element, role), element.checked ?? null, element.selectedIndex ?? null,
+			role, stableName(nameOf(element)), alwaysSensitive(element) || state.redacted.has(element) ? hasValue(element, role) : valueOf(element, role), element.checked ?? null, element.selectedIndex ?? null,
 			element.readOnly ?? null, element.matches(':disabled'), element.getAttribute('aria-disabled'),
 			element.getAttribute('aria-expanded'), element.getAttribute('aria-checked'), element.getAttribute('aria-selected'),
 			element.getAttribute('href'),
@@ -95,7 +103,7 @@ export const VIEWPORT_SNAPSHOT = String.raw`(() => {
 	const elements = [];
 	let omitted = 0;
 	for (const element of document.querySelectorAll(selector)) {
-		if (['password', 'file', 'hidden'].includes(element.type)) continue;
+		if (['file', 'hidden'].includes(element.type)) continue;
 		if (!visible(element) || element.matches(':disabled') || element.closest('[aria-disabled="true"]')) continue;
 		if (element.tagName === 'OPTION' && element.closest('select')) continue;
 		const role = roleOf(element);
@@ -125,7 +133,9 @@ export const VIEWPORT_SNAPSHOT = String.raw`(() => {
 		}
 		elements.push({
 			id: 'n' + nodeId(element), node: nodeId(element), role, name: nameOf(element) || role,
-			value: valueOf(element, role), operations, options,
+			value: valueOf(element, role),
+			...((alwaysSensitive(element) || state.redacted.has(element)) ? { hasValue: hasValue(element, role), sensitive: alwaysSensitive(element) } : {}),
+			operations: alwaysSensitive(element) ? operations.filter((operation) => operation !== 'TYPE_TEXT') : operations, options,
 			checked: checkedOf(element),
 			selected: element.getAttribute('aria-selected') === null ? undefined : element.getAttribute('aria-selected') === 'true',
 			expanded: element.getAttribute('aria-expanded') === null ? undefined : element.getAttribute('aria-expanded') === 'true',

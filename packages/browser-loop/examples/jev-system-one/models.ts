@@ -1,4 +1,5 @@
 import { choice, TypeSafeClient, type ChoiceResponse, type EntryType } from "@typesafe-ai/sdk";
+import { isAuthenticationGoal } from "./actions";
 import type { JevCandidate, JevPolicy as JevPolicyContract, Operation, PolicyDecision, PolicyInput } from "./types";
 
 const NEXT_ACTION = `Advance the user's entire goal from the current page using one operation.
@@ -16,6 +17,7 @@ const OPERATION_DESCRIPTIONS: Record<Operation, string> = {
 	CLICK: "Click a link, button, control, autocomplete suggestion, or calendar option",
 	TYPE_TEXT: "Enter or replace text in an editable field; a separate text model supplies the value",
 	SELECT: "Select one observed option from a native select control",
+	USE_CREDENTIALS: "Use a Kernel Vault credential for one visible credential form",
 	SCROLL: "Scroll the page to reveal more content",
 	WAIT: "Wait briefly for an active page update",
 	NAVIGATE: "Open a different website needed to advance the goal",
@@ -40,13 +42,20 @@ export class SystemOneJevPolicy implements JevPolicyContract {
 	}
 
 	async decide(input: PolicyInput): Promise<PolicyDecision> {
+		const shouldPrioritizeCredentials = isAuthenticationGoal(input.goal)
+			&& input.space.byOperation.has("USE_CREDENTIALS")
+			&& input.history.at(-1)?.operation !== "USE_CREDENTIALS";
+		const availableOperations = shouldPrioritizeCredentials
+			? ["USE_CREDENTIALS" as const]
+			: [...input.space.byOperation.keys()];
 		const operations = Object.fromEntries(
-			[...input.space.byOperation.keys()].map((operation) => [operation, OPERATION_DESCRIPTIONS[operation]]),
+			availableOperations.map((operation) => [operation, OPERATION_DESCRIPTIONS[operation]]),
 		);
 		const questions: Record<string, ReturnType<typeof choice>> = {
 			operation: choice({ question: "Which single operation best advances the goal safely?", constraints: [NEXT_ACTION] }, operations),
 		};
-		for (const [operation, candidates] of input.space.byOperation) {
+		for (const operation of availableOperations) {
+			const candidates = input.space.byOperation.get(operation)!;
 			if (candidates.length < 2) continue;
 			questions[targetQuestion(operation)] = choice(
 				{ question: `Which target should be used if ${operation} is selected?`, constraints: [TARGET] },
@@ -72,11 +81,26 @@ export class SystemOneJevPolicy implements JevPolicyContract {
 					role: element.role,
 					label: element.name,
 					operations: element.operations,
-					value: element.value ?? "",
+					...(element.hasValue === undefined ? { value: element.value ?? "" } : { has_value: element.hasValue }),
+					credential_semantic: element.credentialSemantic,
+					sensitive: element.sensitive,
 					checked: element.checked,
 					selected: element.selected,
 					expanded: element.expanded,
 					options: element.options,
+				})),
+				credential_forms: input.observation.credentialForms.map((form) => ({
+					id: form.id,
+					name: form.name,
+					fields: form.fields.map((field) => ({
+						id: field.id,
+						label: field.name,
+						semantic: field.semantic,
+						type: field.type,
+						autocomplete: field.autocomplete,
+						sensitive: field.sensitive,
+						has_value: field.hasValue,
+					})),
 				})),
 				recent_actions: input.history.slice(-10).map((entry) => ({
 					operation: entry.operation,
