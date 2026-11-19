@@ -52,12 +52,13 @@ describe("Loop pi selectors", () => {
 			"computer_batch",
 		]);
 	});
-	it("offers exactly the eight menu entries", () => {
+	it("offers exactly the nine menu entries", () => {
 		expect([...LOOP_SELECTORS]).toEqual([
 			"browser",
 			"computer",
 			"browser-act",
 			"playwright",
+			"repl",
 			"anthropic-computer",
 			"anthropic-browser",
 			"openai-computer",

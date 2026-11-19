@@ -9,7 +9,7 @@ binding; Eve and AI SDK are anticipated next.
 
 | import | what it is |
 | --- | --- |
-| `@onkernel/browser-loop` | The framework-neutral core: canonical actions, the tool namespace, catalog compilation, the tool menu, and Kernel-browser execution. Core declarations (`LoopToolDeclaration`) and executables (`LoopExecutableTool`) import nothing from pi — schemas come from `typebox` directly — and a unit test enforces the boundary. |
+| `@onkernel/browser-loop` | The framework-neutral core: canonical actions, the tool namespace, catalog compilation, Kernel-browser execution, and the persistent Browser REPL API wrapper. Core declarations (`LoopToolDeclaration`) and executables (`LoopExecutableTool`) import nothing from pi, and a unit test enforces the boundary. |
 | `@onkernel/browser-loop/pi` | The pi binding: `attach()`, model resolution, transport derivation, provider adapters, and provider retry. |
 
 Installing the package into pi (`pi install npm:@onkernel/browser-loop`) registers the
@@ -302,10 +302,28 @@ loop.tools.computer.batch({ actions: ["click", "keypress", "screenshot"] });
 loop.tools.browser.batch({ actions: ["snapshot", "click", "wait_for", "text"] });
 
 loop.tools.playwright();
+loop.tools.repl();
 ```
 
 A toolset carries that surface's primitives, not every tool it has: `browser_act`,
-`computer_zoom`, and the batch forms are selected explicitly.
+`computer_zoom`, the persistent Browser REPL, and the batch forms are selected explicitly.
+
+`loop.tools.repl()` wraps the Kernel browser VM's `POST /repl` API. Top-level bindings
+survive across calls, output remains explicitly ordered, and the VM runtime exposes
+raw CDP/browser helpers, accessibility snapshots, WebMCP, `repl.help()`, and optional dynamic
+imports of Patchright or Playwright:
+
+```ts
+const compiled = kb.compile({
+  model: "anthropic:claude-opus-5",
+  tools: [loop.tools.repl()],
+});
+
+// compiled.agentTools is directly usable by pi's Agent.
+```
+
+See [Architecture: Browser REPL API wrapper](docs/architecture.md#browser-repl-api-wrapper)
+for the ownership and result-mapping boundary.
 
 Batches are mechanical primitive lists. They have no branching, saved values,
 references, or workflow DSL.
@@ -495,7 +513,7 @@ pi -p --provider openai --model gpt-5.6-sol \
 
 ### The menu
 
-Eight entries, one per capability. Availability is per model, and `/browser-tools`
+Nine entries, one per capability. Availability is per model, and `/browser-tools`
 tells you which apply to the one you selected.
 
 | entry | tools | works on |
@@ -504,6 +522,7 @@ tells you which apply to the one you selected.
 | `computer` | canonical computer primitives plus `computer_batch` | every provider |
 | `browser-act` | `browser_act`, the verified-plan tool | every provider except Moonshot, which rejects its schema size |
 | `playwright` | `playwright_execute` | every provider |
+| `repl` | persistent `browser_repl` JavaScript cells | every provider |
 | `anthropic-computer` | Anthropic's native computer tool | Anthropic models with that native surface |
 | `anthropic-browser` | Anthropic's native browser tool | Anthropic models with that native surface |
 | `openai-computer` | OpenAI's native computer tool | OpenAI models with that native surface |
@@ -570,7 +589,8 @@ npm run example:harness --workspace @onkernel/browser-loop -- \
 ```
 
 See [`examples/`](examples) for direct catalog/model usage, these parameterized
-agent and harness examples, and the Anthropic-native composition.
+agent and harness examples, and the Anthropic-native composition. Release steps
+are documented in [`docs/npm-releases.md`](docs/npm-releases.md).
 
 ## License
 

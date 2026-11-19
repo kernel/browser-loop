@@ -153,7 +153,7 @@ per-tool verdict.
 
 1. **Execution layer** — `@onkernel/browser-loop` materializes the caller's exact
    catalog over one shared resource pool and executes canonical actions through
-   Kernel's computer API or a raw-CDP browser executor.
+   Kernel's computer, Playwright, or Browser REPL APIs, or a raw-CDP browser executor.
 2. **Model layer** — `@onkernel/browser-loop/pi` opens pi-ai's whole model catalog and
    composes provider declarations, headers, and payload transforms around that
    core. Catalog compilation is declaration-only: it never sees an executor.
@@ -163,7 +163,7 @@ per-tool verdict.
 4. **Browser** — a Kernel cloud browser with optional profile and proxy. The
    model requests screenshots explicitly when it needs visual feedback.
 
-See [`docs/architecture.md`](docs/architecture.md) for the full end-to-end flow.
+See [`packages/browser-loop/docs/architecture.md`](packages/browser-loop/docs/architecture.md) for the full end-to-end flow.
 
 ---
 

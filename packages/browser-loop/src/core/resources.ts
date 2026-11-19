@@ -5,6 +5,11 @@ import { formatBrowserActResult } from "./browser-result-format";
 import { BatchExecutionError, InternalComputerTranslator, type KernelBrowser, type PlaywrightExecutionResult } from "./translator/translator";
 import type { BrowserExecutor } from "./translator/browser";
 import type { BatchExecutionResult, BatchReadResult, BrowserState, BrowserWaitForResult } from "./translator/types";
+import {
+	executeBrowserRepl,
+	type BrowserReplRequest,
+	type BrowserReplResult,
+} from "./repl";
 
 /** Structured execution metadata returned by materialized Loop tools. */
 export interface LoopExecutionDetails {
@@ -18,6 +23,11 @@ export interface LoopExecutionDetails {
 	stdout?: string;
 	stderr?: string;
 	error?: string;
+	stack?: string;
+	replId?: string;
+	replTerminated?: boolean;
+	contentTruncated?: boolean;
+	durationMs?: number;
 }
 
 /** One content block returned to the model by a materialized Loop tool. */
@@ -72,6 +82,7 @@ export class LoopExecutionResources {
 			spec,
 			execute: async (input, signal) => {
 				if (spec.execution.kind === "playwright") return this.executePlaywright(spec.name, input);
+				if (spec.execution.kind === "repl") return this.executeRepl(spec.name, input, signal);
 				const actions = spec.execution.toActions(input);
 				return this.executeActions(spec, actions, signal);
 			},
@@ -90,6 +101,10 @@ export class LoopExecutionResources {
 
 	async playwright(code: string, timeoutSec?: number): Promise<PlaywrightExecutionResult> {
 		return this.translator.executePlaywright(code, timeoutSec);
+	}
+
+	async repl(request: BrowserReplRequest, signal?: AbortSignal): Promise<BrowserReplResult> {
+		return executeBrowserRepl(this.browser, request, { signal });
 	}
 
 	async dispose(): Promise<void> {
@@ -136,6 +151,41 @@ export class LoopExecutionResources {
 				...(isError ? { isError: true } : {}),
 			},
 		};
+	}
+
+	private async executeRepl(name: string, input: unknown, signal?: AbortSignal): Promise<LoopToolExecutionResult> {
+		const parameters = asRecord(input);
+		const request: BrowserReplRequest = {
+			code: requireParameter<string>(parameters.code, "string", `${name} requires string code`),
+			...(parameters.timeout_sec !== undefined ? { timeout_sec: requireFiniteNumber(parameters.timeout_sec, `${name} timeout_sec must be a number`) } : {}),
+			...(parameters.reset !== undefined ? { reset: requireParameter<boolean>(parameters.reset, "boolean", `${name} reset must be a boolean`) } : {}),
+		};
+		try {
+			const result = await this.repl(request, signal);
+			const content: ToolContent = (result.content ?? []).map((item) => item.type === "image"
+				? { type: "image", data: item.data_b64, mimeType: item.mime_type }
+				: { type: "text", text: item.channel === "write" ? item.text : `${item.channel}: ${item.text}` });
+			if (!result.success) content.push({ type: "text", text: `error: ${result.error ?? "Browser REPL execution reported failure"}` });
+			const statusText = result.success
+				? `Browser REPL ${result.repl_id} executed successfully.`
+				: `Browser REPL ${result.repl_id} failed: ${result.error ?? "unknown error"}`;
+			if (content.length === 0) content.push({ type: "text", text: statusText });
+			return {
+				content,
+				details: {
+					statusText,
+					replId: result.repl_id,
+					replTerminated: result.repl_terminated ?? false,
+					contentTruncated: result.content_truncated ?? false,
+					...(result.duration_ms !== undefined ? { durationMs: result.duration_ms } : {}),
+					...(result.error ? { error: result.error } : {}),
+					...(result.stack ? { stack: result.stack } : {}),
+					...(!result.success ? { isError: true } : {}),
+				},
+			};
+		} catch (error) {
+			throw new Error(`${name} failed: ${errorMessage(error)}`, { cause: error });
+		}
 	}
 
 	private async executePlaywright(name: string, input: unknown): Promise<LoopToolExecutionResult> {
@@ -246,6 +296,16 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function formatValue(value: unknown): string {
 	return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+function requireParameter<T>(value: unknown, type: "string" | "boolean", error: string): T {
+	if (typeof value !== type) throw new Error(error);
+	return value as T;
+}
+
+function requireFiniteNumber(value: unknown, error: string): number {
+	if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(error);
+	return value;
 }
 
 function errorMessage(error: unknown): string {

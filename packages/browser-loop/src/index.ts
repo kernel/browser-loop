@@ -4,6 +4,17 @@ export * from "./core/model-info";
 export * from "./core/tool-catalog";
 export * from "./core/tools";
 export { normalizeGotoUrl } from "./core/url";
+export {
+	executeBrowserRepl,
+	type BrowserReplContent,
+	type BrowserReplEndpoint,
+	type BrowserReplImageContent,
+	type BrowserReplRequest,
+	type BrowserReplResult,
+	type BrowserReplTextChannel,
+	type BrowserReplTextContent,
+	type ExecuteBrowserReplOptions,
+} from "./core/repl";
 
 // pi-flavored entry points: these shadow the star exports above, keeping
 // provider-qualified model refs ("openai:gpt-5.5") and pi-supplied model
