@@ -125,8 +125,7 @@ jobs:
   live-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    # Only run on the main repo (not forks) so secrets are available.
-    # Skip draft PRs; still run on every commit to non-draft PRs and on main pushes.
+    # Skip fork and draft PRs; still run on every commit to non-draft PRs and on main pushes.
     if: github.event_name == 'push' || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)
     steps:
       - uses: actions/checkout@v5.1.0
@@ -135,10 +134,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # Each provider case runs only when its API key is set, so providers
-      # without a key in CI (Google, xAI, Moonshot) are skipped.
+      # Each provider case runs only when KERNEL_API_KEY and its provider's API
+      # key are set. CI sets neither, so every case skips.
       - name: Live smoke tests
         env:
           LOOP_E2E_LIVE: "1"
-          KERNEL_API_KEY: ${{ secrets.KERNEL_API_KEY }}
         run: npm run test:integration --workspace @onkernel/browser-loop -- test/e2e.live.test.ts
